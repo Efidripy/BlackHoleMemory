@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "default_profile": "standard",
+  "profiles": {
+    "low-context": {
+      "token_budget": 350,
+      "limit": 5,
+      "max_item_chars": 1000,
+      "include_archived": false,
+      "include_logs": false
+    },
+    "standard": {
+      "token_budget": 1200,
+      "limit": 12,
+      "max_item_chars": 1600,
+      "include_archived": false,
+      "include_logs": false
+    },
+    "deep": {
+      "token_budget": 2400,
+      "limit": 20,
+      "max_item_chars": 1600,
+      "include_archived": false,
+      "include_logs": false
+    }
+  }
+}

@@ -1,0 +1,1623 @@
+{
+  "schema_version": "bhm.source-registry.v2",
+  "plan_id": "BHM-V12-CBM-99-PARITY-20260722",
+  "generated_at": "2026-07-21",
+  "policy": {
+    "quarantine_root": ".src",
+    "default_trust": "untrusted-evidence",
+    "code_copy_allowed": false,
+    "authoritative_store": "SQLite",
+    "runtime_dependency_allowed": false,
+    "reviewer": "Codex /root",
+    "permission_model": "bhm.permission-metadata.v1",
+    "permission_default_status": "not-mapped",
+    "permission_private_correspondence": "forbidden"
+  },
+  "sources": [
+    {
+      "id": "CBM-U",
+      "slug": "codebase-memory-mcp",
+      "name": "DeusData/codebase-memory-mcp",
+      "source_url": "https://github.com/DeusData/codebase-memory-mcp.git",
+      "source_type": "git",
+      "revision": "5d150ea0515d0598472d317360305a98dccb583a",
+      "research_revision": "23f262c4b8b6f42f9be3454075bebb5538606436",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "DeusData and codebase-memory-mcp contributors",
+      "purpose": [
+        "WI-01 source inventory",
+        "WI-03 parser and code graph contracts",
+        "WI-08 retrieval benchmark",
+        "WI-11 unified MCP contract",
+        "WI-16 packaging reference"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "direct transfer or clean-room redesign of owner-authored implementation within scoped files; no vendored/third-party/runtime import",
+      "transfer_mode": "direct-transfer-scoped",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": true,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CBM-U:20260721",
+      "rightsholder": "DeusData and codebase-memory-mcp contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/DeusData/codebase-memory-mcp.git",
+        "exact_revision": "5d150ea0515d0598472d317360305a98dccb583a",
+        "allowed_use": "direct transfer or clean-room redesign of owner-authored implementation within scoped files",
+        "code_transfer": "authorized-for-covered-files",
+        "excluded_file_globs": [
+                                                      "internal/cbm/**",
+          "vendored/**",
+          "graph-ui/**",
+          "tools/**",
+          "pkg/**",
+          "*.sqlite",
+          ".env*"
+        ]
+      },
+      "covered_files": [
+        "LICENSE",
+        "README.md",
+                          "src/**"
+      ],
+      "covered_capabilities": [
+        "WI-01 source inventory",
+        "WI-03 parser and code graph contracts",
+        "WI-08 retrieval benchmark",
+        "WI-11 unified MCP contract",
+        "WI-16 packaging reference"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain exact upstream evidence while the active BHM-V6 source-adoption and release gates remain open"
+    },
+    {
+      "id": "CBM-F",
+      "slug": "codebase-memory-mcp-fork",
+      "name": "Efidripy/codebase-memory-mcp",
+      "source_url": "https://github.com/Efidripy/codebase-memory-mcp.git",
+      "source_type": "git",
+      "revision": "8c9ac98e30b48e63d0a4df39f86ae1cd029f5349",
+      "license": "MIT declared",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "Efidripy fork and upstream codebase-memory-mcp contributors",
+      "purpose": [
+        "WI-00 fork provenance",
+        "WI-01 divergence inventory",
+        "WI-16 packaging regression reference"
+      ],
+      "evidence_class": "E0/D",
+      "disposition": "reference-only",
+      "allowed_use": "commit-by-commit diff review and clean-room regression fixtures only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CBM-F:20260721",
+      "rightsholder": "Efidripy fork and upstream codebase-memory-mcp contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/Efidripy/codebase-memory-mcp.git",
+        "exact_revision": "8c9ac98e30b48e63d0a4df39f86ae1cd029f5349",
+        "allowed_use": "commit-by-commit diff review and clean-room regression fixtures only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-00 fork provenance",
+        "WI-01 divergence inventory",
+        "WI-16 packaging regression reference"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain fork evidence only; upstream remains the research authority"
+    },
+    {
+      "id": "CGC",
+      "slug": "codegraphcontext",
+      "name": "CodeGraphContext/CodeGraphContext",
+      "source_url": "https://github.com/CodeGraphContext/CodeGraphContext.git",
+      "source_type": "git",
+      "revision": "8bd1a8f7214a3bdb2788106a6949c60dd83dd5be",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "CodeGraphContext contributors",
+      "purpose": [
+        "WI-02 graph model",
+        "WI-03 parser fixtures",
+        "WI-05 context packaging",
+        "WI-08 retrieval hypotheses"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room graph model and benchmark fixtures; no external graph backend",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CGC:20260721",
+      "rightsholder": "CodeGraphContext contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/CodeGraphContext/CodeGraphContext.git",
+        "exact_revision": "8bd1a8f7214a3bdb2788106a6949c60dd83dd5be",
+        "allowed_use": "clean-room graph model and benchmark fixtures; no external graph backend",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-02 graph model",
+        "WI-03 parser fixtures",
+        "WI-05 context packaging",
+        "WI-08 retrieval hypotheses"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain reproducible design evidence"
+    },
+    {
+      "id": "CGM",
+      "slug": "code-graph-mcp",
+      "name": "sdsrss/code-graph-mcp",
+      "source_url": "https://github.com/sdsrss/code-graph-mcp.git",
+      "source_type": "git",
+      "revision": "c4d2bc38250505d55a242ffc5d6ff0a12b168dac",
+      "license": "No declared license",
+      "license_status": "unknown",
+      "notice_ref": null,
+      "attribution": "sdsrss/code-graph-mcp authors",
+      "purpose": [
+        "WI-01 incremental indexing reference",
+        "WI-03 route and impact fixtures",
+        "WI-08 hybrid retrieval hypotheses"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "public behavior and clean-room acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CGM:20260721",
+      "rightsholder": "sdsrss/code-graph-mcp authors",
+      "covered_scope": {
+        "source_url": "https://github.com/sdsrss/code-graph-mcp.git",
+        "exact_revision": "c4d2bc38250505d55a242ffc5d6ff0a12b168dac",
+        "allowed_use": "public behavior and clean-room acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-01 incremental indexing reference",
+        "WI-03 route and impact fixtures",
+        "WI-08 hybrid retrieval hypotheses"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain only while license remains unresolved and workstreams cite it"
+    },
+    {
+      "id": "CBC",
+      "slug": "codebase-context",
+      "name": "PatrickSys/codebase-context",
+      "source_url": "https://github.com/PatrickSys/codebase-context.git",
+      "source_type": "git",
+      "revision": "86644d22685ebde70ca73d0848a39e412dd0ac64",
+      "license": "Elastic-2.0",
+      "license_status": "source-available",
+      "notice_ref": "LICENSE",
+      "attribution": "PatrickSys/codebase-context contributors",
+      "purpose": [
+        "WI-04 repository conventions",
+        "WI-07 edit preflight",
+        "WI-10 benchmark reference"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "public contract and clean-room redesign only; no code transfer",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CBC:20260721",
+      "rightsholder": "PatrickSys/codebase-context contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/PatrickSys/codebase-context.git",
+        "exact_revision": "86644d22685ebde70ca73d0848a39e412dd0ac64",
+        "allowed_use": "public contract and clean-room redesign only; no code transfer",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-04 repository conventions",
+        "WI-07 edit preflight",
+        "WI-10 benchmark reference"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain legal and behavioral evidence for clean-room review"
+    },
+    {
+      "id": "CGCT",
+      "slug": "code-graph-context",
+      "name": "andrew-hernandez-paragon/code-graph-context",
+      "source_url": "https://github.com/andrew-hernandez-paragon/code-graph-context.git",
+      "source_type": "git",
+      "revision": "85c4fa0b29d937ab22394231cd952d76731ff5fa",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "code-graph-context contributors",
+      "purpose": [
+        "WI-01 change detection",
+        "WI-03 parser fixtures",
+        "WI-09 local embedding boundary"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room parser and change-detection contracts only; no Neo4j dependency",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CGCT:20260721",
+      "rightsholder": "code-graph-context contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/andrew-hernandez-paragon/code-graph-context.git",
+        "exact_revision": "85c4fa0b29d937ab22394231cd952d76731ff5fa",
+        "allowed_use": "clean-room parser and change-detection contracts only; no Neo4j dependency",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-01 change detection",
+        "WI-03 parser fixtures",
+        "WI-09 local embedding boundary"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain reproducible parser evidence"
+    },
+    {
+      "id": "CBG",
+      "slug": "codegraph",
+      "name": "colbymchenry/codegraph",
+      "source_url": "https://github.com/colbymchenry/codegraph.git",
+      "source_type": "git",
+      "revision": "246aee837341183912c82b3e727410e9fe1a1567",
+      "research_revision": "e871c49a3173a637172f501f21f6a2753ea5a39f",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "colbymchenry/codegraph contributors",
+      "purpose": [
+        "WI-02 SQLite graph schema",
+        "WI-03 traversal",
+        "WI-05 adaptive context",
+        "WI-10 quality loop"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "public contracts and clean-room redesign only; current snapshot embeds a database payload and is rejected from quarantine",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CBG:20260721",
+      "rightsholder": "colbymchenry/codegraph contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/colbymchenry/codegraph.git",
+        "exact_revision": "246aee837341183912c82b3e727410e9fe1a1567",
+        "allowed_use": "public contracts and clean-room redesign only; current snapshot embeds a database payload and is rejected from quarantine",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-02 SQLite graph schema",
+        "WI-03 traversal",
+        "WI-05 adaptive context",
+        "WI-10 quality loop"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain only risk-rejection evidence for the current and research revisions"
+    },
+    {
+      "id": "JCG",
+      "slug": "mcp-code-graph",
+      "name": "JudiniLabs/mcp-code-graph",
+      "source_url": "https://github.com/JudiniLabs/mcp-code-graph.git",
+      "source_type": "git",
+      "revision": "908180f07e49f845a9cfb1a8fe2025186908870a",
+      "license": "MIT claimed in package metadata; no repository license file found",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "JudiniLabs/mcp-code-graph contributors",
+      "purpose": [
+        "WI-03 graph navigation UX",
+        "WI-11 MCP pagination and limits"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "public/private boundary and query UX reference only; no hosted dependency",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:JCG:20260721",
+      "rightsholder": "JudiniLabs/mcp-code-graph contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/JudiniLabs/mcp-code-graph.git",
+        "exact_revision": "908180f07e49f845a9cfb1a8fe2025186908870a",
+        "allowed_use": "public/private boundary and query UX reference only; no hosted dependency",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-03 graph navigation UX",
+        "WI-11 MCP pagination and limits"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain query contract evidence"
+    },
+    {
+      "id": "AM",
+      "slug": "agentmemory",
+      "name": "rohitg00/agentmemory",
+      "source_url": "https://github.com/rohitg00/agentmemory.git",
+      "source_type": "git",
+      "revision": "93ae9bc04f3ab5042f982aaadf11f1e3f5137531",
+      "license": "Apache-2.0",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "rohitg00/agentmemory contributors",
+      "purpose": [
+        "WI-05 memory lifecycle",
+        "WI-10 benchmark",
+        "WI-11 hooks",
+        "WI-15 security cases"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room lifecycle, benchmark and security fixtures only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:AM:20260721",
+      "rightsholder": "rohitg00/agentmemory contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/rohitg00/agentmemory.git",
+        "exact_revision": "93ae9bc04f3ab5042f982aaadf11f1e3f5137531",
+        "allowed_use": "clean-room lifecycle, benchmark and security fixtures only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-05 memory lifecycle",
+        "WI-10 benchmark",
+        "WI-11 hooks",
+        "WI-15 security cases"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain benchmark and security evidence"
+    },
+    {
+      "id": "CM",
+      "slug": "claude-mem",
+      "name": "thedotmack/claude-mem",
+      "source_url": "https://github.com/thedotmack/claude-mem.git",
+      "source_type": "git",
+      "revision": "f5633c1f84181673896c038cbe285131c6d669a3",
+      "license": "Apache-2.0",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "thedotmack/claude-mem contributors",
+      "purpose": [
+        "WI-05 progressive disclosure",
+        "WI-06 session correlation",
+        "WI-11 hooks",
+        "WI-15 worker exposure tests"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room session and progressive-disclosure contracts only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CM:20260721",
+      "rightsholder": "thedotmack/claude-mem contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/thedotmack/claude-mem.git",
+        "exact_revision": "f5633c1f84181673896c038cbe285131c6d669a3",
+        "allowed_use": "clean-room session and progressive-disclosure contracts only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-05 progressive disclosure",
+        "WI-06 session correlation",
+        "WI-11 hooks",
+        "WI-15 worker exposure tests"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain architecture and security evidence"
+    },
+    {
+      "id": "ENG",
+      "slug": "engram",
+      "name": "Gentleman-Programming/engram",
+      "source_url": "https://github.com/Gentleman-Programming/engram.git",
+      "source_type": "git",
+      "revision": "be4b61384ee154abbdea2f8760a5f1e43dd595ab",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "Gentleman-Programming/engram contributors",
+      "purpose": [
+        "WI-05 progressive disclosure",
+        "WI-06 provenance",
+        "WI-11 agent-neutral adapters",
+        "WI-16 single-binary reference"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room contracts for SQLite/FTS, privacy and adapters only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:ENG:20260721",
+      "rightsholder": "Gentleman-Programming/engram contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/Gentleman-Programming/engram.git",
+        "exact_revision": "be4b61384ee154abbdea2f8760a5f1e43dd595ab",
+        "allowed_use": "clean-room contracts for SQLite/FTS, privacy and adapters only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-05 progressive disclosure",
+        "WI-06 provenance",
+        "WI-11 agent-neutral adapters",
+        "WI-16 single-binary reference"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain strong local-first design evidence"
+    },
+    {
+      "id": "AXM",
+      "slug": "axiom-agent-memory",
+      "name": "axiomhq/agent-memory",
+      "source_url": "https://github.com/axiomhq/agent-memory.git",
+      "source_type": "git",
+      "revision": "72075416ce23c67d1ae7f74a1274a96e01832abd",
+      "license": "No declared license",
+      "license_status": "unknown",
+      "notice_ref": null,
+      "attribution": "axiomhq/agent-memory authors",
+      "purpose": [
+        "WI-04 pattern language",
+        "WI-05 tiered disclosure",
+        "WI-13 durable workflow state"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "public behavior, ADR structure and clean-room state-machine fixtures only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:AXM:20260721",
+      "rightsholder": "axiomhq/agent-memory authors",
+      "covered_scope": {
+        "source_url": "https://github.com/axiomhq/agent-memory.git",
+        "exact_revision": "72075416ce23c67d1ae7f74a1274a96e01832abd",
+        "allowed_use": "public behavior, ADR structure and clean-room state-machine fixtures only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-04 pattern language",
+        "WI-05 tiered disclosure",
+        "WI-13 durable workflow state"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain while license remains unresolved"
+    },
+    {
+      "id": "MG",
+      "slug": "memory-graph",
+      "name": "memory-graph/memory-graph",
+      "source_url": "https://github.com/memory-graph/memory-graph.git",
+      "source_type": "git",
+      "revision": "4f834c01765dc52b66c621fa42928fb0b52208cb",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "memory-graph contributors",
+      "purpose": [
+        "WI-06 bitemporal provenance",
+        "WI-08 context budget",
+        "WI-17 value benchmark"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room temporal and graph relation contracts only; no external graph authority",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:MG:20260721",
+      "rightsholder": "memory-graph contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/memory-graph/memory-graph.git",
+        "exact_revision": "4f834c01765dc52b66c621fa42928fb0b52208cb",
+        "allowed_use": "clean-room temporal and graph relation contracts only; no external graph authority",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-06 bitemporal provenance",
+        "WI-08 context budget",
+        "WI-17 value benchmark"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain bitemporal design evidence"
+    },
+    {
+      "id": "AMEM",
+      "slug": "a-mem-mcp",
+      "name": "DiaaAj/a-mem-mcp",
+      "source_url": "https://github.com/DiaaAj/a-mem-mcp.git",
+      "source_type": "git",
+      "revision": "dce0ac62cba5e86acda55a9b1405d74d18256600",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "DiaaAj/a-mem-mcp contributors",
+      "purpose": [
+        "WI-05 peek and drill",
+        "WI-06 relation proposals",
+        "WI-09 optional model boundary"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room relation proposal and progressive retrieval contracts only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:AMEM:20260721",
+      "rightsholder": "DiaaAj/a-mem-mcp contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/DiaaAj/a-mem-mcp.git",
+        "exact_revision": "dce0ac62cba5e86acda55a9b1405d74d18256600",
+        "allowed_use": "clean-room relation proposal and progressive retrieval contracts only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-05 peek and drill",
+        "WI-06 relation proposals",
+        "WI-09 optional model boundary"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain relation proposal evidence"
+    },
+    {
+      "id": "CXM",
+      "slug": "codex-mem",
+      "name": "Just-Boring-Cat/codex-mem",
+      "source_url": "https://github.com/Just-Boring-Cat/codex-mem.git",
+      "source_type": "git",
+      "revision": "6371d51b4f9bec2420f99222b87cb29ee937f4b3",
+      "license": "AGPL-3.0",
+      "license_status": "copyleft",
+      "notice_ref": "LICENSE",
+      "attribution": "Just-Boring-Cat/codex-mem contributors",
+      "purpose": [
+        "WI-05 Codex retrieval UX",
+        "WI-11 adapter contract",
+        "WI-14 migration fixtures"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "public behavior and clean-room redesign only; no code copy or linkage",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CXM:20260721",
+      "rightsholder": "Just-Boring-Cat/codex-mem contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/Just-Boring-Cat/codex-mem.git",
+        "exact_revision": "6371d51b4f9bec2420f99222b87cb29ee937f4b3",
+        "allowed_use": "public behavior and clean-room redesign only; no code copy or linkage",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-05 Codex retrieval UX",
+        "WI-11 adapter contract",
+        "WI-14 migration fixtures"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain legal boundary and public contract evidence"
+    },
+    {
+      "id": "M0MCP",
+      "slug": "mem0-mcp",
+      "name": "mem0ai/mem0-mcp",
+      "source_url": "https://github.com/mem0ai/mem0-mcp.git",
+      "source_type": "git",
+      "revision": "624024deacbbe1948572a968abdb9d9e93ded548",
+      "license": "Apache-2.0",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "mem0ai/mem0-mcp contributors",
+      "purpose": [
+        "WI-11 historical MCP bridge contract",
+        "WI-14 compatibility reference"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "historical public contract only; archived repository is not a runtime dependency",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:M0MCP:20260721",
+      "rightsholder": "mem0ai/mem0-mcp contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/mem0ai/mem0-mcp.git",
+        "exact_revision": "624024deacbbe1948572a968abdb9d9e93ded548",
+        "allowed_use": "historical public contract only; archived repository is not a runtime dependency",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-11 historical MCP bridge contract",
+        "WI-14 compatibility reference"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain archived compatibility evidence through WI-14"
+    },
+    {
+      "id": "OMC",
+      "slug": "openmemory-code",
+      "name": "FatStinkyPanda/OpenMemory-Code",
+      "source_url": "https://github.com/FatStinkyPanda/OpenMemory-Code.git",
+      "source_type": "git",
+      "revision": "489f8c2f56cd650e3b9a80c48c5d7d8411e154ab",
+      "license": "MIT with attribution notice",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "FatStinkyPanda/OpenMemory-Code contributors",
+      "purpose": [
+        "WI-07 policy enforcement",
+        "WI-13 coordination",
+        "WI-14 provenance",
+        "WI-16 supervision reference"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "clean-room lifecycle and policy concepts only; no multi-service runtime import",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:OMC:20260721",
+      "rightsholder": "FatStinkyPanda/OpenMemory-Code contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/FatStinkyPanda/OpenMemory-Code.git",
+        "exact_revision": "489f8c2f56cd650e3b9a80c48c5d7d8411e154ab",
+        "allowed_use": "clean-room lifecycle and policy concepts only; no multi-service runtime import",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-07 policy enforcement",
+        "WI-13 coordination",
+        "WI-14 provenance",
+        "WI-16 supervision reference"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain policy and attribution evidence"
+    },
+    {
+      "id": "PJM",
+      "slug": "projectmem",
+      "name": "riponcm/projectmem",
+      "source_url": "https://github.com/riponcm/projectmem.git",
+      "source_type": "git",
+      "revision": "65eb70ba02439d976e9e1449b485a8c705948ea1",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "riponcm/projectmem contributors",
+      "purpose": [
+        "WI-06 append-only provenance",
+        "WI-07 preflight",
+        "WI-14 migration",
+        "WI-17 ROI benchmark"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room event, preflight and benchmark contracts only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:PJM:20260721",
+      "rightsholder": "riponcm/projectmem contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/riponcm/projectmem.git",
+        "exact_revision": "65eb70ba02439d976e9e1449b485a8c705948ea1",
+        "allowed_use": "clean-room event, preflight and benchmark contracts only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-06 append-only provenance",
+        "WI-07 preflight",
+        "WI-14 migration",
+        "WI-17 ROI benchmark"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain strong provenance and ROI evidence"
+    },
+    {
+      "id": "BDS",
+      "slug": "beads",
+      "name": "gastownhall/beads",
+      "source_url": "https://github.com/gastownhall/beads.git",
+      "source_type": "git",
+      "revision": "4489f63c35ffe496805030b7a36c81ae1984e08c",
+      "research_revision": "3ecbf5bc9f5168a63fc9253ee1966adfa7e99ff4",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "gastownhall/beads contributors",
+      "purpose": [
+        "WI-07 task safety",
+        "WI-13 durable task graph",
+        "WI-17 coordination benchmark"
+      ],
+      "evidence_class": "E0",
+      "disposition": "reference-only",
+      "allowed_use": "public task-graph contracts and clean-room redesign only; current snapshot contains credential-shaped test material",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:BDS:20260721",
+      "rightsholder": "gastownhall/beads contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/gastownhall/beads.git",
+        "exact_revision": "4489f63c35ffe496805030b7a36c81ae1984e08c",
+        "allowed_use": "public task-graph contracts and clean-room redesign only; current snapshot contains credential-shaped test material",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-07 task safety",
+        "WI-13 durable task graph",
+        "WI-17 coordination benchmark"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain only risk-rejection evidence and public task-graph contracts"
+    },
+    {
+      "id": "MCO",
+      "slug": "mco",
+      "name": "mco-org/mco",
+      "source_url": "https://github.com/mco-org/mco.git",
+      "source_type": "git",
+      "revision": "9f1a1cf1afdc04d7b5406782b40dfec76d9bc798",
+      "license": "MIT",
+      "license_status": "permissive",
+      "notice_ref": "LICENSE",
+      "attribution": "mco-org/mco contributors",
+      "purpose": [
+        "WI-10 machine-readable QA",
+        "WI-13 capability routing",
+        "WI-15 read-only policy"
+      ],
+      "evidence_class": "E0",
+      "disposition": "native-candidate",
+      "allowed_use": "clean-room capability routing and consensus evidence contracts only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:MCO:20260721",
+      "rightsholder": "mco-org/mco contributors",
+      "covered_scope": {
+        "source_url": "https://github.com/mco-org/mco.git",
+        "exact_revision": "9f1a1cf1afdc04d7b5406782b40dfec76d9bc798",
+        "allowed_use": "clean-room capability routing and consensus evidence contracts only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-10 machine-readable QA",
+        "WI-13 capability routing",
+        "WI-15 read-only policy"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain orchestration evidence; no embedded provider execution"
+    },
+    {
+      "id": "OVG",
+      "slug": "openvisio",
+      "name": "OpenVisio",
+      "source_url": "https://openvisio.io/",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Closed product",
+      "license_status": "proprietary",
+      "notice_ref": null,
+      "attribution": "OpenVisio",
+      "purpose": [
+        "WI-03 graph UI acceptance criteria",
+        "WI-12 visualization reference"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "public product behavior and UX acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:OVG:20260721",
+      "rightsholder": "OpenVisio",
+      "covered_scope": {
+        "source_url": "https://openvisio.io/",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public product behavior and UX acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-03 graph UI acceptance criteria",
+        "WI-12 visualization reference"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain public product reference snapshot"
+    },
+    {
+      "id": "CAV",
+      "slug": "codealive",
+      "name": "CodeAlive",
+      "source_url": "https://docs.codealive.ai/",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Commercial hosted documentation",
+      "license_status": "proprietary",
+      "notice_ref": null,
+      "attribution": "CodeAlive",
+      "purpose": [
+        "WI-08 multi-repository context UX",
+        "WI-12 review workflow reference"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "public documentation and acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CAV:20260721",
+      "rightsholder": "CodeAlive",
+      "covered_scope": {
+        "source_url": "https://docs.codealive.ai/",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public documentation and acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-08 multi-repository context UX",
+        "WI-12 review workflow reference"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain public documentation snapshot"
+    },
+    {
+      "id": "CBM-P",
+      "slug": "codebase-memory-paper",
+      "name": "Codebase-Memory research paper",
+      "source_url": "https://arxiv.org/abs/2603.27277",
+      "source_type": "paper",
+      "revision": "arXiv-2603.27277-checked-2026-07-16",
+      "license": "Paper terms not imported as code license",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "Authors of arXiv:2603.27277",
+      "purpose": [
+        "WI-03 graph extraction hypotheses",
+        "WI-08 benchmark design",
+        "WI-17 product-value evaluation"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "research framing and independently implemented benchmark hypotheses only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:CBM-P:20260721",
+      "rightsholder": "Authors of arXiv:2603.27277",
+      "covered_scope": {
+        "source_url": "https://arxiv.org/abs/2603.27277",
+        "exact_revision": "arXiv-2603.27277-checked-2026-07-16",
+        "allowed_use": "research framing and independently implemented benchmark hypotheses only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-03 graph extraction hypotheses",
+        "WI-08 benchmark design",
+        "WI-17 product-value evaluation"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain research citation snapshot"
+    },
+    {
+      "id": "PMB",
+      "slug": "pmb",
+      "name": "PMB",
+      "source_url": "https://pmbai.dev/",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Apache-2.0 claimed on official site; source not pinned",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "PMB authors",
+      "purpose": [
+        "WI-05 zero-LLM read path",
+        "WI-17 memory usefulness feedback"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "public product claims and acceptance criteria only until source and license are pinned",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:PMB:20260721",
+      "rightsholder": "PMB authors",
+      "covered_scope": {
+        "source_url": "https://pmbai.dev/",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public product claims and acceptance criteria only until source and license are pinned",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-05 zero-LLM read path",
+        "WI-17 memory usefulness feedback"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain official-site evidence pending source audit"
+    },
+    {
+      "id": "LCM",
+      "slug": "localmem",
+      "name": "LocalMem",
+      "source_url": "https://localmem.org/",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Apache-2.0 stated on official site; source not pinned",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "LocalMem authors",
+      "purpose": [
+        "WI-06 append-only and bitemporal reference",
+        "WI-09 no-LLM read path",
+        "WI-16 static core",
+        "WI-17 evaluation"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "public claims and clean-room acceptance criteria only until source audit",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:LCM:20260721",
+      "rightsholder": "LocalMem authors",
+      "covered_scope": {
+        "source_url": "https://localmem.org/",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public claims and clean-room acceptance criteria only until source audit",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-06 append-only and bitemporal reference",
+        "WI-09 no-LLM read path",
+        "WI-16 static core",
+        "WI-17 evaluation"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain official-site evidence pending source audit"
+    },
+    {
+      "id": "MNM",
+      "slug": "mnemon",
+      "name": "Mnemon",
+      "source_url": "https://mnemon.dev/",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Source and license not pinned",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "Mnemon authors",
+      "purpose": [
+        "WI-05 tiered disclosure",
+        "WI-12 review ergonomics"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "public product concepts and UX acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:MNM:20260721",
+      "rightsholder": "Mnemon authors",
+      "covered_scope": {
+        "source_url": "https://mnemon.dev/",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public product concepts and UX acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-05 tiered disclosure",
+        "WI-12 review ergonomics"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain public concept snapshot"
+    },
+    {
+      "id": "ARC",
+      "slug": "archivist",
+      "name": "Archivist MCP market entry",
+      "source_url": "https://mcpmarket.com/server/archivist",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Source and license not independently verified",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "Archivist listing authors and MCP Market",
+      "purpose": [
+        "WI-05 memory tiers",
+        "WI-06 audit lifecycle",
+        "WI-12 provenance UI"
+      ],
+      "evidence_class": "E2",
+      "disposition": "reference-only",
+      "allowed_use": "market description and acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:ARC:20260721",
+      "rightsholder": "Archivist listing authors and MCP Market",
+      "covered_scope": {
+        "source_url": "https://mcpmarket.com/server/archivist",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "market description and acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-05 memory tiers",
+        "WI-06 audit lifecycle",
+        "WI-12 provenance UI"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain low-trust market evidence with explicit E2 label"
+    },
+    {
+      "id": "RAV",
+      "slug": "ravmem",
+      "name": "RavMem",
+      "source_url": "https://www.ravmem.com/",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Hosted early-access product",
+      "license_status": "proprietary",
+      "notice_ref": null,
+      "attribution": "RavMem",
+      "purpose": [
+        "WI-01 delta-index hypotheses",
+        "WI-08 impact benchmark",
+        "WI-13 shared-agent context"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "public product claims and benchmark hypotheses only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:RAV:20260721",
+      "rightsholder": "RavMem",
+      "covered_scope": {
+        "source_url": "https://www.ravmem.com/",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public product claims and benchmark hypotheses only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-01 delta-index hypotheses",
+        "WI-08 impact benchmark",
+        "WI-13 shared-agent context"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain early-access product reference snapshot"
+    },
+    {
+      "id": "OBS",
+      "slug": "obsidian",
+      "name": "Obsidian",
+      "source_url": "https://obsidian.md/",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Proprietary application",
+      "license_status": "proprietary",
+      "notice_ref": null,
+      "attribution": "Obsidian",
+      "purpose": [
+        "WI-12 optional Markdown review surface"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "optional adapter UX and open-file-format acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:OBS:20260721",
+      "rightsholder": "Obsidian",
+      "covered_scope": {
+        "source_url": "https://obsidian.md/",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "optional adapter UX and open-file-format acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-12 optional Markdown review surface"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain product documentation snapshot; never a core dependency"
+    },
+    {
+      "id": "OGV",
+      "slug": "obsidian-graph-view",
+      "name": "Obsidian Graph view documentation",
+      "source_url": "https://obsidian.md/help/Plugins/Graph%2Bview",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Product documentation",
+      "license_status": "proprietary",
+      "notice_ref": null,
+      "attribution": "Obsidian",
+      "purpose": [
+        "WI-12 graph filters, neighborhoods and orphan states"
+      ],
+      "evidence_class": "E1",
+      "disposition": "reference-only",
+      "allowed_use": "UX acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:OGV:20260721",
+      "rightsholder": "Obsidian",
+      "covered_scope": {
+        "source_url": "https://obsidian.md/help/Plugins/Graph%2Bview",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "UX acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-12 graph filters, neighborhoods and orphan states"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain documentation snapshot"
+    },
+    {
+      "id": "OCG",
+      "slug": "obsidian-code-graph",
+      "name": "Obsidian Code Graph community plugin",
+      "source_url": "https://community.obsidian.md/plugins/code-graph",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Community plugin license not verified",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "Obsidian Code Graph plugin authors and Obsidian community",
+      "purpose": [
+        "WI-02 human-readable relation taxonomy",
+        "WI-04 code-to-ADR conventions",
+        "WI-12 graph UX"
+      ],
+      "evidence_class": "E2",
+      "disposition": "reference-only",
+      "allowed_use": "public plugin description and documentation conventions only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:OCG:20260721",
+      "rightsholder": "Obsidian Code Graph plugin authors and Obsidian community",
+      "covered_scope": {
+        "source_url": "https://community.obsidian.md/plugins/code-graph",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public plugin description and documentation conventions only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-02 human-readable relation taxonomy",
+        "WI-04 code-to-ADR conventions",
+        "WI-12 graph UX"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain low-trust UX evidence"
+    },
+    {
+      "id": "KGF",
+      "slug": "kg-forge",
+      "name": "KG Forge community plugin",
+      "source_url": "https://community.obsidian.md/plugins/kg-forge",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Community plugin license not verified",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "KG Forge plugin authors and Obsidian community",
+      "purpose": [
+        "WI-12 human relation review and merge UX"
+      ],
+      "evidence_class": "E2",
+      "disposition": "reference-only",
+      "allowed_use": "public plugin description and UX acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:KGF:20260721",
+      "rightsholder": "KG Forge plugin authors and Obsidian community",
+      "covered_scope": {
+        "source_url": "https://community.obsidian.md/plugins/kg-forge",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public plugin description and UX acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-12 human relation review and merge UX"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain low-trust UX evidence"
+    },
+    {
+      "id": "EVS",
+      "slug": "evc-local-sync",
+      "name": "EVC Local Sync community plugin",
+      "source_url": "https://community.obsidian.md/plugins/evc-local-sync",
+      "source_type": "web",
+      "revision": "checked-2026-07-16",
+      "license": "Community plugin license not verified",
+      "license_status": "unverified",
+      "notice_ref": null,
+      "attribution": "EVC Local Sync plugin authors and Obsidian community",
+      "purpose": [
+        "WI-12 checksum, conflict preview and local-only import/export"
+      ],
+      "evidence_class": "E2",
+      "disposition": "reference-only",
+      "allowed_use": "public plugin description and local-sync acceptance criteria only",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-16",
+      "recheck_date": "2026-08-15",
+      "code_copy_allowed": false,
+      "permission_status": "written-permission",
+      "permission_evidence_ref": "attest:bhm-upstream-permissions:EVS:20260721",
+      "rightsholder": "EVC Local Sync plugin authors and Obsidian community",
+      "covered_scope": {
+        "source_url": "https://community.obsidian.md/plugins/evc-local-sync",
+        "exact_revision": "checked-2026-07-16",
+        "allowed_use": "public plugin description and local-sync acceptance criteria only",
+        "code_transfer": "not-authorized-by-this-ledger"
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "WI-12 checksum, conflict preview and local-only import/export"
+      ],
+      "third_party_exclusions": [
+        "third-party dependencies and notices",
+        "embedded databases, .env, credentials, personal/live data",
+        "external runtime/MCP authority",
+        "unreviewed or unpinned source material"
+      ],
+      "permission_checked_at": "2026-07-21",
+      "deletion_or_retention_reason": "retain low-trust sync workflow evidence"
+    },
+    {
+      "id": "PYIMG",
+      "slug": "python-docker-image",
+      "name": "Docker Official Images / python",
+      "source_url": "https://hub.docker.com/_/python",
+      "source_type": "container-image",
+      "revision": "3.11-alpine3.24@sha256:25976e9d34a0fab1f278cae931f34c8303d97bf0c0d7f85b6b4dcf641d7702a4",
+      "license": "Python Software Foundation License; Debian/Alpine base image licenses apply",
+      "license_status": "provenance-only",
+      "notice_ref": null,
+      "attribution": "Docker Official Images / docker-library/python",
+      "purpose": [
+        "Pinned local BHM developer-agent sandbox image provenance; no source code imported"
+      ],
+      "evidence_class": "E1",
+      "disposition": "evidence-only",
+      "allowed_use": "record pinned operator-provisioned image provenance only; no runtime pull or source import",
+      "reviewer": "Codex /root",
+      "checked_at": "2026-07-26",
+      "recheck_date": "2026-08-18",
+      "code_copy_allowed": false,
+      "permission_status": "not-mapped",
+      "rightsholder": "Docker Official Images / docker-library/python",
+      "runtime_dependency": false,
+      "authoritative_bhm_state": false,
+      "covered_scope": {
+        "source_url": "https://hub.docker.com/_/python",
+        "exact_revision": "3.11-alpine3.24@sha256:25976e9d34a0fab1f278cae931f34c8303d97bf0c0d7f85b6b4dcf641d7702a4",
+        "allowed_use": "provenance record only",
+        "code_transfer": "not-applicable",
+        "material_present": false
+      },
+      "covered_files": [],
+      "covered_capabilities": [
+        "developer-agent sandbox provenance"
+      ],
+      "third_party_exclusions": [
+        "container runtime pull",
+        "source code import",
+        "credentials, personal/live data",
+        "external runtime/MCP authority"
+      ],
+      "permission_checked_at": "2026-07-26",
+      "deletion_or_retention_reason": "retain pinned image provenance while the local sandbox boundary is in use"
+    }
+  ]
+}

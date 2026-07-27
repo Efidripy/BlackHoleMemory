@@ -1,0 +1,1779 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BHM Workbench</title>
+  <style>
+    :root {
+      --bg1: #07111d;
+      --bg2: #0d2136;
+      --panel: rgba(9, 17, 30, 0.9);
+      --panel-soft: rgba(255, 255, 255, 0.024);
+      --border: rgba(148, 163, 184, 0.16);
+      --text: #edf3fb;
+      --muted: #98aeca;
+      --accent: #66d6af;
+      --accent-2: #6faeff;
+      --ok: #47d59a;
+      --warn: #f3bc57;
+      --bad: #fb7185;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(60rem 40rem at -10% -10%, rgba(102,214,175,.18), transparent 45%),
+        radial-gradient(48rem 34rem at 110% 0%, rgba(111,174,255,.14), transparent 52%),
+        linear-gradient(160deg, var(--bg2), var(--bg1));
+      padding: 5px;
+    }
+
+    .shell {
+      max-width: 980px;
+      margin: 0 auto;
+      display: grid;
+      gap: 4px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.24);
+      padding: 6px;
+      backdrop-filter: blur(10px);
+    }
+
+    .hero {
+      display: flex;
+      justify-content: space-between;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .hero h1,
+    .block-title,
+    .micro-title {
+      margin: 0;
+    }
+
+    .hero h1 {
+      font-size: 15px;
+      line-height: 1.1;
+    }
+
+    .hero p {
+      margin: 2px 0 0;
+      color: var(--muted);
+      line-height: 1.25;
+      font-size: 11px;
+    }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      justify-content: end;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 7px;
+      background: rgba(102,214,175,.08);
+      color: var(--accent);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 4px;
+      align-items: start;
+    }
+
+    .stack {
+      display: grid;
+      gap: 4px;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .action-btn,
+    .mini,
+    .ghost {
+      appearance: none;
+      border-radius: 8px;
+      padding: 6px 7px;
+      cursor: pointer;
+      font: inherit;
+      font-size: 10px;
+      font-weight: 600;
+      transition: .16s ease;
+      min-height: 30px;
+    }
+
+    .action-btn {
+      border: 1px solid rgba(111,174,255,.22);
+      color: white;
+      background: linear-gradient(135deg, rgba(111,174,255,.92), rgba(102,214,175,.92));
+      box-shadow: none;
+    }
+
+    .action-btn:hover,
+    .mini:hover,
+    .ghost:hover {
+      transform: translateY(-1px);
+    }
+
+    .mini {
+      border: 1px solid var(--border);
+      color: #ebf3fb;
+      background: rgba(255,255,255,.05);
+    }
+
+    .ghost {
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: rgba(255,255,255,.025);
+    }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .kpi {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 6px;
+      background: var(--panel-soft);
+      min-height: 48px;
+    }
+
+    .kpi .label {
+      color: var(--muted);
+      font-size: 9px;
+      margin-bottom: 2px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .kpi .value {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .subvalue {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .summary {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 7px 8px;
+      background: rgba(255,255,255,.035);
+      line-height: 1.22;
+      font-size: 11px;
+    }
+
+    .summary strong { color: #fff; }
+
+    .micro-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .micro-panel {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 6px 7px;
+      background: var(--panel-soft);
+      min-height: auto;
+    }
+
+    .micro-title {
+      font-size: 9px;
+      color: #d7e2f1;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 4px;
+    }
+
+    .result-list {
+      display: grid;
+      gap: 4px;
+      font-size: 10px;
+    }
+
+    .result-item {
+      padding-top: 4px;
+      border-top: 1px solid var(--border);
+      line-height: 1.2;
+    }
+
+    .result-item:first-child {
+      border-top: 0;
+      padding-top: 0;
+    }
+
+    .id-row {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 3px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 1px 5px;
+      background: rgba(255,255,255,.04);
+      font-size: 9px;
+      color: #dfe9f7;
+    }
+
+    .chip button {
+      appearance: none;
+      border: 0;
+      padding: 0;
+      background: transparent;
+      color: var(--accent-2);
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .status-card {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 6px;
+      background: var(--panel-soft);
+      font-size: 10px;
+      line-height: 1.15;
+    }
+
+    .status-card strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 11px;
+    }
+
+    .runtime-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .runtime-item {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 6px;
+      background: var(--panel-soft);
+      font-size: 10px;
+      line-height: 1.15;
+    }
+
+    .runtime-item .rt-label {
+      color: var(--muted);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 2px;
+    }
+
+    .runtime-item .rt-value {
+      word-break: break-word;
+    }
+
+    .verdict-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .verdict-chip {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 5px 6px;
+      background: var(--panel-soft);
+      font-size: 9px;
+      line-height: 1.15;
+    }
+
+    .verdict-chip strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 10px;
+      color: var(--text);
+    }
+
+    .mcp-panel {
+      display: grid;
+      gap: 6px;
+      border: 1px solid rgba(111,174,255,.22);
+      border-radius: 9px;
+      padding: 7px 8px;
+      background: rgba(255,255,255,.035);
+    }
+
+    .mcp-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .mcp-panel-title {
+      color: #d7e2f1;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .mcp-panel-summary {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.25;
+    }
+
+    .mcp-panel-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 4px;
+    }
+
+    .mcp-state {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 5px 6px;
+      background: var(--panel-soft);
+      font-size: 9px;
+      line-height: 1.15;
+    }
+
+    .mcp-state-label {
+      color: var(--muted);
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .mcp-state-value {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .mcp-state[data-state="healthy"],
+    .mcp-state[data-state="configured"],
+    .mcp-state[data-state="attached"],
+    .mcp-state[data-state="ready"],
+    .mcp-state[data-state="none"] { border-color: rgba(71,213,154,.35); }
+
+    .mcp-state[data-state="degraded"],
+    .mcp-state[data-state="warning"],
+    .mcp-state[data-state="pending"],
+    .mcp-state[data-state="unverified"],
+    .mcp-state[data-state="native MCP"],
+    .mcp-state[data-state="native MCP live; current session unverified"],
+    .mcp-state[data-state="native MCP transport ready; session idle or detached"] { border-color: rgba(243,188,87,.42); }
+
+    .mcp-state[data-state="unavailable"],
+    .mcp-state[data-state="detached"],
+    .mcp-state[data-state="detected"],
+    .mcp-state[data-state="MCP unavailable"] { border-color: rgba(251,113,133,.48); }
+
+    .mcp-panel-detail {
+      color: var(--muted);
+      font-size: 9px;
+      line-height: 1.3;
+    }
+
+    .ok { color: var(--ok); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+
+    details.group {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(255,255,255,.025);
+      overflow: hidden;
+    }
+
+    details.group > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 8px;
+      font-weight: 600;
+      font-size: 11px;
+      color: #eaf1fb;
+    }
+
+    details.group > summary::-webkit-details-marker { display: none; }
+
+    details.group > summary::after {
+      content: "+";
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    details.group[open] > summary::after { content: "−"; }
+
+    .group-body {
+      padding: 0 8px 8px;
+      display: grid;
+      gap: 6px;
+    }
+
+    .compact-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 5px;
+    }
+
+    .field,
+    .field-wide {
+      display: grid;
+      gap: 3px;
+    }
+
+    .field-wide { grid-column: 1 / -1; }
+
+    .field label,
+    .field-wide label {
+      font-size: 9px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .field input,
+    .field textarea,
+    .field select,
+    .field-wide input,
+    .field-wide textarea,
+    .field-wide select {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255,255,255,.03);
+      color: var(--text);
+      padding: 6px 7px;
+      font: inherit;
+      font-size: 10px;
+    }
+
+    .field textarea,
+    .field-wide textarea {
+      min-height: 34px;
+      resize: vertical;
+    }
+
+    .button-row {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+    }
+
+    .note {
+      border-left: 3px solid var(--warn);
+      padding-left: 6px;
+      color: var(--muted);
+      line-height: 1.15;
+      font-size: 10px;
+    }
+
+    details.raw {
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      padding: 0;
+    }
+
+    details.raw > summary {
+      cursor: pointer;
+      padding: 6px 8px;
+      color: var(--muted);
+      font-size: 10px;
+      list-style: none;
+    }
+
+    details.raw > summary::-webkit-details-marker { display: none; }
+
+    .code {
+      margin: 0;
+      padding: 0 8px 8px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 9px;
+      line-height: 1.2;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: #dce8f8;
+    }
+
+    @media (max-width: 980px) {
+      .dashboard,
+      .compact-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1fr;
+        align-items: start;
+      }
+
+      .toolbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .micro-grid { grid-template-columns: 1fr; }
+      .status-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .runtime-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+      .pill-row {
+        justify-content: start;
+      }
+    }
+
+    @media (max-width: 680px) {
+      body { padding: 4px; }
+
+      .hero h1 { font-size: 14px; }
+
+      .toolbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+      .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+      .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+      .field-grid { grid-template-columns: 1fr; }
+
+      .runtime-grid,
+      .verdict-strip { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="panel hero">
+      <div>
+        <h1>BHM Workbench</h1>
+        <p>Compact control surface for profiles, rituals, lessons, slots, audit, and live checks on this Windows Codex workstation.</p>
+      </div>
+      <div class="pill-row">
+        <div class="pill">recommended: low-context</div>
+        <div class="pill">plugin path: working</div>
+        <div class="pill">bridge: proven</div>
+      </div>
+    </section>
+
+    <section class="dashboard">
+      <section class="panel">
+        <div class="toolbar">
+          <button class="action-btn" id="quick-doctor-activate">Connect</button>
+          <button class="action-btn" id="quick-start-ritual">Start ritual</button>
+          <button class="action-btn" id="quick-close-ritual">Close ritual</button>
+          <button class="action-btn" id="quick-discovery">Discovery</button>
+          <button class="action-btn" data-copy='powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-run-live-memory-check.ps1 -Title "bhm-ui-check"' data-api="/api/live-check" data-method="POST">Live check</button>
+          <button class="action-btn" data-copy='powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-profile.ps1 -Action low-context -RestartWorker' data-api="/api/low-context" data-method="POST">Low</button>
+          <button class="action-btn" data-copy='powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-profile.ps1 -Action standard -RestartWorker' data-api="/api/standard" data-method="POST">Standard</button>
+          <button class="action-btn" data-copy='powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-profile.ps1 -Action status' data-api="/api/status" data-method="GET">Status</button>
+          <button class="action-btn" data-copy='powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-profile.ps1 -Action compare' data-api="/api/compare" data-method="POST">Compare</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="kpis">
+          <div class="kpi">
+            <div class="label">Profile</div>
+            <div class="value" id="kpi-profile">...</div>
+            <div class="subvalue" id="kpi-recommended">recommended: low-context</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Token budget</div>
+            <div class="value" id="kpi-budget">...</div>
+            <div class="subvalue" id="kpi-obs">max obs: ...</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Chunk size</div>
+            <div class="value" id="kpi-chunk">...</div>
+            <div class="subvalue" id="kpi-graph">graph batch: ...</div>
+          </div>
+          <div class="kpi">
+            <div class="label">Project</div>
+            <div class="value" id="kpi-project">workspace</div>
+            <div class="subvalue">active ritual target</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="verdict-strip">
+          <div class="verdict-chip">Runtime<strong id="vd-runtime">...</strong></div>
+          <div class="verdict-chip">Viewer<strong id="vd-viewer">...</strong></div>
+          <div class="verdict-chip">Root API<strong id="vd-root-api">...</strong></div>
+          <div class="verdict-chip">Recommendation<strong id="vd-reco">...</strong></div>
+        </div>
+      </section>
+
+      <section class="panel mcp-panel" aria-labelledby="mcp-panel-title">
+        <div class="mcp-panel-head">
+          <div class="mcp-panel-title" id="mcp-panel-title">MCP connection truth</div>
+          <div class="pill-row">
+            <button class="ghost" id="refresh-mcp-panel" type="button">Refresh</button>
+            <button class="ghost" id="preview-mcp-repair" type="button">Repair preview</button>
+          </div>
+        </div>
+        <div class="mcp-panel-summary" id="mcp-panel-summary">Loading configured, connected, catalog and runtime states...</div>
+        <div class="mcp-panel-grid" id="mcp-panel-grid">
+          <div class="mcp-state" data-mcp-state="configured"><span class="mcp-state-label">Configured</span><span class="mcp-state-value">Loading</span></div>
+          <div class="mcp-state" data-mcp-state="connected"><span class="mcp-state-label">Connected</span><span class="mcp-state-value">Loading</span></div>
+          <div class="mcp-state" data-mcp-state="catalog"><span class="mcp-state-label">Catalog-ready</span><span class="mcp-state-value">Loading</span></div>
+          <div class="mcp-state" data-mcp-state="runtime"><span class="mcp-state-label">Runtime healthy</span><span class="mcp-state-value">Loading</span></div>
+          <div class="mcp-state" data-mcp-state="rest"><span class="mcp-state-label">REST / MCP</span><span class="mcp-state-value">Loading</span></div>
+          <div class="mcp-state" data-mcp-state="schema"><span class="mcp-state-label">Schema drift</span><span class="mcp-state-value">Loading</span></div>
+        </div>
+        <div class="mcp-panel-detail" id="mcp-panel-detail">Last error/reconnect and client versions are not loaded yet.</div>
+      </section>
+
+      <section class="panel">
+        <div class="summary" id="result-summary">No action has been run yet.</div>
+      </section>
+
+      <details class="group">
+        <summary>Resolved Runtime</summary>
+        <div class="group-body">
+          <div class="runtime-grid">
+            <div class="runtime-item">
+              <div class="rt-label">Resolved API</div>
+              <div class="rt-value" id="rt-api">...</div>
+            </div>
+            <div class="runtime-item">
+              <div class="rt-label">Resolved Viewer</div>
+              <div class="rt-value" id="rt-viewer">...</div>
+            </div>
+            <div class="runtime-item">
+              <div class="rt-label">Engine / OTel</div>
+              <div class="rt-value" id="rt-engine">...</div>
+            </div>
+            <div class="runtime-item">
+              <div class="rt-label">Env / LLM base</div>
+              <div class="rt-value" id="rt-env">...</div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="group">
+        <summary>Recent Results</summary>
+        <div class="group-body">
+          <div class="micro-grid">
+            <div class="micro-panel">
+              <div class="micro-title">Latest IDs</div>
+              <div class="result-list" id="latest-ids">No ids captured yet.</div>
+            </div>
+            <div class="micro-panel">
+              <div class="micro-title">Lessons / Insights</div>
+              <div class="result-list" id="result-lessons">No lesson or insight results yet.</div>
+            </div>
+            <div class="micro-panel">
+              <div class="micro-title">Slots / Ops</div>
+              <div class="result-list" id="result-ops">No slot, audit, or timeline results yet.</div>
+            </div>
+          </div>
+        </div>
+      </details>
+
+      <details class="group">
+        <summary>Runtime Notes</summary>
+        <div class="group-body">
+          <div class="status-grid">
+            <div class="status-card">Bridge<strong class="ok">working</strong></div>
+            <div class="status-card">Install / update<strong class="ok">working</strong></div>
+            <div class="status-card">Low-context<strong class="ok">recommended</strong></div>
+            <div class="status-card">Native hooks<strong class="warn">not required</strong></div>
+            <div class="status-card">Local custom panel<strong class="warn">experimental</strong></div>
+          </div>
+          <div class="note">
+            This is a plugin-local localhost workbench. If Codex desktop does not render a true embedded custom panel, the same UI stays usable in the in-app browser.
+          </div>
+          <details class="raw">
+            <summary>Raw command / JSON details</summary>
+            <div class="code" id="command-preview">Use Run to execute through the local workbench server. If the server is unavailable, the button still copies the command.</div>
+          </details>
+        </div>
+      </details>
+    </section>
+
+    <section class="panel">
+      <div class="compact-grid">
+        <details class="group" open>
+          <summary>Ritual</summary>
+          <div class="group-body">
+            <div class="field-grid">
+              <div class="field">
+                <label for="project">Project</label>
+                <input id="project" value="e-github-workspace">
+              </div>
+              <div class="field">
+                <label for="session-title">Session title</label>
+                <input id="session-title" value="bhm-workbench-ui">
+              </div>
+              <div class="field-wide">
+                <label for="checkpoint-done">Done</label>
+                <textarea id="checkpoint-done">updated the BHM workbench panel</textarea>
+              </div>
+              <div class="field-wide">
+                <label for="checkpoint-next">Next</label>
+                <textarea id="checkpoint-next">connect more memory functions into the panel</textarea>
+              </div>
+              <div class="field">
+                <label for="checkpoint-checks">Checks</label>
+                <input id="checkpoint-checks" value="workbench server ok; status api ok">
+              </div>
+              <div class="field">
+                <label for="checkpoint-risks">Risks</label>
+                <input id="checkpoint-risks" value="custom plugin panel pickup still experimental">
+              </div>
+              <div class="field">
+                <label for="session-decisions">Decisions</label>
+                <input id="session-decisions" value="use low-context as workstation default">
+              </div>
+              <div class="field">
+                <label for="session-files">Files touched</label>
+                <input id="session-files" value="bhm-workbench.html, bhm-workbench-server.mjs">
+              </div>
+              <div class="field-wide">
+                <label for="session-notes">Conversation notes</label>
+                <textarea id="session-notes">Expanded the panel from profile control toward a broader memory workbench.</textarea>
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="mini" id="run-checkpoint">Checkpoint</button>
+              <button class="mini" id="run-session-record">Session record</button>
+              <button class="mini" id="run-preflight">Preflight</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="group">
+          <summary>Lessons</summary>
+          <div class="group-body">
+            <div class="field-grid">
+              <div class="field-wide">
+                <label for="lesson-content">Lesson content</label>
+                <textarea id="lesson-content">Low-context is the safe default for this workstation when BHM uses a small-context local LLM.</textarea>
+              </div>
+              <div class="field">
+                <label for="lesson-context">Context</label>
+                <input id="lesson-context" value="BHM workbench profile tuning">
+              </div>
+              <div class="field">
+                <label for="lesson-tags">Tags</label>
+                <input id="lesson-tags" value="bhm,profile,low-context,workspace">
+              </div>
+              <div class="field">
+                <label for="lesson-query">Recall query</label>
+                <input id="lesson-query" value="low-context profile workstation">
+              </div>
+              <div class="field">
+                <label for="strengthen-lesson-id">Strengthen lesson id</label>
+                <input id="strengthen-lesson-id" value="">
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="mini" id="run-lesson-save">Save</button>
+              <button class="mini" id="run-lesson-recall">Recall</button>
+              <button class="mini" id="run-lesson-strengthen">Strengthen</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="group">
+          <summary>Slots</summary>
+          <div class="group-body">
+            <div class="field-grid">
+              <div class="field">
+                <label for="slot-label">Slot label</label>
+                <input id="slot-label" value="guidance">
+              </div>
+              <div class="field-wide">
+                <label for="slot-content">Slot content</label>
+                <textarea id="slot-content">Prefer low-context on this workstation unless a future compare run proves otherwise.</textarea>
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="mini" id="run-slot-get">Get</button>
+              <button class="mini" id="run-slot-replace">Replace</button>
+              <button class="mini" id="run-slot-list">List</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="group">
+          <summary>Inspect</summary>
+          <div class="group-body">
+            <div class="field-grid">
+              <div class="field">
+                <label for="verify-id">Verify memory id</label>
+                <input id="verify-id" value="">
+              </div>
+              <div class="field">
+                <label for="timeline-anchor">Timeline anchor id</label>
+                <input id="timeline-anchor" value="">
+              </div>
+              <div class="field">
+                <label for="audit-limit">Audit limit</label>
+                <input id="audit-limit" value="20">
+              </div>
+              <div class="field">
+                <label for="audit-operation">Audit operation</label>
+                <input id="audit-operation" value="">
+              </div>
+              <div class="field-wide">
+                <label for="reflect-query">Insight search query</label>
+                <input id="reflect-query" value="low-context profile workstation">
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="mini" id="run-verify">Verify</button>
+              <button class="mini" id="run-timeline">Timeline</button>
+              <button class="mini" id="run-audit">Audit</button>
+              <button class="mini" id="run-reflect">Reflect</button>
+              <button class="mini" id="run-insights">Insights</button>
+              <button class="mini" id="run-insight-search">Search insights</button>
+              <button class="mini" id="run-profile-view">Profile</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="group">
+          <summary>Export / Crystal</summary>
+          <div class="group-body">
+            <div class="field-grid">
+              <div class="field">
+                <label for="crystallize-action-ids">Crystallize actionIds</label>
+                <input id="crystallize-action-ids" value="">
+              </div>
+              <div class="field">
+                <label for="crystallize-session-id">Crystallize sessionId</label>
+                <input id="crystallize-session-id" value="">
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="mini" id="run-crystallize">Crystallize</button>
+              <button class="mini" id="run-obsidian-export">Obsidian export</button>
+            </div>
+          </div>
+        </details>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const preview = document.getElementById("command-preview");
+    const summary = document.getElementById("result-summary");
+    const kpiProfile = document.getElementById("kpi-profile");
+    const kpiRecommended = document.getElementById("kpi-recommended");
+    const kpiBudget = document.getElementById("kpi-budget");
+    const kpiObs = document.getElementById("kpi-obs");
+    const kpiChunk = document.getElementById("kpi-chunk");
+    const kpiGraph = document.getElementById("kpi-graph");
+    const latestIds = document.getElementById("latest-ids");
+    const resultLessons = document.getElementById("result-lessons");
+    const resultOps = document.getElementById("result-ops");
+    const kpiProject = document.getElementById("kpi-project");
+    const rtApi = document.getElementById("rt-api");
+    const rtViewer = document.getElementById("rt-viewer");
+    const rtEngine = document.getElementById("rt-engine");
+    const rtEnv = document.getElementById("rt-env");
+    const vdRuntime = document.getElementById("vd-runtime");
+    const vdViewer = document.getElementById("vd-viewer");
+    const vdRootApi = document.getElementById("vd-root-api");
+    const vdReco = document.getElementById("vd-reco");
+    const mcpPanelSummary = document.getElementById("mcp-panel-summary");
+    const mcpPanelDetail = document.getElementById("mcp-panel-detail");
+    const mcpRepairPreviewButton = document.getElementById("preview-mcp-repair");
+    const mcpPanelStates = new Map(
+      Array.from(document.querySelectorAll("[data-mcp-state]")).map((item) => [
+        item.dataset.mcpState,
+        { root: item, value: item.querySelector(".mcp-state-value") }
+      ])
+    );
+
+    function textNode(value) {
+      return document.createTextNode(String(value ?? ""));
+    }
+
+    function strongNode(value, tone = "") {
+      const node = document.createElement("strong");
+      node.textContent = String(value ?? "");
+      if (["ok", "warn", "bad"].includes(tone)) node.className = tone;
+      return node;
+    }
+
+    function setNodes(target, ...parts) {
+      target.replaceChildren(...parts.map((part) => (
+        part && typeof part === "object" && "nodeType" in part ? part : textNode(part)
+      )));
+    }
+
+    const workbenchCapabilityStorageKey = "bhm.workbench.capability.v1";
+
+    function loadWorkbenchCapability() {
+      const params = new URLSearchParams(window.location.hash.slice(1));
+      const fromFragment = params.get("bhm-workbench-capability") || "";
+      if (fromFragment) {
+        try { window.sessionStorage.setItem(workbenchCapabilityStorageKey, fromFragment); } catch {}
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        return fromFragment;
+      }
+      try { return window.sessionStorage.getItem(workbenchCapabilityStorageKey) || ""; } catch { return ""; }
+    }
+
+    const workbenchCapability = loadWorkbenchCapability();
+
+    async function apiFetch(path, options = {}) {
+      if (!workbenchCapability) {
+        throw new Error("Workbench session capability is missing; relaunch the Workbench through its controlled launcher.");
+      }
+      const headers = new Headers(options.headers || {});
+      headers.set("Authorization", `Bearer ${workbenchCapability}`);
+      return fetch(path, { ...options, headers, credentials: "same-origin" });
+    }
+
+    function resultItemNode(title, detail) {
+      const item = document.createElement("div");
+      item.className = "result-item";
+      const detailNode = document.createElement("div");
+      detailNode.textContent = String(detail ?? "");
+      item.replaceChildren(strongNode(title), detailNode);
+      return item;
+    }
+
+    function actionButton(label, datasetKey, value, fieldId) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.dataset[datasetKey] = String(value ?? "");
+      button.addEventListener("click", () => setFieldValue(fieldId, button.dataset[datasetKey]));
+      chip.append(button);
+      return chip;
+    }
+
+    function setFieldValue(id, value) {
+      const element = document.getElementById(id);
+      if (element) element.value = value;
+    }
+
+    function syncProjectKpi() {
+      const project = document.getElementById("project")?.value || "workspace";
+      kpiProject.textContent = project === "e-github-workspace" ? "workspace" : project;
+    }
+
+    function renderLatestIds(ids) {
+      if (!ids || ids.length === 0) {
+        latestIds.textContent = "No ids captured yet.";
+        return;
+      }
+      const rows = ids.map((item) => {
+        const row = document.createElement("div");
+        row.className = "result-item";
+        const title = document.createElement("div");
+        title.append(strongNode(item.kind));
+        const idRow = document.createElement("div");
+        idRow.className = "id-row";
+        const idChip = document.createElement("span");
+        idChip.className = "chip";
+        idChip.textContent = String(item.id ?? "");
+        idRow.replaceChildren(
+          idChip,
+          actionButton("verify", "fillVerify", item.id, "verify-id"),
+          actionButton("timeline", "fillTimeline", item.id, "timeline-anchor"),
+          actionButton("strengthen", "fillStrengthen", item.id, "strengthen-lesson-id")
+        );
+        row.replaceChildren(title, idRow);
+        return row;
+      });
+      latestIds.replaceChildren(...rows);
+    }
+
+    function captureIds(payload) {
+      const items = [];
+      const maybePush = (kind, id) => {
+        if (id && !items.some((entry) => entry.id === id)) items.push({ kind, id });
+      };
+
+      maybePush("memory", payload?.memory?.id);
+      maybePush("lesson", payload?.lesson?.lesson?.id);
+      maybePush("lesson", payload?.lesson?.id);
+      maybePush("slot", payload?.slot?.label);
+      maybePush("crystal", payload?.crystalId);
+      maybePush("crystal", payload?.crystal?.id);
+
+      if (Array.isArray(payload?.lessons)) {
+        for (const lesson of payload.lessons.slice(0, 5)) maybePush("lesson", lesson.id || lesson.lessonId);
+      }
+      if (Array.isArray(payload?.entries)) {
+        for (const entry of payload.entries.slice(0, 5)) maybePush("audit", entry.id);
+      }
+      if (Array.isArray(payload?.items)) {
+        for (const item of payload.items.slice(0, 5)) maybePush("timeline", item.id || item.obsId);
+      }
+      if (Array.isArray(payload?.insights?.insights)) {
+        for (const insight of payload.insights.insights.slice(0, 5)) maybePush("insight", insight.id || insight.obsId);
+      }
+
+      if (items.length) renderLatestIds(items);
+    }
+
+    function renderLessons(payload) {
+      const rows = [];
+      const lessons = payload?.lessons || payload?.data?.lessons;
+      const insights = payload?.insights?.insights || payload?.data?.insights?.insights;
+      const profile = payload?.profile?.profile || payload?.data?.profile?.profile;
+
+      if (Array.isArray(lessons)) {
+        for (const lesson of lessons.slice(0, 4)) {
+          rows.push(resultItemNode(lesson.id || lesson.lessonId || "lesson", lesson.content || lesson.title || ""));
+        }
+      }
+      if (Array.isArray(insights)) {
+        for (const insight of insights.slice(0, 4)) {
+          rows.push(resultItemNode(insight.id || insight.obsId || "insight", insight.title || insight.content || ""));
+        }
+      }
+      if (profile) {
+        rows.push(resultItemNode("Project profile", `sessions: ${profile.sessionCount}; observations: ${profile.totalObservations}`));
+      }
+
+      if (rows.length) resultLessons.replaceChildren(...rows);
+      else resultLessons.textContent = "No lesson or insight results yet.";
+    }
+
+    function renderOps(payload) {
+      const rows = [];
+      if (Array.isArray(payload?.slots)) {
+        for (const slot of payload.slots.slice(0, 4)) {
+          rows.push(resultItemNode(slot.label, (slot.content || "").slice(0, 120)));
+        }
+      }
+      if (payload?.slot) {
+        rows.push(resultItemNode(payload.slot.label, (payload.slot.content || "").slice(0, 120)));
+      }
+      if (Array.isArray(payload?.entries)) {
+        for (const entry of payload.entries.slice(0, 4)) {
+          rows.push(resultItemNode(entry.operation || entry.id, entry.id || ""));
+        }
+      }
+      if (Array.isArray(payload?.items)) {
+        for (const item of payload.items.slice(0, 4)) {
+          rows.push(resultItemNode(item.title || item.id || item.obsId || "timeline item", item.id || item.obsId || ""));
+        }
+      }
+      if (payload?.session_log) {
+        rows.push(resultItemNode("Session log", payload.relative_path || payload.session_log));
+      }
+      if (payload?.artifact_dir) {
+        rows.push(resultItemNode("Live check", payload.artifact_dir));
+      }
+
+      if (rows.length) resultOps.replaceChildren(...rows);
+      else resultOps.textContent = "No slot, audit, or timeline results yet.";
+    }
+
+    function inferProfile(current, recommended) {
+      if (!current) return "...";
+      if (
+        current.token_budget === "350" &&
+        current.max_obs_per_session === "80" &&
+        current.summarize_chunk_size === "40" &&
+        current.graph_extraction_batch_size === "1"
+      ) {
+        return "low-context";
+      }
+      if (
+        current.token_budget === "600" &&
+        current.max_obs_per_session === "120" &&
+        current.summarize_chunk_size === "80" &&
+        current.graph_extraction_batch_size === "2"
+      ) {
+        return "standard";
+      }
+      return recommended || "custom";
+    }
+
+    function renderRuntime(payload) {
+      const current = payload?.current || {};
+      const recommended = payload?.recommended || "low-context";
+      kpiProfile.textContent = inferProfile(current, recommended);
+      kpiRecommended.textContent = `recommended: ${recommended}`;
+      kpiBudget.textContent = current.token_budget ?? "...";
+      kpiObs.textContent = `max obs: ${current.max_obs_per_session ?? "..."}`;
+      kpiChunk.textContent = current.summarize_chunk_size ?? "...";
+      kpiGraph.textContent = `graph batch: ${current.graph_extraction_batch_size ?? "..."}`;
+    }
+
+    function renderRuntimeDiscovery(payload) {
+      rtApi.textContent = payload?.resolved?.api_url || "...";
+      rtViewer.textContent = payload?.resolved?.viewer_url || "...";
+      rtEngine.textContent = `${payload?.resolved?.engine_url || "..."} | ${payload?.resolved?.otel_url || "..."}`;
+      rtEnv.textContent = payload?.env?.loaded
+        ? `${payload?.env?.path || ""} | ${payload?.resolved?.llm_base_url || "no llm base"}`
+        : "env not found";
+      vdRuntime.textContent = payload?.verdict?.runtime_health || "...";
+      vdViewer.textContent = payload?.verdict?.viewer_health || "...";
+      vdRootApi.textContent = payload?.verdict?.root_api || "...";
+      vdReco.textContent = payload?.verdict?.recommendation || "...";
+    }
+
+    function renderMcpPanel(payload) {
+      const panel = payload?.data || payload || {};
+      if (panel.error) {
+        mcpPanelSummary.textContent = `MCP panel unavailable: ${panel.error}`;
+        mcpPanelDetail.textContent = "Read-only refresh failed; runtime discovery remains independent.";
+        for (const item of mcpPanelStates.values()) {
+          item.root.dataset.state = "unavailable";
+          item.value.textContent = "unavailable";
+        }
+        return;
+      }
+      const overall = panel.overall || {};
+      const configured = panel.configured || {};
+      const connected = panel.connected || {};
+      const catalog = panel.catalog || {};
+      const runtime = panel.runtime || {};
+      const rest = panel.rest_degraded || {};
+      const drift = panel.schema_drift || {};
+      const setState = (name, value, state = value) => {
+        const item = mcpPanelStates.get(name);
+        if (!item) return;
+        item.root.dataset.state = String(state || "unknown");
+        item.value.textContent = String(value || "unknown");
+      };
+      mcpPanelSummary.textContent = `Overall ${overall.state || "unknown"} · ${overall.reason_code || "no reason"}. ` +
+        `Configured ${Number(configured.configured_count || 0)}/${Number(configured.source_count || 0)} · ` +
+        `connected ${connected.state || "unknown"} · catalog ${catalog.state || "unknown"} · runtime ${runtime.state || "unknown"}.`;
+      setState("configured", configured.state, configured.state);
+      setState("connected", connected.state, connected.state);
+      setState("catalog", catalog.state, catalog.state);
+      setState("runtime", runtime.state, runtime.state);
+      setState("rest", rest.status, rest.status);
+      setState("schema", drift.state, drift.state);
+      const versions = Array.isArray(connected.client_versions)
+        ? connected.client_versions.slice(0, 8).map(item => `${item.version || "unknown"}/${item.surface || "unknown"} ×${Number(item.count || 0)}`)
+        : [];
+      const lastError = panel.errors && panel.errors.last_error;
+      const lastReconnect = panel.errors && panel.errors.last_reconnect;
+      mcpPanelDetail.textContent = [
+        `Clients: ${versions.length ? versions.join(", ") : "none live"}`,
+        `Catalog: ${catalog.generation ? "bound generation present" : "generation unverified"}`,
+        `Last error: ${lastError ? `${lastError.state || "unknown"} · ${lastError.reason || "unknown"}` : "none"}`,
+        `Last reconnect: ${lastReconnect ? `${lastReconnect.reason || "unknown"} · ${lastReconnect.error_code || "unknown"}` : "none"}`,
+        `Recovery: ${rest.recovery_action || "verify runtime and canonical MCP transport, then re-probe"}`
+      ].join(" ");
+    }
+
+    async function refreshMcpPanel() {
+      mcpPanelSummary.textContent = "Loading configured, connected, catalog and runtime states...";
+      try {
+        const response = await apiFetch("/api/mcp-panel", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "mcp panel endpoint failed");
+        renderMcpPanel(payload);
+      } catch (error) {
+        renderMcpPanel({ error: error?.message || "mcp panel endpoint failed" });
+      }
+    }
+
+    async function previewMcpRepair() {
+      mcpRepairPreviewButton.disabled = true;
+      mcpPanelDetail.textContent = "Building a BHM-only repair preview...";
+      try {
+        const response = await apiFetch("/api/mcp-repair/preview", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "mcp repair preview failed");
+        const action = payload.action || payload.plan?.reconnect || {};
+        const rollback = payload.rollback || payload.plan?.rollback || {};
+        mcpPanelDetail.textContent = [
+          `Scope: ${payload.scope?.mode || "bhm-only"} (${(payload.scope?.clients || []).join(", ")})`,
+          `Action: ${action.status || "unknown"}`,
+          `Recommendation: ${payload.recommendation || "re-probe the canonical BHM transport"}`,
+          `Rollback: ${rollback.status || "no_durable_change"}`,
+          "No foreign MCP server is touched."
+        ].join(" ");
+      } catch (error) {
+        mcpPanelDetail.textContent = `Repair preview unavailable: ${error?.message || String(error)}`;
+      } finally {
+        mcpRepairPreviewButton.disabled = false;
+      }
+    }
+
+    function getDoctorUiState(payload) {
+      const activated = (payload?.autonomous_activated || []).length;
+      const failed = (payload?.autonomous_failed || []).length;
+      const verdict = payload?.final_verdict || "";
+      const mcpTransport = payload?.mcp_transport || {};
+
+      if (mcpTransport.status === "MCP unavailable") {
+        return { label: "REST bridge / MCP unavailable", tone: "warn", activated, failed };
+      }
+      if (mcpTransport.native_mcp?.streamable_http_ready === true && mcpTransport.native_mcp?.runtime_lease_live !== true) {
+        return { label: "MCP transport ready / session idle", tone: "warn", activated, failed };
+      }
+      if (mcpTransport.mcp_available === false) {
+        return { label: "REST bridge / native MCP session unverified", tone: "warn", activated, failed };
+      }
+
+      if (failed === 0 && /ПОДКЛЮЧЕН$/u.test(verdict)) {
+        return { label: "connected", tone: "ok", activated, failed };
+      }
+      if (/ЧАСТИЧНО/u.test(verdict) || failed > 0) {
+        return { label: "warning", tone: "warn", activated, failed };
+      }
+      return { label: "errors", tone: "bad", activated, failed };
+    }
+
+    function renderSummary(json) {
+      const payload = json && json.data ? json.data : json;
+      captureIds(payload);
+      renderLessons(payload);
+      renderOps(payload);
+      if (!payload || typeof payload !== "object") {
+        setNodes(summary, strongNode("Result:"), " action finished, but no structured payload was returned.");
+        return;
+      }
+
+      if (payload.action === "status") {
+        renderRuntime(payload);
+        setNodes(
+          summary,
+          strongNode("Status:"), " recommended profile is ", strongNode(payload.recommended || "unknown"), ". ",
+          "Budget ", strongNode(payload.current?.token_budget ?? "?"), ", chunk ",
+          strongNode(payload.current?.summarize_chunk_size ?? "?"), ", graph ",
+          strongNode(payload.current?.graph_extraction_batch_size ?? "?"), "."
+        );
+        return;
+      }
+
+      if (payload.action === "runtime-discovery") {
+        renderRuntimeDiscovery(payload);
+        setNodes(
+          summary,
+          strongNode("Runtime discovery:"), " root API ", strongNode(payload?.verdict?.root_api ?? "?"),
+          ", health ", strongNode(payload?.verdict?.runtime_health ?? "?"),
+          ", viewer ", strongNode(payload?.verdict?.viewer_health ?? "?"), "."
+        );
+        return;
+      }
+
+      if (payload.action === "bhm-doctor-activate-v2") {
+        const doctor = getDoctorUiState(payload);
+        setNodes(
+          summary,
+          strongNode(doctor.label, doctor.tone), ". Active modules: ", strongNode(doctor.activated),
+          ". Warnings/errors: ", strongNode(doctor.failed), ". Runtime: ",
+          strongNode(payload?.summary?.health_ok ? "active" : "down"), "."
+        );
+        return;
+      }
+
+      if (payload.action === "bhm-doctor-activate") {
+        const doctor = getDoctorUiState(payload);
+        setNodes(
+          summary,
+          strongNode(doctor.label, doctor.tone), ". Автономно активировано: ",
+          strongNode((payload?.autonomous_activated || []).length), ". Сбоев: ",
+          strongNode((payload?.autonomous_failed || []).length), "."
+        );
+        return;
+      }
+
+      if (payload.action === "start-task-ritual") {
+        renderRuntime(payload.status || {});
+        renderRuntimeDiscovery(payload.discovery || {});
+        setNodes(
+          summary,
+          strongNode("Start ritual complete:"), " project ", strongNode(payload.project), ". Runtime ",
+          strongNode(payload?.discovery?.verdict?.recommendation ?? "?"), ". Preflight loaded."
+        );
+        return;
+      }
+
+      if (payload.action === "close-task-ritual") {
+        captureIds(payload.checkpoint || {});
+        renderOps(payload.session_record || {});
+        setNodes(
+          summary,
+          strongNode("Close ritual complete:"), " checkpoint and session record saved for ",
+          strongNode(payload.project), "."
+        );
+        return;
+      }
+
+      if (payload.profile) {
+        const restart = payload.worker_restart || {};
+        const restartStatus = restart.health || restart.status || "restart info unavailable";
+        if (payload.profile === "low-context") {
+          renderRuntime({
+            current: {
+              token_budget: "350",
+              max_obs_per_session: "80",
+              summarize_chunk_size: "40",
+              graph_extraction_batch_size: "1"
+            },
+            recommended: "low-context"
+          });
+        }
+        if (payload.profile === "standard") {
+          renderRuntime({
+            current: {
+              token_budget: "600",
+              max_obs_per_session: "120",
+              summarize_chunk_size: "80",
+              graph_extraction_batch_size: "2"
+            },
+            recommended: "low-context"
+          });
+        }
+        setNodes(
+          summary,
+          strongNode("Profile applied:"), " ", strongNode(payload.profile), ". Updated keys: ",
+          strongNode(Array.isArray(payload.changed_keys) ? payload.changed_keys.length : "?"),
+          ". Worker: ", strongNode(restartStatus), "."
+        );
+        return;
+      }
+
+      if (payload.recommended_profile) {
+        setNodes(
+          summary,
+          strongNode("Compare:"), " recommended ", strongNode(payload.recommended_profile), ". Standard ",
+          strongNode(payload.scores?.standard ?? "?"), "; low-context ",
+          strongNode(payload.scores?.low_context ?? "?"), "."
+        );
+        return;
+      }
+
+      if (payload.project && payload.files) {
+        setNodes(
+          summary,
+          strongNode("Live check complete:"), " project ", strongNode(payload.project), ". Bundle: ",
+          strongNode(payload.artifact_dir || "live-memory-check"), "."
+        );
+        return;
+      }
+
+      if (payload.success && payload.memory) {
+        setNodes(
+          summary,
+          strongNode("Checkpoint saved:"), " ", strongNode(payload.memory.id), " for ",
+          strongNode(payload.memory.project), "."
+        );
+        return;
+      }
+
+      if (payload.session_log) {
+        setNodes(summary, strongNode("Session record saved:"), " ", strongNode(payload.relative_path), ".");
+        return;
+      }
+
+      if (payload.lesson || payload.lessons) {
+        const lessonId = payload.lesson?.lesson?.id || payload.lesson?.id;
+        const lessonCount = Array.isArray(payload.lessons) ? payload.lessons.length : null;
+        if (lessonId) {
+          setNodes(summary, strongNode("Lesson saved:"), " ", strongNode(lessonId), ".");
+          return;
+        }
+        if (lessonCount !== null) {
+          setNodes(summary, strongNode("Lessons recalled:"), " ", strongNode(lessonCount), " result(s).");
+          return;
+        }
+      }
+
+      if (payload.slot || payload.label || payload.content || payload.slots) {
+        const slotCount = Array.isArray(payload.slots) ? payload.slots.length : null;
+        if (slotCount !== null) {
+          setNodes(summary, strongNode("Slots listed:"), " ", strongNode(slotCount), ".");
+          return;
+        }
+        setNodes(summary, strongNode("Slot action complete."));
+        return;
+      }
+
+      if (payload.audit || payload.entries) {
+        const count = Array.isArray(payload.entries) ? payload.entries.length : "?";
+        setNodes(summary, strongNode("Audit loaded:"), " ", strongNode(count), ` entr${count === 1 ? "y" : "ies"}.`);
+        return;
+      }
+
+      if (payload.anchor || payload.items) {
+        const count = Array.isArray(payload.items) ? payload.items.length : "?";
+        setNodes(summary, strongNode("Timeline loaded:"), " ", strongNode(count), " item(s).");
+        return;
+      }
+
+      if (payload.verification || payload.verified || payload.id) {
+        setNodes(summary, strongNode("Verification complete."));
+        return;
+      }
+
+      if (payload.crystal || payload.crystalId) {
+        const crystalId = payload.crystalId || payload.crystal?.id || "created";
+        setNodes(summary, strongNode("Crystal created:"), " ", strongNode(crystalId), ".");
+        return;
+      }
+
+      if (payload.success && payload.exported) {
+        setNodes(summary, strongNode("Obsidian export complete."));
+        return;
+      }
+
+      setNodes(summary, strongNode("Result:"), " action finished. See raw details if needed.");
+    }
+
+    async function refreshStatus() {
+      try {
+        const response = await apiFetch("/api/status");
+        const json = await response.json();
+        const payload = json && json.data ? json.data : json;
+        renderRuntime(payload);
+        try {
+          const discoveryResponse = await apiFetch("/api/runtime-discovery");
+          const discoveryJson = await discoveryResponse.json();
+          const discoveryPayload = discoveryJson && discoveryJson.data ? discoveryJson.data : discoveryJson;
+          renderRuntimeDiscovery(discoveryPayload);
+        } catch {}
+        if (summary.textContent.includes("No action has been run yet.")) {
+          renderSummary(json);
+        }
+      } catch {
+        kpiProfile.textContent = "offline";
+        kpiBudget.textContent = "?";
+        kpiChunk.textContent = "?";
+      }
+    }
+
+    async function callApi(path, body) {
+      syncProjectKpi();
+      const response = await apiFetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {})
+      });
+      const json = await response.json();
+      renderSummary(json);
+      preview.textContent = JSON.stringify(json, null, 2);
+      return json;
+    }
+
+    for (const button of document.querySelectorAll("[data-copy]")) {
+      button.addEventListener("click", async () => {
+        const text = button.getAttribute("data-copy");
+        const api = button.getAttribute("data-api");
+        const method = button.getAttribute("data-method") || "GET";
+        preview.textContent = text;
+        const original = button.textContent;
+
+        if (api) {
+          button.textContent = "Running";
+          button.disabled = true;
+          try {
+            const response = await apiFetch(api, { method });
+            const json = await response.json();
+            renderSummary(json);
+            preview.textContent = JSON.stringify(json, null, 2);
+            button.textContent = response.ok ? "Done" : "Failed";
+            setTimeout(() => {
+              button.textContent = original;
+              button.disabled = false;
+            }, 1200);
+            return;
+          } catch {
+            // Fall back to copy mode when not hosted by the local workbench server.
+          }
+        }
+
+        try {
+          await navigator.clipboard.writeText(text);
+          setNodes(
+            summary,
+            strongNode("Command copied."), " Run it manually if the local workbench server is not handling this action."
+          );
+          button.textContent = "Copied";
+          setTimeout(() => {
+            button.textContent = original;
+            button.disabled = false;
+          }, 1000);
+        } catch {
+          button.textContent = "Shown";
+          setTimeout(() => {
+            button.textContent = original;
+            button.disabled = false;
+          }, 1000);
+        }
+      });
+    }
+
+    document.getElementById("project").addEventListener("input", syncProjectKpi);
+    document.getElementById("refresh-mcp-panel").addEventListener("click", refreshMcpPanel);
+    mcpRepairPreviewButton.addEventListener("click", previewMcpRepair);
+
+    const quickPreflight = document.getElementById("quick-preflight");
+    if (quickPreflight) {
+      quickPreflight.addEventListener("click", async () => {
+        await callApi("/api/preflight", { project: document.getElementById("project").value });
+      });
+    }
+
+    document.getElementById("quick-doctor-activate").addEventListener("click", async () => {
+      const button = document.getElementById("quick-doctor-activate");
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "Connecting";
+      setNodes(summary, strongNode("Connecting..."), " Running plugin doctor and activation flow.");
+      summary.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+      try {
+        const response = await apiFetch("/api/doctor-activate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            project: document.getElementById("project").value,
+            title: "bhm-doctor-activate"
+          })
+        });
+        const json = await response.json();
+        const payload = json && json.data ? json.data : json;
+        renderSummary(json);
+        preview.textContent = JSON.stringify(json, null, 2);
+
+        const activated = (payload?.autonomous_activated || []).length;
+        const failed = (payload?.autonomous_failed || []).length;
+        const healthOk = payload?.summary?.health_ok === true;
+        const label = failed === 0 && healthOk && activated > 0
+          ? "connected"
+          : (healthOk || activated > 0 ? "warning" : "errors");
+        const tone = label === "connected" ? "ok" : (label === "warning" ? "warn" : "bad");
+
+        setNodes(
+          summary,
+          strongNode(label, tone), ". Active modules: ", strongNode(activated),
+          ". Warnings/errors: ", strongNode(failed), ". Runtime: ", strongNode(healthOk ? "active" : "down"), "."
+        );
+      } catch (error) {
+        const message = error?.message || String(error);
+        setNodes(summary, strongNode("errors", "bad"), ". Request failed: ", strongNode(message), ".");
+        preview.textContent = message;
+      } finally {
+        button.textContent = original;
+        button.disabled = false;
+      }
+    });
+
+    document.getElementById("quick-discovery").addEventListener("click", async () => {
+      const response = await apiFetch("/api/runtime-discovery");
+      const json = await response.json();
+      const payload = json && json.data ? json.data : json;
+      renderRuntimeDiscovery(payload);
+      renderSummary(json);
+      preview.textContent = JSON.stringify(json, null, 2);
+    });
+
+    document.getElementById("quick-start-ritual").addEventListener("click", async () => {
+      await callApi("/api/start-task-ritual", {
+        project: document.getElementById("project").value
+      });
+    });
+
+    document.getElementById("quick-close-ritual").addEventListener("click", async () => {
+      await callApi("/api/close-task-ritual", {
+        project: document.getElementById("project").value,
+        title: document.getElementById("session-title").value,
+        done: document.getElementById("checkpoint-done").value,
+        next: document.getElementById("checkpoint-next").value,
+        checks: document.getElementById("checkpoint-checks").value,
+        risks: document.getElementById("checkpoint-risks").value,
+        decisions: document.getElementById("session-decisions").value,
+        filesTouched: document.getElementById("session-files").value,
+        conversationNotes: document.getElementById("session-notes").value
+      });
+    });
+
+    document.getElementById("run-preflight").addEventListener("click", async () => {
+      await callApi("/api/preflight", { project: document.getElementById("project").value });
+    });
+
+    document.getElementById("run-checkpoint").addEventListener("click", async () => {
+      await callApi("/api/checkpoint", {
+        project: document.getElementById("project").value,
+        done: document.getElementById("checkpoint-done").value,
+        next: document.getElementById("checkpoint-next").value,
+        checks: document.getElementById("checkpoint-checks").value,
+        risks: document.getElementById("checkpoint-risks").value
+      });
+    });
+
+    document.getElementById("run-session-record").addEventListener("click", async () => {
+      await callApi("/api/session-record", {
+        project: document.getElementById("project").value,
+        title: document.getElementById("session-title").value,
+        done: document.getElementById("checkpoint-done").value,
+        next: document.getElementById("checkpoint-next").value,
+        checks: document.getElementById("checkpoint-checks").value,
+        risks: document.getElementById("checkpoint-risks").value,
+        decisions: document.getElementById("session-decisions").value,
+        filesTouched: document.getElementById("session-files").value,
+        conversationNotes: document.getElementById("session-notes").value
+      });
+    });
+
+    document.getElementById("run-lesson-save").addEventListener("click", async () => {
+      await callApi("/api/lesson-save", {
+        project: document.getElementById("project").value,
+        content: document.getElementById("lesson-content").value,
+        context: document.getElementById("lesson-context").value,
+        tags: document.getElementById("lesson-tags").value
+      });
+    });
+
+    document.getElementById("run-lesson-recall").addEventListener("click", async () => {
+      await callApi("/api/lesson-recall", {
+        project: document.getElementById("project").value,
+        query: document.getElementById("lesson-query").value
+      });
+    });
+
+    document.getElementById("run-slot-get").addEventListener("click", async () => {
+      await callApi("/api/slot-get", {
+        project: document.getElementById("project").value,
+        label: document.getElementById("slot-label").value
+      });
+    });
+
+    document.getElementById("run-slot-replace").addEventListener("click", async () => {
+      await callApi("/api/slot-replace", {
+        project: document.getElementById("project").value,
+        label: document.getElementById("slot-label").value,
+        content: document.getElementById("slot-content").value
+      });
+    });
+
+    document.getElementById("run-verify").addEventListener("click", async () => {
+      await callApi("/api/verify", {
+        project: document.getElementById("project").value,
+        id: document.getElementById("verify-id").value
+      });
+    });
+
+    document.getElementById("run-timeline").addEventListener("click", async () => {
+      await callApi("/api/timeline", {
+        project: document.getElementById("project").value,
+        anchor: document.getElementById("timeline-anchor").value
+      });
+    });
+
+    document.getElementById("run-audit").addEventListener("click", async () => {
+      await callApi("/api/audit", {
+        project: document.getElementById("project").value,
+        limit: Number(document.getElementById("audit-limit").value || 20),
+        operation: document.getElementById("audit-operation").value
+      });
+    });
+
+    document.getElementById("run-lesson-strengthen").addEventListener("click", async () => {
+      await callApi("/api/lesson-strengthen", {
+        project: document.getElementById("project").value,
+        lessonId: document.getElementById("strengthen-lesson-id").value
+      });
+    });
+
+    document.getElementById("run-slot-list").addEventListener("click", async () => {
+      await callApi("/api/slot-list", {
+        project: document.getElementById("project").value
+      });
+    });
+
+    document.getElementById("run-crystallize").addEventListener("click", async () => {
+      await callApi("/api/crystallize", {
+        project: document.getElementById("project").value,
+        actionIds: document.getElementById("crystallize-action-ids").value,
+        sessionId: document.getElementById("crystallize-session-id").value
+      });
+    });
+
+    document.getElementById("run-reflect").addEventListener("click", async () => {
+      await callApi("/api/reflect", {
+        project: document.getElementById("project").value,
+        action: "reflect"
+      });
+    });
+
+    document.getElementById("run-insights").addEventListener("click", async () => {
+      await callApi("/api/reflect", {
+        project: document.getElementById("project").value,
+        action: "insights"
+      });
+    });
+
+    document.getElementById("run-insight-search").addEventListener("click", async () => {
+      await callApi("/api/reflect", {
+        project: document.getElementById("project").value,
+        action: "search",
+        query: document.getElementById("reflect-query").value
+      });
+    });
+
+    document.getElementById("run-profile-view").addEventListener("click", async () => {
+      await callApi("/api/profile-view", {
+        project: document.getElementById("project").value
+      });
+    });
+
+    document.getElementById("run-obsidian-export").addEventListener("click", async () => {
+      await callApi("/api/obsidian-export", {
+        project: document.getElementById("project").value
+      });
+    });
+
+    syncProjectKpi();
+    refreshStatus();
+    refreshMcpPanel();
+  </script>
+</body>
+</html>

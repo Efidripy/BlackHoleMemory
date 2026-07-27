@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "default_project": "blackholememory",
+  "projects": [
+    {
+      "id": "blackholememory",
+      "label": "BlackHoleMemory",
+      "aliases": [
+        "BHM",
+        "BlackHoleMemory",
+        "black-hole-memory",
+        "blackhole-memory"
+      ]
+    }
+  ]
+}

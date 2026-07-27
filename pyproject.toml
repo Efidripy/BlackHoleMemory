@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blackholememory"
+version = "1.8.0"
+license = "0BSD"
+license-files = ["LICENSE"]
+description = "Local self-hosted memory contour built with LangGraph, Mem0, and Qdrant."
+requires-python = ">=3.12"
+dependencies = [
+  "docker==7.1.0",
+  "fastapi==0.115.12",
+  "fastmcp==2.0.0",
+  "httpx==0.28.1",
+  "langgraph==1.2.4",
+  "mem0ai==2.0.4",
+  "mcp==1.27.2",
+  "psutil>=5.9.8,<8.0.0",
+  "pydantic-settings==2.10.1",
+  "qdrant-client==1.18.0",
+  "uvicorn[standard]==0.34.3",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest==8.4.2",
+  "pytest-cov==7.1.0",
+]
+dev = [
+  "pytest==8.4.2",
+  "pytest-cov==7.1.0",
+  "ruff==0.15.10",
+]
+build = [
+  "PyQt6==6.11.0",
+  "pyinstaller==6.21.0",
+]
+
+[project.scripts]
+bhm-mcp = "blackholememory.bhm_mcp:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+  "bhm_runtime: BHM integration runtime and startup contracts",
+  "bhm_mcp: BHM integration MCP and attach contracts",
+  "bhm_hooks: BHM integration hook queue contracts",
+  "bhm_observations: BHM integration observation and security contracts",
+  "bhm_storage: BHM integration storage, retention and projection contracts",
+  "bhm_crystallization: BHM integration crystallization contracts",
+  "bhm_retrieval: BHM integration retrieval and context contracts",
+  "bhm_web: BHM integration web/live-search contracts",
+  "bhm_graph_ui: BHM integration graph and Galaxy contracts",
+  "bhm_agents: BHM integration agent/swarm contracts",
+  "bhm_quality: BHM integration quality and censor contracts",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+blackholememory = ["static/*.html", "static/*.js", "static/*.svg"]

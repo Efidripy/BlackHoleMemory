@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "plugin_name": "bhm-codex-connector",
+  "source_of_truth": "plugins/bhm-codex-connector",
+  "plugin_manifest": "plugins/bhm-codex-connector/.codex-plugin/plugin.json",
+  "version_manifest": "config/version-manifest.json",
+  "marketplace_template": "config/bhm-marketplace.json",
+  "generator": "scripts/build-bhm-plugin-bundle.ps1",
+  "generated_targets": [
+    {
+      "id": "workspace-marketplace",
+      "root": "workspace/tools/codex-plugins",
+      "plugin_path": "plugins/bhm-codex-connector",
+      "marketplace_path": ".agents/plugins/marketplace.json"
+    },
+    {
+      "id": "codex-local",
+      "root": "<user-profile>/.codex/plugins/local",
+      "plugin_path": "bhm-codex-connector"
+    },
+    {
+      "id": "codex-cache",
+      "root": "<user-profile>/.codex/plugins/cache/bhm-marketplace/bhm-codex-connector/<version>",
+      "plugin_path": ".",
+      "managed_by": "codex"
+    }
+  ],
+  "excluded_names": [
+    ".git",
+    "node_modules"
+  ]
+}

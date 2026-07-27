@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "description": "Единый каталог локальных BHM endpoint defaults. Значения переопределяются переменными окружения.",
+  "services": {
+    "bhm_api": {
+      "scheme": "http",
+      "url_env": "BHM_BASE_URL",
+      "host_env": "BHM_HOST",
+      "port_env": "BHM_PORT",
+      "host": "127.0.0.1",
+      "port": 8000,
+      "base_path": ""
+    },
+    "qdrant_http": {
+      "scheme": "http",
+      "url_env": "BHM_QDRANT_URL",
+      "host_env": "BHM_QDRANT_HOST",
+      "port_env": "BHM_QDRANT_HTTP_PORT",
+      "host": "127.0.0.1",
+      "port": 6333,
+      "base_path": ""
+    },
+    "qdrant_grpc": {
+      "scheme": "grpc",
+      "url_env": "BHM_QDRANT_GRPC_URL",
+      "host_env": "BHM_QDRANT_HOST",
+      "port_env": "BHM_QDRANT_GRPC_PORT",
+      "host": "127.0.0.1",
+      "port": 6334,
+      "base_path": ""
+    },
+    "lm_studio": {
+      "scheme": "http",
+      "url_env": "BHM_LM_STUDIO_BASE_URL",
+      "host_env": "BHM_LM_STUDIO_HOST",
+      "port_env": "BHM_LM_STUDIO_PORT",
+      "host": "127.0.0.1",
+      "port": 13666,
+      "base_path": "/v1"
+    },
+    "llm_default": {
+      "scheme": "http",
+      "url_env": "BHM_LLM_BASE_URL",
+      "host_env": "BHM_LLM_HOST",
+      "port_env": "BHM_LLM_PORT",
+      "host": "127.0.0.1",
+      "port": 1234,
+      "base_path": "/v1"
+    },
+    "llama_server": {
+      "scheme": "http",
+      "url_env": "BHM_LLAMA_SERVER_BASE_URL",
+      "host_env": "BHM_LLAMA_SERVER_HOST",
+      "port_env": "BHM_LLAMA_SERVER_PORT",
+      "host": "127.0.0.1",
+      "port": 57718,
+      "base_path": "/v1"
+    },
+    "workbench": {
+      "scheme": "http",
+      "url_env": "BHM_WORKBENCH_URL",
+      "host_env": "BHM_WORKBENCH_HOST",
+      "port_env": "BHM_WORKBENCH_PORT",
+      "host": "127.0.0.1",
+      "port": 43115,
+      "base_path": ""
+    },
+    "portable_smoke": {
+      "scheme": "http",
+      "url_env": "BHM_PORTABLE_SMOKE_URL",
+      "host_env": "BHM_PORTABLE_SMOKE_HOST",
+      "port_env": "BHM_PORTABLE_SMOKE_PORT",
+      "host": "127.0.0.1",
+      "port": 18001,
+      "base_path": ""
+    },
+    "iii_engine": {
+      "scheme": "ws",
+      "url_env": "BHM_ENGINE_URL",
+      "host_env": "BHM_ENGINE_HOST",
+      "port_env": "BHM_ENGINE_PORT",
+      "host": "localhost",
+      "port": 49134,
+      "base_path": ""
+    },
+    "viewer": {
+      "scheme": "http",
+      "url_env": "BHM_VIEWER_URL",
+      "host_env": "BHM_VIEWER_HOST",
+      "port_env": "BHM_VIEWER_PORT",
+      "host": "localhost",
+      "port": 3113,
+      "base_path": ""
+    }
+  }
+}

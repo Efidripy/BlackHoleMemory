@@ -1,0 +1,219 @@
+from __future__ import annotations
+
+import pytest
+
+from blackholememory.domain import Artifact
+from blackholememory.domain import Memory
+from blackholememory.domain import MemoryLink
+from blackholememory.domain import MemoryRevision
+from blackholememory.memory_repository import MemoryRevisionConflict
+from blackholememory.memory_repository import MemoryRepositoryIntegrityError
+from blackholememory.memory_repository import SQLiteMemoryRepository
+
+
+def _memory(
+    *,
+    memory_id: str = "mem_bhm_repo_001",
+    content: str = "repository contract",
+    lifecycle: str = "active",
+    updated_at: str = "2026-07-13T10:00:00Z",
+) -> Memory:
+    return Memory.from_record(
+        {
+            "source_system": "bhm",
+            "source_id": memory_id,
+            "project": "blackholememory",
+            "agent_id": "workspace",
+            "memory_type": "architecture",
+            "content": content,
+            "tags": ["p2.2"],
+            "session_refs": [],
+            "created_at": "2026-07-13T09:00:00Z",
+            "updated_at": updated_at,
+            "metadata": {"raw_title": "Repository contract", "lifecycle": lifecycle},
+        }
+    )
+
+
+def test_repository_initializes_wal_and_round_trips_memory(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+
+    first = repository.save_memory(memory)
+    second = repository.save_memory(memory)
+    restored = repository.get_memory(memory.id, project=memory.project)
+
+    assert first.inserted is True
+    assert first.revision_inserted is True
+    assert second.inserted is False
+    assert second.revision_inserted is False
+    assert restored is not None
+    assert restored.to_dict() == memory.to_dict()
+    assert repository.health().schema_version == 1
+    assert repository.health().journal_mode == "wal"
+    assert repository.health().quick_check == "ok"
+
+
+def test_repository_persists_revision_history_and_optimistic_conflict(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    original = _memory()
+    repository.save_memory(original)
+    revision = MemoryRevision(
+        revision_id="rev_bhm_repo_002",
+        memory_id=original.id,
+        content="repository contract updated",
+        content_sha256="",
+        created_at="2026-07-13T11:00:00Z",
+        created_by="workspace",
+    )
+    updated = original.model_copy(
+        update={
+            "current_revision": revision,
+            "updated_at": "2026-07-13T11:00:00Z",
+        }
+    )
+
+    result = repository.save_memory(updated, expected_revision_id=original.current_revision.revision_id)
+    restored = repository.get_memory(original.id)
+
+    assert result.revision_inserted is True
+    assert restored is not None
+    assert restored.current_revision.revision_id == "rev_bhm_repo_002"
+    assert restored.current_revision.content == "repository contract updated"
+
+    with pytest.raises(MemoryRevisionConflict, match="expected revision"):
+        repository.save_memory(
+            original,
+            expected_revision_id=original.current_revision.revision_id,
+        )
+
+
+def test_repository_deduplicates_same_memory_content_with_new_revision_id(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    original = _memory()
+    first = repository.save_memory(original)
+    duplicate = original.model_copy(
+        update={
+            "current_revision": MemoryRevision(
+                revision_id="rev_bhm_repo_duplicate",
+                memory_id=original.id,
+                content=original.current_revision.content,
+                content_sha256="",
+                created_at="2026-07-13T11:00:00Z",
+            ),
+        }
+    )
+
+    result = repository.save_memory(duplicate)
+
+    assert result.deduplicated is True
+    assert result.revision_inserted is False
+    assert result.memory.current_revision.revision_id == original.current_revision.revision_id
+    assert result.outbox_event_id == first.outbox_event_id
+    assert repository.get_memory(original.id).current_revision.revision_id == original.current_revision.revision_id
+    assert len(repository.list_outbox()) == 1
+
+
+def test_repository_allows_same_content_hash_for_different_memories(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    first = _memory(memory_id="mem_bhm_hash_a")
+    second = _memory(memory_id="mem_bhm_hash_b")
+
+    first_result = repository.save_memory(first)
+    second_result = repository.save_memory(second)
+
+    assert first_result.revision_inserted is True
+    assert second_result.revision_inserted is True
+    assert second_result.deduplicated is False
+    assert len(repository.list_memories(include_archived=True, include_tombstoned=True)) == 2
+
+
+def test_repository_reuses_revision_without_outbox_collision_for_metadata_update(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    original = _memory()
+    first = repository.save_memory(original)
+    changed = original.model_copy(
+        update={
+            "metadata": {"raw_title": "Repository contract", "quality": "reviewed"},
+            "updated_at": "2026-07-13T12:00:00Z",
+        }
+    )
+
+    result = repository.save_memory(changed, expected_revision_id=original.current_revision.revision_id)
+
+    assert result.deduplicated is False
+    assert result.revision_inserted is False
+    assert result.memory.current_revision.revision_id == original.current_revision.revision_id
+    assert result.outbox_event_id != first.outbox_event_id
+    assert len(repository.list_outbox()) == 2
+
+
+def test_repository_rejects_revision_id_collision_even_when_content_differs(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    original = _memory()
+    repository.save_memory(original)
+    collision = original.model_copy(
+        update={
+            "current_revision": MemoryRevision(
+                revision_id=original.current_revision.revision_id,
+                memory_id=original.id,
+                content="different content",
+                content_sha256="",
+                created_at="2026-07-13T12:00:00Z",
+            ),
+        }
+    )
+
+    with pytest.raises(MemoryRepositoryIntegrityError, match="revision id collision"):
+        repository.save_memory(collision)
+
+
+def test_default_listing_hides_archived_and_tombstoned_memories(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    active = _memory(memory_id="mem_bhm_active")
+    archived = _memory(memory_id="mem_bhm_archived", lifecycle="archived")
+    tombstoned = _memory(memory_id="mem_bhm_tombstoned", lifecycle="purged")
+    for item in (active, archived, tombstoned):
+        repository.save_memory(item)
+
+    assert [item.id for item in repository.list_memories()] == [active.id]
+    assert {item.id for item in repository.list_memories(include_archived=True)} == {
+        active.id,
+        archived.id,
+    }
+    assert {
+        item.id for item in repository.list_memories(include_archived=True, include_tombstoned=True)
+    } == {active.id, archived.id, tombstoned.id}
+
+
+def test_repository_persists_artifacts_and_links_without_fk_assumptions(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    artifact = Artifact.from_record(
+        {
+            "id": "checkpoint_bhm_repo_001",
+            "project": "blackholememory",
+            "memory_id": "mem_bhm_orphan",
+            "title": "orphan artifact",
+            "created_at": "2026-07-13T09:00:00Z",
+        },
+        artifact_type="checkpoint",
+    )
+    link = MemoryLink(
+        id="link_bhm_repo_001",
+        project="blackholememory",
+        source_id="mem_bhm_orphan",
+        target_id="mem_bhm_missing",
+        relation="depends_on",
+        created_at="2026-07-13T09:00:00Z",
+        updated_at="2026-07-13T09:00:00Z",
+    )
+
+    repository.save_artifact(artifact)
+    repository.save_link(link)
+
+    artifacts = repository.list_artifacts(project="blackholememory")
+    links = repository.list_links(memory_id="mem_bhm_orphan")
+    assert len(artifacts) == 1
+    assert artifacts[0].to_dict() == artifact.to_dict()
+    assert len(links) == 1
+    assert links[0].to_dict() == link.to_dict()

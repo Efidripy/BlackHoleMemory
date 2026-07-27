@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BlackHoleMemory Control Deck</title>
+  <style>
+    :root {
+      --bg: #11140f;
+      --panel: #f6efe1;
+      --panel-strong: #fff9ed;
+      --ink: #1e261f;
+      --muted: #657061;
+      --line: rgba(42, 55, 42, 0.22);
+      --accent: #0f766e;
+      --accent-dark: #11463f;
+      --warn: #b7791f;
+      --bad: #9f2d2d;
+      --good: #0f766e;
+      --shadow: rgba(0, 0, 0, 0.24);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: Georgia, "Times New Roman", serif;
+      background:
+        radial-gradient(circle at 12% 8%, rgba(252, 244, 221, 0.26), transparent 28%),
+        radial-gradient(circle at 82% 20%, rgba(15, 118, 110, 0.22), transparent 32%),
+        linear-gradient(135deg, #151911, var(--bg));
+      padding: 22px;
+    }
+
+    .shell {
+      width: min(1360px, 100%);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(300px, 430px) minmax(0, 1fr);
+      gap: 18px;
+      min-height: calc(100vh - 44px);
+    }
+
+    .panel {
+      background: rgba(246, 239, 225, 0.94);
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 28px;
+      box-shadow: 0 26px 80px var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .menu {
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .eyebrow {
+      margin: 0 0 10px;
+      color: var(--accent-dark);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(38px, 5vw, 64px);
+      line-height: 0.9;
+      letter-spacing: -0.05em;
+    }
+
+    .lede {
+      margin: 16px 0 24px;
+      color: var(--muted);
+      font-size: 18px;
+      line-height: 1.45;
+    }
+
+    .nav-list {
+      display: grid;
+      gap: 12px;
+      margin-top: auto;
+    }
+
+    a.card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 16px;
+      transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+    }
+
+    a.card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(15, 118, 110, 0.72);
+      box-shadow: 0 12px 28px rgba(15, 118, 110, 0.14);
+    }
+
+    .label {
+      display: inline-block;
+      margin-bottom: 7px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(15, 118, 110, 0.1);
+      color: var(--accent-dark);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.05;
+    }
+
+    .url {
+      grid-column: 1 / -1;
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    .arrow {
+      align-self: start;
+      color: var(--accent);
+      font-size: 22px;
+      line-height: 1;
+    }
+
+    .dashboard {
+      position: relative;
+      overflow: hidden;
+      padding: 28px;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 20px;
+    }
+
+    .dashboard::before {
+      content: "";
+      position: absolute;
+      inset: -40% -18% auto auto;
+      width: 440px;
+      height: 440px;
+      background: radial-gradient(circle, rgba(15, 118, 110, 0.24), transparent 62%);
+      pointer-events: none;
+    }
+
+    .dash-head {
+      position: relative;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .dash-head h2 {
+      margin: 0;
+      font-size: clamp(28px, 4vw, 48px);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+    }
+
+    .status-pill {
+      min-width: 130px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 9px 12px;
+      background: rgba(255, 249, 237, 0.82);
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .status-pill.live { color: var(--good); border-color: rgba(15, 118, 110, 0.45); }
+    .status-pill.warn { color: var(--warn); border-color: rgba(183, 121, 31, 0.45); }
+    .status-pill.bad { color: var(--bad); border-color: rgba(159, 45, 45, 0.45); }
+
+    .metrics {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      min-height: 116px;
+      background: rgba(255, 249, 237, 0.78);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      padding: 16px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: clamp(25px, 3vw, 40px);
+      line-height: 0.95;
+      letter-spacing: -0.04em;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.25;
+    }
+
+    .ops-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .console, .guards {
+      background: rgba(17, 20, 15, 0.91);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px;
+      color: #f7f0e4;
+      padding: 18px;
+    }
+
+    .console h3, .guards h3 {
+      margin: 0 0 14px;
+      font-size: 18px;
+      letter-spacing: -0.02em;
+    }
+
+    .bar-row {
+      margin: 0 0 16px;
+    }
+
+    .bar-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 7px;
+      color: rgba(247, 240, 228, 0.72);
+      font-size: 13px;
+    }
+
+    .bar {
+      height: 11px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .bar > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0f766e, #d0a947);
+      border-radius: inherit;
+      transition: width 260ms ease;
+    }
+
+    .guard-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .guard {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 12px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.07);
+      color: rgba(247, 240, 228, 0.74);
+      font-size: 14px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--muted);
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.06);
+    }
+
+    .dot.good { background: #34d399; }
+    .dot.warn { background: #f59e0b; }
+    .dot.bad { background: #f87171; }
+
+    .stamp {
+      color: rgba(247, 240, 228, 0.5);
+      font-size: 12px;
+      margin-top: 14px;
+    }
+
+    @media (max-width: 980px) {
+      body { padding: 14px; }
+      .shell { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+      .ops-grid { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .menu, .dashboard { padding: 20px; }
+      .dash-head { display: grid; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="panel menu" aria-label="BHM navigation">
+      <p class="eyebrow">BlackHoleMemory</p>
+      <h1>Control Deck</h1>
+      <p class="lede">Слева сохраняется операторское меню. Справа live-статус IPC-брокера, backpressure, памяти и Qdrant через WebSocket `/bhm/ws`.</p>
+
+      <nav class="nav-list">
+        <a class="card" href="http://127.0.0.1:8000/docs" target="_blank" rel="noreferrer">
+          <div><span class="label">API</span><h2 class="title">BlackHoleMemory Docs</h2></div>
+          <span class="arrow">↗</span>
+          <p class="url">http://127.0.0.1:8000/docs</p>
+        </a>
+        <a class="card" href="http://127.0.0.1:8000/redoc" target="_blank" rel="noreferrer">
+          <div><span class="label">API</span><h2 class="title">BlackHoleMemory ReDoc</h2></div>
+          <span class="arrow">↗</span>
+          <p class="url">http://127.0.0.1:8000/redoc</p>
+        </a>
+        <a class="card" href="/bhm/galaxy" target="_blank" rel="noreferrer">
+          <div><span class="label">Galaxy</span><h2 class="title">BHM Galaxy Viewer</h2></div>
+          <span class="arrow">↗</span>
+          <p class="url">/bhm/galaxy</p>
+        </a>
+        <a class="card" href="http://127.0.0.1:8000/health/ready" target="_blank" rel="noreferrer">
+          <div><span class="label">Health</span><h2 class="title">Service Ready</h2></div>
+          <span class="arrow">↗</span>
+          <p class="url">http://127.0.0.1:8000/health/ready</p>
+        </a>
+        <a class="card" href="http://127.0.0.1:6333/dashboard/" target="_blank" rel="noreferrer">
+          <div><span class="label">Vector DB</span><h2 class="title">Qdrant Dashboard</h2></div>
+          <span class="arrow">↗</span>
+          <p class="url">http://127.0.0.1:6333/dashboard/</p>
+        </a>
+        <a class="card" href="http://127.0.0.1:8000/bhm/health" target="_blank" rel="noreferrer">
+          <div><span class="label">Health</span><h2 class="title">BHM Health</h2></div>
+          <span class="arrow">↗</span>
+          <p class="url">http://127.0.0.1:8000/bhm/health</p>
+        </a>
+      </nav>
+    </section>
+
+    <section class="panel dashboard" aria-label="BHM telemetry dashboard">
+      <header class="dash-head">
+        <div>
+          <p class="eyebrow">Runtime v1.8.0-PURE</p>
+          <h2>Monitoring Board</h2>
+        </div>
+        <div id="wsStatus" class="status-pill warn">connecting</div>
+      </header>
+
+      <section class="metrics">
+        <div class="metric"><strong data-key="mcp_active_pipes">--</strong><span>Active MCP pipe clients</span></div>
+        <div class="metric"><strong data-key="bhm_working_set_mb">--</strong><span>BHM working set, MB</span></div>
+        <div class="metric"><strong data-key="wsl_shared_overhead_gb">--</strong><span>WSL shared overhead, GB</span></div>
+        <div class="metric"><strong data-key="crystals_total">--</strong><span>Fact crystals total</span></div>
+      </section>
+
+      <section class="ops-grid">
+        <div class="console">
+          <h3>Backpressure Contour</h3>
+          <div class="bar-row">
+            <div class="bar-label"><span>MCP pipe pool</span><b id="mcpPoolText">-- / --</b></div>
+            <div class="bar"><i id="mcpPoolBar"></i></div>
+          </div>
+          <div class="bar-row">
+            <div class="bar-label"><span>Write semaphore available</span><b id="writeSemText">-- / --</b></div>
+            <div class="bar"><i id="writeSemBar"></i></div>
+          </div>
+          <p class="stamp" id="lastTick">Ожидание первого пакета sys_status...</p>
+        </div>
+
+        <div class="guards">
+          <h3>Guard States</h3>
+          <div class="guard-list">
+            <div class="guard"><span>Fallback Grace</span><i id="fallbackDot" class="dot"></i></div>
+            <div class="guard"><span>LLM Warmup</span><span id="llmState">--</span></div>
+            <div class="guard"><span>Qdrant</span><i id="qdrantDot" class="dot"></i></div>
+            <div class="guard"><span>Telemetry Quantum</span><span>2.5s</span></div>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const statusEl = document.getElementById("wsStatus");
+    const lastTick = document.getElementById("lastTick");
+    const metricEls = new Map([...document.querySelectorAll("[data-key]")].map((el) => [el.dataset.key, el]));
+    const fmt = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
+
+    function setStatus(text, state) {
+      statusEl.textContent = text;
+      statusEl.className = `status-pill ${state}`;
+    }
+
+    function setDot(id, ok, warn = false) {
+      const el = document.getElementById(id);
+      el.className = `dot ${ok ? "good" : warn ? "warn" : "bad"}`;
+    }
+
+    function setBar(id, value, max) {
+      const safeMax = Math.max(Number(max) || 0, 1);
+      const pct = Math.max(0, Math.min(100, ((Number(value) || 0) / safeMax) * 100));
+      document.getElementById(id).style.width = `${pct}%`;
+    }
+
+    function renderTelemetry(data) {
+      for (const [key, el] of metricEls) {
+        const value = data[key];
+        el.textContent = typeof value === "number" ? fmt.format(value) : value ?? "--";
+      }
+
+      const activePipes = Number(data.mcp_active_pipes) || 0;
+      const maxPipes = Number(data.mcp_max_instances) || 0;
+      const semValue = Number(data.backpressure_semaphore_value) || 0;
+      const semMax = Number(data.backpressure_max) || 0;
+
+      document.getElementById("mcpPoolText").textContent = `${activePipes} / ${maxPipes}`;
+      document.getElementById("writeSemText").textContent = `${semValue} / ${semMax}`;
+      setBar("mcpPoolBar", activePipes, maxPipes);
+      setBar("writeSemBar", semMax - semValue, semMax);
+
+      setDot("fallbackDot", !data.fallback_grace_active, data.fallback_grace_active);
+      setDot("qdrantDot", Boolean(data.qdrant_healthy));
+      document.getElementById("llmState").textContent = data.llm_warmup_status || "--";
+      lastTick.textContent = `Последний sys_status: ${new Date().toLocaleTimeString("ru-RU")}`;
+      setStatus("live", "live");
+    }
+
+    function connect() {
+      const protocol = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${protocol}://${location.host}/bhm/ws`);
+
+      ws.addEventListener("open", () => setStatus("live socket", "live"));
+      ws.addEventListener("message", (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.event === "sys_status") {
+            renderTelemetry(payload.data || {});
+          }
+        } catch {
+          setStatus("decode error", "bad");
+        }
+      });
+      ws.addEventListener("close", () => {
+        setStatus("reconnecting", "warn");
+        setTimeout(connect, 1500);
+      });
+      ws.addEventListener("error", () => setStatus("socket error", "bad"));
+    }
+
+    connect();
+  </script>
+</body>
+</html>
