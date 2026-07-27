@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="BHM favicon">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="46%" r="64%">
+      <stop offset="0%" stop-color="#15203f"/>
+      <stop offset="45%" stop-color="#0b1021"/>
+      <stop offset="100%" stop-color="#03050a"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="52%">
+      <stop offset="0%" stop-color="#ffe0a0" stop-opacity="0"/>
+      <stop offset="54%" stop-color="#ff9d2c" stop-opacity="0.78"/>
+      <stop offset="68%" stop-color="#fff0c8" stop-opacity="0.96"/>
+      <stop offset="100%" stop-color="#59cfff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#59cfff"/>
+      <stop offset="20%" stop-color="#fff0c8"/>
+      <stop offset="50%" stop-color="#ff9226"/>
+      <stop offset="80%" stop-color="#fff0c8"/>
+      <stop offset="100%" stop-color="#59cfff"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <circle cx="64" cy="64" r="33" fill="url(#halo)"/>
+  <g transform="translate(64 64) rotate(-12)">
+    <ellipse cx="0" cy="0" rx="41" ry="18" fill="none" stroke="url(#ring)" stroke-width="7"/>
+    <ellipse cx="0" cy="-1" rx="34" ry="11" fill="none" stroke="#fff2c8" stroke-width="2.5" opacity="0.75"/>
+  </g>
+  <circle cx="64" cy="64" r="21" fill="#050608"/>
+  <circle cx="64" cy="64" r="16" fill="#000000"/>
+</svg>

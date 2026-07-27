@@ -1,0 +1,201 @@
+{
+  "schemaVersion": "1.0",
+  "observationRules": [
+    {
+      "name": "synthetic-hook",
+      "match": {
+        "hookType": [
+          "*benchmark*",
+          "*queue_gate*",
+          "*surface_smoke*",
+          "*smoke_test*",
+          "*pytest*"
+        ]
+      },
+      "hotDays": 0,
+      "sampleRate": 0.0,
+      "maxDays": 0,
+      "minPerBucket": 0
+    },
+    {
+      "name": "synthetic-source",
+      "match": {
+        "source": [
+          "*benchmark*",
+          "*queue-gate*",
+          "*surface-smoke*",
+          "*smoke-test*",
+          "*pytest*"
+        ]
+      },
+      "hotDays": 0,
+      "sampleRate": 0.0,
+      "maxDays": 0,
+      "minPerBucket": 0
+    },
+    {
+      "name": "synthetic-project",
+      "match": {
+        "project": [
+          "bhm-surface-smoke-*",
+          "*benchmark*",
+          "*pytest*"
+        ]
+      },
+      "hotDays": 0,
+      "sampleRate": 0.0,
+      "maxDays": 0,
+      "minPerBucket": 0
+    },
+    {
+      "name": "restricted-payload",
+      "match": {
+        "sensitivity": [
+          "restricted"
+        ]
+      },
+      "hotDays": 1,
+      "sampleRate": 0.05,
+      "maxDays": 30,
+      "minPerBucket": 1
+    },
+    {
+      "name": "failure-security",
+      "match": {
+        "hookType": [
+          "*error*",
+          "*fail*",
+          "*security*",
+          "*denied*",
+          "*blocked*"
+        ]
+      },
+      "hotDays": 30,
+      "sampleRate": 1.0,
+      "maxDays": 180,
+      "minPerBucket": 1
+    },
+    {
+      "name": "checkpoint-lineage",
+      "match": {
+        "hookType": [
+          "*compact*",
+          "*checkpoint*",
+          "*handoff*",
+          "*commit*",
+          "*session_start*",
+          "*session_end*",
+          "*prompt_submit*"
+        ]
+      },
+      "hotDays": 30,
+      "sampleRate": 1.0,
+      "maxDays": 365,
+      "minPerBucket": 1
+    },
+    {
+      "name": "tool-chatter",
+      "match": {
+        "hookType": [
+          "*pre_tool_use*",
+          "*post_tool_use*"
+        ]
+      },
+      "hotDays": 1,
+      "sampleRate": 0.05,
+      "maxDays": 30,
+      "minPerBucket": 1
+    },
+    {
+      "name": "idle-stop",
+      "match": {
+        "hookType": [
+          "*idle*",
+          "*stop*"
+        ]
+      },
+      "hotDays": 3,
+      "sampleRate": 0.1,
+      "maxDays": 45,
+      "minPerBucket": 1
+    },
+    {
+      "name": "workspace-control",
+      "match": {
+        "hookType": [
+          "workspace_*_started",
+          "workspace_*_finished"
+        ]
+      },
+      "hotDays": 7,
+      "sampleRate": 0.25,
+      "maxDays": 90,
+      "minPerBucket": 1
+    },
+    {
+      "name": "default-observation",
+      "match": {},
+      "hotDays": 7,
+      "sampleRate": 0.25,
+      "maxDays": 90,
+      "minPerBucket": 1
+    }
+  ],
+  "hookJobRules": [
+    {
+      "name": "synthetic-hook-job",
+      "match": {
+        "hookType": [
+          "*benchmark*",
+          "*queue_gate*",
+          "*surface_smoke*",
+          "*smoke_test*",
+          "*pytest*"
+        ],
+        "status": [
+          "completed",
+          "failed"
+        ]
+      },
+      "retainDays": 0
+    },
+    {
+      "name": "failed-hook-job",
+      "match": {
+        "status": [
+          "failed"
+        ]
+      },
+      "retainDays": 90
+    },
+    {
+      "name": "compact-hook-job",
+      "match": {
+        "kind": [
+          "compact"
+        ],
+        "status": [
+          "completed"
+        ]
+      },
+      "retainDays": 14
+    },
+    {
+      "name": "idle-hook-job",
+      "match": {
+        "kind": [
+          "idle"
+        ],
+        "status": [
+          "completed"
+        ]
+      },
+      "retainDays": 7
+    },
+    {
+      "name": "default-hook-job",
+      "match": {},
+      "retainDays": 14
+    }
+  ]
+}

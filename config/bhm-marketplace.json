@@ -1,0 +1,20 @@
+{
+  "name": "bhm-marketplace",
+  "interface": {
+    "displayName": "BHM"
+  },
+  "plugins": [
+    {
+      "name": "bhm-codex-connector",
+      "source": {
+        "source": "local",
+        "path": "./plugins/bhm-codex-connector"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

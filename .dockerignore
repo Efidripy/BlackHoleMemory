@@ -1,0 +1,11 @@
+# Local-only third-party source quarantine. Never send it to Docker builds.
+.src/
+.legacy/
+.git/
+.venv/
+runtime/
+build/
+dist/
+node_modules/
+__pycache__/
+*.pyc

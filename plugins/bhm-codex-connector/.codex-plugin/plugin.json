@@ -1,0 +1,42 @@
+{
+  "name": "bhm-codex-connector",
+  "type": "plugin",
+  "version": "1.8.0",
+  "description": "Windows-focused Codex connector for the workspace BHM ritual and canonical BHM MCP workflow",
+  "repository": "https://github.com/xman/BlackHoleMemory",
+  "author": {
+    "name": "xman workspace",
+    "url": "https://github.com/xman"
+  },
+  "homepage": "https://github.com/xman/BlackHoleMemory",
+  "license": "0BSD",
+  "keywords": [
+    "bhm",
+    "blackholememory",
+    "codex",
+    "windows",
+    "workspace",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "BHM",
+    "shortDescription": "Workspace BHM connector for Codex on Windows",
+    "longDescription": "Bundles the BHM workspace ritual and skills; host clients own one canonical BHM MCP registration so non-trivial Codex sessions can start with memory preflight, stay runtime-aware, and close with checkpoint or session record on this Windows workstation.",
+    "developerName": "xman workspace",
+    "category": "Productivity",
+    "capabilities": [
+      "Write",
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/xman/BlackHoleMemory",
+    "brandColor": "#ff8a1f",
+    "composerIcon": "./assets/bhm-icon.svg",
+    "logo": "./assets/bhm-icon.svg",
+    "defaultPrompt": [
+      "Start the task with the local BHM ritual for this workspace.",
+      "Close the task with checkpoint and session record using the local BHM ritual.",
+      "Discover the local BHM runtime and summarize whether it is usable."
+    ]
+  }
+}

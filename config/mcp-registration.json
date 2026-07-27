@@ -1,0 +1,77 @@
+{
+  "schema_version": 4,
+  "canonical_server_id": "bhm",
+  "aliases": [],
+  "default_base_url": "",
+  "fingerprint_fields": [
+    "transport",
+    "url",
+    "auth_kind",
+    "auth_env"
+  ],
+  "canonical": {
+    "transport": "streamable_http",
+    "url": "",
+    "url_service": "bhm_api",
+    "url_path": "/mcp",
+    "auth": {
+      "kind": "bearer_env",
+      "token_env": "BHM_CALLER_TOKEN"
+    }
+  },
+  "adapter_contract": {
+    "schema_version": "bhm.mcp.adapter-contract.v3",
+    "common": {
+      "server_id": "bhm",
+      "transport": "streamable_http",
+      "url": "",
+      "url_service": "bhm_api",
+      "url_path": "/mcp",
+      "auth": {
+        "kind": "bearer_env",
+        "token_env": "BHM_CALLER_TOKEN"
+      }
+    },
+    "clients": {
+      "codex": {
+        "format": "toml",
+        "server_id": "bhm",
+        "target": "<user>/.codex/config.toml",
+        "managed_scope": "mcp_servers.bhm",
+        "reload_action": "restart-codex-client",
+        "extra": {
+          "enabled": true,
+          "required": true,
+          "startup_timeout_sec": 15.0,
+          "tool_timeout_sec": 30.0
+        }
+      },
+      "claude": {
+        "format": "json",
+        "server_id": "bhm",
+        "target": "<user>/.claude/settings.json",
+        "managed_scope": "mcpServers.bhm",
+        "reload_action": "restart-claude-client",
+        "extra": {
+          "type": "http"
+        }
+      }
+    },
+    "policy": {
+      "atomic_backup": true,
+      "canary_required_before_apply": true,
+      "rollback_required": true,
+      "client_specific_constraints_explicit": true,
+      "live_drift_check_read_only": true,
+      "mixed_transport_entry_fail_closed": true
+    }
+  },
+  "policy": {
+    "one_canonical_per_client": true,
+    "aliases_fail_closed": true,
+    "duplicate_fingerprint_fail_closed": true,
+    "unrecognized_bhm_surface_fail_closed": true,
+    "live_scan_is_read_only": true,
+    "loopback_streamable_http_only": true
+  }
+}

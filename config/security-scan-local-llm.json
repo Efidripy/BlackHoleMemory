@@ -1,0 +1,51 @@
+{
+  "schema_version": "bhm.security.local-llm-gate.v1",
+  "mode": "bulk_discovery_triage",
+  "enabled": true,
+  "local_only_required": true,
+  "cloud_fallback": false,
+  "proposal_only": true,
+  "auto_apply": false,
+  "training_enabled": false,
+  "operator_attestation_required": true,
+  "required_capabilities": [
+    "classification",
+    "json",
+    "reasoning"
+  ],
+  "max_workers": 6,
+  "routine_profile": {
+    "cold": 25,
+    "recovery": 10
+  },
+  "final_acceptance_profile": {
+    "cold": 100,
+    "recovery": 50
+  },
+  "attestation_contract": {
+    "schema_version": "bhm.security.local-llm-gate.v1",
+    "required_fields": [
+      "local_only",
+      "remote_fallback_detected",
+      "endpoint",
+      "model_id",
+      "available",
+      "capabilities",
+      "json_parseable",
+      "tool_schema_accepted",
+      "provenance",
+      "deterministic_validation",
+      "budget_enforced",
+      "queue_governor",
+      "bulk_worker_contract_ready",
+      "proposal_only",
+      "auto_apply",
+      "training_enabled"
+    ]
+  },
+  "activation": {
+    "operator_only": true,
+    "runtime_flags_changed_by_preflight": false,
+    "model_started_by_preflight": false
+  }
+}

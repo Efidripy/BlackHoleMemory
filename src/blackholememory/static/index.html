@@ -1,0 +1,955 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BHM Runtime Telemetry</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #050916;
+      --panel: rgba(10, 14, 26, 0.74);
+      --panel-strong: rgba(15, 20, 32, 0.92);
+      --line: rgba(34, 211, 238, 0.18);
+      --line-hot: rgba(34, 211, 238, 0.42);
+      --text: #eef4ff;
+      --muted: #94a3b8;
+      --dim: #64748b;
+      --cyan: #67e8f9;
+      --cyan-hot: #22d3ee;
+      --pink: #f472b6;
+      --amber: #fbbf24;
+      --green: #34d399;
+      --red: #fb7185;
+      --mono: Consolas, "SFMono-Regular", "Liberation Mono", monospace;
+      --serif: Georgia, "Times New Roman", serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--text);
+      font-family: var(--serif);
+      background:
+        radial-gradient(circle at 16% 12%, rgba(76, 132, 255, 0.17), transparent 24%),
+        radial-gradient(circle at 78% 14%, rgba(244, 114, 182, 0.14), transparent 22%),
+        radial-gradient(circle at 54% 86%, rgba(34, 211, 238, 0.11), transparent 20%),
+        linear-gradient(180deg, #02040a 0%, var(--bg) 100%);
+    }
+
+    body {
+      min-height: 100vh;
+      padding: 18px;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        linear-gradient(rgba(103, 232, 249, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(103, 232, 249, 0.035) 1px, transparent 1px);
+      background-size: 38px 38px;
+      mask-image: radial-gradient(circle at center, black, transparent 78%);
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    .shell {
+      position: relative;
+      z-index: 1;
+      width: min(1480px, 100%);
+      margin: 0 auto;
+      min-height: calc(100vh - 36px);
+      display: grid;
+      grid-template-columns: 310px 1fr;
+      gap: 16px;
+    }
+
+    .glass {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 18px 54px rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(18px);
+    }
+
+    .nav {
+      border-radius: 24px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow: hidden;
+    }
+
+    .brand {
+      padding: 14px 14px 16px;
+      border: 1px solid rgba(34, 211, 238, 0.13);
+      border-radius: 18px;
+      background: rgba(2, 4, 10, 0.46);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: var(--cyan);
+      font: 700 11px/1 var(--mono);
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 24px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--cyan));
+    }
+
+    h1 {
+      font-size: clamp(34px, 4vw, 52px);
+      line-height: 0.9;
+      letter-spacing: -0.05em;
+    }
+
+    .copy {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .nav-list {
+      display: grid;
+      gap: 10px;
+      margin-top: auto;
+    }
+
+    .nav-card {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      padding: 13px;
+      color: inherit;
+      text-decoration: none;
+      border: 1px solid rgba(34, 211, 238, 0.13);
+      border-radius: 16px;
+      background: rgba(10, 14, 26, 0.72);
+      transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    .nav-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--line-hot);
+      box-shadow: 0 0 24px rgba(34, 211, 238, 0.12);
+    }
+
+    .label {
+      display: inline-block;
+      margin-bottom: 7px;
+      color: var(--pink);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .nav-title {
+      display: block;
+      font-size: 18px;
+      line-height: 1.05;
+    }
+
+    .arrow {
+      color: var(--cyan);
+      font-family: var(--mono);
+      font-size: 16px;
+    }
+
+    .url {
+      grid-column: 1 / -1;
+      color: var(--dim);
+      font: 12px/1.3 var(--mono);
+      word-break: break-all;
+    }
+
+    .main {
+      min-width: 0;
+      border-radius: 24px;
+      padding: 20px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 16px;
+      overflow: hidden;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .topbar h2 {
+      font-size: clamp(38px, 5vw, 72px);
+      line-height: 0.88;
+      letter-spacing: -0.06em;
+    }
+
+    .socket {
+      min-width: 172px;
+      border: 1px solid rgba(251, 191, 36, 0.42);
+      border-radius: 999px;
+      padding: 10px 14px;
+      color: var(--amber);
+      background: rgba(251, 191, 36, 0.08);
+      font: 700 12px/1 var(--mono);
+      letter-spacing: 0.16em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+
+    .socket.live {
+      color: var(--green);
+      border-color: rgba(52, 211, 153, 0.45);
+      background: rgba(52, 211, 153, 0.08);
+    }
+
+    .socket.bad {
+      color: var(--red);
+      border-color: rgba(251, 113, 133, 0.45);
+      background: rgba(251, 113, 133, 0.08);
+    }
+
+    .grid {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .tile {
+      position: relative;
+      overflow: hidden;
+      min-height: 620px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background:
+        linear-gradient(180deg, rgba(15, 20, 32, 0.88), rgba(6, 10, 22, 0.88)),
+        radial-gradient(circle at top right, rgba(34, 211, 238, 0.12), transparent 34%);
+      padding: 18px;
+    }
+
+    .tile::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      pointer-events: none;
+      box-shadow: inset 0 0 36px rgba(34, 211, 238, 0.06);
+    }
+
+    .tile h3 {
+      margin-bottom: 16px;
+      color: #f8fbff;
+      font-size: 24px;
+      letter-spacing: -0.03em;
+    }
+
+    .metric {
+      display: grid;
+      gap: 8px;
+      padding: 14px;
+      margin-bottom: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 18px;
+      background: rgba(2, 4, 10, 0.34);
+    }
+
+    .metric-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font: 12px/1.2 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .value {
+      color: var(--green);
+      font: 700 clamp(30px, 4vw, 54px)/0.95 var(--mono);
+      letter-spacing: -0.06em;
+      text-shadow: 0 0 22px rgba(52, 211, 153, 0.22);
+      transition: color 220ms ease, text-shadow 220ms ease;
+    }
+
+    .value.warn {
+      color: var(--amber);
+      text-shadow: 0 0 22px rgba(251, 191, 36, 0.2);
+    }
+
+    .value.bad {
+      color: var(--red);
+      text-shadow: 0 0 22px rgba(251, 113, 133, 0.22);
+    }
+
+    .bar {
+      height: 10px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.14);
+    }
+
+    .bar i {
+      display: block;
+      width: 0%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--green), var(--cyan));
+      transition: width 260ms ease, background 220ms ease;
+    }
+
+    .bar i.warn { background: linear-gradient(90deg, var(--green), var(--amber)); }
+    .bar i.bad { background: linear-gradient(90deg, var(--amber), var(--red)); }
+
+    .status-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin: 10px 0 0;
+      padding: 12px 13px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+      font: 13px/1.2 var(--mono);
+    }
+
+    .pill {
+      padding: 6px 9px;
+      border-radius: 999px;
+      color: var(--green);
+      border: 1px solid rgba(52, 211, 153, 0.35);
+      background: rgba(52, 211, 153, 0.08);
+      font-weight: 700;
+    }
+
+    .pill.warn {
+      color: var(--amber);
+      border-color: rgba(251, 191, 36, 0.35);
+      background: rgba(251, 191, 36, 0.08);
+    }
+
+    .pill.bad {
+      color: var(--red);
+      border-color: rgba(251, 113, 133, 0.35);
+      background: rgba(251, 113, 133, 0.08);
+    }
+
+    .giant {
+      display: grid;
+      place-items: center;
+      min-height: 170px;
+      margin-bottom: 12px;
+      border-radius: 22px;
+      border: 1px solid rgba(244, 114, 182, 0.18);
+      background:
+        radial-gradient(circle at center, rgba(244, 114, 182, 0.14), transparent 58%),
+        rgba(2, 4, 10, 0.34);
+      text-align: center;
+    }
+
+    .giant strong {
+      display: block;
+      color: var(--pink);
+      font: 700 clamp(58px, 8vw, 112px)/0.85 var(--mono);
+      letter-spacing: -0.09em;
+      text-shadow: 0 0 32px rgba(244, 114, 182, 0.24);
+    }
+
+    .giant span {
+      display: block;
+      margin-top: 10px;
+      color: var(--muted);
+      font: 12px/1.2 var(--mono);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .stamp {
+      position: absolute;
+      left: 18px;
+      right: 18px;
+      bottom: 16px;
+      color: var(--dim);
+      font: 12px/1.3 var(--mono);
+    }
+
+    .shell {
+      transition: filter 180ms ease;
+    }
+
+    .shell.is-frozen {
+      filter: blur(4px);
+      pointer-events: none;
+      user-select: none;
+    }
+
+    .restart-core {
+      width: 100%;
+      min-height: 46px;
+      margin-top: 12px;
+      border: 1px solid rgba(251, 113, 133, 0.62);
+      border-radius: 12px;
+      color: #ffe4e6;
+      background:
+        linear-gradient(180deg, rgba(127, 29, 29, 0.82), rgba(76, 5, 25, 0.86)),
+        rgba(251, 113, 133, 0.12);
+      box-shadow: 0 0 22px rgba(251, 113, 133, 0.18), inset 0 0 18px rgba(251, 113, 133, 0.1);
+      font: 800 12px/1 var(--mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    .restart-core:hover:not(:disabled) {
+      transform: translateY(-1px);
+      border-color: rgba(251, 113, 133, 0.92);
+      box-shadow: 0 0 30px rgba(251, 113, 133, 0.28), inset 0 0 18px rgba(251, 113, 133, 0.14);
+    }
+
+    .restart-core:disabled {
+      cursor: wait;
+      opacity: 0.72;
+    }
+
+    .freeze-overlay,
+    .boot-passport {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      display: none;
+      place-items: center;
+      padding: 20px;
+      background: rgba(2, 4, 10, 0.62);
+    }
+
+    .freeze-overlay.is-visible,
+    .boot-passport.is-visible {
+      display: grid;
+    }
+
+    .loader-core {
+      width: min(520px, 100%);
+      border: 1px solid rgba(251, 191, 36, 0.58);
+      border-radius: 18px;
+      padding: 24px;
+      background: rgba(15, 20, 32, 0.94);
+      box-shadow: 0 0 44px rgba(251, 191, 36, 0.2);
+      color: var(--amber);
+      text-align: center;
+      font: 800 14px/1.45 var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .loader-core::before {
+      content: "";
+      display: block;
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 18px;
+      border: 3px solid rgba(251, 191, 36, 0.22);
+      border-top-color: var(--amber);
+      border-radius: 50%;
+      animation: spin 850ms linear infinite;
+    }
+
+    .passport-card {
+      width: min(560px, 100%);
+      border: 1px solid rgba(34, 211, 238, 0.62);
+      border-radius: 18px;
+      padding: 24px;
+      background:
+        radial-gradient(circle at top right, rgba(52, 211, 153, 0.16), transparent 32%),
+        rgba(6, 10, 22, 0.96);
+      box-shadow: 0 0 54px rgba(34, 211, 238, 0.2), inset 0 0 24px rgba(34, 211, 238, 0.08);
+      cursor: pointer;
+      animation: passportIn 220ms ease-out both;
+    }
+
+    .passport-card h4 {
+      margin: 0 0 18px;
+      color: var(--cyan);
+      font: 800 14px/1 var(--mono);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .passport-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .passport-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 12px 13px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 12px;
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.04);
+      font: 13px/1.2 var(--mono);
+    }
+
+    .passport-row strong {
+      color: var(--green);
+      text-align: right;
+    }
+
+    .passport-hint {
+      margin-top: 16px;
+      color: var(--dim);
+      font: 12px/1.3 var(--mono);
+      text-align: center;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes passportIn {
+      from { opacity: 0; transform: translateY(10px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    @media (max-width: 1180px) {
+      .shell { grid-template-columns: 1fr; }
+      .nav { min-height: auto; }
+      .nav-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid { grid-template-columns: 1fr; }
+      .tile { min-height: auto; padding-bottom: 56px; }
+    }
+
+    @media (max-width: 680px) {
+      body { padding: 10px; }
+      .main, .nav { padding: 14px; border-radius: 18px; }
+      .nav-list { grid-template-columns: 1fr; }
+      .topbar { display: grid; }
+      .socket { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <main id="dashboardShell" class="shell">
+    <aside class="nav glass" aria-label="BHM navigation">
+      <section class="brand">
+        <p class="eyebrow">BlackHoleMemory</p>
+        <h1>Control<br>Deck</h1>
+        <p class="copy">Меню сохранено слева. Справа статус бронированного IPC-контура, памяти и знаний в реальном времени.</p>
+      </section>
+
+      <nav class="nav-list">
+        <a class="nav-card" href="http://127.0.0.1:8000/docs" target="_blank" rel="noreferrer">
+          <span><span class="label">API</span><span class="nav-title">Docs</span></span><span class="arrow">↗</span>
+          <span class="url">http://127.0.0.1:8000/docs</span>
+        </a>
+        <a class="nav-card" href="http://127.0.0.1:8000/redoc" target="_blank" rel="noreferrer">
+          <span><span class="label">API</span><span class="nav-title">ReDoc</span></span><span class="arrow">↗</span>
+          <span class="url">http://127.0.0.1:8000/redoc</span>
+        </a>
+        <a class="nav-card" href="/bhm/galaxy" target="_blank" rel="noreferrer">
+          <span><span class="label">Galaxy</span><span class="nav-title">3D Viewer</span></span><span class="arrow">↗</span>
+          <span class="url">/bhm/galaxy</span>
+        </a>
+        <a class="nav-card" href="http://127.0.0.1:8000/health/ready" target="_blank" rel="noreferrer">
+          <span><span class="label">Health</span><span class="nav-title">Ready</span></span><span class="arrow">↗</span>
+          <span class="url">http://127.0.0.1:8000/health/ready</span>
+        </a>
+        <a class="nav-card" href="http://127.0.0.1:6333/dashboard/" target="_blank" rel="noreferrer">
+          <span><span class="label">Qdrant</span><span class="nav-title">Dashboard</span></span><span class="arrow">↗</span>
+          <span class="url">http://127.0.0.1:6333/dashboard/</span>
+        </a>
+        <a class="nav-card" href="http://127.0.0.1:8000/bhm/health" target="_blank" rel="noreferrer">
+          <span><span class="label">Health</span><span class="nav-title">BHM</span></span><span class="arrow">↗</span>
+          <span class="url">http://127.0.0.1:8000/bhm/health</span>
+        </a>
+      </nav>
+    </aside>
+
+    <section class="main glass" aria-label="Runtime telemetry dashboard">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Runtime v1.8.0-PURE</p>
+          <h2>Telemetry<br>Grid</h2>
+        </div>
+        <div id="wsStatus" class="socket">connecting</div>
+      </header>
+
+      <section class="grid">
+        <article class="tile" aria-label="OS and container resources">
+          <p class="eyebrow">Tile 01</p>
+          <h3>Ресурсы ОС и контейнеров</h3>
+          <div class="metric">
+            <div class="metric-head"><span>BHM RAM</span><b id="bhmRamLabel">-- MB</b></div>
+            <strong id="bhmRam" class="value">--</strong>
+            <div class="bar"><i id="bhmRamBar"></i></div>
+          </div>
+          <div class="metric">
+            <div class="metric-head"><span>WSL overhead</span><b id="wslRamLabel">-- GB</b></div>
+            <strong id="wslRam" class="value">--</strong>
+            <div class="bar"><i id="wslRamBar"></i></div>
+          </div>
+          <div class="status-row"><span>Qdrant container</span><span id="qdrantState" class="pill warn">unknown</span></div>
+          <p class="stamp">Цвета: green → yellow → red при росте нагрузки.</p>
+        </article>
+
+        <article class="tile" aria-label="Network armor shield">
+          <p class="eyebrow">Tile 02</p>
+          <h3>Сетевой щит брони</h3>
+          <div class="metric">
+            <div class="metric-head"><span>Backpressure semaphore</span><b id="semLabel">-- / --</b></div>
+            <strong id="semValue" class="value">--</strong>
+            <div class="bar"><i id="semBar"></i></div>
+          </div>
+          <div class="metric">
+            <div class="metric-head"><span>MCP pipe pool</span><b id="pipeLabel">-- / --</b></div>
+            <strong id="pipeValue" class="value">--</strong>
+            <div class="bar"><i id="pipeBar"></i></div>
+          </div>
+          <div class="status-row"><span>Circuit Breaker</span><span id="breakerState" class="pill">IPC_BROKER</span></div>
+          <div class="status-row"><span>LM Studio Warm-up</span><span id="warmupState" class="pill warn">unknown</span></div>
+          <div class="status-row"><span>Fallback Grace</span><span id="fallbackState" class="pill">idle</span></div>
+          <button id="restartCore" class="restart-core" type="button" disabled title="Restart requires the trusted BHM launcher and admin capability">[ RESTART VIA TRUSTED LAUNCHER ]</button>
+          <p class="stamp">Lazy telemetry: при закрытом UI харвестер не считает метрики.</p>
+        </article>
+
+        <article class="tile" aria-label="Knowledge metrics">
+          <p class="eyebrow">Tile 03</p>
+          <h3>Метрики знаний</h3>
+          <div class="giant">
+            <div><strong id="crystalsTotal">--</strong><span>memory crystals</span></div>
+          </div>
+          <div class="giant">
+            <div><strong id="lawsTotal">--</strong><span>architecture laws</span></div>
+          </div>
+          <div class="status-row"><span>Last sys_status</span><span id="lastTick" class="pill warn">waiting</span></div>
+          <p class="stamp">DOM обновляется атомарно по входящим WebSocket-событиям.</p>
+        </article>
+      </section>
+    </section>
+  </main>
+
+  <div id="freezeOverlay" class="freeze-overlay" aria-live="assertive">
+    <div class="loader-core">Соединение разорвано. Перезапуск ядра BHM...</div>
+  </div>
+
+  <div id="bootPassport" class="boot-passport" role="dialog" aria-modal="true" aria-labelledby="bootPassportTitle">
+    <section class="passport-card">
+      <h4 id="bootPassportTitle">Boot Passport</h4>
+      <div class="passport-grid">
+        <div class="passport-row"><span>Runtime status</span><strong id="passportStatus">--</strong></div>
+        <div class="passport-row"><span>Start time</span><strong id="passportElapsed">--</strong></div>
+        <div class="passport-row"><span>Qdrant</span><strong id="passportQdrant">--</strong></div>
+        <div class="passport-row"><span>LM Studio</span><strong id="passportLm">--</strong></div>
+        <div class="passport-row"><span>Timestamp</span><strong id="passportTimestamp">--</strong></div>
+      </div>
+      <p class="passport-hint">Клик оператора закрывает паспорт.</p>
+    </section>
+  </div>
+
+  <script>
+    const ru = new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 });
+    const wsStatus = document.getElementById("wsStatus");
+    const dashboardShell = document.getElementById("dashboardShell");
+    const freezeOverlay = document.getElementById("freezeOverlay");
+    const restartCore = document.getElementById("restartCore");
+    const bootPassport = document.getElementById("bootPassport");
+    const uiBootstrapFragmentKey = "bhm-ui-bootstrap";
+    const uiSessionFailureMessage = "Local BHM UI session unavailable. Refresh this loopback page or use the trusted launcher.";
+    let uiSessionBlocked = false;
+
+    function cssState(value, warnAt, badAt) {
+      const n = Number(value) || 0;
+      if (n >= badAt) return "bad";
+      if (n >= warnAt) return "warn";
+      return "";
+    }
+
+    function setSocket(text, state = "") {
+      wsStatus.textContent = text;
+      wsStatus.className = `socket ${state}`.trim();
+    }
+
+    function setUiSessionFailure() {
+      uiSessionBlocked = true;
+      setSocket("session required", "bad");
+      freezeUi();
+      const message = freezeOverlay.querySelector(".loader-core");
+      if (message) message.textContent = uiSessionFailureMessage;
+    }
+
+    function newUiSessionError() {
+      return new Error(uiSessionFailureMessage);
+    }
+
+    async function bootstrapUiSession() {
+      const fragmentParams = new URLSearchParams(window.location.hash.slice(1));
+      let bootstrapToken = fragmentParams.get(uiBootstrapFragmentKey) || "";
+      if (fragmentParams.has(uiBootstrapFragmentKey)) {
+        window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      } else {
+        try {
+          const bootstrapResponse = await window.fetch("/bhm/ui/session/bootstrap", {
+            cache: "no-store",
+            credentials: "same-origin",
+            headers: { "accept": "application/json" }
+          });
+          if (!bootstrapResponse.ok) throw new Error("direct bootstrap unavailable");
+          const bootstrapPayload = await bootstrapResponse.json();
+          if (bootstrapPayload.session === true) return;
+          bootstrapToken = bootstrapPayload.bootstrap_token || "";
+        } catch {
+          setUiSessionFailure();
+          throw newUiSessionError();
+        }
+      }
+      if (!bootstrapToken || bootstrapToken.length > 512) {
+        setUiSessionFailure();
+        throw newUiSessionError();
+      }
+
+      let response;
+      try {
+        response = await window.fetch("/bhm/ui/session/exchange", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "same-origin",
+          redirect: "error",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ bootstrap_token: bootstrapToken })
+        });
+      } catch {
+        setUiSessionFailure();
+        throw newUiSessionError();
+      }
+      if (!response.ok) {
+        setUiSessionFailure();
+        throw newUiSessionError();
+      }
+    }
+
+    const uiSessionReady = bootstrapUiSession();
+
+    async function bhmFetch(input, init = {}) {
+      await uiSessionReady;
+      if (uiSessionBlocked) throw newUiSessionError();
+      const response = await window.fetch(input, { ...init, credentials: "same-origin" });
+      if (response.status === 401) {
+        setUiSessionFailure();
+        throw newUiSessionError();
+      }
+      return response;
+    }
+
+    function setValue(id, value, suffix = "", state = "") {
+      const el = document.getElementById(id);
+      el.textContent = typeof value === "number" ? `${ru.format(value)}${suffix}` : value ?? "--";
+      el.className = `value ${state}`.trim();
+    }
+
+    function setPill(id, text, state = "") {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = `pill ${state}`.trim();
+    }
+
+    function setBar(id, value, max, state = "") {
+      const safeMax = Math.max(Number(max) || 1, 1);
+      const pct = Math.max(0, Math.min(100, ((Number(value) || 0) / safeMax) * 100));
+      const el = document.getElementById(id);
+      el.style.width = `${pct}%`;
+      el.className = state;
+    }
+
+    function renderSysStatus(data) {
+      const bhmMb = Number(data.bhm_working_set_mb) || 0;
+      const wslGb = Number(data.wsl_shared_overhead_gb) || 0;
+      const semAvailable = Number(data.backpressure_semaphore_value) || 0;
+      const semMax = Number(data.backpressure_max) || 0;
+      const semUsed = Math.max(semMax - semAvailable, 0);
+      const pipes = Number(data.mcp_active_pipes) || 0;
+      const pipeMax = Number(data.mcp_max_instances) || 0;
+
+      const bhmState = cssState(bhmMb, 900, 1400);
+      const wslState = cssState(wslGb, 6, 9);
+      const semState = cssState(semUsed, semMax * 0.55, semMax * 0.85);
+      const pipeState = cssState(pipes, pipeMax * 0.55, pipeMax * 0.85);
+
+      setValue("bhmRam", bhmMb, "", bhmState);
+      document.getElementById("bhmRamLabel").textContent = `${ru.format(bhmMb)} MB`;
+      setBar("bhmRamBar", bhmMb, 1600, bhmState);
+
+      setValue("wslRam", wslGb, "", wslState);
+      document.getElementById("wslRamLabel").textContent = `${ru.format(wslGb)} GB`;
+      setBar("wslRamBar", wslGb, 10, wslState);
+
+      setPill("qdrantState", data.qdrant_healthy ? "healthy" : "offline", data.qdrant_healthy ? "" : "bad");
+
+      setValue("semValue", semUsed, "", semState);
+      document.getElementById("semLabel").textContent = `${semUsed} / ${semMax}`;
+      setBar("semBar", semUsed, semMax, semState);
+
+      setValue("pipeValue", pipes, "", pipeState);
+      document.getElementById("pipeLabel").textContent = `${pipes} / ${pipeMax}`;
+      setBar("pipeBar", pipes, pipeMax, pipeState);
+
+      setPill("breakerState", data.launcher_circuit_breaker_status || "unknown");
+      setPill("warmupState", data.llm_warmup_status || "unknown", data.llm_warmup_status === "READY" ? "" : "warn");
+      setPill("fallbackState", data.fallback_grace_active ? "active" : "idle", data.fallback_grace_active ? "warn" : "");
+
+      document.getElementById("crystalsTotal").textContent = data.crystals_total ?? "--";
+      document.getElementById("lawsTotal").textContent = data.architectural_laws_total ?? "--";
+      setPill("lastTick", new Date().toLocaleTimeString("ru-RU"));
+      setSocket("live", "live");
+    }
+
+    let telemetrySocket = null;
+    let reconnectTimer = null;
+    let bootPassportPending = sessionStorage.getItem("bhmRestartPending") === "1";
+
+    function freezeUi() {
+      dashboardShell.classList.add("is-frozen");
+      freezeOverlay.classList.add("is-visible");
+      restartCore.disabled = true;
+    }
+
+    function releaseFreeze() {
+      if (uiSessionBlocked) {
+        dashboardShell.classList.add("is-frozen");
+        freezeOverlay.classList.add("is-visible");
+        restartCore.disabled = true;
+        return;
+      }
+      dashboardShell.classList.remove("is-frozen");
+      freezeOverlay.classList.remove("is-visible");
+      restartCore.disabled = true;
+    }
+
+    async function fetchBootPassport() {
+      try {
+        const response = await bhmFetch("/bhm/ui/boot-report", { cache: "no-store" });
+        if (!response.ok) return;
+        const report = await response.json();
+        if (report.status !== "SUCCESS") return;
+
+        const reportKey = report.timestamp || String(report.elapsed_seconds || "");
+        const lastShown = sessionStorage.getItem("bhmLastBootPassport");
+        if (reportKey && reportKey === lastShown) return;
+
+        document.getElementById("passportStatus").textContent = report.status;
+        document.getElementById("passportElapsed").textContent = `${ru.format(Number(report.elapsed_seconds) || 0)} sec`;
+        document.getElementById("passportQdrant").textContent = report.qdrant || "--";
+        document.getElementById("passportLm").textContent = report.lm_studio || "--";
+        document.getElementById("passportTimestamp").textContent = report.timestamp || "--";
+        bootPassport.classList.add("is-visible");
+        if (reportKey) sessionStorage.setItem("bhmLastBootPassport", reportKey);
+        sessionStorage.removeItem("bhmRestartPending");
+        bootPassportPending = false;
+      } catch {
+        if (!uiSessionBlocked) setSocket("passport wait", "warn");
+      }
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer || uiSessionBlocked) return;
+      reconnectTimer = window.setInterval(() => {
+        if (!telemetrySocket || telemetrySocket.readyState === WebSocket.CLOSED) {
+          void connectTelemetry();
+        }
+      }, 1000);
+    }
+
+    async function connectTelemetry() {
+      if (uiSessionBlocked) return;
+      try {
+        await uiSessionReady;
+      } catch {
+        return;
+      }
+      if (uiSessionBlocked) return;
+      if (telemetrySocket && telemetrySocket.readyState === WebSocket.CONNECTING) return;
+      if (telemetrySocket && telemetrySocket.readyState === WebSocket.OPEN) return;
+
+      const scheme = location.protocol === "https:" ? "wss" : "ws";
+      telemetrySocket = new WebSocket(`${scheme}://${location.host}/bhm/ws`);
+
+      telemetrySocket.addEventListener("open", async () => {
+        if (reconnectTimer) {
+          clearInterval(reconnectTimer);
+          reconnectTimer = null;
+        }
+        setSocket("socket open", "live");
+        releaseFreeze();
+        if (bootPassportPending) {
+          await fetchBootPassport();
+        }
+      });
+
+      telemetrySocket.addEventListener("message", (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.event === "system_cooldown") {
+            bootPassportPending = true;
+            sessionStorage.setItem("bhmRestartPending", "1");
+            freezeUi();
+            setSocket("cooldown", "warn");
+            return;
+          }
+          if (payload.event === "sys_status") {
+            renderSysStatus(payload.data || {});
+          }
+        } catch {
+          setSocket("decode error", "bad");
+        }
+      });
+
+      telemetrySocket.addEventListener("close", event => {
+        bootPassportPending = bootPassportPending || sessionStorage.getItem("bhmRestartPending") === "1";
+        freezeUi();
+        if (uiSessionBlocked || event.code === 4401 || event.code === 4403 || event.code === 4408) {
+          setUiSessionFailure();
+          return;
+        }
+        setSocket("reconnect", "");
+        scheduleReconnect();
+      });
+      telemetrySocket.addEventListener("error", () => setSocket("socket error", "bad"));
+    }
+
+    bootPassport.addEventListener("click", () => {
+      bootPassport.classList.remove("is-visible");
+      releaseFreeze();
+    });
+
+    async function startDashboardUi() {
+      try {
+        await uiSessionReady;
+        await bhmFetch("/bhm/ui/boot-report", { cache: "no-store" });
+      } catch {
+        return;
+      }
+      if (!uiSessionBlocked) void connectTelemetry();
+    }
+    void startDashboardUi();
+  </script>
+</body>
+</html>

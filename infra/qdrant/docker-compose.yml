@@ -1,0 +1,20 @@
+services:
+  qdrant:
+    # Qdrant v1.18.2; digest pin prevents an unreviewed image drift.
+    image: qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
+    container_name: blackholememory-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BHM_QDRANT_HTTP_PORT:-6333}:6333"
+      - "127.0.0.1:${BHM_QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "pidof", "qdrant"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  qdrant_storage:

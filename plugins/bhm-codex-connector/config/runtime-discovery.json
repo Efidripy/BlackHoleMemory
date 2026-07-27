@@ -1,0 +1,25 @@
+{
+  "envPaths": [
+    "C:/Users/xman/.bhm/.env",
+    "%USERPROFILE%/.bhm/.env"
+  ],
+  "apiCandidates": [
+    "http://127.0.0.1:8000",
+    "http://localhost:8000"
+  ],
+  "viewerCandidates": [
+    "http://127.0.0.1:8000",
+    "http://localhost:8000"
+  ],
+  "engineCandidates": [
+    "ws://localhost:49134",
+    "ws://127.0.0.1:49134"
+  ],
+  "otelCandidates": [
+    "ws://localhost:49134/otel",
+    "ws://127.0.0.1:49134/otel"
+  ],
+  "workbenchCandidates": [
+    "http://127.0.0.1:43115"
+  ]
+}

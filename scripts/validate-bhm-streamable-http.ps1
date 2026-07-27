@@ -1,0 +1,51 @@
+param(
+  [string]$BaseUrl = '',
+  [switch]$AsJson
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
+. (Join-Path $repoRoot 'scripts\bhm-caller-credential.ps1')
+if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
+  $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot
+}
+$credential = Initialize-BhmCallerCredential
+$headers = @{ Authorization = "Bearer $env:BHM_CALLER_TOKEN" }
+
+function Get-Json([string]$Path, [hashtable]$RequestHeaders = @{}) {
+  Invoke-RestMethod -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))$Path" -Headers $RequestHeaders -TimeoutSec 10
+}
+
+$health = Get-Json '/bhm/health'
+$cutover = Get-Json '/health/cutover'
+$slo = Get-Json '/bhm/health/slo'
+$http = Get-Json '/bhm/mcp/http/status' $headers
+$openapi = Get-Json '/openapi.json'
+$legacyPaths = @($openapi.paths.PSObject.Properties.Name | Where-Object { $_ -match '/bhm/mcp/(attach|connection|telemetry/mcp-attach)' })
+$sessions = $http.sessions
+$checks = [ordered]@{
+  runtime_healthy = $health.status -eq 'healthy'
+  cutover_ready = [bool]$cutover.ok
+  slo_healthy = $slo.status -eq 'healthy'
+  streamable_contract = [string]$http.transport -eq 'streamable_http' -and [string]$http.server_id -eq 'bhm'
+  streamable_sessions_bounded = ([int]$sessions.max_sessions -gt 0 -and [double]$sessions.idle_seconds -gt 0)
+  legacy_public_paths_removed = $legacyPaths.Count -eq 0
+  health_uses_streamable_truth = $null -ne $health.mcp_transport -and [string]$health.mcp_transport.authoritative_source -eq 'streamable_http_sessions'
+}
+$result = [ordered]@{
+  schema_version = 'bhm.mcp.streamable-http-only-validation.v1'
+  ok = [bool]($checks.Values -notcontains $false)
+  base_url = $BaseUrl.TrimEnd('/')
+  transport = $http.transport
+  sessions = $sessions
+  legacy_public_paths = $legacyPaths
+  checks = $checks
+  writes_live_state = $false
+  rollback = 'source/package backup retained; no stdio runtime rollback'
+}
+if ($AsJson) { $result | ConvertTo-Json -Depth 12; if ($result.ok) { exit 0 }; exit 1 }
+$result | ConvertTo-Json -Depth 12
+if ($result.ok) { exit 0 }
+exit 1

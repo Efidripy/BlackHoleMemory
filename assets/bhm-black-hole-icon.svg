@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="BHM black hole icon">
+  <defs>
+    <radialGradient id="spaceGlow" cx="50%" cy="48%" r="60%">
+      <stop offset="0%" stop-color="#15203f"/>
+      <stop offset="38%" stop-color="#0b1021"/>
+      <stop offset="72%" stop-color="#05070f"/>
+      <stop offset="100%" stop-color="#010205"/>
+    </radialGradient>
+    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffe4aa" stop-opacity="0"/>
+      <stop offset="44%" stop-color="#ffb248" stop-opacity="0.18"/>
+      <stop offset="63%" stop-color="#ff8a1f" stop-opacity="0.75"/>
+      <stop offset="73%" stop-color="#ffde98" stop-opacity="0.98"/>
+      <stop offset="83%" stop-color="#7fcbff" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="#7fcbff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="0%" y1="50%" x2="100%" y2="50%">
+      <stop offset="0%" stop-color="#4ec7ff"/>
+      <stop offset="18%" stop-color="#fff0bf"/>
+      <stop offset="50%" stop-color="#ff962b"/>
+      <stop offset="82%" stop-color="#fff0bf"/>
+      <stop offset="100%" stop-color="#4ec7ff"/>
+    </linearGradient>
+    <filter id="blurSoft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+    <filter id="blurWide" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+    <clipPath id="roundedSquare">
+      <rect x="18" y="18" width="476" height="476" rx="112" ry="112"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#roundedSquare)">
+    <rect width="512" height="512" fill="url(#spaceGlow)"/>
+
+    <g opacity="0.9">
+      <circle cx="92" cy="108" r="2.2" fill="#dff4ff"/>
+      <circle cx="142" cy="76" r="1.5" fill="#f6f9ff"/>
+      <circle cx="408" cy="96" r="2.6" fill="#dff4ff"/>
+      <circle cx="438" cy="142" r="1.8" fill="#f6f9ff"/>
+      <circle cx="376" cy="396" r="2.1" fill="#dff4ff"/>
+      <circle cx="118" cy="402" r="1.7" fill="#f6f9ff"/>
+      <circle cx="432" cy="324" r="1.3" fill="#f6f9ff"/>
+      <circle cx="78" cy="282" r="1.1" fill="#dff4ff"/>
+    </g>
+
+    <ellipse cx="256" cy="260" rx="172" ry="118" fill="#61cfff" opacity="0.08" filter="url(#blurWide)"/>
+    <circle cx="256" cy="256" r="138" fill="url(#halo)" filter="url(#blurSoft)"/>
+
+    <g transform="translate(256 256) rotate(-12)">
+      <ellipse cx="0" cy="0" rx="166" ry="76" fill="none" stroke="url(#ring)" stroke-width="24" opacity="0.94"/>
+      <ellipse cx="0" cy="-4" rx="138" ry="48" fill="none" stroke="#fff2c3" stroke-width="7" opacity="0.62"/>
+      <ellipse cx="0" cy="8" rx="184" ry="86" fill="none" stroke="#4ec7ff" stroke-width="5" opacity="0.22"/>
+    </g>
+
+    <circle cx="256" cy="256" r="90" fill="#020307"/>
+    <circle cx="256" cy="256" r="70" fill="#000000"/>
+
+    <path d="M160 242c46-24 145-31 203-6" fill="none" stroke="#fff6d0" stroke-width="10" stroke-linecap="round" opacity="0.46"/>
+    <path d="M176 290c52 19 115 18 163-3" fill="none" stroke="#5fd2ff" stroke-width="8" stroke-linecap="round" opacity="0.33"/>
+  </g>
+</svg>
