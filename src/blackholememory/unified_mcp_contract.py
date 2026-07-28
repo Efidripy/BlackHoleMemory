@@ -245,7 +245,7 @@ def build_unified_mcp_contract(
     if initialize is None or catalog is None:
         initialize, catalog = _default_catalog_responses()
     catalog_contract = build_catalog_contract(initialize, catalog)
-    adapter_payload = json.loads(manifest.read_text(encoding="utf-8"))  # lgtm[py/path-injection]
+    adapter_payload = json.loads(manifest.read_text(encoding="utf-8"))  # lgtm [py/path-injection]
     adapter_contract = adapter_payload.get("adapter_contract") if isinstance(adapter_payload, dict) else {}
     if not isinstance(adapter_contract, Mapping):
         adapter_contract = {}
