@@ -204,8 +204,8 @@ def search_repository_code(
     limit = max(1, min(int(limit), 128))
     offset = max(0, min(int(offset), 10_000))
     snippet_max_chars = max(80, min(int(snippet_max_chars), MAX_SNIPPET_CHARS))
-    root = root.resolve()  # lgtm[py/path-injection]
-    if not root.is_dir():  # lgtm[py/path-injection]
+    root = root.resolve()  # lgtm [py/path-injection]
+    if not root.is_dir():  # lgtm [py/path-injection]
         raise CodeSearchError("repository root is unavailable")
 
     ordered_files = sorted(files, key=lambda item: str(item.get("path") or ""))[:MAX_SCAN_FILES]
@@ -224,7 +224,7 @@ def search_repository_code(
             continue
         try:
             path = _safe_path(root, relative)
-            payload = path.read_bytes()  # lgtm[py/path-injection]
+            payload = path.read_bytes()  # lgtm [py/path-injection]
         except (OSError, CodeSearchError):
             skipped_files += 1
             continue
@@ -364,7 +364,7 @@ def get_repository_snippet(
     if int(entry.get("size_bytes") or 0) > MAX_FILE_BYTES:
         raise CodeSearchError("file exceeds snippet size budget")
     try:
-        payload = _safe_path(root.resolve(), relative).read_bytes()  # lgtm[py/path-injection]
+        payload = _safe_path(root.resolve(), relative).read_bytes()  # lgtm [py/path-injection]
     except (OSError, CodeSearchError) as exc:
         raise CodeSearchError("snippet source is unavailable") from exc
     if b"\x00" in payload[:4096]:

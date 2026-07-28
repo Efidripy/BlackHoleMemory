@@ -53,7 +53,7 @@ def _path(value: Any) -> str:
 
 
 def _git_context(repo_root: str | os.PathLike[str]) -> tuple[Path, dict[str, str]]:
-    root = Path(repo_root).expanduser().resolve()  # lgtm[py/path-injection]
+    root = Path(repo_root).expanduser().resolve()  # lgtm [py/path-injection]
     if not root.is_dir():
         raise ChangeImpactError("repository root must be a directory")
     environment = {
@@ -449,7 +449,7 @@ def collect_git_diff_hunks(
     # bounded metadata diff for the repository, and the already-normalized
     # allowlist is applied while parsing the output below.
     command = ["git", "diff", "--unified=0", revision, "--"]
-    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)  # lgtm[py/command-line-injection]
+    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)  # lgtm [py/command-line-injection]
     current_path = ""
     selected_set = set(selected)
     hunks: list[dict[str, Any]] = []

@@ -238,7 +238,7 @@ def registration_fingerprint(identity: Mapping[str, Any]) -> str:
 def load_contract(path: Path, *, repo_root: Path | None = None) -> RegistrationContract:
     path = resolve_contract_path(path, repo_root=repo_root)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))  # lgtm[py/path-injection]
+        payload = json.loads(path.read_text(encoding="utf-8"))  # lgtm [py/path-injection]
     except (OSError, json.JSONDecodeError) as exc:
         raise RegistrationContractError("cannot read MCP registration contract") from exc
     if not isinstance(payload, dict):
