@@ -12,6 +12,7 @@ from blackholememory.mcp_registration import load_json_registrations
 from blackholememory.mcp_registration import load_toml_registrations
 from blackholememory.mcp_registration import registration_fingerprint
 from blackholememory.mcp_registration import registration_identity
+from blackholememory.mcp_registration import resolve_contract_path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -55,6 +56,15 @@ required = true
 
     assert result["ok"] is True
     assert result["issues"] == []
+
+
+def test_registration_manifest_is_confined_to_repository_config(tmp_path):
+    (tmp_path / "config").mkdir()
+    allowed = tmp_path / "config" / "custom.json"
+
+    assert resolve_contract_path(allowed, repo_root=tmp_path) == allowed.resolve()
+    with pytest.raises(RegistrationContractError, match="under repository config"):
+        resolve_contract_path(tmp_path / "outside.json", repo_root=tmp_path)
 
 
 def test_registration_contract_resolves_runtime_base_url_from_environment(monkeypatch):

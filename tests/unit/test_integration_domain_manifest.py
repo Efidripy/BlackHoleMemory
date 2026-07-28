@@ -22,8 +22,8 @@ def _integration_tests() -> list[tuple[str, str]]:
 def test_every_integration_test_has_one_domain():
     assignments = [classify_test(file_name, test_name) for file_name, test_name in _integration_tests()]
     # Keep the manifest fail-closed while accounting for the WI-82..WI-198
-    # parity and semantic-readiness integration surfaces now present in the
-    # current test tree.
-    assert len(assignments) == 217
+    # parity, semantic-readiness and security regression surfaces now present
+    # in the current test tree.
+    assert len(assignments) == 220
     assert set(assignments) == set(DOMAIN_NAMES)
     assert all(assignments.count(domain) > 0 for domain in DOMAIN_NAMES)

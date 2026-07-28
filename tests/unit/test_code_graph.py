@@ -687,6 +687,24 @@ def test_wi170_gn_and_kdl_parsers_fail_closed_for_comments_and_plain_text(tmp_pa
     assert all(secret not in serialized for secret in ("Ignored", "hidden-source", "opaque-alpha", "opaque-beta"))
 
 
+def test_kdl_parser_skips_pathological_lines_before_regex_matching(tmp_path: Path) -> None:
+    root = tmp_path / "kdl-long-line"
+    root.mkdir()
+    (root / "long.kdl").write_text(
+        'server "' + ("x" * 20_000) + '" { value="opaque" }\n',
+        encoding="utf-8",
+    )
+    database = tmp_path / "kdl-long-line.sqlite3"
+    source = RepositorySourceProvenance(owner="fixture", source_url="local://kdl-long-line", license="MIT", evidence_class="E0")
+    indexed = index_repository(root, database, project="kdl-long-line", source=source)
+    state = probe_repository_state(root, project="kdl-long-line")
+    result = build_code_graph(database, project="kdl-long-line", root_id=state.root_id, repository_snapshot_id=indexed["snapshot_id"])
+    graph = SQLiteCodeGraphStore(database).snapshot(result["graph_snapshot_id"], include_material=True)
+
+    parse = {item["path"]: item for item in graph["parse_results"]}
+    assert parse["long.kdl"]["error_code"] == "kdl_identities_missing"
+
+
 def test_cbm_cap05_bitbake_parser_is_metadata_only_and_masks_lookalikes(tmp_path: Path) -> None:
     root = tmp_path / "bitbake-repo"
     root.mkdir()

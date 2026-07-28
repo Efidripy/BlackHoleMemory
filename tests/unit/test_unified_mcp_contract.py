@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
+from blackholememory.unified_mcp_contract import UnifiedMcpContractError
 from blackholememory.unified_mcp_contract import build_unified_mcp_contract
 from blackholememory.unified_mcp_contract import verify_unified_mcp_contract_digest
 
@@ -25,3 +30,8 @@ def test_unified_contract_fails_closed_on_schema_drift():
     )
     assert any(issue["code"] == "schema_hash_mismatch" for issue in result["issues"])
     assert result["checks"]["client_matrix_aligned"] is False
+
+
+def test_unified_contract_rejects_manifest_outside_repository_config(tmp_path: Path):
+    with pytest.raises(UnifiedMcpContractError, match="repository config"):
+        build_unified_mcp_contract(manifest_path=tmp_path / "outside.json")

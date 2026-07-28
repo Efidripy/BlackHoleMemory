@@ -31,6 +31,7 @@ CODE_GRAPH_STORE_SCHEMA_VERSION = 1
 CODE_GRAPH_EXTRACTOR_VERSION = "bhm.code-graph.extractor.v36"
 CODE_GRAPH_BUSY_TIMEOUT_MS = 5_000
 CODE_GRAPH_MAX_FILE_BYTES = 2 * 1024 * 1024
+CODE_GRAPH_MAX_PARSER_LINE_CHARS = 16 * 1024
 CODE_GRAPH_MAX_NODES = 100_000
 CODE_GRAPH_MAX_EDGES = 300_000
 CODE_GRAPH_REPORT_LIMIT = 128
@@ -2100,6 +2101,11 @@ def _extract_kdl_metadata(
     quote = ""
     escaped = False
     for line_number, raw in enumerate(lines, start=1):
+        if len(raw) > CODE_GRAPH_MAX_PARSER_LINE_CHARS:
+            # A single pathological line must not turn metadata extraction
+            # into an unbounded regex workload.
+            quote = ""
+            continue
         buffer: list[str] = []
         for char in raw:
             if quote:
@@ -2143,6 +2149,9 @@ def _extract_kdl_metadata(
             continue
         if not text:
             continue
+        if len(text) > CODE_GRAPH_MAX_PARSER_LINE_CHARS:
+            continue
+        text = text[:CODE_GRAPH_MAX_PARSER_LINE_CHARS]
         node_name, remainder = _kdl_first_token(text)
         if not node_name:
             continue
@@ -2168,6 +2177,7 @@ def _extract_kdl_metadata(
         node_count += 1
         # Arguments and properties are represented by digests only; no raw KDL values enter graph material.
         remainder_without_assignments = assignment_pattern.sub("", remainder)
+        remainder_without_assignments = remainder_without_assignments[:CODE_GRAPH_MAX_PARSER_LINE_CHARS]
         for token in re.findall(r'\"(?:\\.|[^\"\n])*\"|\'(?:\\.|[^\'\n])*\'|[^\s{};]+', remainder_without_assignments):
             argument_identity = f"kdl-argument:{_kdl_digest(f'{identity}|{token}') }"
             argument_key = _external_node_key(draft.root_id, "kdl_argument", argument_identity)

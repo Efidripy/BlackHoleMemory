@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 from collections import Counter, defaultdict, deque
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from .git_history_test_receipt import build_commit_symbol_test_history_receipt
@@ -50,6 +50,19 @@ def _path(value: Any) -> str:
     if not normalized or normalized in {".", ".."} or normalized.startswith("/") or ".." in PurePosixPath(normalized).parts:
         raise ChangeImpactError("changed path must be repository-relative")
     return normalized
+
+
+def _git_context(repo_root: str | os.PathLike[str]) -> tuple[Path, dict[str, str]]:
+    root = Path(repo_root).expanduser().resolve()
+    if not root.is_dir():
+        raise ChangeImpactError("repository root must be a directory")
+    environment = {
+        **os.environ,
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "safe.directory",
+        "GIT_CONFIG_VALUE_0": str(root),
+    }
+    return root, environment
 
 
 def _node_key(node: Mapping[str, Any]) -> str:
@@ -403,8 +416,8 @@ def build_impact_binding_receipt(
 def collect_git_change_paths(repo_root: str | os.PathLike[str], *, base_revision: str | None = None) -> dict[str, Any]:
     """Read a bounded git diff/status path set without changing the worktree."""
 
-    root = os.fspath(repo_root)
-    command = ["git", "-C", root, "diff", "--name-only", "--diff-filter=ACMRTUXB"]
+    root, environment = _git_context(repo_root)
+    command = ["git", "diff", "--name-only", "--diff-filter=ACMRTUXB"]
     if base_revision:
         revision = str(base_revision).strip()
         if not (7 <= len(revision) <= 64 and all(char in "0123456789abcdefABCDEF" for char in revision)):
@@ -412,8 +425,8 @@ def collect_git_change_paths(repo_root: str | os.PathLike[str], *, base_revision
         command.extend([revision, "--"])
     else:
         command.append("--")
-    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"})
-    untracked = subprocess.run(["git", "-C", root, "ls-files", "--others", "--exclude-standard"], check=True, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"})
+    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
+    untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
     candidates = [line for line in completed.stdout.splitlines() if line.strip()] + [line for line in untracked.stdout.splitlines() if line.strip()]
     paths = sorted({_path(line) for line in candidates})[:MAX_CHANGED_PATHS]
     return {"paths": paths, "base_revision": base_revision, "untracked_included": True, "bounded": len(paths) <= MAX_CHANGED_PATHS, "diff_hunks": collect_git_diff_hunks(root, base_revision=base_revision, paths=paths) if base_revision else [], "writes_worktree": False}
@@ -430,11 +443,11 @@ def collect_git_diff_hunks(
     revision = str(base_revision or "").strip()
     if not (7 <= len(revision) <= 64 and all(char in "0123456789abcdefABCDEF" for char in revision)):
         raise ChangeImpactError("base_revision must be a hexadecimal git revision")
-    root = os.fspath(repo_root)
-    command = ["git", "-C", root, "diff", "--unified=0", revision, "--"]
+    root, environment = _git_context(repo_root)
+    command = ["git", "diff", "--unified=0", revision, "--"]
     selected = sorted({_path(path) for path in (paths or []) if str(path or "").strip()})[:MAX_CHANGED_PATHS]
     command.extend(selected)
-    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"})
+    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
     current_path = ""
     hunks: list[dict[str, Any]] = []
     hunk_pattern = re.compile(r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? \+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@")
@@ -535,8 +548,8 @@ def collect_git_history_stats(repo_root: str | os.PathLike[str], changed_paths: 
 
     if not 1 <= int(max_commits) <= MAX_GIT_HISTORY_COMMITS:
         raise ChangeImpactError("max_commits must be between 1 and 64")
-    root = os.fspath(repo_root)
-    completed = subprocess.run(["git", "-C", root, "log", f"--max-count={int(max_commits)}", "--format=%H", "--name-only", "--diff-filter=ACMRTUXB", "--"], check=True, capture_output=True, text=True, encoding="utf-8", env={**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"})
+    root, environment = _git_context(repo_root)
+    completed = subprocess.run(["git", "log", f"--max-count={int(max_commits)}", "--format=%H", "--name-only", "--diff-filter=ACMRTUXB", "--"], check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
     commits: list[list[str]] = []
     commit_ids: list[str] = []
     current: list[str] = []
