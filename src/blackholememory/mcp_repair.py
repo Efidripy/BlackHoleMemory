@@ -125,13 +125,15 @@ def _safe_backup_dir(repo_root: Path, value: Any) -> Path | None:
     raw = str(value or "").strip()
     if not raw:
         return None
-    candidate = Path(raw).resolve()
-    root = _backup_root(repo_root).resolve()
+    root_name = os.path.realpath(os.fspath(_backup_root(repo_root)))
+    candidate_name = os.path.realpath(os.path.expanduser(raw))
     try:
-        candidate.relative_to(root)
+        contained = os.path.commonpath((root_name, candidate_name)) == root_name
     except ValueError as exc:
         raise McpRepairError("rollback backup is outside the BHM adapter backup root") from exc
-    return candidate
+    if not contained:
+        raise McpRepairError("rollback backup is outside the BHM adapter backup root")
+    return Path(candidate_name)
 
 
 def _validate_backup_scope(repo_root: Path, backup_dir: Path, clients: list[str]) -> None:
@@ -146,14 +148,14 @@ def _validate_backup_scope(repo_root: Path, backup_dir: Path, clients: list[str]
     if not isinstance(records, list) or not records or len(records) > MAX_CLIENTS:
         raise McpRepairError("rollback manifest has an invalid bounded record set")
     _generator, adapters = _adapter_context(Path(repo_root), clients)
-    expected_targets = {client: Path(adapter.target).resolve() for client, adapter in adapters.items()}
+    expected_targets = {client: os.path.realpath(os.fspath(adapter.target)) for client, adapter in adapters.items()}
     seen: set[str] = set()
     for record in records:
         if not isinstance(record, Mapping):
             raise McpRepairError("rollback manifest has an invalid record")
         client = str(record.get("client") or "").strip().lower()
         target = str(record.get("target") or "").strip()
-        if client not in expected_targets or not target or Path(target).resolve() != expected_targets[client]:
+        if client not in expected_targets or not target or os.path.realpath(target) != expected_targets[client]:
             raise McpRepairError("rollback manifest escapes the BHM-only target scope")
         seen.add(client)
     if len(seen) != len(records):

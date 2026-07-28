@@ -2141,7 +2141,10 @@ def _extract_kdl_metadata(
     node_count = 0
     property_count = 0
     argument_count = 0
-    assignment_pattern = re.compile(r"(?<!\S)([A-Za-z_][A-Za-z0-9_.:-]{0,160})\s*=\s*(\"(?:\\.|[^\"\n])*\"|'(?:\\.|[^'\n])*'|[^\s{};]+)")
+    assignment_pattern = re.compile(
+        r"(?<!\S)([A-Za-z_][A-Za-z0-9_.:-]{0,160})\s*+=\s*+"
+        r"(\"(?:\\.|[^\"\\\n])*+\"|'(?:\\.|[^'\\\n])*+'|[^\s{};]++)"
+    )
     for text, delimiter, line_number in statements:
         if delimiter == "}":
             if node_stack:
@@ -2178,7 +2181,10 @@ def _extract_kdl_metadata(
         # Arguments and properties are represented by digests only; no raw KDL values enter graph material.
         remainder_without_assignments = assignment_pattern.sub("", remainder)
         remainder_without_assignments = remainder_without_assignments[:CODE_GRAPH_MAX_PARSER_LINE_CHARS]
-        for token in re.findall(r'\"(?:\\.|[^\"\n])*\"|\'(?:\\.|[^\'\n])*\'|[^\s{};]+', remainder_without_assignments):
+        for token in re.findall(
+            r'\"(?:\\.|[^\"\\\n])*+\"|\'(?:\\.|[^\'\\\n])*+\'|[^\s{};]++',
+            remainder_without_assignments,
+        ):
             argument_identity = f"kdl-argument:{_kdl_digest(f'{identity}|{token}') }"
             argument_key = _external_node_key(draft.root_id, "kdl_argument", argument_identity)
             if argument_key not in draft.nodes:
@@ -3480,6 +3486,32 @@ def _extract_buildfile_structural(
     return "parsed", None
 
 
+def _iter_html_script_blocks(content: str):
+    """Yield bounded ``<script>`` bodies without regex HTML parsing."""
+
+    lowered = content.casefold()
+    cursor = 0
+    while cursor < len(content):
+        open_start = lowered.find("<script", cursor)
+        if open_start < 0:
+            return
+        boundary = open_start + len("<script")
+        if boundary < len(content) and content[boundary] not in "\t\r\n >/":
+            cursor = boundary
+            continue
+        open_end = lowered.find(">", boundary)
+        if open_end < 0:
+            return
+        close_start = lowered.find("</script", open_end + 1)
+        if close_start < 0:
+            return
+        close_end = lowered.find(">", close_start + len("</script"))
+        if close_end < 0:
+            return
+        yield content[open_end + 1 : close_start], open_end + 1
+        cursor = close_end + 1
+
+
 def _extract_component_structural(
     draft: _GraphDraft,
     path: str,
@@ -3496,15 +3528,12 @@ def _extract_component_structural(
     """
 
     parser_version = PARSER_REGISTRY[language]["version"]
-    script_pattern = re.compile(r"<script\b[^>]*>(?P<body>.*?)</script\s*>", re.IGNORECASE | re.DOTALL)
     declaration_patterns = (
         re.compile(r"^\s*(?:export\s+default\s+)?class\s+([A-Za-z_$][\w$]*)"),
         re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\("),
         re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>"),
     )
-    for script_match in script_pattern.finditer(content):
-        body = script_match.group("body")
-        body_start = script_match.start("body")
+    for body, body_start in _iter_html_script_blocks(content):
         for index, line in enumerate(body.splitlines(), start=1):
             absolute_line = content.count("\n", 0, body_start) + index
             import_match = re.match(r"^\s*import\s+(.+?)\s+from\s+[\"']([^\"']{1,300})[\"']", line)

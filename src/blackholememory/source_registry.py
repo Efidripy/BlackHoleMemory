@@ -133,12 +133,32 @@ def _json_load(path: Path) -> dict[str, Any]:
 def _json_write_atomic(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
+    safe_payload = _redact_persisted_payload(payload)
     temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(safe_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
         newline="\n",
     )
     os.replace(temporary, path)
+
+
+_SENSITIVE_KEY_RE = re.compile(r"(?i)(?:token|secret|password|credential|authorization|private[_-]?key|api[_-]?key)")
+
+
+def _redact_persisted_payload(value: Any, *, key: str = "") -> Any:
+    """Keep registry receipts useful without persisting credential material."""
+
+    if _SENSITIVE_KEY_RE.search(key):
+        return "[REDACTED]"
+    if isinstance(value, dict):
+        return {str(item_key): _redact_persisted_payload(item, key=str(item_key)) for item_key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_persisted_payload(item, key=key) for item in value]
+    if isinstance(value, str):
+        for pattern in CREDENTIAL_PATTERNS.values():
+            if pattern.search(value.encode("utf-8", errors="ignore")):
+                return "[REDACTED]"
+    return value
 
 
 def _permission_defaults() -> dict[str, Any]:

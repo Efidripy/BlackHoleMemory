@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import os
 import re
 from collections import Counter, defaultdict, deque
 from datetime import datetime, timezone
@@ -235,9 +236,14 @@ def _symbols_and_imports(path: str, content: str, language: str) -> tuple[list[d
             continue
         stripped = line.strip()
         if language in {"javascript", "typescript"}:
-            import_match = re.match(r"(?:import .*? from ['\"]|(?:const|let|var) .*?= require\(['\"])([^'\"]+)", stripped)
-            if import_match:
-                imports.append(import_match.group(1))
+            import_value = ""
+            if stripped.startswith("import ") and " from " in stripped:
+                import_value = stripped.rsplit(" from ", 1)[1].strip().lstrip("'\"")
+            elif "require(" in stripped:
+                import_value = stripped.split("require(", 1)[1].strip().lstrip("'\"")
+            import_value = import_value.split("'", 1)[0].split('"', 1)[0]
+            if import_value:
+                imports.append(import_value)
             symbol_match = re.match(r"(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)|(?:export\s+)?class\s+([A-Za-z_$][\w$]*)", stripped)
             if symbol_match:
                 name = symbol_match.group(1) or symbol_match.group(2)
@@ -440,12 +446,15 @@ def _normalize_path(value: Any) -> str:
 
 def _resolve_under_root(root: Path, value: Any) -> Path:
     relative = _normalize_path(value)
-    target = (root / relative).resolve()
+    root_name = os.path.realpath(os.fspath(root))
+    target_name = os.path.realpath(os.path.join(root_name, relative.replace("/", os.sep)))
     try:
-        target.relative_to(root)
+        contained = os.path.commonpath((root_name, target_name)) == root_name
     except ValueError as exc:
         raise RepositoryIntelligenceError(f"path escapes repository root: {value}") from exc
-    return target
+    if not contained:
+        raise RepositoryIntelligenceError(f"path escapes repository root: {value}")
+    return Path(target_name)
 
 
 def _blocked(path: Path, root: Path) -> bool:

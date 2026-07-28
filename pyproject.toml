@@ -11,25 +11,25 @@ description = "Local self-hosted memory contour built with LangGraph, Mem0, and 
 requires-python = ">=3.12"
 dependencies = [
   "docker==7.1.0",
-  "fastapi==0.115.12",
-  "fastmcp==2.0.0",
+  "fastapi==0.140.13",
+  "fastmcp==3.2.0",
   "httpx==0.28.1",
   "langgraph==1.2.4",
   "mem0ai==2.0.4",
-  "mcp==1.27.2",
+  "mcp==1.28.1",
   "psutil>=5.9.8,<8.0.0",
   "pydantic-settings==2.10.1",
   "qdrant-client==1.18.0",
-  "uvicorn[standard]==0.34.3",
+  "uvicorn[standard]==0.35.0",
 ]
 
 [project.optional-dependencies]
 test = [
-  "pytest==8.4.2",
+  "pytest==9.0.3",
   "pytest-cov==7.1.0",
 ]
 dev = [
-  "pytest==8.4.2",
+  "pytest==9.0.3",
   "pytest-cov==7.1.0",
   "ruff==0.15.10",
 ]

@@ -40,8 +40,8 @@ def _collection_names(client: Any) -> list[str]:
 def _point_count(client: Any, name: str) -> tuple[int | None, str | None]:
     try:
         response = client.get_collection(collection_name=name)
-    except Exception as exc:  # A catalog must expose an inspection failure.
-        return None, f"{type(exc).__name__}: {exc}"
+    except Exception:  # A catalog must expose an inspection failure without backend details.
+        return None, "qdrant_inspection_failed"
     raw = _value(response, "points_count")
     if raw is None:
         raw = _value(response, "vectors_count")

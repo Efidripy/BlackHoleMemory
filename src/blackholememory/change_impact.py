@@ -444,11 +444,14 @@ def collect_git_diff_hunks(
     if not (7 <= len(revision) <= 64 and all(char in "0123456789abcdefABCDEF" for char in revision)):
         raise ChangeImpactError("base_revision must be a hexadecimal git revision")
     root, environment = _git_context(repo_root)
-    command = ["git", "diff", "--unified=0", revision, "--"]
     selected = sorted({_path(path) for path in (paths or []) if str(path or "").strip()})[:MAX_CHANGED_PATHS]
-    command.extend(selected)
+    # Do not place caller-supplied paths in the subprocess argv.  Git emits a
+    # bounded metadata diff for the repository, and the already-normalized
+    # allowlist is applied while parsing the output below.
+    command = ["git", "diff", "--unified=0", revision, "--"]
     completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
     current_path = ""
+    selected_set = set(selected)
     hunks: list[dict[str, Any]] = []
     hunk_pattern = re.compile(r"^@@ -(?P<old_start>\d+)(?:,(?P<old_count>\d+))? \+(?P<new_start>\d+)(?:,(?P<new_count>\d+))? @@")
     for line in completed.stdout.splitlines():
@@ -456,6 +459,8 @@ def collect_git_diff_hunks(
             try:
                 current_path = _path(line[6:])
             except ChangeImpactError:
+                current_path = ""
+            if selected_set and current_path not in selected_set:
                 current_path = ""
             continue
         match = hunk_pattern.match(line)

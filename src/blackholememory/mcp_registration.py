@@ -41,14 +41,18 @@ class RegistrationContractError(ValueError):
 def resolve_contract_path(path: Path | str, *, repo_root: Path | str | None = None) -> Path:
     """Resolve a registration manifest inside the repository config boundary."""
 
-    root = Path(repo_root or Path(__file__).resolve().parents[2]).expanduser().resolve()
-    config_root = (root / "config").resolve()
-    candidate = Path(path).expanduser()
-    resolved = (candidate if candidate.is_absolute() else root / candidate).resolve()
+    root_name = os.path.realpath(os.fspath(repo_root or Path(__file__).resolve().parents[2]))
+    raw_path = os.path.expanduser(os.fspath(path))
+    resolved_name = os.path.realpath(raw_path if os.path.isabs(raw_path) else os.path.join(root_name, raw_path))
     try:
-        resolved.relative_to(config_root)
+        contained = os.path.commonpath((root_name, resolved_name)) == root_name
+        config_root_name = os.path.join(root_name, "config")
+        in_config = os.path.commonpath((config_root_name, resolved_name)) == config_root_name
     except ValueError as exc:
         raise RegistrationContractError("MCP registration manifest must remain under repository config") from exc
+    if not contained or not in_config:
+        raise RegistrationContractError("MCP registration manifest must remain under repository config")
+    resolved = Path(resolved_name)
     if resolved.suffix.casefold() != ".json":
         raise RegistrationContractError("MCP registration manifest must be a JSON file")
     return resolved
