@@ -97,13 +97,17 @@ def _plan_path(repo_root: Path, repair_id: str) -> Path:
 
 def _write_plan(repo_root: Path, repair_id: str, payload: Mapping[str, Any]) -> None:
     path = _plan_path(repo_root, repair_id)
-    path.parent.mkdir(parents=True, exist_ok=True)  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     encoded = json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     with _PLAN_LOCK:
-        temporary.write_text(encoded, encoding="utf-8")  # lgtm [py/path-injection]
-        os.replace(temporary, path)  # lgtm [py/path-injection]
-        plans = sorted(path.parent.glob("mcp-repair-*.json"), key=lambda item: item.stat().st_mtime, reverse=True)  # lgtm [py/path-injection]
+        # lgtm [py/path-injection]
+        temporary.write_text(encoded, encoding="utf-8")
+        # lgtm [py/path-injection]
+        os.replace(temporary, path)
+        # lgtm [py/path-injection]
+        plans = sorted(path.parent.glob("mcp-repair-*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
         for stale in plans[MAX_PLANS:]:
             stale.unlink(missing_ok=True)
 
@@ -111,7 +115,8 @@ def _write_plan(repo_root: Path, repair_id: str, payload: Mapping[str, Any]) -> 
 def _read_plan(repo_root: Path, repair_id: str) -> dict[str, Any] | None:
     path = _plan_path(repo_root, repair_id)
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))  # lgtm [py/path-injection]
+        # lgtm [py/path-injection]
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None

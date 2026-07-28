@@ -9224,15 +9224,18 @@ def _admin_export(request: AdminExportRequest) -> dict:
     if request.include_artifacts:
         for artifact_type, (loader, _) in _artifact_store_pairs().items():
             payload["artifacts"][artifact_type] = [item for item in loader() if not request.project or item.get("project") == request.project]
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"path": str(target), "memory_count": len(payload["memories"]), "link_count": len(payload["links"]), "artifact_counts": {key: len(value) for key, value in payload["artifacts"].items()}}
 
 
 def _admin_import_preview(request: AdminImportPreviewRequest) -> dict:
     path = _admin_snapshot_path(request.path)
-    if not path.is_file():  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    if not path.is_file():
         raise HTTPException(status_code=404, detail="import path not found")
-    payload = json.loads(path.read_text(encoding="utf-8"))  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    payload = json.loads(path.read_text(encoding="utf-8"))
     return {
         "path": str(path),
         "project": payload.get("project"),
@@ -9244,9 +9247,11 @@ def _admin_import_preview(request: AdminImportPreviewRequest) -> dict:
 
 def _admin_import_apply(request: AdminImportApplyRequest) -> dict:
     path = _admin_snapshot_path(request.path)
-    if not path.is_file():  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    if not path.is_file():
         raise HTTPException(status_code=404, detail="import path not found")
-    payload = json.loads(path.read_text(encoding="utf-8"))  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    payload = json.loads(path.read_text(encoding="utf-8"))
     imported = {"memories": 0, "links": 0, "artifacts": 0}
     live_records = _load_live_memories()
     by_id = {item.get("source_id"): item for item in live_records}
@@ -11668,11 +11673,13 @@ def _public_code_embedding_contract() -> dict[str, Any]:
 def _resolve_public_code_root(raw_root: str) -> Path:
     """Resolve a repository root inside the operator-approved repos boundary."""
 
-    repos_root = settings.repo_root.resolve().parent  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    repos_root = settings.repo_root.resolve().parent
     candidate = _resolve_bounded_repository_root(raw_root, repos_root)
     relative = candidate.relative_to(repos_root)
     blocked = {".src", "runtime", ".env", "secrets", "credentials", "private-keys", "private_keys"}
-    if any(part.casefold() in blocked for part in relative.parts) or not candidate.is_dir():  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    if any(part.casefold() in blocked for part in relative.parts) or not candidate.is_dir():
         raise HTTPException(status_code=422, detail={"error": "repository_root_rejected"})
     return candidate
 
@@ -11693,7 +11700,8 @@ def _resolve_bounded_repository_root(raw_root: str, base: Path) -> Path:
     if not contained:
         raise HTTPException(status_code=422, detail={"error": "repository_root_outside_allowlist"})
     candidate = Path(candidate_name)
-    if not candidate.is_dir():  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    if not candidate.is_dir():
         raise HTTPException(status_code=422, detail={"error": "repository_root_rejected"})
     return candidate
 
