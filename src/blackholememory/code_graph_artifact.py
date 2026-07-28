@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
@@ -146,11 +147,15 @@ def export_graph_artifact(material: Mapping[str, Any], *, runtime_dir: Path, pro
 
 def _resolve_artifact_path(path: str, runtime_dir: Path) -> Path:
     root = artifact_root(runtime_dir)
-    candidate = Path(str(path or "")).expanduser().resolve()
+    raw = str(path or "").strip()
+    candidate_name = os.path.realpath(os.path.expanduser(raw))
     try:
-        candidate.relative_to(root)
+        contained = os.path.commonpath((os.fspath(root), candidate_name)) == os.fspath(root)
     except ValueError as exc:
         raise CodeGraphArtifactError("artifact path is outside the runtime artifact boundary") from exc
+    if not contained:
+        raise CodeGraphArtifactError("artifact path is outside the runtime artifact boundary")
+    candidate = Path(candidate_name)
     if candidate.suffix != ".gz" or not candidate.is_file():
         raise CodeGraphArtifactError("graph artifact file is unavailable")
     return candidate

@@ -154,10 +154,19 @@ def _redact_line(line: str, *, max_chars: int) -> str:
 
 
 def _safe_path(root: Path, relative: str) -> Path:
-    candidate = (root / Path(relative)).resolve()
-    if candidate == root or root not in candidate.parents:
+    normalized = str(relative or "").replace("\\", "/").strip()
+    parts = normalized.split("/")
+    if not normalized or normalized.startswith("/") or any(part in {"", ".", ".."} for part in parts):
         raise CodeSearchError(f"candidate escapes repository root: {relative}")
-    return candidate
+    base = os.path.realpath(os.fspath(root))
+    candidate_name = os.path.realpath(os.path.join(base, *parts))
+    try:
+        contained = os.path.commonpath((base, candidate_name)) == base
+    except ValueError:
+        contained = False
+    if not contained:
+        raise CodeSearchError(f"candidate escapes repository root: {relative}")
+    return Path(candidate_name)
 
 
 def _matches_line(line: str, query: str, mode: str) -> bool:

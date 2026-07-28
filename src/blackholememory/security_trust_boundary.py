@@ -11,8 +11,8 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import os
 import re
-from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
@@ -76,12 +76,10 @@ def _flatten(value: Any, *, limit: int = SECURITY_MAX_TEXT_CHARS) -> str:
     return str(value)[:limit]
 
 
-def _is_relative_to(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
+def _is_relative_to(path: str, root: str) -> bool:
+    normalized_path = os.path.normcase(os.path.normpath(path))
+    normalized_root = os.path.normcase(os.path.normpath(root)).rstrip("\\/")
+    return normalized_path == normalized_root or normalized_path.startswith(normalized_root + os.sep)
 
 
 def _normalise_project(value: Any, fallback: str) -> str:
@@ -134,22 +132,22 @@ def redacted_endpoint(value: str) -> str:
     return f"{scheme}://{host}{port}"
 
 
-def _path_check(value: Any, roots: Sequence[Path]) -> tuple[str, dict[str, Any], list[str]]:
+def _path_check(value: Any, roots: Sequence[str]) -> tuple[str, dict[str, Any], list[str]]:
     raw = _clip(value, 480)
     if not raw:
         return "", {"checked": False, "within_project": True, "traversal": False}, []
     traversal = bool(_PATH_TRAVERSAL_RE.search(raw.replace("/", "\\")))
-    try:
-        resolved = Path(raw).expanduser().resolve(strict=False)
-    except (OSError, RuntimeError):
-        return raw, {"checked": True, "within_project": False, "traversal": traversal}, ["path_resolution_failed"]
-    within_project = any(_is_relative_to(resolved, root) for root in roots) if roots else not resolved.is_absolute()
+    # This preview never opens the path.  Keep the check lexical so an
+    # untrusted string cannot become a filesystem path expression here.
+    expanded = os.path.expanduser(raw)
+    normalized = os.path.normpath(expanded)
+    within_project = any(_is_relative_to(normalized, root) for root in roots) if roots else not os.path.isabs(normalized)
     findings: list[str] = []
     if traversal:
         findings.append("path_traversal")
     if not within_project:
         findings.append("path_outside_project")
-    return str(resolved), {"checked": True, "within_project": within_project, "traversal": traversal}, findings
+    return normalized, {"checked": True, "within_project": within_project, "traversal": traversal}, findings
 
 
 def _trust_label(record: Mapping[str, Any], *, project: str, project_match: bool, hard_findings: Sequence[str]) -> str:
@@ -231,7 +229,11 @@ def build_security_trust_boundary_preview(
     if len(items) > SECURITY_MAX_ITEMS or len(paths) > SECURITY_MAX_PATHS or len(mcp_endpoints) > SECURITY_MAX_ENDPOINTS:
         raise SecurityTrustBoundaryError("security preview exceeds bounded input limits")
     canonical_project = _normalise_project(project, "blackholememory")
-    roots = tuple(Path(root).expanduser().resolve(strict=False) for root in project_roots if _clip(root, 480))
+    roots = tuple(
+        os.path.normpath(os.path.expanduser(_clip(root, 480)))
+        for root in project_roots
+        if _clip(root, 480)
+    )
     admin_required = admin_route_requires_capability(route, method)
     admin_ok = is_admin_capability_valid(capability) if admin_required or mutation_requested else True
     global_findings: list[str] = []

@@ -4758,8 +4758,8 @@ def _read_boot_report() -> dict[str, Any]:
         if not _BOOT_REPORT_PATH.exists():
             return {"status": "missing"}
         data = json.loads(_BOOT_REPORT_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        return {"status": "ERROR", "error": str(exc), "timestamp": _utc_now_iso()}
+    except (OSError, json.JSONDecodeError):
+        return {"status": "ERROR", "error": "boot_report_unavailable", "timestamp": _utc_now_iso()}
     if isinstance(data, dict):
         return data
     return {"status": "ERROR", "error": "boot report is not a JSON object", "timestamp": _utc_now_iso()}
@@ -11502,12 +11502,7 @@ def bhm_llm_repository_intelligence_preview(request: RepositoryIntelligencePrevi
     source_files = request.files
     if source_files is None:
         base = Path(settings.repo_root).resolve()
-        requested_root = Path(request.root).expanduser()
-        candidate_root = (base / requested_root).resolve() if not requested_root.is_absolute() else requested_root.resolve()
-        try:
-            candidate_root.relative_to(base)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail={"error": "repository_root_outside_allowlist"}) from exc
+        candidate_root = _resolve_bounded_repository_root(request.root, base)
         try:
             source_files = collect_repository_files(candidate_root, request.paths)
         except RepositoryIntelligenceError as exc:
@@ -11674,14 +11669,31 @@ def _resolve_public_code_root(raw_root: str) -> Path:
     """Resolve a repository root inside the operator-approved repos boundary."""
 
     repos_root = settings.repo_root.resolve().parent
-    requested = Path(str(raw_root or ".")).expanduser()
-    candidate = (repos_root / requested).resolve() if not requested.is_absolute() else requested.resolve()
-    try:
-        relative = candidate.relative_to(repos_root)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail={"error": "repository_root_outside_allowlist"}) from exc
+    candidate = _resolve_bounded_repository_root(raw_root, repos_root)
+    relative = candidate.relative_to(repos_root)
     blocked = {".src", "runtime", ".env", "secrets", "credentials", "private-keys", "private_keys"}
     if any(part.casefold() in blocked for part in relative.parts) or not candidate.is_dir():
+        raise HTTPException(status_code=422, detail={"error": "repository_root_rejected"})
+    return candidate
+
+
+def _resolve_bounded_repository_root(raw_root: str, base: Path) -> Path:
+    """Resolve a request root only after a normalized containment check."""
+
+    raw = str(raw_root or ".").strip()
+    if not raw or len(raw) > 512 or "\x00" in raw:
+        raise HTTPException(status_code=422, detail={"error": "repository_root_rejected"})
+    base_name = os.path.realpath(os.fspath(base))
+    expanded = os.path.expanduser(raw)
+    candidate_name = os.path.realpath(expanded if os.path.isabs(expanded) else os.path.join(base_name, expanded))
+    try:
+        contained = os.path.commonpath((base_name, candidate_name)) == base_name
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"error": "repository_root_outside_allowlist"}) from exc
+    if not contained:
+        raise HTTPException(status_code=422, detail={"error": "repository_root_outside_allowlist"})
+    candidate = Path(candidate_name)
+    if not candidate.is_dir():
         raise HTTPException(status_code=422, detail={"error": "repository_root_rejected"})
     return candidate
 
@@ -13520,12 +13532,18 @@ def bhm_mcp_panel() -> dict[str, Any]:
     )
 
 
+def _canonical_runtime_repo_root() -> Path:
+    """Return the package-owned repository root for internal repair tooling."""
+
+    return Path(__file__).resolve().parents[2]
+
+
 @app.get("/bhm/mcp/repair/preview")
 def bhm_mcp_repair_preview() -> dict[str, Any]:
     """Build a read-only repair plan scoped to BHM registrations only."""
 
     try:
-        return build_repair_preview(repo_root=settings.repo_root, panel=bhm_mcp_panel())
+        return build_repair_preview(repo_root=_canonical_runtime_repo_root(), panel=bhm_mcp_panel())
     except McpRepairError as exc:
         raise HTTPException(status_code=422, detail={"code": "mcp_repair_preview_failed", "reason": str(exc)}) from exc
 
@@ -13535,7 +13553,7 @@ def bhm_mcp_repair_reprobe() -> dict[str, Any]:
     """Re-read BHM panel and adapter presence without changing live state."""
 
     try:
-        return build_reprobe(repo_root=settings.repo_root, panel=bhm_mcp_panel())
+        return build_reprobe(repo_root=_canonical_runtime_repo_root(), panel=bhm_mcp_panel())
     except McpRepairError as exc:
         raise HTTPException(status_code=422, detail={"code": "mcp_repair_reprobe_failed", "reason": str(exc)}) from exc
 
@@ -13546,7 +13564,7 @@ def bhm_mcp_repair_reconnect(request: McpRepairRequest) -> dict[str, Any]:
 
     try:
         return execute_reconnect(
-            repo_root=settings.repo_root,
+            repo_root=_canonical_runtime_repo_root(),
             panel_before=bhm_mcp_panel(),
             panel_after=bhm_mcp_panel,
             clients=request.clients,
@@ -13566,7 +13584,7 @@ def bhm_mcp_repair_rollback(request: McpRepairRequest) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail={"code": "repair_id_required"})
     try:
         return execute_rollback(
-            repo_root=settings.repo_root,
+            repo_root=_canonical_runtime_repo_root(),
             repair_id=request.repair_id,
             panel_after=bhm_mcp_panel,
             confirm=request.confirm,
@@ -13658,8 +13676,8 @@ def bhm_health_slo(
     if memory_store.configured_mode == MemoryStoreMode.SQLITE_AUTHORITATIVE.value:
         try:
             outbox = {"available": True, **_memory_service().outbox_status()}
-        except MemoryServiceNotReady as exc:
-            outbox["error"] = str(exc)
+        except MemoryServiceNotReady:
+            outbox["error"] = "memory_service_unavailable"
 
     return health_slo_payload(
         budgets=budgets,
@@ -14458,13 +14476,13 @@ async def bhm_synthesis_fact_crystal(request: FactSynthesisRequest) -> dict:
         fact, tokens = await _call_fact_synthesis_llm(request)
         mode = "llm"
         fallback_reason = ""
-    except Exception as exc:
+    except Exception:
         if _configured_fallback_mode() == "disabled":
             raise
-        fact = _fallback_fact_synthesis(request, str(exc))
+        fact = _fallback_fact_synthesis(request, "provider_unavailable")
         tokens = {"prompt": 0, "completion": 0, "total": 0}
         mode = "fallback"
-        fallback_reason = _synthesis_trim(str(exc), 500)
+        fallback_reason = "provider_unavailable"
 
     crystal_metadata = initial_decay_metadata({"importance_score": fact.get("importance_score")}, created_at=_utc_now_iso())
     return {

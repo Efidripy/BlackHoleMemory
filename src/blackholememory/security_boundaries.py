@@ -7,6 +7,7 @@ backtracking workload.  They do not broaden permissions or perform I/O.
 
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 
@@ -25,16 +26,19 @@ def resolve_under_root(root: Path, value: str | Path, *, require_leaf: bool = Fa
     raw = str(value or "").strip()
     if not raw:
         raise SecurityBoundaryError("path is required")
-    base = Path(root).expanduser().resolve()
-    candidate = Path(raw).expanduser()
-    resolved = (candidate if candidate.is_absolute() else base / candidate).resolve()
+    base = os.path.realpath(os.fspath(root))
+    raw_path = os.path.expanduser(raw)
+    candidate = os.path.realpath(raw_path if os.path.isabs(raw_path) else os.path.join(base, raw_path))
     try:
-        relative = resolved.relative_to(base)
+        common = os.path.commonpath((base, candidate))
     except ValueError as exc:
         raise SecurityBoundaryError("path must remain under the approved root") from exc
-    if require_leaf and relative.parent != Path("."):
+    if os.path.normcase(common) != os.path.normcase(base):
+        raise SecurityBoundaryError("path must remain under the approved root")
+    relative = os.path.relpath(candidate, base)
+    if require_leaf and os.path.dirname(relative):
         raise SecurityBoundaryError("path must be a file name under the approved root")
-    return resolved
+    return Path(candidate)
 
 
 def _has_nested_quantifier(pattern: str) -> bool:
@@ -91,8 +95,16 @@ def compile_bounded_regex(pattern: str, *, field: str, max_length: int = 120) ->
         raise SecurityBoundaryError(f"{field} uses an unsupported backtracking construct")
     if value.count(".*") > 1 or value.count(".+") > 1 or _has_nested_quantifier(value):
         raise SecurityBoundaryError(f"{field} has unsafe nested repetition")
+    # The public contract only needs bounded name alternatives.  Compile a
+    # pattern made exclusively from escaped literals; accepting arbitrary
+    # regex operators here would make the caller part of the regex program.
+    alternatives = [part.strip() for part in value.split("|") if part.strip()]
+    if not alternatives:
+        raise SecurityBoundaryError(f"{field} must contain a non-empty literal")
+    safe_literals = tuple(re.escape(part) for part in alternatives[:32])
+    safe_source = "|".join(safe_literals)
     try:
-        return re.compile(value, re.IGNORECASE)
+        return re.compile(safe_source, re.IGNORECASE)
     except re.error as exc:
         raise SecurityBoundaryError(f"{field} is not a valid regular expression") from exc
 

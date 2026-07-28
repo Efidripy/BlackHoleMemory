@@ -95,9 +95,21 @@ function securityHeaders(contentType) {
   };
 }
 
+function sanitizeResponse(value, key = "") {
+  const lowered = String(key || "").toLowerCase();
+  if (["stack", "stacktrace", "traceback", "exception", "stderr", "stdout", "parseerror"].includes(lowered)) {
+    return "[REDACTED]";
+  }
+  if (Array.isArray(value)) return value.map((item) => sanitizeResponse(item, key));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([itemKey, item]) => [itemKey, sanitizeResponse(item, itemKey)]));
+  }
+  return value;
+}
+
 function json(res, status, data) {
   res.writeHead(status, securityHeaders("application/json; charset=utf-8"));
-  res.end(JSON.stringify(data, null, 2));
+  res.end(JSON.stringify(sanitizeResponse(data), null, 2));
 }
 
 function isLoopbackHostname(value) {
@@ -187,8 +199,7 @@ async function runJsonPowerShell(scriptPath, extraArgs = []) {
     return {
       ok: false,
       exitCode: result.exitCode,
-      stderr: result.stderr,
-      stdout: result.stdout,
+      error: "powershell_failed",
     };
   }
 
@@ -197,12 +208,10 @@ async function runJsonPowerShell(scriptPath, extraArgs = []) {
       ok: true,
       data: JSON.parse(result.stdout || "{}"),
     };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
-      parseError: String(error),
-      stdout: result.stdout,
-      stderr: result.stderr,
+      error: "powershell_json_invalid",
     };
   }
 }
@@ -254,11 +263,11 @@ async function probeHttp(url) {
       statusText: response.statusText,
       url,
     };
-  } catch (error) {
+  } catch {
     return {
       ok: false,
       status: null,
-      statusText: String(error),
+      statusText: "probe_unavailable",
       url,
     };
   }
@@ -403,8 +412,8 @@ async function fetchMcpPanel(apiUrl) {
       return unavailableMcpPanel(`http_${response.status}`);
     }
     return payload;
-  } catch (error) {
-    return unavailableMcpPanel(String(error).slice(0, 120));
+  } catch {
+    return unavailableMcpPanel("mcp_panel_unavailable");
   }
 }
 
@@ -426,7 +435,7 @@ async function fetchMcpRepair(apiUrl, operation = "preview") {
       };
     }
     return payload;
-  } catch (error) {
+  } catch {
     return {
       schema_version: "bhm.mcp.repair.v1",
       operation: safeOperation,
@@ -434,7 +443,7 @@ async function fetchMcpRepair(apiUrl, operation = "preview") {
       read_only: true,
       writes_live_state: false,
       bounded: true,
-      error: String(error).slice(0, 120),
+      error: "mcp_repair_unavailable",
     };
   }
 }
