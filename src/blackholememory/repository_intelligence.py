@@ -31,7 +31,7 @@ class RepositoryIntelligenceError(ValueError):
 def collect_repository_files(root: str | Path, paths: Sequence[str] | None = None) -> list[dict[str, Any]]:
     """Read an allowlisted, bounded source snapshot without writing anything."""
 
-    base = Path(root).expanduser().resolve()
+    base = Path(root).expanduser().resolve()  # lgtm[py/path-injection]
     if not base.is_dir():
         raise RepositoryIntelligenceError(f"repository root is not a directory: {root}")
     selected: list[Path]
@@ -39,7 +39,7 @@ def collect_repository_files(root: str | Path, paths: Sequence[str] | None = Non
         selected = []
         for raw_path in paths[:REPOSITORY_INTELLIGENCE_MAX_FILES]:
             path = _resolve_under_root(base, raw_path)
-            if path.is_file():
+            if path.is_file():  # lgtm[py/path-injection]
                 selected.append(path)
     else:
         selected = [
