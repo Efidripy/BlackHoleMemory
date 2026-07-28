@@ -134,7 +134,8 @@ def _json_write_atomic(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     safe_payload = _redact_persisted_payload(payload)
-    temporary.write_text(  # lgtm [py/clear-text-storage-sensitive-data]
+    # lgtm [py/clear-text-storage-sensitive-data]
+    temporary.write_text(
         json.dumps(safe_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
         newline="\n",

@@ -156,14 +156,16 @@ def _resolve_artifact_path(path: str, runtime_dir: Path) -> Path:
     if not contained:
         raise CodeGraphArtifactError("artifact path is outside the runtime artifact boundary")
     candidate = Path(candidate_name)
-    if candidate.suffix != ".gz" or not candidate.is_file():  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    if candidate.suffix != ".gz" or not candidate.is_file():
         raise CodeGraphArtifactError("graph artifact file is unavailable")
     return candidate
 
 
 def verify_graph_artifact(path: str, *, runtime_dir: Path) -> dict[str, Any]:
     candidate = _resolve_artifact_path(path, runtime_dir)
-    compressed = candidate.read_bytes()  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    compressed = candidate.read_bytes()
     if len(compressed) > MAX_ARTIFACT_BYTES:
         raise CodeGraphArtifactError("graph artifact exceeds bounded size")
     digest = _sha256(compressed)
@@ -198,9 +200,11 @@ def verify_graph_artifact(path: str, *, runtime_dir: Path) -> dict[str, Any]:
     manifest_path = candidate.with_name(candidate.name.replace(".json.gz", ".manifest.json"))
     manifest_status = "missing"
     manifest_artifact_digest = ""
-    if manifest_path.is_file():  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    if manifest_path.is_file():
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))  # lgtm [py/path-injection]
+            # lgtm [py/path-injection]
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             manifest_artifact_digest = str(manifest.get("artifact_sha256") or "").lower()
             manifest_status = "pass" if manifest_artifact_digest == digest else "fail"
         except (OSError, UnicodeError, json.JSONDecodeError):

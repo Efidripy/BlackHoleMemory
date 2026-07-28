@@ -727,7 +727,8 @@ def probe_repository_state(
     """Collect a bounded metadata-only state used by polling and crash-resume."""
 
     active_limits = limits or RepositoryIndexLimits()
-    base = Path(root).expanduser().resolve()  # lgtm [py/path-injection]
+    # lgtm [py/path-injection]
+    base = Path(root).expanduser().resolve()
     if not base.is_dir():
         raise RepositoryRootError(f"repository root is not a directory: {root}")
     safe_project = _clip(project, 120).strip() or "blackholememory"
@@ -2346,7 +2347,8 @@ class RepositoryWatcher:
         source: RepositorySourceProvenance | None = None,
         max_inflight_jobs: int = DEFAULT_WATCH_MAX_INFLIGHT_JOBS,
     ) -> None:
-        self.root = Path(root).expanduser().resolve()  # lgtm [py/path-injection]
+        # lgtm [py/path-injection]
+        self.root = Path(root).expanduser().resolve()
         self.database_path = Path(database_path).expanduser().resolve()
         self.project = _clip(project, 120).strip() or "blackholememory"
         self.limits = limits or RepositoryIndexLimits()
