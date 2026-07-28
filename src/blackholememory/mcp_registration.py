@@ -38,6 +38,22 @@ class RegistrationContractError(ValueError):
     """Raised when a registration document cannot be trusted."""
 
 
+def resolve_contract_path(path: Path | str, *, repo_root: Path | str | None = None) -> Path:
+    """Resolve a registration manifest inside the repository config boundary."""
+
+    root = Path(repo_root or Path(__file__).resolve().parents[2]).expanduser().resolve()
+    config_root = (root / "config").resolve()
+    candidate = Path(path).expanduser()
+    resolved = (candidate if candidate.is_absolute() else root / candidate).resolve()
+    try:
+        resolved.relative_to(config_root)
+    except ValueError as exc:
+        raise RegistrationContractError("MCP registration manifest must remain under repository config") from exc
+    if resolved.suffix.casefold() != ".json":
+        raise RegistrationContractError("MCP registration manifest must be a JSON file")
+    return resolved
+
+
 @dataclass(frozen=True)
 class Registration:
     client: str
@@ -216,10 +232,11 @@ def registration_fingerprint(identity: Mapping[str, Any]) -> str:
 
 
 def load_contract(path: Path, *, repo_root: Path | None = None) -> RegistrationContract:
+    path = resolve_contract_path(path, repo_root=repo_root)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RegistrationContractError(f"cannot read MCP registration contract: {path}") from exc
+        raise RegistrationContractError("cannot read MCP registration contract") from exc
     if not isinstance(payload, dict):
         raise RegistrationContractError("MCP registration contract must be an object")
     canonical_id = str(payload.get("canonical_server_id") or DEFAULT_CANONICAL_SERVER_ID).strip()

@@ -16,6 +16,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 
@@ -389,6 +390,54 @@ def test_fallback_grace_is_explicitly_degraded_and_read_only(monkeypatch):
     assert metadata["policy"] == "explicit"
     assert metadata["read_only"] is True
     assert "storage" in metadata
+
+
+def test_fallback_grace_does_not_disclose_exception_text_or_filesystem_paths(monkeypatch):
+    monkeypatch.setenv("BHM_FALLBACK_MODE", "explicit")
+    monkeypatch.setattr(bhm_app, "_read_json_snapshot", lambda _path: None)
+    monkeypatch.setattr(
+        bhm_app,
+        "storage_runtime_state",
+        lambda: SimpleNamespace(
+            as_dict=lambda: {
+                "configured_mode": "remote-required",
+                "backend": "remote",
+                "readiness": "not_ready",
+                "reason": "provider_unavailable",
+                "database_path": str(Path("C:/private/secret/memories.sqlite3")),
+                "database_exists": False,
+                "database_schema_ready": False,
+                "parity_confirmed": False,
+                "writer_offline_confirmed": True,
+            }
+        ),
+    )
+
+    metadata = bhm_app._fallback_grace_meta(
+        "test.route",
+        RuntimeError("secret=should-not-leak C:/private/secret/memories.sqlite3"),
+    )
+    serialized = json.dumps(metadata, ensure_ascii=False)
+
+    assert "message" not in metadata
+    assert "snapshot_paths" not in metadata
+    assert "should-not-leak" not in serialized
+    assert "C:/private/secret" not in serialized
+    assert "database_path" not in serialized
+
+
+def test_admin_rest_route_snapshot_path_is_confined_to_admin_exports(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", tmp_path)
+    export_root = tmp_path / "admin-exports"
+    export_root.mkdir()
+
+    assert bhm_app._admin_snapshot_path("snapshot.json", require_leaf=True) == export_root.resolve() / "snapshot.json"
+    with pytest.raises(HTTPException) as traversal:
+        bhm_app._admin_snapshot_path("..\\outside.json", require_leaf=True)
+    assert traversal.value.status_code == 400
+    with pytest.raises(HTTPException) as nested:
+        bhm_app._admin_snapshot_path("nested\\snapshot.json", require_leaf=True)
+    assert nested.value.status_code == 400
 
 
 def test_disabled_fallback_policy_fails_closed(monkeypatch):
@@ -1893,6 +1942,26 @@ def test_memory_redaction_never_persists_plaintext_original(monkeypatch):
     assert saved["metadata"]["content_before_redaction_sha256"]
     assert saved["metadata"]["content_before_redaction_chars"] == len(original)
     assert original not in json.dumps(saved, ensure_ascii=False)
+
+
+def test_memory_redaction_rejects_unsafe_custom_regex(monkeypatch):
+    record = {
+        "source_id": "mem_security_regex",
+        "project": "blackholememory",
+        "content": "a" * 64,
+        "metadata": {},
+    }
+    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda _id, _project: record)
+
+    with pytest.raises(HTTPException) as raised:
+        bhm_app._memory_redact(
+            bhm_app.MemoryRedactRequest(
+                id="mem_security_regex",
+                project="blackholememory",
+                patterns=["(a+)+$"],
+            )
+        )
+    assert raised.value.status_code == 422
 
 
 def test_websocket_broadcast_interval(monkeypatch):

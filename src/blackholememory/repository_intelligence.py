@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 REPOSITORY_INTELLIGENCE_SCHEMA_VERSION = "bhm.llm.repository-intelligence.v1"
 REPOSITORY_INTELLIGENCE_MAX_FILES = 64
 REPOSITORY_INTELLIGENCE_MAX_FILE_BYTES = 256 * 1024
+REPOSITORY_INTELLIGENCE_MAX_LINE_CHARS = 16 * 1024
 REPOSITORY_INTELLIGENCE_MAX_SYMBOLS = 256
 REPOSITORY_INTELLIGENCE_MAX_DEPENDENCIES = 512
 REPOSITORY_INTELLIGENCE_MAX_ISSUES = 128
@@ -230,6 +231,8 @@ def _symbols_and_imports(path: str, content: str, language: str) -> tuple[list[d
     symbols = []
     imports = []
     for index, line in enumerate(content.splitlines(), start=1):
+        if len(line) > REPOSITORY_INTELLIGENCE_MAX_LINE_CHARS:
+            continue
         stripped = line.strip()
         if language in {"javascript", "typescript"}:
             import_match = re.match(r"(?:import .*? from ['\"]|(?:const|let|var) .*?= require\(['\"])([^'\"]+)", stripped)
@@ -463,6 +466,7 @@ def _sha256(value: str) -> str:
 
 __all__ = [
     "REPOSITORY_INTELLIGENCE_MAX_FILES",
+    "REPOSITORY_INTELLIGENCE_MAX_LINE_CHARS",
     "REPOSITORY_INTELLIGENCE_SCHEMA_VERSION",
     "RepositoryIntelligenceError",
     "build_repository_intelligence_preview",

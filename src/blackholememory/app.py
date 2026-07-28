@@ -284,6 +284,9 @@ from .migration_compatibility import MigrationCompatibilityError
 from .migration_compatibility import build_migration_preview
 from .security_trust_boundary import SecurityTrustBoundaryError
 from .security_trust_boundary import build_security_trust_boundary_preview
+from .security_boundaries import SecurityBoundaryError
+from .security_boundaries import compile_bounded_regex
+from .security_boundaries import resolve_under_root
 from .trace_graph import TraceGraphError
 from .trace_graph import build_trace_graph
 from .trace_graph import validate_trace_graph
@@ -430,6 +433,9 @@ _QDRANT_HEALTH_TIMEOUT_SECONDS = _env_float("BHM_QDRANT_HEALTH_TIMEOUT_SECONDS",
 _FALLBACK_MODE_ENV = "BHM_FALLBACK_MODE"
 _TELEMETRY_INTERVAL_SECONDS = 2.5
 _FALLBACK_GRACE_ACTIVE_UNTIL = 0.0
+_CUSTOM_REDACTION_MAX_PATTERNS = 16
+_CUSTOM_REDACTION_MAX_PATTERN_LENGTH = 120
+_CUSTOM_REDACTION_MAX_INPUT_CHARS = 64 * 1024
 _BOOT_REPORT_PATH = settings.runtime_dir / "infra" / "boot_report.json"
 _BOOT_REPORT_QDRANT_POLL_SECONDS = 0.25
 _WINDOWS_DETACHED_PROCESS = 0x00000008
@@ -801,6 +807,43 @@ def _read_json_snapshot(path: Path) -> Any:
         return None
 
 
+def _safe_fallback_provider_warmup() -> dict[str, Any]:
+    status = _get_provider_warmup_status()
+    return {
+        "enabled": bool(status.get("enabled")),
+        "ready": bool(status.get("ready")),
+        "attempts": int(status.get("attempts") or 0),
+        "updated_at": str(status.get("updated_at") or ""),
+        "embedding_warmup_enabled": bool(status.get("embedding_warmup_enabled")),
+        "embedding_ready": bool(status.get("embedding_ready")),
+        "embedding_attempts": int(status.get("embedding_attempts") or 0),
+        "embedding_phase": str(status.get("embedding_phase") or ""),
+        "memory_warmup_enabled": bool(status.get("memory_warmup_enabled")),
+        "memory_ready": bool(status.get("memory_ready")),
+        "memory_projects_count": len(status.get("memory_projects") or []),
+        "memory_skipped_projects_count": len(status.get("memory_skipped_projects") or []),
+        "memory_phase": str(status.get("memory_phase") or ""),
+        "error_present": any(
+            bool(status.get(key))
+            for key in ("last_error", "embedding_last_error", "memory_last_error")
+        ),
+    }
+
+
+def _safe_fallback_storage() -> dict[str, Any]:
+    state = storage_runtime_state().as_dict()
+    return {
+        "configured_mode": state.get("configured_mode"),
+        "backend": state.get("backend"),
+        "readiness": state.get("readiness"),
+        "reason": state.get("reason"),
+        "database_exists": bool(state.get("database_exists")),
+        "database_schema_ready": bool(state.get("database_schema_ready")),
+        "parity_confirmed": bool(state.get("parity_confirmed")),
+        "writer_offline_confirmed": bool(state.get("writer_offline_confirmed")),
+    }
+
+
 def _fallback_grace_meta(route: str, reason: Exception) -> dict[str, Any]:
     global _FALLBACK_GRACE_ACTIVE_UNTIL
     _FALLBACK_GRACE_ACTIVE_UNTIL = time.monotonic() + (_TELEMETRY_INTERVAL_SECONDS * 2)
@@ -812,14 +855,9 @@ def _fallback_grace_meta(route: str, reason: Exception) -> dict[str, Any]:
         "read_only": True,
         "route": route,
         "reason": type(reason).__name__,
-        "message": str(reason),
-        "snapshot_paths": {
-            "memories": str(resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path),
-            "registry": str(_mcp_registry_snapshot_path()),
-        },
         "registry": _read_json_snapshot(_mcp_registry_snapshot_path()),
-        "provider_warmup": _get_provider_warmup_status(),
-        "storage": storage_runtime_state().as_dict(),
+        "provider_warmup": _safe_fallback_provider_warmup(),
+        "storage": _safe_fallback_storage(),
     }
 
 
@@ -3321,8 +3359,8 @@ class SchemaUpgradeAllRequest(BaseModel):
 class MemoryRedactRequest(BaseModel):
     id: str
     project: str | None = None
-    patterns: list[str] | None = None
-    replacement: str = "[REDACTED]"
+    patterns: list[StrictStr] | None = Field(default=None, max_length=_CUSTOM_REDACTION_MAX_PATTERNS)
+    replacement: StrictStr = Field(default="[REDACTED]", max_length=120)
 
 
 class SecretScanRequest(BaseModel):
@@ -8249,10 +8287,19 @@ def _memory_redact(request: MemoryRedactRequest) -> dict:
     original = record.get("content") or ""
     redaction_kinds: list[str] = []
     if request.patterns:
+        if len(original) > _CUSTOM_REDACTION_MAX_INPUT_CHARS:
+            raise HTTPException(status_code=413, detail="custom redaction input exceeds the bounded limit")
         redacted = original
         replacements = 0
         for pattern in request.patterns:
-            compiled = re.compile(pattern, re.IGNORECASE)
+            try:
+                compiled = compile_bounded_regex(
+                    pattern,
+                    field="redaction pattern",
+                    max_length=_CUSTOM_REDACTION_MAX_PATTERN_LENGTH,
+                )
+            except SecurityBoundaryError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
             redacted, count = compiled.subn(
                 lambda match: ((match.group(1) if match.lastindex else "") + request.replacement),
                 redacted,
@@ -9150,11 +9197,19 @@ def _integrity_repair_strict(request: IntegrityRepairStrictRequest) -> dict:
     return {"project": request.project, "repairs": repairs, "strict_validation": _schema_validate_strict(StrictSchemaValidateRequest(project=request.project))}
 
 
+def _admin_snapshot_path(value: str | Path, *, require_leaf: bool = False) -> Path:
+    root = settings.runtime_dir / "admin-exports"
+    try:
+        return resolve_under_root(root, value, require_leaf=require_leaf)
+    except SecurityBoundaryError as exc:
+        raise HTTPException(status_code=400, detail="admin snapshot path must remain under admin-exports") from exc
+
+
 def _admin_export(request: AdminExportRequest) -> dict:
     export_dir = settings.runtime_dir / "admin-exports"
     export_dir.mkdir(parents=True, exist_ok=True)
     export_name = request.export_name or f"bhm-admin-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
-    target = export_dir / export_name
+    target = _admin_snapshot_path(export_name, require_leaf=True)
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "project": request.project,
@@ -9174,8 +9229,8 @@ def _admin_export(request: AdminExportRequest) -> dict:
 
 
 def _admin_import_preview(request: AdminImportPreviewRequest) -> dict:
-    path = Path(request.path)
-    if not path.exists():
+    path = _admin_snapshot_path(request.path)
+    if not path.is_file():
         raise HTTPException(status_code=404, detail="import path not found")
     payload = json.loads(path.read_text(encoding="utf-8"))
     return {
@@ -9188,8 +9243,8 @@ def _admin_import_preview(request: AdminImportPreviewRequest) -> dict:
 
 
 def _admin_import_apply(request: AdminImportApplyRequest) -> dict:
-    path = Path(request.path)
-    if not path.exists():
+    path = _admin_snapshot_path(request.path)
+    if not path.is_file():
         raise HTTPException(status_code=404, detail="import path not found")
     payload = json.loads(path.read_text(encoding="utf-8"))
     imported = {"memories": 0, "links": 0, "artifacts": 0}

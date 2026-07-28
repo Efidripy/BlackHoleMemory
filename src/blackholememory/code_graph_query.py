@@ -16,6 +16,8 @@ from .code_graph import SQLiteCodeGraphStore
 from .graph_query_quality_receipt import build_graph_query_quality_receipt
 from .graph_edge_taxonomy_receipt import build_graph_edge_taxonomy_receipt
 from .graph_path_explain_quality_receipt import build_graph_path_explain_quality_receipt
+from .security_boundaries import SecurityBoundaryError
+from .security_boundaries import compile_bounded_regex
 
 
 CODE_GRAPH_QUERY_SCHEMA_VERSION = "bhm.code-graph.query.v1"
@@ -139,12 +141,10 @@ def _validate_structural_filters(
 ) -> tuple[re.Pattern[str] | None, str | None, str | None, int | None, int | None]:
     compiled = None
     if name_pattern:
-        if len(name_pattern) > 120:
-            raise CodeGraphQueryError("name_pattern exceeds 120 characters")
         try:
-            compiled = re.compile(name_pattern, re.IGNORECASE)
-        except re.error as exc:
-            raise CodeGraphQueryError("name_pattern is not a valid regular expression") from exc
+            compiled = compile_bounded_regex(name_pattern, field="name_pattern")
+        except SecurityBoundaryError as exc:
+            raise CodeGraphQueryError(str(exc)) from exc
     normalized_label = str(label or "").strip().casefold() or None
     if normalized_label and (len(normalized_label) > 40 or not re.fullmatch(r"[a-z][a-z0-9_]{0,39}", normalized_label)):
         raise CodeGraphQueryError("label must be a simple node-kind identifier")

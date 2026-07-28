@@ -74,3 +74,11 @@ def test_limits_and_unsafe_paths_fail_closed():
         build_repository_intelligence_preview(_files(), max_files=0)
     with pytest.raises(RepositoryIntelligenceError):
         build_repository_intelligence_preview(_files() * 17)
+
+
+def test_javascript_parser_skips_pathological_lines_before_regex_matching():
+    long_line = "import " + ("x" * 20_000) + " from 'module'"
+    preview = build_repository_intelligence_preview([{"path": "app.js", "content": long_line}])
+
+    assert preview["summary"]["file_count"] == 1
+    assert preview["summary"]["symbol_count"] == 0

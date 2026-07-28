@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 from .mcp_catalog_contract import build_catalog_contract
 from .mcp_registration import RegistrationContractError
 from .mcp_registration import load_contract
+from .mcp_registration import resolve_contract_path
 from .mcp_surfaces import CORE_TOOL_NAMES
 from .mcp_protocol_contract import SUPPORTED_PROTOCOL_VERSIONS
 
@@ -231,8 +232,11 @@ def build_unified_mcp_contract(
     """Build a bounded unified contract from existing P18 evidence."""
 
     repo_root = Path(__file__).resolve().parents[2]
-    manifest = Path(manifest_path) if manifest_path is not None else repo_root / "config" / "mcp-registration.json"
     try:
+        manifest = resolve_contract_path(
+            manifest_path or (repo_root / "config" / "mcp-registration.json"),
+            repo_root=repo_root,
+        )
         registration = load_contract(manifest, repo_root=repo_root)
     except (OSError, RegistrationContractError, ValueError) as exc:
         raise UnifiedMcpContractError(f"registration contract rejected: {exc}") from exc

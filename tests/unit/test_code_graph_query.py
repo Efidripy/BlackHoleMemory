@@ -158,6 +158,19 @@ def test_query_supports_allowlisted_edge_kind_filter(tmp_path: Path) -> None:
         query_code_graph(database, project="demo", root_id=root_id, operation="impact", query="service.py", edge_kinds=["arbitrary"])
 
 
+def test_query_rejects_regex_backtracking_shapes(tmp_path: Path) -> None:
+    _root, database, root_id, _repository_snapshot_id, _graph_snapshot_id = _fixture(tmp_path)
+    with pytest.raises(CodeGraphQueryError, match="unsafe nested repetition"):
+        query_code_graph(
+            database,
+            project="demo",
+            root_id=root_id,
+            operation="symbol",
+            query="",
+            name_pattern="(a+)+$",
+        )
+
+
 def test_symbol_query_supports_bounded_metadata_pagination(tmp_path: Path) -> None:
     _root, database, root_id, _repository_snapshot_id, _graph_snapshot_id = _fixture(tmp_path)
     first = query_code_graph(database, project="demo", root_id=root_id, operation="symbol", query="", limit=2, offset=0)
