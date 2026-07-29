@@ -8,6 +8,7 @@ __pycache__/
 .DS_Store
 Thumbs.db
 node_modules/
+.node_modules/
 dist/
 build/
 release_build/
@@ -27,8 +28,24 @@ artifacts/
 .playwright-cli/
 output/
 .legacy/
+.dev/
+.local/
+.docs/
+.cache/
+.runtime/
+.runtime-legacy/
+.output/
+.artifacts/
+.build/
+.dist/
+.release/
+.workspace/
 .idea/
 .vscode/
+
+# Raw/private operational evidence; curated receipts under .docs/ops stay local.
+.docs/ops/raw/
+.docs/ops/evidence/
 
 # Publication guardrails: local state, credentials, certificates and logs.
 *.sqlite

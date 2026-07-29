@@ -151,8 +151,8 @@ function Invoke-WorkerDryRun {
 function Start-CanonicalAuthoritative {
     param([Parameter(Mandatory = $true)][string]$RepoRoot)
 
-    $stdout = Join-Path $RepoRoot "runtime\bootstrap\projection-operator-launcher.stdout.log"
-    $stderr = Join-Path $RepoRoot "runtime\bootstrap\projection-operator-launcher.stderr.log"
+$stdout = Join-Path $RepoRoot ".runtime\bootstrap\projection-operator-launcher.stdout.log"
+$stderr = Join-Path $RepoRoot ".runtime\bootstrap\projection-operator-launcher.stderr.log"
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $stdout) | Out-Null
     $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", (Join-Path $RepoRoot "scripts\start-bhm-authoritative.ps1"), "-NoWait")
     if ($SemanticFusion) { $arguments += "-SemanticFusion" }

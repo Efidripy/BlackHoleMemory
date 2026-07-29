@@ -69,7 +69,7 @@ class Settings(BaseSettings):
         "text-embedding-nomic-embed-text-v1.5",
     )
     repo_root: Path = Path(__file__).resolve().parents[2]
-    runtime_dir: Path = repo_root / "runtime"
+    runtime_dir: Path = repo_root / ".runtime"
 
 
 settings = Settings()

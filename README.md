@@ -47,6 +47,31 @@ SQLite WAL  ----->  Mem0 semantic layer
    +------------->  Qdrant vector projection
 ```
 
+## Benchmark
+
+`BHM Value Benchmark v1` сравнивает шесть режимов на 1000 уникальных memory/code-intelligence кейсах, повторённых 10 раз: всего 10 000 case evaluations.
+
+| Режим | Task success | Recall@5 | Citation validity | Leakage | Context tokens |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `no-memory` | 0.0% | 0.0% | 0.0% | 0 | 0.0 |
+| `file-only` | 0.0% | 100.0% | 80.0% | 3000 | 158.1 |
+| `naive-vector` | 0.0% | 87.5% | 80.0% | 3000 | 160.5 |
+| `bhm-no-graph` | 75.0% | 100.0% | 100.0% | 0 | 89.9 |
+| `bhm-no-filters` | 0.0% | 100.0% | 80.0% | 3000 | 158.1 |
+| `bhm-full` | 87.5% | 100.0% | 100.0% | 0 | 89.9 |
+
+На замороженном локальном fixture BHM не просто находит target в top-5: он сохраняет project scope, provenance и bounded context. Без graph channel task success падает до 75%, без safety filtering — до 0% с 3000 leakage. Это `deterministic-local-replay`, не real-user telemetry и не универсальная оценка модели.
+
+[Методика и полный receipt benchmark](docs/benchmarks/bhm-value-benchmark.md)
+
+Для отдельной проверки реального model call доступен `local-model-replay`: 1000
+уникальных кейсов × 10 повторов для `file-only` и `bhm-full` (20 000 вызовов), с
+фиксированными prompt, `temperature=0`, `max_tokens=96` и `tool_budget=0`. Модель
+получает frozen context и не вызывает BHM tools; это не real-user telemetry.
+В этом release receipt local-model replay не включён: прогон не завершён, поэтому
+его нельзя выдавать за measurement. Контракт и воспроизводимая команда сохранены
+в [методике benchmark](docs/benchmarks/bhm-value-benchmark.md).
+
 Канонический локальный MCP endpoint:
 
 ```text

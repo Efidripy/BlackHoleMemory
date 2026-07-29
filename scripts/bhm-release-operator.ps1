@@ -227,7 +227,7 @@ function Get-InstallSnapshot {
         release_manifest = (Test-Path -LiteralPath (Join-Path $Root "release-manifest.json"))
         runtime_source = (Test-Path -LiteralPath (Join-Path $Root "src\blackholememory\app.py"))
         authoritative_initializer = (Test-Path -LiteralPath (Join-Path $Root "scripts\initialize-bhm-runtime.py"))
-        runtime_dir = (Test-Path -LiteralPath (Join-Path $Root "runtime"))
+        runtime_dir = (Test-Path -LiteralPath (Join-Path $Root ".runtime"))
     }
 }
 
@@ -236,7 +236,7 @@ function Copy-ExistingRuntime {
         [Parameter(Mandatory = $true)][string]$SourceRoot,
         [Parameter(Mandatory = $true)][string]$StageRoot
     )
-    $runtime = Join-Path $SourceRoot "runtime"
+    $runtime = Join-Path $SourceRoot ".runtime"
     if (Test-Path -LiteralPath $runtime) {
         Copy-Item -LiteralPath $runtime -Destination $StageRoot -Recurse -Force
     }
@@ -298,7 +298,7 @@ function Invoke-Mutation {
         Move-Item -LiteralPath $stageRoot -Destination $Target -Force
         $initializer = Join-Path $Target "scripts\initialize-bhm-runtime.py"
         if (-not (Test-Path -LiteralPath $initializer)) { throw "Installed bundle has no runtime initializer" }
-        $initOutput = @(& $Python $initializer --runtime-dir (Join-Path $Target "runtime") 2>&1)
+    $initOutput = @(& $Python $initializer --runtime-dir (Join-Path $Target ".runtime") 2>&1)
         if ($LASTEXITCODE -ne 0) { throw "Installed runtime initialization failed: $($initOutput -join [Environment]::NewLine)" }
         return [pscustomobject]@{
             ok = $true

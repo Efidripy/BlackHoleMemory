@@ -1,0 +1,11 @@
+{
+  "schema_version": "bhm.mcp.catalog-coverage.v1",
+  "expected": 35,
+  "observed": 35,
+  "missing": 0,
+  "extra": 0,
+  "state": "pass",
+  "contract_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "read_only": true,
+  "writes_live_state": false
+}
