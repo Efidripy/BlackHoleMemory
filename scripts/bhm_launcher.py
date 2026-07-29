@@ -281,9 +281,9 @@ RESOURCE_ROOT = find_resource_root()
 PROJECT_ROOT = find_state_root()
 SCRIPTS_DIR = RESOURCE_ROOT / "scripts"
 QDRANT_COMPOSE = RESOURCE_ROOT / "infra" / "qdrant" / "docker-compose.yml"
-LAUNCHER_LOG_DIR = PROJECT_ROOT / "runtime" / "logs" / "launcher"
+LAUNCHER_LOG_DIR = PROJECT_ROOT / ".runtime" / "logs" / "launcher"
 LAUNCHER_SETTINGS_PATH = PROJECT_ROOT / "config" / "launcher-settings.json"
-LAUNCHER_SETTINGS_BACKUP_DIR = PROJECT_ROOT / "runtime" / "logs" / "launcher" / "config-backups"
+LAUNCHER_SETTINGS_BACKUP_DIR = PROJECT_ROOT / ".runtime" / "logs" / "launcher" / "config-backups"
 PERSISTENT_RESOURCE_ROOT = PROJECT_ROOT / "resources"
 
 
@@ -1697,9 +1697,9 @@ class LogsWindow(QFrame):
     def candidate_log_files(self) -> list[Path]:
         roots = [
             LAUNCHER_LOG_DIR,
-            PROJECT_ROOT / "runtime" / "bootstrap",
-            find_project_root() / "runtime" / "bootstrap",
-            find_project_root() / "runtime" / "logs",
+            PROJECT_ROOT / ".runtime" / "bootstrap",
+            find_project_root() / ".runtime" / "bootstrap",
+            find_project_root() / ".runtime" / "logs",
         ]
         files: dict[str, Path] = {}
         for root in roots:

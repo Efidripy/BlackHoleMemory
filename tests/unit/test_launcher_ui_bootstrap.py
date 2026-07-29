@@ -21,6 +21,13 @@ BOOTSTRAP_TOKEN = "bootstrap-token-00000000000000000000+/="
 CALLER_TOKEN = "caller-token-000000000000000000000000"
 
 
+def test_launcher_local_state_stays_under_dot_runtime() -> None:
+    assert launcher.LAUNCHER_LOG_DIR == launcher.PROJECT_ROOT / ".runtime" / "logs" / "launcher"
+    assert launcher.LAUNCHER_SETTINGS_BACKUP_DIR == (
+        launcher.PROJECT_ROOT / ".runtime" / "logs" / "launcher" / "config-backups"
+    )
+
+
 class _JsonResponse:
     status = 200
 
