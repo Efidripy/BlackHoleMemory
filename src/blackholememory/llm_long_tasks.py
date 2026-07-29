@@ -855,7 +855,7 @@ def default_long_task_store_path() -> Path:
     configured = str(os.getenv("BHM_LLM_LONG_TASK_PATH") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[2] / "runtime" / "llm-jobs" / "long-tasks.sqlite3"
+    return Path(__file__).resolve().parents[2] / ".runtime" / "llm-jobs" / "long-tasks.sqlite3"
 
 
 def _build_chunks(items: Sequence[Any], *, project: str, chunk_chars: int) -> list[dict[str, Any]]:

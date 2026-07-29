@@ -2355,7 +2355,7 @@ class ChronicleLogger:
         if not safe_task_id:
             safe_task_id = "unnamed-task"
         self.task_id = safe_task_id
-        self.base_dir = _repo_root() / "runtime" / "logs" / "agents" / safe_task_id
+        self.base_dir = _repo_root() / ".runtime" / "logs" / "agents" / safe_task_id
         self.chronicle_path = self.base_dir / "chronicle.md"
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.chronicle_path.write_text(
@@ -2543,7 +2543,7 @@ class QuarantineGatewayNode:
     ):
         self.bhm = bhm_client
         self.chunk_size = chunk_size
-        self.quarantine_file = quarantine_file or (_repo_root() / "runtime" / "live-memory" / QUARANTINE_DEMO_FILE)
+        self.quarantine_file = quarantine_file or (_repo_root() / ".runtime" / "live-memory" / QUARANTINE_DEMO_FILE)
         self.quarantine_file.parent.mkdir(parents=True, exist_ok=True)
         if not self.quarantine_file.exists():
             self._atomic_write_json([])
@@ -2630,7 +2630,7 @@ class QuarantineGatewayNode:
 
     def teardown(self) -> None:
         self._atomic_write_json([])
-        logs_root = _repo_root() / "runtime" / "logs" / "agents"
+        logs_root = _repo_root() / ".runtime" / "logs" / "agents"
         for chronicle_path in logs_root.glob(f"{QUARANTINE_TASK_PREFIX}*/chronicle.md"):
             try:
                 chronicle_path.unlink()

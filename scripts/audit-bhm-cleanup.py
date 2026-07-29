@@ -42,7 +42,7 @@ TEXT_SUFFIXES = {
     ".yaml",
     ".yml",
 }
-EXCLUDED_PARTS = {".git", ".venv", ".pytest_cache", ".ruff_cache", "build", "dist", "runtime", "output", "node_modules", "__pycache__", ".src", ".legacy"}
+EXCLUDED_PARTS = {".git", ".venv", ".pytest_cache", ".ruff_cache", ".build", ".dist", ".runtime", ".output", ".artifacts", ".node_modules", "__pycache__", ".src", ".legacy"}
 # Keep the byte-level markers explicit so a shell/editor cannot collapse the
 # multi-codepoint signatures into a broad single-character match. A lone
 # `Ã`/`Â` in a vendor language table is not mojibake by itself.

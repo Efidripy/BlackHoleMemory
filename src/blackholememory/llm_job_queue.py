@@ -104,7 +104,7 @@ def default_llm_job_queue_path() -> Path:
     configured = str(os.getenv("BHM_LLM_JOB_QUEUE_PATH") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[2] / "runtime" / "llm-jobs" / "queue.sqlite3"
+    return Path(__file__).resolve().parents[2] / ".runtime" / "llm-jobs" / "queue.sqlite3"
 
 
 class LLMJobQueue:
