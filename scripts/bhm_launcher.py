@@ -784,8 +784,10 @@ def inject_mcp_config() -> list[Path]:
 
 def mcp_integration_status() -> tuple[bool, str]:
     payload = mcp_config_payload()["mcpServers"][MCP_SERVER_NAME]
-    expected_command = payload["command"]
-    expected_args = payload["args"]
+    expected_url = payload.get("url")
+    expected_bearer_token_env_var = payload.get("bearer_token_env_var")
+    expected_command = payload.get("command")
+    expected_args = payload.get("args")
     targets: list[Path] = []
     appdata = os.environ.get("APPDATA")
     home = Path.home()
@@ -801,7 +803,17 @@ def mcp_integration_status() -> tuple[bool, str]:
                 continue
             data = json.loads(target.read_text(encoding="utf-8"))
             server = ((data.get("mcpServers") or {}).get(MCP_SERVER_NAME) or {})
-            if server.get("command") == expected_command and server.get("args") == expected_args:
+            http_matches = (
+                expected_url is not None
+                and server.get("url") == expected_url
+                and server.get("bearer_token_env_var") == expected_bearer_token_env_var
+            )
+            legacy_stdio_matches = (
+                expected_command is not None
+                and server.get("command") == expected_command
+                and server.get("args") == expected_args
+            )
+            if http_matches or legacy_stdio_matches:
                 configured.append(str(target))
         except (OSError, json.JSONDecodeError, AttributeError):
             continue

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -26,6 +27,20 @@ def test_launcher_local_state_stays_under_dot_runtime() -> None:
     assert launcher.LAUNCHER_SETTINGS_BACKUP_DIR == (
         launcher.PROJECT_ROOT / ".runtime" / "logs" / "launcher" / "config-backups"
     )
+
+
+def test_mcp_integration_status_uses_current_http_contract(tmp_path, monkeypatch) -> None:
+    appdata = tmp_path / "AppData"
+    target = appdata / "Claude" / "claude_desktop_config.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps(launcher.mcp_config_payload()), encoding="utf-8")
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "Home")
+
+    ok, detail = launcher.mcp_integration_status()
+
+    assert ok is True
+    assert str(target) in detail
 
 
 class _JsonResponse:
