@@ -73,6 +73,11 @@ def _node_paths(nodes: list[Mapping[str, Any]]) -> set[str]:
     return {str(node.get("path") or "").replace("\\", "/") for node in nodes if str(node.get("path") or "").strip()}
 
 
+def _is_architecture_reference_path(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").lstrip("./")
+    return normalized.startswith(("references/architecture/", "docs/adr/"))
+
+
 def _source_refs(nodes: list[Mapping[str, Any]]) -> list[str]:
     refs = {
         str((node.get("provenance") or {}).get("source_ref") or "")
@@ -97,8 +102,7 @@ def _evidence(
     related_adrs = sorted(
         path
         for path in paths
-        if "/references/architecture/" in f"/{path}"
-        or path.startswith("references/architecture/")
+        if _is_architecture_reference_path(path)
     )[:MAX_CARD_EVIDENCE]
     edge_keys = sorted(str(edge.get("stable_key") or "") for edge in (edges or []))[:MAX_CARD_EVIDENCE]
     edge_refs = {
@@ -290,8 +294,7 @@ def _extract_cards(snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
     adr_nodes = [
         node
         for node in nodes
-        if "/references/architecture/" in f"/{str(node.get('path') or '').replace('\\', '/')}"
-        or str(node.get("path") or "").replace("\\", "/").startswith("references/architecture/")
+        if _is_architecture_reference_path(str(node.get("path") or ""))
     ]
     if adr_nodes:
         cards.append(

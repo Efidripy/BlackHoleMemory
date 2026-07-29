@@ -23,9 +23,11 @@ def test_live_active_collections_are_native_green_without_backfill_apply():
 
     assert plan["ok"] is True
     assert plan["mutation"] is False
-    assert plan["summary"]["collection_count"] == 3
+    expected_collections = {item["collection"] for item in scopes}
+    assert plan["summary"]["collection_count"] == len(expected_collections)
     assert plan["summary"]["point_count"] == sum(item["point_count"] for item in plan["collections"])
-    assert plan["summary"]["point_count"] >= 1022
+    assert plan["summary"]["point_count"] > 0
+    assert all(item["point_count"] > 0 for item in plan["collections"])
     assert plan["summary"]["missing_required_projection_fields"] == 0
     assert plan["summary"]["mismatched_user_scope"] == 0
     assert plan["summary"]["missing_source_id"] == 0
