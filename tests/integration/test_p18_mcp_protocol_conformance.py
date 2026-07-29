@@ -68,6 +68,8 @@ def test_current_codex_handshake_initializes_then_lists_exact_core_catalog():
     tools = catalog["result"]["tools"]
     assert len(tools) == len(CORE_TOOL_NAMES)
     assert len({tool["name"] for tool in tools}) == len(CORE_TOOL_NAMES)
+    assert all("inputSchema" in tool for tool in tools)
+    assert all("fn" not in tool for tool in tools)
     assert templates == {"jsonrpc": "2.0", "id": 22, "result": {"resourceTemplates": []}}
 
 

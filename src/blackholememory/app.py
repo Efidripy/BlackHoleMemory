@@ -1514,6 +1514,8 @@ async def _telemetry_harvester_loop() -> None:
 
 
 def _mcp_model_dump(value: Any) -> Any:
+    if hasattr(value, "to_mcp_tool"):
+        value = value.to_mcp_tool()
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json", exclude_none=True)
     if isinstance(value, dict):

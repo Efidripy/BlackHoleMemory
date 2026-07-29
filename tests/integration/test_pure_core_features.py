@@ -498,8 +498,11 @@ def test_mcp_gateway_core_surface_lists_only_approved_tools(monkeypatch):
     elapsed = time.perf_counter() - started
 
     assert response is not None
-    names = [tool["name"] for tool in response["result"]["tools"]]
+    tools = response["result"]["tools"]
+    names = [tool["name"] for tool in tools]
     assert len(names) == len(bhm_app.CORE_TOOL_NAMES)
+    assert all("inputSchema" in tool for tool in tools)
+    assert all("fn" not in tool for tool in tools)
     assert "bhm_health" in names
     assert "bhm_context_compile" in names
     assert "bhm_explain_retrieval" in names
