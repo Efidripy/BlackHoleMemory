@@ -1,4 +1,4 @@
-"""Read-only CAP14 provenance digest and publication-boundary validator."""
+"""Read-only provenance digest and publication-boundary validator."""
 
 from __future__ import annotations
 

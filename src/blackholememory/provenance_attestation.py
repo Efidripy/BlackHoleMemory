@@ -1,4 +1,4 @@
-"""Fail-closed provenance attestation envelope checks for CAP14.
+"""Fail-closed provenance attestation envelope checks.
 
 This module consumes only operator-provided metadata and opaque evidence
 hashes.  It never attempts to fetch private correspondence, invent signatures,
@@ -17,7 +17,7 @@ from typing import Any, Iterable
 from .provenance_boundary import build_provenance_boundary_report
 
 
-PROVENANCE_ATTESTATION_SCHEMA = "bhm.p28.cap14.provenance-attestation.v1"
+PROVENANCE_ATTESTATION_SCHEMA = "bhm.p28.provenance-attestation.v1"
 HASH_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 EXTERNAL_HASH_FIELDS = (
     "owner_message_hash",
