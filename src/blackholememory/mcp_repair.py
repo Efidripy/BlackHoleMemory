@@ -86,7 +86,7 @@ def _scope(clients: list[str]) -> dict[str, Any]:
 
 
 def _plan_root(repo_root: Path) -> Path:
-    return Path(repo_root).resolve() / "runtime" / "mcp-repair" / "plans"
+    return Path(repo_root).resolve() / ".runtime" / "mcp-repair" / "plans"
 
 
 def _plan_path(repo_root: Path, repair_id: str) -> Path:
