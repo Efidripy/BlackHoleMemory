@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from fastmcp.tools.base import ToolResult
+from mcp.types import TextContent
 
 from blackholememory import app as bhm_app
 from blackholememory.mcp_protocol_contract import SUPPORTED_PROTOCOL_VERSIONS
@@ -71,6 +73,38 @@ def test_current_codex_handshake_initializes_then_lists_exact_core_catalog():
     assert all("inputSchema" in tool for tool in tools)
     assert all("fn" not in tool for tool in tools)
     assert templates == {"jsonrpc": "2.0", "id": 22, "result": {"resourceTemplates": []}}
+
+
+def test_tools_call_serializes_fastmcp_tool_result(monkeypatch):
+    from blackholememory import bhm_mcp
+
+    async def fake_call_tool(name, arguments):
+        assert name == "bhm_health"
+        assert arguments == {}
+        return ToolResult(
+            content=[TextContent(type="text", text="ok")],
+            structured_content={"ready": True},
+            meta={"source": "test"},
+        )
+
+    monkeypatch.delenv("BHM_MCP_SURFACE", raising=False)
+    monkeypatch.setattr(bhm_mcp.mcp, "call_tool", fake_call_tool)
+    response = _request(
+        "tools/call",
+        23,
+        {"name": "bhm_health", "arguments": {}},
+    )
+
+    assert response == {
+        "jsonrpc": "2.0",
+        "id": 23,
+        "result": {
+            "content": [{"type": "text", "text": "ok"}],
+            "structuredContent": {"ready": True},
+            "_meta": {"source": "test"},
+            "isError": False,
+        },
+    }
 
 
 def test_initialize_rejects_unsupported_protocol_version_fail_closed():
