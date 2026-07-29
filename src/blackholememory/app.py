@@ -1628,10 +1628,21 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
             content = await bhm_mcp.mcp.call_tool(name, arguments)
         except Exception as exc:
             return _jsonrpc_error(request_id, -32603, f"{name} failed: {exc}")
-        return _jsonrpc_success(
-            request_id,
-            {"content": [_mcp_model_dump(item) for item in content], "isError": False},
-        )
+        dumped = _mcp_model_dump(content)
+        if isinstance(dumped, dict):
+            result: dict[str, Any] = {
+                "content": dumped.get("content") or [],
+                "isError": bool(dumped.get("isError", dumped.get("is_error", False))),
+            }
+            structured_content = dumped.get("structuredContent", dumped.get("structured_content"))
+            if structured_content is not None:
+                result["structuredContent"] = structured_content
+            meta = dumped.get("_meta", dumped.get("meta"))
+            if meta is not None:
+                result["_meta"] = meta
+        else:
+            result = {"content": dumped if isinstance(dumped, list) else [], "isError": False}
+        return _jsonrpc_success(request_id, result)
     return _jsonrpc_error(request_id, -32601, f"Unsupported MCP method: {method}")
 
 
