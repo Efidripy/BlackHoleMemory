@@ -1,0 +1,10 @@
+{
+  "schema_version": "bhm.code-graph.query-quality-receipt.v1",
+  "status": "partial",
+  "coverage": {"node_bucket": "partial", "edge_bucket": "high"},
+  "histograms": {"unresolved_edge_count": 2},
+  "bounds": {"stale_snapshot": false, "truncated": true, "budget_exceeded": false, "time_budget_ms": 250.0},
+  "provenance": {"review_required": true, "source_free": true},
+  "execution": {"read_only": true, "writes_sqlite_state": false, "writes_qdrant": false, "raw_source_returned": false},
+  "evidence_digest": "fixture-digest"
+}

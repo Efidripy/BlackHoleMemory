@@ -1,0 +1,29 @@
+{
+  "schema_version": "bhm.public-tree.v1",
+  "purpose": "Разделяет публикуемое исходное дерево и локальную рабочую/операционную зону.",
+  "public_roots": [".github", "assets", "config", "control", "docs", "infra", "plugins", "scripts", "src", "tests"],
+  "required_files": [
+    "README.md", "LICENSE", ".gitignore", "pyproject.toml", "uv.lock",
+    "config/public-tree-manifest.json",
+    "docs/getting-started.md", "control/scripts/shared/BhmObservationIdentity.ps1"
+  ],
+  "local_roots": [
+    ".docs", ".dev", ".local", ".legacy", ".src", ".tmp", ".venv", ".cache", ".runtime", ".runtime-legacy", ".output", ".artifacts", ".build", ".dist", ".release", ".workspace", ".node_modules", ".playwright-cli", ".pytest_cache", ".ruff_cache", ".uv-cache-final"
+  ],
+  "local_globs": [
+    ".docs/**", ".dev/**", ".local/**", ".legacy/**", ".src/**", ".tmp/**", ".cache/**", ".runtime/**", ".runtime-legacy/**", ".output/**", ".artifacts/**", ".build/**", ".dist/**", ".release/**", ".workspace/**", ".node_modules/**", ".playwright-cli/**", ".pytest_cache/**", ".ruff_cache/**", ".uv-cache-final/**", ".docs/ops/raw/**", ".docs/ops/evidence/**"
+  ],
+  "forbidden_public_globs": [
+    "**/*.sqlite", "**/*.sqlite3", "**/*.db", "**/*.db-*", "**/*.bak", "**/*.pem", "**/*.key",
+    "**/*.p12", "**/*.pfx", "**/*.jks", "**/*.zip", "**/*.log", "**/.env", "**/.env.*"
+  ],
+  "evidence_policy": {
+    "public_root": "docs",
+    "internal_root": ".docs",
+    "raw_root": ".local/evidence",
+    "crosswalk": ".docs/config/cbm-bhm-capability-crosswalk.json",
+    "raw_receipts_never_tracked": true,
+    "machine_paths_normalized": true,
+    "secrets_and_credentials_never_published": true
+  }
+}

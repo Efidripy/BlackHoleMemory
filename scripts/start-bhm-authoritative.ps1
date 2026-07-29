@@ -270,13 +270,13 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
   $pythonCommand = Get-Command python -ErrorAction Stop
   $pythonPath = $pythonCommand.Source
 }
-$runtimeRoot = Join-Path $repoRoot 'runtime'
+$runtimeRoot = Join-Path $repoRoot '.runtime'
 $initializerOutput = @(& $pythonPath $runtimeInitializer --runtime-dir $runtimeRoot 2>&1)
 if ($LASTEXITCODE -ne 0) {
   throw "Authoritative runtime initialization failed: $($initializerOutput -join [Environment]::NewLine)"
 }
 
-$runtimeRoot = Join-Path $repoRoot 'runtime\bootstrap'
+$runtimeRoot = Join-Path $repoRoot '.runtime\bootstrap'
 $serviceStdout = Join-Path $runtimeRoot 'authoritative-service-stdout.log'
 $serviceStderr = Join-Path $runtimeRoot 'authoritative-service-stderr.log'
 $qdrantStdout = Join-Path $runtimeRoot 'authoritative-qdrant-stdout.log'

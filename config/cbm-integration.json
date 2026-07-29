@@ -1,0 +1,40 @@
+{
+  "schema_version": "bhm.cbm.integration.v1",
+  "plan_id": "BHM-V6-CBM-LIVE-20260721",
+  "source_registry": "config/source-registry.json",
+  "source_quarantine": ".src",
+  "feature_flags": {
+    "integration_enabled": true,
+    "source_import_enabled": false,
+    "repository_watch_enabled": true,
+    "code_index_enabled": true,
+    "code_graph_projection_enabled": true,
+    "code_graph_retrieval_enabled": true,
+    "convention_memory_enabled": true,
+    "convention_llm_proposal_enabled": true,
+    "session_capture_enabled": true,
+    "session_llm_proposal_enabled": true,
+    "memory_graph_enabled": true,
+    "multi_agent_governance_enabled": true,
+    "code_llm_fabric_enabled": true,
+    "factory_integration_enabled": true,
+    "unified_mcp_adapter_enabled": true,
+    "capability_router_enabled": true,
+    "human_ui_enabled": true,
+    "migration_enabled": false,
+    "security_trust_enabled": true,
+    "public_mcp_code_tools_enabled": true,
+    "session_graph_enabled": true,
+    "task_graph_enabled": true,
+    "obsidian_bridge_enabled": false,
+    "autonomous_apply_enabled": false,
+    "training_enabled": false,
+    "lora_enabled": false
+  },
+  "rollback": {
+    "disable_strategy": "set every feature flag to false and restart the authoritative runtime",
+    "authoritative_store": "SQLite remains authoritative",
+    "derived_data": "drop or rebuild only BHM-owned code/Qdrant projections after reconciliation",
+    "source_material": ".src remains ignored quarantine evidence and is never restored into runtime"
+  }
+}

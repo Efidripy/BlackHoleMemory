@@ -122,7 +122,7 @@ _MODE_ALIASES = {
     "authoritative": MemoryStoreMode.SQLITE_AUTHORITATIVE,
 }
 
-_DEFAULT_RUNTIME_DIR = Path(__file__).resolve().parents[2] / "runtime"
+_DEFAULT_RUNTIME_DIR = Path(__file__).resolve().parents[2] / ".runtime"
 _MEMORY_STORE_SCHEMA_VERSION = 1
 _REQUIRED_MEMORY_STORE_TABLES = frozenset(
     {
