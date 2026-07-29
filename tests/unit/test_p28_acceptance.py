@@ -17,8 +17,12 @@ def test_p28_acceptance_report_is_read_only_and_truthful() -> None:
     repo = Path(__file__).resolve().parents[2]
     report = build_report(repo)
     assert report["ok"] is True
-    assert report["acceptance_ready"] is False
+    assert report["acceptance_ready"] is True
+    assert report["acceptance_semantics"] == "local_product"
+    assert report["local_product_ready"] is True
+    assert report["external_certification_ready"] is False
     assert report["open_capabilities"]
+    assert report["external_open_capabilities"] == ["CBM-CAP-12", "CBM-CAP-13", "CBM-CAP-14"]
     assert report["source_boundary"]["clean"] is True
     assert report["execution"]["writes_worktree"] is False
     assert report["evidence_boundary"]["clean"] is True
