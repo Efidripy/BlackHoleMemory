@@ -14,6 +14,7 @@ build/
 release_build/
 .playwright-cli/
 BHM-Release-*.zip
+BHM_Launcher.exe
 BHM-Release-*.zip.sha256
 BHM-Release-*.zip.sig
 BHM-Release-*.zip.pub

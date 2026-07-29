@@ -3,6 +3,7 @@ param(
   [string]$PythonPath = "",
   [string]$OutputRoot = "",
   [switch]$RefreshCanonicalLauncher,
+  [switch]$SkipCanonicalLauncherRefresh,
   [switch]$SignRelease,
   [string]$SigningKeyPath = "",
   [string]$SignerId = "",
@@ -34,8 +35,8 @@ Set-Location $repoRoot
 $seedPython = if ([string]::IsNullOrWhiteSpace($PythonPath)) { "python" } else { (Resolve-Path $PythonPath).Path }
 $launcherPy = Join-Path $repoRoot "scripts\bhm_launcher.py"
 $iconPath = Join-Path $repoRoot "assets\bhm-control-panel.ico"
-$distDir = Join-Path $repoRoot "dist"
-$buildDir = Join-Path $repoRoot "build"
+$distDir = Join-Path $repoRoot ".dist"
+$buildDir = Join-Path $repoRoot ".build"
 $artifactRoot = if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $repoRoot
 } else {
@@ -84,6 +85,9 @@ if ($SignRelease) {
     if ([string]::IsNullOrWhiteSpace($SignerId)) {
         throw "-SignRelease requires -SignerId so the trust receipt is attributable."
     }
+}
+if ($RefreshCanonicalLauncher -and $SkipCanonicalLauncherRefresh) {
+    throw "-RefreshCanonicalLauncher and -SkipCanonicalLauncherRefresh cannot be used together."
 }
 Assert-Path -Path $sourceBoundaryScript -Message "Missing local source boundary verifier: $sourceBoundaryScript"
 $boundaryProbe = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sourceBoundaryScript -RepoRoot $repoRoot
@@ -204,11 +208,10 @@ if ($LASTEXITCODE -ne 0) {
 Assert-Path -Path $compiledExe -Message "PyInstaller did not produce expected executable: $compiledExe"
 
 Write-Step "Assembling clean distribution folder"
-# Release builds are hermetic by default: PyInstaller output is copied into
-# the bundle but does not mutate the tracked source tree after provenance is
-# captured.  Operators may explicitly refresh the desktop launcher when they
-# intend to create a separate binary commit.
-if ($RefreshCanonicalLauncher) {
+# The canonical desktop launcher is a local root artifact. It is ignored by
+# Git and refreshed by default so a normal build leaves the checkout runnable.
+# Use -SkipCanonicalLauncherRefresh for a strictly non-mutating build.
+if (-not $SkipCanonicalLauncherRefresh) {
     Copy-Item -LiteralPath $compiledExe -Destination $canonicalExe -Force
 }
 Move-Item -LiteralPath $compiledExe -Destination $releaseExe -Force
