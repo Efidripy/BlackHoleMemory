@@ -1,4 +1,4 @@
-"""Validate a CAP14 operator provenance-attestation envelope read-only."""
+"""Validate an operator provenance-attestation envelope read-only."""
 
 from __future__ import annotations
 

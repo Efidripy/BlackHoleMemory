@@ -39,6 +39,6 @@ def test_package_boundary_rejects_src_in_directory_and_zip(tmp_path: Path) -> No
 
 
 def test_validator_script_is_importable() -> None:
-    script = Path(__file__).resolve().parents[2] / "scripts" / "validate-bhm-p28-cap14-provenance-boundary.py"
-    spec = importlib.util.spec_from_file_location("validate_cap14_boundary", script)
+    script = Path(__file__).resolve().parents[2] / "scripts" / "validate-bhm-p28-provenance-boundary.py"
+    spec = importlib.util.spec_from_file_location("validate_provenance_boundary", script)
     assert spec is not None and spec.loader is not None

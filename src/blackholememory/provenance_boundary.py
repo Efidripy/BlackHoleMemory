@@ -1,4 +1,4 @@
-"""Deterministic provenance and publication-boundary checks for P28/CAP14.
+"""Deterministic provenance and publication-boundary checks for P28.
 
 The boundary is deliberately read-only: it validates source manifests and
 their content digests, records a stable aggregate digest, and rejects
@@ -18,7 +18,7 @@ from typing import Any, Iterable
 from .source_registry import verify_registry
 
 
-PROVENANCE_BOUNDARY_SCHEMA = "bhm.p28.cap14.provenance-boundary.v1"
+PROVENANCE_BOUNDARY_SCHEMA = "bhm.p28.provenance-boundary.v1"
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -89,7 +89,7 @@ def build_provenance_boundary_report(
     *,
     package_paths: Iterable[Path] = (),
 ) -> dict[str, Any]:
-    """Build a read-only CAP14 report suitable for an evidence receipt."""
+    """Build a read-only provenance report suitable for an evidence receipt."""
 
     root = repo_root.resolve()
     registry_path = root / "config" / "source-registry.json"

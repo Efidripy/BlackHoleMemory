@@ -11,7 +11,6 @@ from typing import Any, Iterable
 
 ALLOWED_STATUSES = {"implemented", "equivalent", "partial", "deferred", "rejected", "not-applicable"}
 CLOSING_STATUSES = {"implemented", "equivalent", "rejected", "not-applicable"}
-EXTERNAL_CERTIFICATION_CAPABILITIES = frozenset({"CBM-CAP-12", "CBM-CAP-13", "CBM-CAP-14"})
 _BLOCKED_EVIDENCE_PARTS = {".env", "credentials", "private-keys", "private_keys", "secrets"}
 
 
@@ -74,12 +73,20 @@ def build_report(repo_root: Path) -> dict[str, Any]:
     crosswalk_path = root / ".docs" / "config" / "cbm-bhm-capability-crosswalk.json"
     crosswalk = json.loads(crosswalk_path.read_text(encoding="utf-8"))
     capabilities = list(crosswalk.get("capabilities") or [])
+    active_capabilities = [
+        capability for capability in capabilities if str(capability.get("status") or "") != "not-applicable"
+    ]
     acceptance = crosswalk.get("acceptance") if isinstance(crosswalk.get("acceptance"), dict) else {}
     bounded_disposition = acceptance.get("bounded_disposition") if isinstance(acceptance.get("bounded_disposition"), dict) else {}
+    bounded_disposition = {
+        identifier: value
+        for identifier, value in bounded_disposition.items()
+        if any(str(capability.get("id") or "") == identifier for capability in active_capabilities)
+    }
     failures: list[str] = []
     open_capabilities: list[str] = []
     checked_evidence = 0
-    for capability in capabilities:
+    for capability in active_capabilities:
         identifier = str(capability.get("id") or "unknown")
         status = str(capability.get("status") or "")
         if status not in ALLOWED_STATUSES:
@@ -96,7 +103,7 @@ def build_report(repo_root: Path) -> dict[str, Any]:
         evidence_path = root / str(evidence)
         if not evidence_path.is_file():
             failures.append(f"acceptance: missing evidence {evidence}")
-    shape = _validate_crosswalk_shape(root, capabilities)
+    shape = _validate_crosswalk_shape(root, active_capabilities)
     failures.extend(shape["failures"])
     try:
         tracked_src = subprocess.run(
@@ -111,39 +118,30 @@ def build_report(repo_root: Path) -> dict[str, Any]:
         failures.append("git source-boundary check unavailable")
     bounded_scope_closed = all(
         str(bounded_disposition.get(str(capability.get("id") or "")) or "").strip()
-        for capability in capabilities
+        for capability in active_capabilities
     )
-    external_open_capabilities = [
-        identifier for identifier in open_capabilities if identifier in EXTERNAL_CERTIFICATION_CAPABILITIES
-    ]
-    local_open_capabilities = [
-        identifier for identifier in open_capabilities if identifier not in EXTERNAL_CERTIFICATION_CAPABILITIES
-    ]
+    local_open_capabilities = list(open_capabilities)
     operator_gated_capabilities = [
         identifier
         for identifier in local_open_capabilities
         if str(bounded_disposition.get(identifier) or "").startswith("operator-gated")
     ]
     local_product_ready = not failures and bounded_scope_closed and not tracked_src
-    external_certification_ready = not failures and not external_open_capabilities
     return {
         "schema_version": "bhm.p28.acceptance-report.v1",
         "ok": not failures,
         "acceptance_ready": local_product_ready,
         "acceptance_semantics": "local_product",
         "local_product_ready": local_product_ready,
-        "external_certification_ready": external_certification_ready,
         "crosswalk_sha256": _sha256(crosswalk_path),
-        "capability_count": len(capabilities),
+        "capability_count": len(active_capabilities),
         "checked_evidence_count": checked_evidence,
         "evidence_boundary": {"checked": shape["checked"], "safe": shape["safe"], "clean": not shape["failures"]},
         "open_capabilities": open_capabilities,
         "local_open_capabilities": local_open_capabilities,
-        "external_open_capabilities": external_open_capabilities,
         "operator_gated_capabilities": operator_gated_capabilities,
         "bounded_disposition": bounded_disposition,
         "bounded_scope_closed": bounded_scope_closed,
-        "external_authority_gates": acceptance.get("external_authority_gates") or {},
         "failures": failures,
         "source_boundary": {"tracked_src_entries": tracked_src, "clean": not tracked_src},
         "execution": {"writes_sqlite_state": False, "writes_qdrant": False, "writes_worktree": False, "raw_source_returned": False},
