@@ -1005,7 +1005,12 @@
     const bootPassport = document.getElementById("bootPassport");
     const uiBootstrapFragmentKey = "bhm-ui-bootstrap";
     const uiSessionFailureMessage = "Local BHM UI session unavailable. Refresh this loopback page or use the trusted launcher.";
+    const uiSessionKeepaliveMs = 5 * 60 * 1000;
+    const uiSessionRecoveryCooldownMs = 60 * 1000;
     let uiSessionBlocked = false;
+    let uiSessionReady;
+    let uiSessionRecoveryInFlight = null;
+    let uiSessionRecoveryStartedAt = 0;
     const dashboardOverallStatus = document.getElementById("dashboardOverallStatus");
     const dashboardOverallExplanation = document.getElementById("dashboardOverallExplanation");
 
@@ -1130,17 +1135,60 @@
         setUiSessionFailure();
         throw newUiSessionError();
       }
+      uiSessionBlocked = false;
     }
 
-    const uiSessionReady = bootstrapUiSession();
+    async function renewUiSession() {
+      try {
+        const response = await window.fetch("/bhm/ui/session/renew", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: { "accept": "application/json" }
+        });
+        if (response.ok) {
+          uiSessionBlocked = false;
+          releaseFreeze();
+          return;
+        }
+        if (response.status !== 401 && response.status !== 4408) {
+          throw new Error(`ui session renew ${response.status}`);
+        }
+      } catch (error) {
+        if (error?.message && !String(error.message).includes("ui session renew 401") && !String(error.message).includes("ui session renew 4408")) {
+          // Network failures still receive one bounded recovery attempt below.
+        }
+      }
 
-    async function bhmFetch(input, init = {}) {
+      const now = Date.now();
+      if (uiSessionRecoveryInFlight) return uiSessionRecoveryInFlight;
+      if (now - uiSessionRecoveryStartedAt < uiSessionRecoveryCooldownMs) {
+        setUiSessionFailure();
+        throw newUiSessionError();
+      }
+      uiSessionRecoveryStartedAt = now;
+      uiSessionRecoveryInFlight = (async () => {
+        try {
+          uiSessionReady = bootstrapUiSession();
+          await uiSessionReady;
+          uiSessionBlocked = false;
+          releaseFreeze();
+        } finally {
+          uiSessionRecoveryInFlight = null;
+        }
+      })();
+      return uiSessionRecoveryInFlight;
+    }
+
+    uiSessionReady = bootstrapUiSession();
+
+    async function bhmFetch(input, init = {}, allowRecovery = true) {
       await uiSessionReady;
       if (uiSessionBlocked) throw newUiSessionError();
       const response = await window.fetch(input, { ...init, credentials: "same-origin" });
-      if (response.status === 401) {
-        setUiSessionFailure();
-        throw newUiSessionError();
+      if (response.status === 401 && allowRecovery) {
+        await renewUiSession();
+        return bhmFetch(input, init, false);
       }
       return response;
     }
@@ -1313,7 +1361,11 @@
       telemetrySocket.addEventListener("close", event => {
         bootPassportPending = bootPassportPending || sessionStorage.getItem("bhmRestartPending") === "1";
         freezeUi();
-        if (uiSessionBlocked || event.code === 4401 || event.code === 4403 || event.code === 4408) {
+        if (event.code === 4408) {
+          void renewUiSession().then(() => connectTelemetry()).catch(() => setUiSessionFailure());
+          return;
+        }
+        if (uiSessionBlocked || event.code === 4401 || event.code === 4403) {
           setUiSessionFailure();
           return;
         }
@@ -1337,6 +1389,7 @@
       }
       void refreshHealthSnapshot();
       window.setInterval(() => void refreshHealthSnapshot(), 15000);
+      window.setInterval(() => void renewUiSession().catch(() => {}), uiSessionKeepaliveMs);
       if (!uiSessionBlocked) void connectTelemetry();
     }
     void startDashboardUi();

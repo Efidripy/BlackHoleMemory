@@ -45,6 +45,27 @@ def test_expired_bootstrap_and_session_fail_closed(monkeypatch) -> None:
     assert registry.resolve_session(session_token) is None
 
 
+def test_renew_session_extends_a_valid_lease(monkeypatch) -> None:
+    now = 2_000.0
+    monkeypatch.setattr(ui_session.time, "monotonic", lambda: now)
+    registry = ui_session.UiSessionRegistry()
+    bootstrap = registry.mint_bootstrap(_principal())
+    session_token, principal = registry.exchange_bootstrap(bootstrap) or ("", None)
+    assert principal is not None
+
+    now += ui_session.SESSION_TTL_SECONDS - 1
+    renewed = registry.renew_session(session_token)
+    assert renewed is not None
+    assert renewed[0] == principal
+    assert renewed[1] == ui_session.SESSION_TTL_SECONDS
+
+    now += ui_session.SESSION_TTL_SECONDS - 1
+    assert registry.resolve_session(session_token) == principal
+
+    now += 2
+    assert registry.renew_session(session_token) is None
+
+
 def test_registry_is_bounded_and_snapshot_is_redacted(monkeypatch) -> None:
     monkeypatch.setattr(ui_session, "MAX_BOOTSTRAPS", 2)
     registry = ui_session.UiSessionRegistry()
@@ -64,6 +85,7 @@ def test_only_explicit_read_only_ui_routes_are_allowed() -> None:
     assert ui_session.ui_session_route_allowed("/bhm/galaxy/data", "GET") is True
     assert ui_session.ui_session_route_allowed("/bhm/mcp/http/status", "GET") is True
     assert ui_session.ui_session_route_allowed("/bhm/retrieval/explain", "POST") is True
+    assert ui_session.ui_session_route_allowed("/bhm/ui/session/renew", "POST") is True
     assert ui_session.ui_session_route_allowed("/bhm/mcp/http/status", "POST") is False
     assert ui_session.ui_session_route_allowed("/bhm/infra/restart", "POST") is False
     assert ui_session.ui_session_route_allowed("/bhm/memory/update", "POST") is False

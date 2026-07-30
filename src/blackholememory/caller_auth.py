@@ -50,6 +50,7 @@ _AUTH_ONLY_EXACT_PATHS = frozenset(
         "/bhm/infra/boot-report",
         "/bhm/ui/session/mint",
         "/bhm/ui/session/status",
+        "/bhm/ui/session/renew",
         "/graph/status",
     }
 )

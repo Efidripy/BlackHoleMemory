@@ -2044,7 +2044,12 @@
     const legendItems = Array.from(document.querySelectorAll(".legend-card .legend-item"));
     const uiBootstrapFragmentKey = "bhm-ui-bootstrap";
     const uiSessionFailureMessage = "Local BHM UI session unavailable. Refresh this loopback page or use the trusted launcher.";
+    const uiSessionKeepaliveMs = 5 * 60 * 1000;
+    const uiSessionRecoveryCooldownMs = 60 * 1000;
     let uiSessionBlocked = false;
+    let uiSessionReady;
+    let uiSessionRecoveryInFlight = null;
+    let uiSessionRecoveryStartedAt = 0;
     let mcpPanelController = null;
 
     function setUiSessionFailure() {
@@ -2079,6 +2084,33 @@
 
     function newUiSessionError() {
       return new Error(uiSessionFailureMessage);
+    }
+
+    function clearUiSessionFailure() {
+      uiSessionBlocked = false;
+      if (uiSessionRetryBtn) uiSessionRetryBtn.hidden = true;
+      statusEl.textContent = "UI session restored";
+      statusEl.style.color = "";
+      diagnosticStatusEl.textContent = "UI session restored";
+      diagnosticStatusEl.style.color = "";
+      for (const control of [
+        document.getElementById("reloadBtn"),
+        mcpPanelRefreshBtn,
+        mcpRepairPreviewBtn,
+        cbmParityRefreshBtn,
+        cbmCodeSearchBtn,
+        cbmCodeSearchMoreBtn,
+        cbmGraphQueryBtn,
+        cbmGraphQueryCancelBtn,
+        mcpLeaseCancelBtn,
+        cbmGraphQueryPresetEl,
+        cbmGraphQueryMoreBtn,
+        explainRetrievalBtn,
+        reconciliationBtn,
+        document.getElementById("galaxyDomain")
+      ]) {
+        if (control) control.disabled = false;
+      }
     }
 
     async function bootstrapUiSession() {
@@ -2125,17 +2157,56 @@
         setUiSessionFailure();
         throw newUiSessionError();
       }
+      clearUiSessionFailure();
     }
 
-    const uiSessionReady = bootstrapUiSession();
+    async function renewUiSession() {
+      try {
+        const response = await window.fetch("/bhm/ui/session/renew", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "same-origin",
+          headers: { "accept": "application/json" }
+        });
+        if (response.ok) {
+          clearUiSessionFailure();
+          return;
+        }
+        if (response.status !== 401 && response.status !== 4408) {
+          throw new Error(`ui session renew ${response.status}`);
+        }
+      } catch {
+        // Network and expired-lease failures receive one bounded recovery below.
+      }
 
-    async function bhmFetch(input, init = {}) {
+      const now = Date.now();
+      if (uiSessionRecoveryInFlight) return uiSessionRecoveryInFlight;
+      if (now - uiSessionRecoveryStartedAt < uiSessionRecoveryCooldownMs) {
+        setUiSessionFailure();
+        throw newUiSessionError();
+      }
+      uiSessionRecoveryStartedAt = now;
+      uiSessionRecoveryInFlight = (async () => {
+        try {
+          uiSessionReady = bootstrapUiSession();
+          await uiSessionReady;
+          clearUiSessionFailure();
+        } finally {
+          uiSessionRecoveryInFlight = null;
+        }
+      })();
+      return uiSessionRecoveryInFlight;
+    }
+
+    uiSessionReady = bootstrapUiSession();
+
+    async function bhmFetch(input, init = {}, allowRecovery = true) {
       await uiSessionReady;
       if (uiSessionBlocked) throw newUiSessionError();
       const response = await window.fetch(input, { ...init, credentials: "same-origin" });
-      if (response.status === 401) {
-        setUiSessionFailure();
-        throw newUiSessionError();
+      if (response.status === 401 && allowRecovery) {
+        await renewUiSession();
+        return bhmFetch(input, init, false);
       }
       return response;
     }
@@ -2640,7 +2711,7 @@
     });
     uiSessionRetryBtn?.addEventListener("click", () => {
       uiSessionRetryBtn.disabled = true;
-      window.location.reload();
+      void renewUiSession().catch(() => window.location.reload());
     });
     mcpPanelRefreshBtn.addEventListener("click", refreshMcpPanel);
     mcpLeaseCancelBtn.addEventListener("click", cancelMcpPanelRefresh);
@@ -5126,7 +5197,11 @@
       });
       socket.addEventListener("close", event => {
         state.pulseSocket = null;
-        if (uiSessionBlocked || event.code === 4401 || event.code === 4403 || event.code === 4408) {
+        if (event.code === 4408) {
+          void renewUiSession().then(() => connectMemoryPulseSocket()).catch(() => setUiSessionFailure());
+          return;
+        }
+        if (uiSessionBlocked || event.code === 4401 || event.code === 4403) {
           setUiSessionFailure();
           return;
         }
@@ -5323,6 +5398,7 @@
       }
       await loadGalaxy(false);
       if (uiSessionBlocked) return;
+      window.setInterval(() => void renewUiSession().catch(() => {}), uiSessionKeepaliveMs);
       void connectMemoryPulseSocket();
       void refreshRuntimeQuality();
       void refreshMcpPanel();

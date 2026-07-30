@@ -28,6 +28,7 @@ _HTTP_ALLOWLIST = frozenset(
     ("POST", "/bhm/ui/code-tools"),
     ("POST", "/bhm/retrieval/explain"),
         ("GET", "/bhm/ui/session/status"),
+        ("POST", "/bhm/ui/session/renew"),
     }
 )
 
@@ -103,6 +104,25 @@ class UiSessionRegistry:
     def resolve_session(self, session_token: str | None) -> CallerPrincipal | None:
         lease = self.resolve_session_lease(session_token)
         return lease[0] if lease is not None else None
+
+    def renew_session(self, session_token: str | None) -> tuple[CallerPrincipal, float] | None:
+        """Extend a valid UI lease without changing its HttpOnly token."""
+
+        if not session_token:
+            return None
+        now = time.monotonic()
+        with self._lock:
+            self._purge(self._sessions, now)
+            digest = _digest(session_token)
+            record = self._sessions.get(digest)
+            if record is None:
+                return None
+            renewed = _SessionRecord(
+                principal=record.principal,
+                expires_at=now + SESSION_TTL_SECONDS,
+            )
+            self._sessions[digest] = renewed
+            return renewed.principal, SESSION_TTL_SECONDS
 
     def resolve_session_lease(self, session_token: str | None) -> tuple[CallerPrincipal, float] | None:
         if not session_token:

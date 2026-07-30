@@ -252,6 +252,20 @@ def test_ui_bootstrap_exchange_is_one_time_origin_bound_and_httponly() -> None:
     )
     assert raw_boot_report.status_code == 401
 
+    renewed = browser.post(
+        "/bhm/ui/session/renew",
+        headers=_ui_headers(),
+    )
+    assert renewed.status_code == 200
+    assert renewed.json()["renewed"] is True
+    assert "bhm_ui_session=" in renewed.headers["set-cookie"].casefold()
+
+    rejected_renew = _client().post(
+        "/bhm/ui/session/renew",
+        headers={**_ui_headers(), "Origin": "http://127.0.0.1:9000"},
+    )
+    assert rejected_renew.status_code == 403
+
 
 def test_direct_browser_mcp_status_requires_ui_session_and_denies_post() -> None:
     """WI-152: Galaxy's final status read is session-bound; POST stays denied."""
