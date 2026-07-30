@@ -61,6 +61,35 @@ async def _initialize(client: httpx.AsyncClient, request_id: int) -> tuple[dict[
     return payload, session_id
 
 
+async def _initialize_named(
+    client: httpx.AsyncClient,
+    request_id: int,
+    client_name: str,
+) -> tuple[dict[str, Any], str]:
+    response = await _post(
+        client,
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": client_name, "version": "test"},
+            },
+        },
+    )
+    assert response.status_code == 200
+    session_id = response.headers["mcp-session-id"]
+    initialized = await _post(
+        client,
+        {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+        session_id=session_id,
+    )
+    assert initialized.status_code == 202
+    return response.json(), session_id
+
+
 def test_streamable_http_matches_core_catalog_and_recovers_after_disconnect():
     async def exercise() -> None:
         gateway = BhmStreamableHttpGateway(
@@ -647,5 +676,128 @@ def test_streamable_http_tool_call_does_not_block_event_loop():
                 assert slow_call.done() is False
                 response = await slow_call
                 assert response.status_code == 200
+
+    asyncio.run(exercise())
+
+
+def test_streamable_http_initialize_uses_fifo_admission_without_eviction():
+    async def dispatch(message: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "jsonrpc": "2.0",
+            "id": message.get("id"),
+            "result": {"tools": []},
+        }
+
+    async def exercise() -> None:
+        gateway = BhmStreamableHttpGateway(dispatch, server_version="test", max_sessions=2)
+        async with gateway.run():
+            transport = httpx.ASGITransport(app=gateway.asgi_app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+                tasks = [
+                    asyncio.create_task(_initialize_named(client, index, f"client-{index}"))
+                    for index in range(4)
+                ]
+                for _ in range(100):
+                    if gateway.sessions.snapshot()["queued_count"] == 2:
+                        break
+                    await asyncio.sleep(0.01)
+                queued = gateway.sessions.snapshot()
+                assert queued["session_count"] == 0
+                assert queued["reserved_count"] == 2
+                assert queued["queued_count"] == 2
+
+                first_two = await asyncio.gather(tasks[0], tasks[1])
+                queued = gateway.sessions.snapshot()
+                assert queued["session_count"] == 2
+                assert queued["active_count"] == 2
+                assert queued["queued_count"] == 2
+                assert queued["pending_count"] == 4
+                first_session = first_two[0][1]
+                deleted = await client.delete(
+                    "/mcp",
+                    headers={
+                        **BASE_HEADERS,
+                        "mcp-session-id": first_session,
+                        "mcp-protocol-version": "2025-06-18",
+                    },
+                )
+                assert deleted.status_code == 200
+
+                third = await asyncio.wait_for(tasks[2], timeout=1)
+                assert third[0]["result"]["protocolVersion"] == "2025-06-18"
+                assert gateway.sessions.snapshot()["queued_count"] == 1
+
+                second_session = first_two[1][1]
+                deleted = await client.delete(
+                    "/mcp",
+                    headers={
+                        **BASE_HEADERS,
+                        "mcp-session-id": second_session,
+                        "mcp-protocol-version": "2025-06-18",
+                    },
+                )
+                assert deleted.status_code == 200
+                await asyncio.wait_for(tasks[3], timeout=1)
+                assert gateway.sessions.snapshot()["queued_count"] == 0
+
+                for _, session_id in (third, await tasks[3]):
+                    deleted = await client.delete(
+                        "/mcp",
+                        headers={
+                            **BASE_HEADERS,
+                            "mcp-session-id": session_id,
+                            "mcp-protocol-version": "2025-06-18",
+                        },
+                    )
+                    assert deleted.status_code == 200
+                assert gateway.sessions.snapshot()["session_count"] == 0
+
+    asyncio.run(exercise())
+
+
+def test_streamable_http_cancelled_initialize_is_removed_from_fifo_queue():
+    async def dispatch(message: dict[str, Any]) -> dict[str, Any]:
+        return {"jsonrpc": "2.0", "id": message.get("id"), "result": {"tools": []}}
+
+    async def exercise() -> None:
+        gateway = BhmStreamableHttpGateway(dispatch, server_version="test", max_sessions=1)
+        async with gateway.run():
+            transport = httpx.ASGITransport(app=gateway.asgi_app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+                _, active_session = await _initialize_named(client, 1, "active")
+                cancelled = asyncio.create_task(_initialize_named(client, 2, "cancelled"))
+                queued = asyncio.create_task(_initialize_named(client, 3, "survivor"))
+                for _ in range(100):
+                    if gateway.sessions.snapshot()["queued_count"] == 2:
+                        break
+                    await asyncio.sleep(0.01)
+                assert gateway.sessions.snapshot()["queued_count"] == 2
+                cancelled.cancel()
+                try:
+                    await cancelled
+                except asyncio.CancelledError:
+                    pass
+                assert gateway.sessions.snapshot()["queued_count"] == 1
+
+                deleted = await client.delete(
+                    "/mcp",
+                    headers={
+                        **BASE_HEADERS,
+                        "mcp-session-id": active_session,
+                        "mcp-protocol-version": "2025-06-18",
+                    },
+                )
+                assert deleted.status_code == 200
+                _, survivor_session = await asyncio.wait_for(queued, timeout=1)
+                assert gateway.sessions.snapshot()["queued_count"] == 0
+                deleted = await client.delete(
+                    "/mcp",
+                    headers={
+                        **BASE_HEADERS,
+                        "mcp-session-id": survivor_session,
+                        "mcp-protocol-version": "2025-06-18",
+                    },
+                )
+                assert deleted.status_code == 200
 
     asyncio.run(exercise())

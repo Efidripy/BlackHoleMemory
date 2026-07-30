@@ -1037,6 +1037,137 @@
       padding: 0 14px 14px;
       list-style: none;
     }
+
+    /* Galaxy information architecture */
+    .sidebar-content { padding-bottom: 22px; }
+
+    .galaxy-intro {
+      margin-bottom: 14px;
+      padding: 15px;
+      border: 1px solid rgba(103, 232, 249, 0.28);
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.11), rgba(10, 14, 26, 0.7));
+    }
+
+    .galaxy-intro h1 {
+      margin: 7px 0 9px;
+      font-size: 28px;
+    }
+
+    .galaxy-intro > p:not(.eyebrow) {
+      color: var(--muted);
+      font: 12px/1.45 var(--mono);
+    }
+
+    .layer-key {
+      display: grid;
+      gap: 7px;
+      margin-top: 13px;
+      color: var(--muted);
+      font: 10px/1.35 var(--mono);
+    }
+
+    .layer-key span {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .layer-dot {
+      width: 8px;
+      height: 8px;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    .layer-dot.bhm { color: #65a983; background: #65a983; }
+    .layer-dot.cbm { color: #3b82f6; background: #3b82f6; }
+    .layer-dot.bridge { color: #fbbf24; background: #fbbf24; }
+
+    .toggle-note {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .metrics {
+      position: relative;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      padding-top: 28px;
+    }
+
+    .metrics-heading {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font: 700 10px/1.2 var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .metrics-heading span:last-child {
+      color: var(--muted-2);
+      font-weight: 400;
+      letter-spacing: 0;
+      text-transform: none;
+    }
+
+    .advanced-panel {
+      margin-top: 12px;
+      padding: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 15px;
+      background: rgba(2, 4, 10, 0.28);
+    }
+
+    .advanced-panel > summary {
+      cursor: pointer;
+      color: var(--muted);
+      font: 700 11px/1.3 var(--mono);
+    }
+
+    .advanced-intro {
+      margin: 10px 0 12px;
+      color: var(--muted-2);
+      font: 10px/1.4 var(--mono);
+    }
+
+    .advanced-panel .mcp-panel,
+    .advanced-panel .diagnostics-panel {
+      margin-top: 12px;
+    }
+
+    .quality-card,
+    .mcp-panel {
+      padding: 12px;
+    }
+
+    .quality-card .quality-metrics,
+    .mcp-panel .quality-metrics {
+      max-height: 180px;
+      overflow: auto;
+    }
+
+    .mcp-panel-note,
+    .quality-summary,
+    .growth-alert {
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    #cbmParityMetrics {
+      max-height: 210px;
+      overflow: auto;
+    }
     .summary-node {
       width: 100%;
       padding: 8px 10px;
@@ -1491,120 +1622,127 @@
           <button id="sidebarToggle" class="sidebar-toggle secondary" type="button" aria-controls="galaxySidebar" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">&larr;</button>
         </div>
         <div class="sidebar-content">
+        <section class="galaxy-intro" aria-labelledby="galaxyIntroTitle">
+          <p class="eyebrow">Визуальная карта</p>
+          <h1 id="galaxyIntroTitle">BHM Galaxy</h1>
+          <p>Здесь показаны связи между памятью BHM и code intelligence CBM. Граф read-only: переключатели меняют слой и плотность отображения, но не изменяют данные.</p>
+          <div class="layer-key" aria-label="Layer explanation">
+            <span><i class="layer-dot bhm"></i>BHM memory — записи, теги, наблюдения</span>
+            <span><i class="layer-dot cbm"></i>CBM code — файлы, функции и связи</span>
+            <span><i class="layer-dot bridge"></i>Bridge — связь памяти с кодом</span>
+          </div>
+        </section>
         <div class="stack">
           <div class="section-group">
-            <div class="section-title">Scope</div>
+            <div class="section-title">1 · Что смотрим</div>
             <div class="field">
-              <label for="project">Project</label>
+              <label for="project">Проект или область</label>
               <div class="autocomplete">
                 <input id="project" type="text" autocomplete="off" placeholder="e-github-workspace or leave empty">
                 <div id="projectSuggestions" class="suggestion-panel" role="listbox" aria-label="Project scopes"></div>
               </div>
+              <div class="mini-note">Пустое поле показывает доступный общий scope; конкретный проект уменьшает граф.</div>
             </div>
-          </div>
-          <div class="section-group">
-            <div class="section-title">Galaxy Modes</div>
             <div class="field">
-              <label for="galaxyDomain">Data Layer</label>
+              <label for="galaxyDomain">Слой данных</label>
               <select id="galaxyDomain" aria-describedby="galaxyDomainHint">
-                <option value="all">All — BHM memory + CBM code</option>
+                <option value="all">Combined — BHM memory + CBM code</option>
                 <option value="memory">BHM memory / knowledge</option>
                 <option value="code">CBM code graph</option>
               </select>
-              <div id="galaxyDomainHint" class="mini-note">Global product root; choose a layer or keep the combined view.</div>
+              <div id="galaxyDomainHint" class="mini-note">Combined связывает память и код; Memory показывает знания; Code показывает структуру репозитория.</div>
             </div>
             <div class="field">
-              <label>View Preset</label>
+              <label>Готовый режим плотности</label>
               <div class="preset-row">
                 <button id="presetKnowledge" class="chip active" type="button">Knowledge</button>
                 <button id="presetTelemetry" class="chip" type="button">Telemetry</button>
                 <button id="presetBalanced" class="chip" type="button">Balanced</button>
               </div>
-            </div>
-            <div class="field">
-              <label for="layoutMode">Layout Mode</label>
-              <select id="layoutMode">
-                <option value="clustered">Clustered Constellations</option>
-                <option value="hierarchy">Radial Tree</option>
-              </select>
+              <div class="mini-note">Knowledge скрывает шум; Telemetry добавляет наблюдения; Balanced — средний вариант.</div>
             </div>
           </div>
           <div class="section-group">
-            <div class="section-title">Signal Layers</div>
+            <div class="section-title">2 · Вид графа</div>
             <div class="field">
-            <label for="limit">Memory Limit</label>
+              <label for="layoutMode">Раскладка</label>
+              <select id="layoutMode">
+                <option value="clustered">Clustered constellations — группы</option>
+                <option value="hierarchy">Radial tree — иерархия</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="focusMode">Фокус</label>
+              <select id="focusMode">
+                <option value="global">Весь граф</option>
+                <option value="neighborhood">Окрестность выбранного узла</option>
+              </select>
+              <div class="mini-note">Выберите узел в графе и включите neighborhood, чтобы убрать дальний контекст.</div>
+            </div>
+            <div class="field">
+              <label for="hopDepth">Глубина связей</label>
+              <input id="hopDepth" type="range" min="1" max="3" step="1" value="1">
+              <div id="hopDepthLabel" class="range-readout">1 hop</div>
+            </div>
+            <div class="button-row">
+              <button id="reloadBtn" type="button">Обновить данные</button>
+              <button id="uiSessionRetryBtn" class="secondary" type="button" hidden>Повторить UI-сессию</button>
+              <button id="fitBtn" class="secondary" type="button">Вписать граф</button>
+              <a class="link-btn secondary" href="/" target="_self">На dashboard</a>
+            </div>
+          </div>
+          <div class="section-group">
+            <div class="section-title">3 · Плотность данных</div>
+            <div class="field">
+            <label for="limit">Лимит memory records</label>
             <input id="limit" type="number" min="40" max="500" value="220">
+            <div class="mini-note">Больше записей = больше контекста и медленнее навигация.</div>
           </div>
           <div class="field">
-            <label for="tagLimit">Tag Limit</label>
+            <label for="tagLimit">Лимит тегов</label>
             <input id="tagLimit" type="number" min="0" max="60" value="24">
           </div>
           <div class="toggle">
             <div>
-              <strong>Tag Nodes</strong>
-              <div style="color: var(--muted); font-size: 12px; margin-top: 3px;">Keep semantic links, not only project hubs.</div>
+              <strong>Показывать semantic tags</strong>
+              <div class="toggle-note">Добавляет узлы тегов и связи между знаниями.</div>
             </div>
             <input id="includeTags" type="checkbox" checked>
           </div>
           <div class="toggle">
             <div>
-              <strong>Observation Layer</strong>
-              <div style="color: var(--muted); font-size: 12px; margin-top: 3px;">Render hooks as aggregated telemetry clusters, not raw events.</div>
+              <strong>Показывать observations</strong>
+              <div class="toggle-note">Добавляет агрегированные telemetry-кластеры, не raw events.</div>
             </div>
             <input id="includeObservations" type="checkbox" checked>
           </div>
           </div>
-          <div class="section-group">
-            <div class="section-title">Flight Controls</div>
-            <div class="button-row">
-              <button id="reloadBtn" type="button">Reload Galaxy</button>
-              <button id="uiSessionRetryBtn" class="secondary" type="button" hidden>Retry UI session</button>
-              <button id="fitBtn" class="secondary" type="button">Fit Camera</button>
-              <a class="link-btn secondary" href="/" target="_self">Back</a>
-            </div>
-          </div>
-          <div class="section-group">
-            <div class="section-title">Focus Navigation</div>
-            <div class="focus-controls">
-              <div class="field">
-                <label for="focusMode">Focus Mode</label>
-                <select id="focusMode">
-                  <option value="global">Global</option>
-                  <option value="neighborhood">Neighborhood</option>
-                </select>
-              </div>
-              <div class="field">
-                <label for="hopDepth">Hop Depth</label>
-                <input id="hopDepth" type="range" min="1" max="3" step="1" value="1">
-                <div id="hopDepthLabel" class="range-readout">1 hop</div>
-              </div>
-            </div>
-          </div>
         </div>
         <div class="metrics">
+          <div class="metrics-heading"><span>Текущий граф</span><span>read-only snapshot</span></div>
           <div class="metric">
-            <div class="label">Nodes</div>
+            <div class="label">Узлы</div>
             <div id="nodeCount" class="value">0</div>
           </div>
           <div class="metric">
-            <div class="label">Links</div>
+            <div class="label">Связи</div>
             <div id="linkCount" class="value">0</div>
           </div>
           <div class="metric">
-            <div class="label">Memories</div>
+            <div class="label">Memory records</div>
             <div id="memoryCount" class="value">0</div>
           </div>
           <div class="metric">
-            <div class="label">Scope</div>
+            <div class="label">Область</div>
             <div id="scopeLabel" class="value" style="font-size: 18px;">all</div>
           </div>
         </div>
         <section id="qualityCard" class="quality-card" aria-labelledby="qualityTitle">
           <div class="quality-card-header">
-            <div id="qualityTitle" class="section-title">Runtime quality</div>
+            <div id="qualityTitle" class="section-title">Состояние snapshot</div>
             <span id="qualityStatus" class="quality-status" data-state="loading">Loading</span>
           </div>
-          <div id="qualitySummary" class="quality-summary" role="status" aria-live="polite">Loading lifecycle, provenance and projection signals…</div>
+          <div id="qualitySummary" class="quality-summary" role="status" aria-live="polite">Проверяем lifecycle, provenance и projection.</div>
           <dl id="qualityMetrics" class="quality-metrics"></dl>
           <details id="sloDashboard" class="slo-dashboard">
             <summary>SLO checks</summary>
@@ -1612,9 +1750,12 @@
           </details>
           <div id="growthAlert" class="growth-alert" data-state="idle" role="status" aria-live="polite">Growth monitor is waiting for a runtime sample.</div>
         </section>
+        <details id="mcpAdvancedGroup" class="advanced-panel">
+          <summary>Подключение агента · MCP truth</summary>
+          <p class="advanced-intro">Этот блок разделяет configured, connected, catalog-ready и runtime healthy. Одно не доказывает другое.</p>
         <section id="mcpPanel" class="mcp-panel" aria-labelledby="mcpPanelTitle">
           <div class="mcp-panel-header">
-            <div id="mcpPanelTitle" class="section-title">MCP connection truth</div>
+            <div id="mcpPanelTitle" class="section-title">MCP transport и каталог</div>
             <div>
               <button id="mcpPanelRefreshBtn" class="secondary" type="button">Refresh</button>
               <button id="mcpRepairPreviewBtn" class="secondary" type="button">Repair preview</button>
@@ -1623,12 +1764,12 @@
           <div id="mcpPanelSummary" class="mcp-panel-summary" role="status" aria-live="polite">Loading configured, connected, catalog and runtime states…</div>
           <div id="mcpPanelStatus" class="mcp-panel-status" data-state="loading">Loading</div>
           <div id="mcpPanelGates" class="mcp-gates" aria-label="MCP health gates">
-            <div class="mcp-gate" data-mcp-gate="configured"><span class="mcp-gate-label">Configured</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
-            <div class="mcp-gate" data-mcp-gate="connected"><span class="mcp-gate-label">Connected</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
-            <div class="mcp-gate" data-mcp-gate="catalog"><span class="mcp-gate-label">Catalog-ready</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
-            <div class="mcp-gate" data-mcp-gate="catalog_coverage"><span class="mcp-gate-label">Catalog coverage</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
+            <div class="mcp-gate" data-mcp-gate="configured"><span class="mcp-gate-label">Настроено</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
+            <div class="mcp-gate" data-mcp-gate="connected"><span class="mcp-gate-label">Подключено сейчас</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
+            <div class="mcp-gate" data-mcp-gate="catalog"><span class="mcp-gate-label">Каталог готов</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
+            <div class="mcp-gate" data-mcp-gate="catalog_coverage"><span class="mcp-gate-label">Покрытие каталога</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
             <div class="mcp-gate" data-mcp-gate="runtime"><span class="mcp-gate-label">Runtime healthy</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
-            <div class="mcp-gate" data-mcp-gate="rest"><span class="mcp-gate-label">REST / MCP</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
+            <div class="mcp-gate" data-mcp-gate="rest"><span class="mcp-gate-label">REST / MCP contract</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
             <div class="mcp-gate" data-mcp-gate="schema"><span class="mcp-gate-label">Schema drift</span><span class="mcp-gate-status" data-state="loading">Loading</span></div>
           </div>
           <div id="mcpPanelDetails" class="mcp-panel-note">Last error/reconnect and client versions are not loaded yet.</div>
@@ -1646,12 +1787,13 @@
             <div id="mcpCatalogCoverageEvidenceText" class="evidence-receipt-text" role="status" aria-live="polite">Waiting for the server-owned catalog coverage receipt.</div>
           </details>
         </section>
+        </details>
         <section id="cbmParityPanel" class="mcp-panel" aria-labelledby="cbmParityTitle">
           <div class="mcp-panel-header">
-            <div id="cbmParityTitle" class="section-title">CBM parity surface</div>
+            <div id="cbmParityTitle" class="section-title">CBM · состояние code intelligence</div>
             <button id="cbmParityRefreshBtn" class="secondary" type="button">Refresh</button>
           </div>
-          <div id="cbmParitySummary" class="mcp-panel-summary" role="status" aria-live="polite">Loading parser, graph and coverage evidence…</div>
+          <div id="cbmParitySummary" class="mcp-panel-summary" role="status" aria-live="polite">CBM показывает read-only индекс кода, его покрытие и ошибки parser.</div>
           <dl id="cbmParityMetrics" class="quality-metrics"></dl>
           <div id="cbmParityDetails" class="mcp-panel-note">Read-only server metadata; raw source is never returned.</div>
           <details id="cbmCoverageEvidence" class="evidence-receipt">
@@ -1659,6 +1801,9 @@
             <div id="cbmCoverageEvidenceText" class="evidence-receipt-text" role="status" aria-live="polite">Waiting for the server receipt.</div>
           </details>
         </section>
+        <details id="advancedToolsGroup" class="advanced-panel">
+          <summary>Расширенные инструменты CBM и operator diagnostics</summary>
+          <p class="advanced-intro">Поиск и allowlisted graph query работают только по metadata/read-only surface. Raw source в UI не возвращается.</p>
         <section id="cbmCodeSearchPanel" class="mcp-panel" aria-labelledby="cbmCodeSearchTitle">
           <div class="mcp-panel-header">
             <div id="cbmCodeSearchTitle" class="section-title">CBM code search</div>
@@ -1728,11 +1873,12 @@
           </section>
         </details>
         <div class="field" style="margin-top:18px;">
-          <label>Edge Kinds</label>
+           <label>Фильтры типов связей</label>
           <div id="edgeFilters" class="edge-list"></div>
           <div class="mini-note">Отключай слабые слои связей, если хочешь видеть только knowledge skeleton или только telemetry surface.</div>
-        </div>
-        <div id="status" class="status" role="status" aria-live="polite">Loading galaxy...</div>
+         </div>
+        </details>
+         <div id="status" class="status" role="status" aria-live="polite">Граф загружается…</div>
         </div>
       </div>
     </aside>
@@ -3842,9 +3988,11 @@
       mcpPanelStatusEl.textContent = mcpStateLabel(overall.state);
       mcpPanelStatusEl.title = String(overall.state || "unknown");
       mcpPanelStatusEl.dataset.state = String(overall.state || "unknown");
-      mcpPanelSummaryEl.textContent = `Overall ${mcpStateLabel(overall.state)} · ${mcpReasonLabel(overall.reason_code)}. ` +
-        `Configured ${Number(configured.configured_count || 0)}/${Number(configured.source_count || 0)} · ` +
-        `connected ${mcpStateLabel(connected.state)} · catalog ${mcpStateLabel(catalog.state)} · runtime ${mcpStateLabel(runtime.state)}.`;
+      const activeSessionCount = Number(transport.active_count ?? transport.session_count ?? connected.attached_count ?? 0);
+      const maxSessionCount = Number(transport.max_sessions || 0);
+      const queuedSessionCount = Number(transport.queued_count || 0);
+      mcpPanelSummaryEl.textContent = `MCP ${mcpStateLabel(overall.state)} · sessions ${activeSessionCount}/${maxSessionCount || "?"} · ` +
+        `queue ${queuedSessionCount} · catalog ${mcpStateLabel(catalog.state)} · runtime ${mcpStateLabel(runtime.state)}.`;
       setGate("configured", configured.state, configured.state);
       setGate("connected", connected.state, connected.state);
       setGate("catalog", catalog.state, catalog.state);
@@ -3877,7 +4025,8 @@
       const contractStates = [...new Set(sessions.map(item => String(item?.contract_state || "unverified")).slice(0, 4))];
       renderEvidenceReceipt(mcpLeaseEvidenceTextEl, [
         ["Transport", transport.status || connected.transports?.[0] || "unknown"],
-        ["Sessions", `${Number(transport.attached_count || connected.attached_count || 0)}/${Number(transport.session_count || 0)}`],
+        ["Sessions", `${activeSessionCount}/${maxSessionCount || "?"}`],
+        ["Queue", queuedSessionCount],
         ["Pending", Number(transport.pending_count || connected.pending_count || 0)],
         ["Lease remaining", leaseSummary],
         ["Contract", contractStates.length ? contractStates.join(", ") : "unverified"],
@@ -5177,7 +5326,6 @@
       void connectMemoryPulseSocket();
       void refreshRuntimeQuality();
       void refreshMcpPanel();
-      void refreshCbmParity();
     }
     void startGalaxyUi();
     window.addEventListener("resize", () => {

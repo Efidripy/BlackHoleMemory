@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from collections.abc import Awaitable, Callable
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -121,6 +122,16 @@ class _HttpSession:
     transport_loss_count: int
     last_transport_event: str | None
     expires_at_monotonic: float
+    slot_held: bool
+
+
+@dataclass
+class _HttpSessionAdmissionTicket:
+    sequence: int
+    event: asyncio.Event
+    admitted: bool = False
+    committed: bool = False
+    cancelled: bool = False
 
 
 class HttpMcpSessionRegistry:
@@ -132,13 +143,72 @@ class HttpMcpSessionRegistry:
         self._lock = threading.RLock()
         self._sessions: dict[str, _HttpSession] = {}
         self._expired_count = 0
+        self._waiters: deque[_HttpSessionAdmissionTicket] = deque()
+        self._reservations = 0
+        self._next_sequence = 0
+
+    def _active_slots_locked(self) -> int:
+        return sum(item.slot_held for item in self._sessions.values()) + self._reservations
+
+    def _wake_next_locked(self) -> None:
+        while self._waiters and self._active_slots_locked() < self.max_sessions:
+            waiter = self._waiters.popleft()
+            if waiter.cancelled:
+                continue
+            waiter.admitted = True
+            self._reservations += 1
+            waiter.event.set()
 
     def _purge(self, now: float) -> None:
+        removed = False
         for session_id in [
             key for key, item in self._sessions.items() if now >= item.expires_at_monotonic
         ]:
             self._sessions.pop(session_id, None)
             self._expired_count = min(self._expired_count + 1, self.max_sessions)
+            removed = True
+        if removed:
+            self._wake_next_locked()
+
+    async def acquire_initialize_slot(self) -> _HttpSessionAdmissionTicket:
+        """Reserve one bounded SDK session slot in FIFO order."""
+
+        waiter = _HttpSessionAdmissionTicket(
+            sequence=self._next_sequence,
+            event=asyncio.Event(),
+        )
+        with self._lock:
+            self._next_sequence += 1
+            self._purge(time.monotonic())
+            if not self._waiters and self._active_slots_locked() < self.max_sessions:
+                waiter.admitted = True
+                self._reservations += 1
+            else:
+                self._waiters.append(waiter)
+        if waiter.admitted:
+            return waiter
+        try:
+            await waiter.event.wait()
+            return waiter
+        except BaseException:
+            self.cancel_initialize_slot(waiter)
+            raise
+
+    def cancel_initialize_slot(self, waiter: _HttpSessionAdmissionTicket | None) -> None:
+        if waiter is None:
+            return
+        with self._lock:
+            if waiter.cancelled or waiter.committed:
+                return
+            waiter.cancelled = True
+            if waiter.admitted:
+                self._reservations = max(self._reservations - 1, 0)
+            else:
+                try:
+                    self._waiters.remove(waiter)
+                except ValueError:
+                    pass
+            self._wake_next_locked()
 
     def register(
         self,
@@ -147,17 +217,26 @@ class HttpMcpSessionRegistry:
         client_id: str,
         client_version: str,
         protocol_version: str,
-    ) -> None:
+        admission: _HttpSessionAdmissionTicket | None = None,
+    ) -> bool:
         key = str(session_id or "").strip()
         if not key:
-            return
+            self.cancel_initialize_slot(admission)
+            return False
         now = time.monotonic()
         timestamp = _utc_now()
         with self._lock:
             self._purge(now)
-            if key not in self._sessions and len(self._sessions) >= self.max_sessions:
-                oldest = min(self._sessions.values(), key=lambda item: item.updated_at)
-                self._sessions.pop(oldest.session_id, None)
+            if key in self._sessions:
+                self.cancel_initialize_slot(admission)
+                return False
+            if admission is not None:
+                if admission.cancelled or not admission.admitted:
+                    return False
+                admission.committed = True
+                self._reservations = max(self._reservations - 1, 0)
+            elif self._active_slots_locked() >= self.max_sessions:
+                return False
             self._sessions[key] = _HttpSession(
                 session_id=key,
                 client_id=" ".join(str(client_id or "unknown").split())[:64] or "unknown",
@@ -173,7 +252,9 @@ class HttpMcpSessionRegistry:
                 transport_loss_count=0,
                 last_transport_event=None,
                 expires_at_monotonic=now + self.idle_seconds,
+                slot_held=True,
             )
+            return True
 
     def confirm_validated_tool_call(
         self,
@@ -197,9 +278,8 @@ class HttpMcpSessionRegistry:
             self._purge(now)
             item = self._sessions.get(key)
             if item is None:
-                if len(self._sessions) >= self.max_sessions:
-                    oldest = min(self._sessions.values(), key=lambda value: value.updated_at)
-                    self._sessions.pop(oldest.session_id, None)
+                if self._active_slots_locked() >= self.max_sessions:
+                    return False
                 item = _HttpSession(
                     session_id=key,
                     client_id=" ".join(str(client_id or "unknown").split())[:64] or "unknown",
@@ -215,8 +295,13 @@ class HttpMcpSessionRegistry:
                     transport_loss_count=0,
                     last_transport_event=None,
                     expires_at_monotonic=now + self.idle_seconds,
+                    slot_held=True,
                 )
                 self._sessions[key] = item
+            elif not item.slot_held:
+                if self._active_slots_locked() >= self.max_sessions:
+                    return False
+                item.slot_held = True
             item.updated_at = timestamp
             item.last_request = "tools/call"
             item.state = "healthy"
@@ -243,6 +328,10 @@ class HttpMcpSessionRegistry:
             item = self._sessions.get(key)
             if item is None or method == "tools/call":
                 return
+            if not item.slot_held:
+                if self._active_slots_locked() >= self.max_sessions:
+                    return
+                item.slot_held = True
             item.updated_at = _utc_now()
             item.last_request = str(method or "unknown")[:96]
             item.expires_at_monotonic = now + self.idle_seconds
@@ -273,18 +362,26 @@ class HttpMcpSessionRegistry:
             item.updated_at = _utc_now()
             item.last_request = "transport_loss"
             item.state = "pending"
+            item.slot_held = False
             item.transport_loss_count = min(item.transport_loss_count + 1, 32)
             item.last_transport_event = " ".join(str(reason or "transport_lost").split())[:64]
             item.expires_at_monotonic = now + self.idle_seconds
+            self._wake_next_locked()
 
     def release(self, session_id: str) -> None:
         with self._lock:
             self._sessions.pop(str(session_id or "").strip(), None)
+            self._wake_next_locked()
 
     def reset(self) -> None:
         with self._lock:
             self._sessions.clear()
             self._expired_count = 0
+            self._reservations = 0
+            while self._waiters:
+                waiter = self._waiters.popleft()
+                waiter.cancelled = True
+                waiter.event.set()
 
     def snapshot(self, *, current_contract_digest: str | None = None) -> dict[str, Any]:
         now = time.monotonic()
@@ -308,6 +405,7 @@ class HttpMcpSessionRegistry:
                         "tool_count": item.tool_count,
                         "transport_loss_count": item.transport_loss_count,
                         "last_transport_event": item.last_transport_event,
+                        "active": item.slot_held,
                         "contract_state": (
                             "unverified"
                             if not item.contract_digest
@@ -324,12 +422,17 @@ class HttpMcpSessionRegistry:
             attached = sum(item["state"] in {"catalog_ready", "healthy"} for item in rows)
             pending = len(rows) - attached
             contract_drift = sum(item["contract_state"] == "drifted" for item in rows)
+            queued = len(self._waiters)
+            active = sum(item["active"] for item in rows)
             return {
                 "schema_version": SCHEMA_VERSION,
                 "authoritative_source": "streamable_http_sessions",
                 "status": "attached" if attached else ("pending" if pending else "detached"),
                 "attached_count": attached,
-                "pending_count": pending,
+                "active_count": active,
+                "reserved_count": self._reservations,
+                "queued_count": queued,
+                "pending_count": pending + queued,
                 "session_count": len(rows),
                 "contract_drift_count": contract_drift,
                 "expired_count": self._expired_count,
@@ -435,12 +538,17 @@ class _StreamableHttpAsgiApp:
                 raise
 
         method = str(message.get("method") or "")
+        admission: _HttpSessionAdmissionTicket | None = None
+        if request_method == "POST" and method == "initialize":
+            admission = await self._sessions.acquire_initialize_slot()
+        manager_completed = False
         try:
             await self._manager.handle_request(
                 scope,
                 replay_receive if request_method == "POST" else receive,
                 capture_send,
             )
+            manager_completed = True
         except (ConnectionError, BrokenPipeError, OSError) as exc:
             # A client-side disconnect can make the SDK tear down its internal
             # transport.  Preserve a bounded pending marker for recovery
@@ -448,6 +556,9 @@ class _StreamableHttpAsgiApp:
             if session_id:
                 self._sessions.mark_transport_loss(session_id, reason=type(exc).__name__)
             return
+        finally:
+            if admission is not None and not manager_completed:
+                self._sessions.cancel_initialize_slot(admission)
 
         if request_method == "POST" and method == "initialize" and status_code == 200:
             params = message.get("params") if isinstance(message.get("params"), dict) else {}
@@ -457,7 +568,11 @@ class _StreamableHttpAsgiApp:
                 client_id=str(client.get("name") or "unknown"),
                 client_version=str(client.get("version") or "unknown"),
                 protocol_version=str(params.get("protocolVersion") or "unknown"),
+                admission=admission,
             )
+            admission = None
+        elif admission is not None:
+            self._sessions.cancel_initialize_slot(admission)
         elif request_method == "POST" and session_id and 200 <= status_code < 300:
             tools = None
             if method == "tools/list":
@@ -506,6 +621,7 @@ class BhmStreamableHttpGateway:
         session_idle_seconds: float = DEFAULT_SESSION_IDLE_SECONDS,
         dispatch_timeout_seconds: float = DEFAULT_DISPATCH_TIMEOUT_SECONDS,
         max_concurrent_calls: int = DEFAULT_MAX_CONCURRENT_CALLS,
+        max_sessions: int = DEFAULT_MAX_SESSIONS,
     ) -> None:
         self.dispatcher = dispatcher
         self.dispatch_timeout_seconds = max(float(dispatch_timeout_seconds), 0.1)
@@ -519,7 +635,10 @@ class BhmStreamableHttpGateway:
         self._catalog_hash: str | None = None
         self._catalog_tool_count: int | None = None
         self._register_handlers()
-        self.sessions = HttpMcpSessionRegistry(idle_seconds=session_idle_seconds)
+        self.sessions = HttpMcpSessionRegistry(
+            idle_seconds=session_idle_seconds,
+            max_sessions=max_sessions,
+        )
         self.manager = StreamableHTTPSessionManager(
             app=self.server,
             json_response=True,
