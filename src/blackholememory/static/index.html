@@ -522,6 +522,280 @@
       text-align: center;
     }
 
+    /* Operator dashboard information architecture */
+    .nav-heading {
+      color: var(--dim);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+
+    .nav-list { margin-top: 0; }
+
+    .main {
+      display: block;
+      overflow: auto;
+    }
+
+    .topbar-copy {
+      max-width: 620px;
+      margin-top: 16px;
+      color: var(--muted);
+      font: 14px/1.45 var(--mono);
+    }
+
+    .overall-status {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 16px;
+      padding: 20px 22px;
+      border: 1px solid rgba(103, 232, 249, 0.34);
+      border-radius: 20px;
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.12), rgba(15, 20, 32, 0.78));
+    }
+
+    .overall-status h3 {
+      margin-top: 4px;
+      font-size: clamp(24px, 3vw, 38px);
+      line-height: 1;
+    }
+
+    .overall-explanation {
+      max-width: 760px;
+      margin-top: 9px;
+      color: var(--muted);
+      font: 13px/1.45 var(--mono);
+    }
+
+    .overall-badge {
+      flex: 0 0 auto;
+      padding: 11px 15px;
+      border: 1px solid rgba(52, 211, 153, 0.42);
+      border-radius: 999px;
+      color: var(--green);
+      background: rgba(52, 211, 153, 0.1);
+      font: 800 12px/1 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .overall-badge.warn {
+      color: var(--amber);
+      border-color: rgba(251, 191, 36, 0.42);
+      background: rgba(251, 191, 36, 0.1);
+    }
+
+    .overall-badge.bad {
+      color: var(--red);
+      border-color: rgba(251, 113, 133, 0.42);
+      background: rgba(251, 113, 133, 0.1);
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .system-details {
+      margin: 12px 0 18px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 16px;
+      background: rgba(2, 4, 10, 0.24);
+    }
+
+    .system-details > summary {
+      cursor: pointer;
+      padding: 12px 14px;
+      color: var(--muted);
+      font: 700 11px/1.2 var(--mono);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .system-details[open] > summary {
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      color: var(--cyan);
+    }
+
+    .system-details .status-grid {
+      margin: 12px;
+    }
+
+    .status-card,
+    .metric-panel {
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 18px;
+      background: rgba(10, 14, 26, 0.64);
+    }
+
+    .status-card h3 {
+      margin: 7px 0 14px;
+      font-size: 21px;
+      line-height: 1.05;
+    }
+
+    .card-kicker,
+    .metric-panel-title {
+      color: var(--cyan);
+      font: 700 10px/1.2 var(--mono);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .status-line {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 9px 0;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.11);
+      color: var(--muted);
+      font: 12px/1.3 var(--mono);
+    }
+
+    .status-line strong {
+      color: var(--text);
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+
+    .status-detail,
+    .card-note {
+      margin-top: 9px;
+      color: var(--muted);
+      font: 11px/1.4 var(--mono);
+    }
+
+    .card-note { color: var(--dim); }
+
+    .inline-link {
+      display: inline-block;
+      margin-top: 13px;
+      color: var(--cyan);
+      font: 700 12px/1.3 var(--mono);
+      text-decoration: none;
+    }
+
+    .inline-link:hover { color: #fff; }
+
+    .dashboard-section {
+      padding-top: 3px;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .section-heading h3 {
+      margin-top: 5px;
+      font-size: 25px;
+    }
+
+    .section-caption {
+      color: var(--dim);
+      font: 11px/1.3 var(--mono);
+    }
+
+    .knowledge-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric-panel .metric {
+      margin-top: 13px;
+      margin-bottom: 0;
+      padding: 12px;
+      border-radius: 14px;
+    }
+
+    .metric-panel .value {
+      font-size: clamp(25px, 3vw, 42px);
+    }
+
+    .stat-pair {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 13px;
+    }
+
+    .stat-pair > div {
+      padding: 14px 10px;
+      border: 1px solid rgba(244, 114, 182, 0.16);
+      border-radius: 14px;
+      background: rgba(244, 114, 182, 0.06);
+      text-align: center;
+    }
+
+    .stat-pair strong {
+      display: block;
+      color: var(--pink);
+      font: 700 34px/1 var(--mono);
+    }
+
+    .stat-pair span {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font: 10px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .stamp-inline {
+      margin-top: 12px;
+      color: var(--dim);
+      font: 11px/1.35 var(--mono);
+    }
+
+    .advanced-dashboard {
+      margin-top: 14px;
+      padding: 13px 15px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 16px;
+      background: rgba(2, 4, 10, 0.28);
+    }
+
+    .advanced-dashboard summary {
+      cursor: pointer;
+      color: var(--muted);
+      font: 700 12px/1.3 var(--mono);
+    }
+
+    .advanced-dashboard p {
+      margin-top: 12px;
+      color: var(--dim);
+      font: 11px/1.4 var(--mono);
+    }
+
+    .advanced-note {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 10px;
+      color: var(--muted);
+      font: 11px/1.3 var(--mono);
+    }
+
+    @media (max-width: 1280px) {
+      .status-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 880px) {
+      .knowledge-grid { grid-template-columns: 1fr; }
+      .overall-status { align-items: flex-start; flex-direction: column; }
+    }
+
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
@@ -553,10 +827,11 @@
     <aside class="nav glass" aria-label="BHM navigation">
       <section class="brand">
         <p class="eyebrow">BlackHoleMemory</p>
-        <h1>Control<br>Deck</h1>
-        <p class="copy">Меню сохранено слева. Справа статус бронированного IPC-контура, памяти и знаний в реальном времени.</p>
+        <h1>Operator<br>Dashboard</h1>
+        <p class="copy">Одна панель для понимания состояния BHM: ядро, authoritative memory, доступ агентов и CBM.</p>
       </section>
 
+      <div class="nav-heading">Навигация</div>
       <nav class="nav-list">
         <a class="nav-card" href="http://127.0.0.1:8000/docs" target="_blank" rel="noreferrer">
           <span><span class="label">API</span><span class="nav-title">Docs</span></span><span class="arrow">↗</span>
@@ -588,63 +863,118 @@
     <section class="main glass" aria-label="Runtime telemetry dashboard">
       <header class="topbar">
         <div>
-          <p class="eyebrow">Runtime v1.8.0-PURE</p>
-          <h2>Telemetry<br>Grid</h2>
+          <p class="eyebrow">BHM Operator Surface</p>
+          <h2>System<br>Overview</h2>
+          <p class="topbar-copy">Сначала — что работает и что требует внимания. Подробная телеметрия ниже.</p>
         </div>
         <div id="wsStatus" class="socket">connecting</div>
       </header>
 
-      <section class="grid">
-        <article class="tile" aria-label="OS and container resources">
-          <p class="eyebrow">Tile 01</p>
-          <h3>Ресурсы ОС и контейнеров</h3>
+      <section class="overall-status" aria-labelledby="overallStatusTitle">
+        <div>
+          <p class="eyebrow">Итог для оператора</p>
+          <h3 id="overallStatusTitle">Ядро BHM готово</h3>
+          <p id="dashboardOverallExplanation" class="overall-explanation">Ожидание первого health-снимка и live telemetry.</p>
+        </div>
+        <div id="dashboardOverallStatus" class="overall-badge">Проверка</div>
+      </section>
+
+      <details class="system-details">
+        <summary>System details · runtime / authority / agents / CBM</summary>
+        <section class="status-grid" aria-label="System status blocks">
+        <article class="status-card">
+          <div class="card-kicker">01 · Runtime</div>
+          <h3>Ядро и готовность</h3>
+          <div class="status-line"><span>Версия</span><strong id="runtimeVersion">--</strong></div>
+          <div class="status-line"><span>Readiness</span><strong id="readinessState">--</strong></div>
+          <div class="status-line"><span>Режим</span><strong id="runtimeMode">--</strong></div>
+        </article>
+
+        <article class="status-card">
+          <div class="card-kicker">02 · Memory authority</div>
+          <h3>Где лежит истина</h3>
+          <div class="status-line"><span>Источник записей</span><strong id="authorityState">--</strong></div>
+          <p id="authorityDetail" class="status-detail">--</p>
+          <div class="status-line"><span>Проекция</span><strong id="projectionState">--</strong></div>
+          <p id="projectionDetail" class="status-detail">--</p>
+        </article>
+
+        <article class="status-card">
+          <div class="card-kicker">03 · Agent access</div>
+          <h3>MCP-соединение</h3>
+          <div class="status-line"><span>MCP endpoint</span><strong id="mcpEndpointState">--</strong></div>
+          <div class="status-line"><span>Agent session</span><strong id="mcpConnection">--</strong></div>
+          <p id="mcpSessionNote" class="status-detail">--</p>
+          <div class="status-line"><span>Qdrant dependency</span><strong id="qdrantDependency">--</strong></div>
+        </article>
+
+        <article class="status-card">
+          <div class="card-kicker">04 · CBM</div>
+          <h3>Code intelligence</h3>
+          <div class="status-line"><span>Поверхность</span><strong id="cbmStatus">доступна</strong></div>
+          <a class="inline-link" href="/bhm/galaxy?domain=code">Открыть CBM-граф →</a>
+        </article>
+        </section>
+      </details>
+
+      <section class="dashboard-section" aria-labelledby="knowledgeTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Knowledge & live signals</p>
+            <h3 id="knowledgeTitle">Рабочие слои BHM</h3>
+          </div>
+          <span class="section-caption">Поток обновляется автоматически</span>
+        </div>
+        <div class="knowledge-grid">
+          <article class="metric-panel">
+            <div class="metric-panel-title">Память и архитектура</div>
+            <div class="stat-pair">
+              <div><strong id="crystalsTotal">--</strong><span>memory records</span></div>
+              <div><strong id="lawsTotal">--</strong><span>architecture laws</span></div>
+            </div>
+            <div class="status-row"><span>Последнее событие</span><span id="lastTick" class="pill warn">waiting</span></div>
+          </article>
+
+          <article class="metric-panel">
+            <div class="metric-panel-title">Ресурсы процесса</div>
           <div class="metric">
-            <div class="metric-head"><span>BHM RAM</span><b id="bhmRamLabel">-- MB</b></div>
+            <div class="metric-head"><span>Память BHM</span><b id="bhmRamLabel">-- MB</b></div>
             <strong id="bhmRam" class="value">--</strong>
             <div class="bar"><i id="bhmRamBar"></i></div>
           </div>
           <div class="metric">
-            <div class="metric-head"><span>WSL overhead</span><b id="wslRamLabel">-- GB</b></div>
+            <div class="metric-head"><span>Overhead WSL</span><b id="wslRamLabel">-- GB</b></div>
             <strong id="wslRam" class="value">--</strong>
             <div class="bar"><i id="wslRamBar"></i></div>
           </div>
-          <div class="status-row"><span>Qdrant container</span><span id="qdrantState" class="pill warn">unknown</span></div>
-          <p class="stamp">Цвета: green → yellow → red при росте нагрузки.</p>
-        </article>
+          <div class="status-row"><span>Qdrant</span><span id="qdrantState" class="pill warn">unknown</span></div>
+          </article>
 
-        <article class="tile" aria-label="Network armor shield">
-          <p class="eyebrow">Tile 02</p>
-          <h3>Сетевой щит брони</h3>
+          <article class="metric-panel">
+          <div class="metric-panel-title">Ограничители и зависимости</div>
           <div class="metric">
-            <div class="metric-head"><span>Backpressure semaphore</span><b id="semLabel">-- / --</b></div>
+            <div class="metric-head"><span>Очередь нагрузки</span><b id="semLabel">-- / --</b></div>
             <strong id="semValue" class="value">--</strong>
             <div class="bar"><i id="semBar"></i></div>
           </div>
           <div class="metric">
-            <div class="metric-head"><span>MCP pipe pool</span><b id="pipeLabel">-- / --</b></div>
+            <div class="metric-head"><span>MCP sessions</span><b id="pipeLabel">-- / --</b></div>
             <strong id="pipeValue" class="value">--</strong>
             <div class="bar"><i id="pipeBar"></i></div>
           </div>
-          <div class="status-row"><span>Circuit Breaker</span><span id="breakerState" class="pill">IPC_BROKER</span></div>
-          <div class="status-row"><span>LM Studio Warm-up</span><span id="warmupState" class="pill warn">unknown</span></div>
-          <div class="status-row"><span>Fallback Grace</span><span id="fallbackState" class="pill">idle</span></div>
-          <button id="restartCore" class="restart-core" type="button" disabled title="Restart requires the trusted BHM launcher and admin capability">[ RESTART VIA TRUSTED LAUNCHER ]</button>
-          <p class="stamp">Lazy telemetry: при закрытом UI харвестер не считает метрики.</p>
-        </article>
-
-        <article class="tile" aria-label="Knowledge metrics">
-          <p class="eyebrow">Tile 03</p>
-          <h3>Метрики знаний</h3>
-          <div class="giant">
-            <div><strong id="crystalsTotal">--</strong><span>memory crystals</span></div>
-          </div>
-          <div class="giant">
-            <div><strong id="lawsTotal">--</strong><span>architecture laws</span></div>
-          </div>
-          <div class="status-row"><span>Last sys_status</span><span id="lastTick" class="pill warn">waiting</span></div>
-          <p class="stamp">DOM обновляется атомарно по входящим WebSocket-событиям.</p>
-        </article>
+          <div class="status-row"><span>MCP queue</span><span id="mcpQueueState" class="pill">--</span></div>
+            <div class="status-row"><span>Transport mode</span><span id="breakerState" class="pill">unknown</span></div>
+            <div class="status-row"><span>LLM warm-up</span><span id="warmupState" class="pill warn">unknown</span></div>
+            <div class="status-row"><span>Fallback</span><span id="fallbackState" class="pill">idle</span></div>
+          <button id="restartCore" class="restart-core" type="button" hidden disabled title="Restart requires the trusted BHM launcher and admin capability">[ RESTART VIA TRUSTED LAUNCHER ]</button>
+          </article>
       </section>
+
+      <details class="advanced-dashboard">
+        <summary>Расширенная диагностика и raw telemetry</summary>
+        <p>Служебные counters, transport pool и bootstrap passport полезны для диагностики, но не являются пользовательским статусом.</p>
+        <div class="advanced-note"><span>WebSocket</span><span id="advancedSocketState">см. live-индикатор сверху</span></div>
+      </details>
     </section>
   </main>
 
@@ -676,6 +1006,61 @@
     const uiBootstrapFragmentKey = "bhm-ui-bootstrap";
     const uiSessionFailureMessage = "Local BHM UI session unavailable. Refresh this loopback page or use the trusted launcher.";
     let uiSessionBlocked = false;
+    const dashboardOverallStatus = document.getElementById("dashboardOverallStatus");
+    const dashboardOverallExplanation = document.getElementById("dashboardOverallExplanation");
+
+    function setHealthText(id, value) {
+      const element = document.getElementById(id);
+      if (element) element.textContent = value == null || value === "" ? "--" : String(value);
+    }
+
+    function renderHealthSnapshot(data) {
+      const memoryStore = data.memory_store || {};
+      const storage = data.storage || {};
+      const mcp = data.mcp_transport || {};
+      const runtimeReady = data.status === "healthy" && memoryStore.ready !== false && storage.ready !== false;
+      const mcpState = String(mcp.status || "unknown").toLowerCase();
+      const mcpAttached = mcpState === "attached" && Number(mcp.attached_count || 0) > 0;
+
+      setHealthText("runtimeVersion", data.version || "unknown");
+      setHealthText("readinessState", runtimeReady ? "готово" : "внимание");
+      setHealthText("runtimeMode", data.service || "BHM runtime");
+      setHealthText("authorityState", memoryStore.backend || memoryStore.configured_mode || "unknown");
+      setHealthText("authorityDetail", memoryStore.parity_confirmed ? "SQLite подтверждён как authoritative store." : "Parity не подтверждён текущим health-снимком.");
+      setHealthText("projectionState", data.mem0?.status || storage.backend || "unknown");
+      setHealthText("projectionDetail", storage.ready ? "Qdrant projection доступна." : "Projection dependency требует внимания.");
+      setHealthText("mcpEndpointState", runtimeReady ? "ready" : "attention");
+      const activeSessions = Number(mcp.active_count ?? mcp.session_count ?? 0);
+      const maxSessions = Number(mcp.max_sessions || 0);
+      const queuedSessions = Number(mcp.queued_count || 0);
+      setHealthText("mcpConnection", activeSessions ? `${activeSessions} / ${maxSessions || "?"}` : "нет активной сессии");
+      setHealthText("mcpSessionNote", queuedSessions
+        ? `В очереди: ${queuedSessions}. FIFO освободит слот после закрытия или expiry.`
+        : mcpAttached
+          ? `${Number(mcp.attached_count || 0)} catalog-ready.`
+          : "Сейчас нет внешней MCP-сессии; endpoint остаётся готовым.");
+      setHealthText("qdrantDependency", storage.ready ? "готова" : "недоступна");
+
+      dashboardOverallStatus.textContent = runtimeReady ? (mcpAttached ? "CORE ONLINE" : "CORE ONLINE · NO AGENT SESSION") : "ТРЕБУЕТ ВНИМАНИЯ";
+      dashboardOverallStatus.className = `overall-badge ${runtimeReady && !mcpAttached ? "warn" : runtimeReady ? "" : "bad"}`.trim();
+      dashboardOverallExplanation.textContent = runtimeReady
+        ? (mcpAttached ? "Ядро, authoritative memory и transport-сессия готовы к работе." : "Ядро и memory готовы. MCP endpoint готов, но внешний agent-клиент сейчас не держит активную сессию.")
+        : "Health-снимок показывает проблему готовности; откройте Ready endpoint для точной причины.";
+    }
+
+    async function refreshHealthSnapshot() {
+      try {
+        const response = await bhmFetch("/bhm/health", { cache: "no-store" });
+        if (!response.ok) throw new Error(`health ${response.status}`);
+        renderHealthSnapshot(await response.json());
+      } catch (error) {
+        if (!uiSessionBlocked) {
+          dashboardOverallStatus.textContent = "HEALTH UNKNOWN";
+          dashboardOverallStatus.className = "overall-badge bad";
+          dashboardOverallExplanation.textContent = `Не удалось получить health-снимок: ${error?.message || String(error)}`;
+        }
+      }
+    }
 
     function cssState(value, warnAt, badAt) {
       const n = Number(value) || 0;
@@ -786,8 +1171,10 @@
       const semAvailable = Number(data.backpressure_semaphore_value) || 0;
       const semMax = Number(data.backpressure_max) || 0;
       const semUsed = Math.max(semMax - semAvailable, 0);
-      const pipes = Number(data.mcp_active_pipes) || 0;
-      const pipeMax = Number(data.mcp_max_instances) || 0;
+      const mcpTransport = data.mcp_transport || {};
+      const pipes = Number(mcpTransport.active_count ?? mcpTransport.session_count) || 0;
+      const pipeMax = Number(mcpTransport.max_sessions) || 0;
+      const queue = Number(mcpTransport.queued_count) || 0;
 
       const bhmState = cssState(bhmMb, 900, 1400);
       const wslState = cssState(wslGb, 6, 9);
@@ -809,8 +1196,9 @@
       setBar("semBar", semUsed, semMax, semState);
 
       setValue("pipeValue", pipes, "", pipeState);
-      document.getElementById("pipeLabel").textContent = `${pipes} / ${pipeMax}`;
+      document.getElementById("pipeLabel").textContent = `${pipes} / ${pipeMax || "?"}`;
       setBar("pipeBar", pipes, pipeMax, pipeState);
+      setPill("mcpQueueState", queue ? `${queue} waiting` : "empty", queue ? "warn" : "");
 
       setPill("breakerState", data.launcher_circuit_breaker_status || "unknown");
       setPill("warmupState", data.llm_warmup_status || "unknown", data.llm_warmup_status === "READY" ? "" : "warn");
@@ -947,6 +1335,8 @@
       } catch {
         return;
       }
+      void refreshHealthSnapshot();
+      window.setInterval(() => void refreshHealthSnapshot(), 15000);
       if (!uiSessionBlocked) void connectTelemetry();
     }
     void startDashboardUi();
