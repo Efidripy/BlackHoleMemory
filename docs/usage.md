@@ -22,6 +22,12 @@ The flow temporarily runs the explicit projection worker in `sqlite-shadow`
 mode, then restores the canonical `sqlite-authoritative` runtime and verifies
 that pending and failed projection events are zero.
 
+The browser UI contract is direct-loopback-only: use the canonical BHM API
+host/port, do not expose `/` or `/bhm/*` through an untrusted reverse proxy,
+and do not treat `X-Forwarded-*` headers as an authentication signal. A proxy
+deployment must preserve the loopback boundary and explicitly authenticate
+before forwarding requests.
+
 ## MCP
 
 Канонический локальный endpoint:
