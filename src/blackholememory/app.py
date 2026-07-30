@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import ipaddress
 import json
+import logging
 import os
 import re
 import subprocess
@@ -79,11 +80,13 @@ from .galaxy import GalaxyOptions
 from .galaxy import build_galaxy_graph
 from .galaxy import camera_distance_for
 from .health import dependency_report
-from .health_contract import bhm_health_payload
-from .health_contract import health_cutover_payload
-from .health_contract import health_live_payload
-from .health_contract import health_ready_payload
-from .health_contract import health_slo_payload
+from .health_routes import HealthRuntimeDependencies
+from .health_routes import build_bhm_health
+from .health_routes import build_cutover
+from .health_routes import build_live
+from .health_routes import build_ready
+from .health_routes import build_ready_public
+from .health_routes import build_slo
 from .infra.mcp_broker import _BHM_REMEMBER_ALLOWED_ARGUMENTS
 from .mem0_adapter import BHMGraphManager
 from .mem0_adapter import StorageNotReady
@@ -114,6 +117,7 @@ from .mcp_streamable_http import BhmStreamableHttpGateway
 from .openapi_contract import build_openapi_schema
 from .project_registry import ProjectResolution
 from .project_registry import get_default_project_registry
+from .project_registry import normalize_project_key
 from .project_retirement import ProjectRetirementError
 from .project_retirement import apply_project_retirement
 from .project_retirement import preview_project_retirement
@@ -384,6 +388,9 @@ _INFRA_SPAWNED_PIDS: set[int] = set()
 _INFRA_SPAWNED_PIDS_LOCK = threading.RLock()
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
     try:
         return max(int(os.getenv(name, str(default))), minimum)
@@ -413,6 +420,14 @@ _WRITE_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_WRITES)
 _WRITE_BACKPRESSURE_LOCK = asyncio.Lock()
 _WRITE_BACKPRESSURE_ACTIVE = 0
 _WRITE_BACKPRESSURE_WAITING = 0
+_MAX_CONCURRENT_READS = _env_int("BHM_MAX_CONCURRENT_READS", 10, 1)
+_READ_QUEUE_LIMIT = _env_int("BHM_READ_QUEUE_LIMIT", 20, 0)
+_READ_RETRY_AFTER_SECONDS = _env_int("BHM_READ_RETRY_AFTER_SECONDS", 1, 1)
+_READ_ACQUIRE_TIMEOUT_SECONDS = _env_float("BHM_READ_ACQUIRE_TIMEOUT_SECONDS", 1.0, 0.0)
+_READ_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_READS)
+_READ_BACKPRESSURE_LOCK = asyncio.Lock()
+_READ_BACKPRESSURE_ACTIVE = 0
+_READ_BACKPRESSURE_WAITING = 0
 _HOOK_QUEUE_CAPACITY = _env_int("BHM_HOOK_QUEUE_CAPACITY", 128, 1)
 _HOOK_QUEUE_MAX_ATTEMPTS = _env_int("BHM_HOOK_QUEUE_MAX_ATTEMPTS", 3, 1)
 _HOOK_COMPACT_WORKERS = _env_int("BHM_HOOK_COMPACT_WORKERS", 1, 1)
@@ -432,6 +447,10 @@ _STORAGE_STARTUP_TIMEOUT_SECONDS = _env_float("BHM_STORAGE_STARTUP_TIMEOUT_SECON
 _QDRANT_HEALTH_TIMEOUT_SECONDS = _env_float("BHM_QDRANT_HEALTH_TIMEOUT_SECONDS", 2.0, 0.1)
 _FALLBACK_MODE_ENV = "BHM_FALLBACK_MODE"
 _TELEMETRY_INTERVAL_SECONDS = 2.5
+_KNOWLEDGE_COUNTERS_SCHEMA_VERSION = "bhm.dashboard.knowledge-counters.v1"
+_DASHBOARD_STATUS_SCHEMA_VERSION = "bhm.dashboard.status.v1"
+_ARCHITECTURE_MEMORY_TYPES = frozenset({"architecture", "adr"})
+_ARCHITECTURE_TAXONOMY_TAGS = frozenset({"architecture", "law", "adr"})
 _FALLBACK_GRACE_ACTIVE_UNTIL = 0.0
 _CUSTOM_REDACTION_MAX_PATTERNS = 16
 _CUSTOM_REDACTION_MAX_PATTERN_LENGTH = 120
@@ -905,7 +924,7 @@ def _fallback_rank_records(query: str, records: list[dict]) -> list[dict]:
 
 def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> dict:
     records = _fallback_memory_records(
-        project=request.project,
+        project=_effective_search_project(request.project),
         include_archived=request.include_archived,
         include_logs=request.include_logs,
         domain=request.domain,
@@ -1053,6 +1072,72 @@ async def _run_bounded_write(operation: str, func, *args, **kwargs):
         return await run_in_threadpool(func, *args, **kwargs)
 
 
+def _read_backpressure_headers() -> dict[str, str]:
+    return {"Retry-After": str(_READ_RETRY_AFTER_SECONDS)}
+
+
+@asynccontextmanager
+async def _bounded_read(route_operation: str):
+    """Run sync read-only work away from the event loop with bounded admission."""
+
+    global _READ_BACKPRESSURE_ACTIVE, _READ_BACKPRESSURE_WAITING
+
+    async with _READ_BACKPRESSURE_LOCK:
+        queued_or_running = _READ_BACKPRESSURE_ACTIVE + _READ_BACKPRESSURE_WAITING
+        queue_capacity = _MAX_CONCURRENT_READS + _READ_QUEUE_LIMIT
+        if queued_or_running >= queue_capacity:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "read_backpressure",
+                    "operation": route_operation,
+                    "active": _READ_BACKPRESSURE_ACTIVE,
+                    "waiting": _READ_BACKPRESSURE_WAITING,
+                    "max_concurrent_reads": _MAX_CONCURRENT_READS,
+                    "queue_limit": _READ_QUEUE_LIMIT,
+                },
+                headers=_read_backpressure_headers(),
+            )
+        _READ_BACKPRESSURE_WAITING += 1
+
+    acquired = False
+    try:
+        try:
+            await asyncio.wait_for(_READ_SEMAPHORE.acquire(), timeout=_READ_ACQUIRE_TIMEOUT_SECONDS)
+            acquired = True
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "error": "read_backpressure_timeout",
+                    "operation": route_operation,
+                    "max_concurrent_reads": _MAX_CONCURRENT_READS,
+                },
+                headers=_read_backpressure_headers(),
+            ) from None
+
+        async with _READ_BACKPRESSURE_LOCK:
+            _READ_BACKPRESSURE_WAITING -= 1
+            _READ_BACKPRESSURE_ACTIVE += 1
+
+        try:
+            yield
+        finally:
+            async with _READ_BACKPRESSURE_LOCK:
+                _READ_BACKPRESSURE_ACTIVE -= 1
+    finally:
+        if not acquired:
+            async with _READ_BACKPRESSURE_LOCK:
+                _READ_BACKPRESSURE_WAITING = max(_READ_BACKPRESSURE_WAITING - 1, 0)
+        else:
+            _READ_SEMAPHORE.release()
+
+
+async def _run_bounded_read(route_operation: str, func, *args, **kwargs):
+    async with _bounded_read(route_operation):
+        return await run_in_threadpool(func, *args, **kwargs)
+
+
 def _hook_queue_path() -> Path:
     return settings.runtime_dir / "live-memory" / "hook-jobs.sqlite3"
 
@@ -1113,6 +1198,19 @@ def _hook_job_result_summary(result: Any) -> dict[str, Any]:
             for name, value in steps.items()
         }
     return summary
+
+
+def _hook_job_log_context(job: dict[str, Any]) -> dict[str, Any]:
+    payload = job.get("payload")
+    payload = payload if isinstance(payload, dict) else {}
+    return {
+        "job_id": str(job.get("jobId") or ""),
+        "event_id": str(job.get("eventId") or payload.get("eventId") or ""),
+        "correlation_id": str(payload.get("correlationId") or payload.get("sessionId") or ""),
+        "kind": str(job.get("kind") or ""),
+        "attempts": int(job.get("attempts") or 0),
+        "max_attempts": int(job.get("maxAttempts") or 0),
+    }
 
 
 async def _execute_hook_job(job: dict[str, Any]) -> dict[str, Any]:
@@ -1179,20 +1277,45 @@ async def _hook_queue_worker(*, worker_name: str, kinds: tuple[str, ...], stop_e
                 result=_hook_job_result_summary(result),
             )
         except asyncio.CancelledError:
+            _LOGGER.info(
+                "hook_job_cancelled",
+                extra={**_hook_job_log_context(job), "classification": "cancelled"},
+            )
             raise
         except Exception as exc:
             redacted_error = redact_secret_text(str(exc)).value[:4000]
             retry_delay = _HOOK_QUEUE_RETRY_BASE_SECONDS * (2 ** max(int(job.get("attempts") or 1) - 1, 0))
             try:
-                await asyncio.to_thread(
+                status = await asyncio.to_thread(
                     queue.fail,
                     job_id,
                     owner=owner,
                     error=redacted_error,
                     retry_delay_seconds=retry_delay,
                 )
+                _LOGGER.warning(
+                    "hook_job_failed",
+                    extra={
+                        **_hook_job_log_context(job),
+                        "classification": "retryable" if status == "queued" else "terminal",
+                        "status": status,
+                        "error": redacted_error,
+                    },
+                )
             except HookJobLeaseLost:
-                print(f"[WARN] Hook job lease lost while recording failure: {job_id}", flush=True)
+                _LOGGER.error(
+                    "hook_job_failure_recording_lease_lost",
+                    extra={**_hook_job_log_context(job), "classification": "lease_lost"},
+                )
+            except Exception as record_exc:
+                _LOGGER.exception(
+                    "hook_job_failure_recording_failed",
+                    extra={
+                        **_hook_job_log_context(job),
+                        "classification": "failure_recording",
+                        "error": redact_secret_text(str(record_exc)).value[:4000],
+                    },
+                )
         finally:
             heartbeat.cancel()
             try:
@@ -1421,31 +1544,54 @@ async def _wait_for_qdrant_ready() -> None:
     await _wait_for_required_storage_ready()
 
 
-def _crystals_total_sync() -> int:
-    total = 0
-    for record in _load_live_memories():
-        metadata = record.get("metadata") or {}
-        memory_type = str(record.get("memory_type") or metadata.get("memory_type") or "").lower()
-        concepts = {str(item).lower() for item in (record.get("tags") or [])}
-        if memory_type in {"crystal", "fact-crystal"} or "fact-crystal" in concepts:
-            total += 1
-        elif metadata.get("crystallized_from"):
-            total += 1
-    return total
+def _is_architecture_decision(record: Mapping[str, Any]) -> bool:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+    memory_type = str(record.get("memory_type") or metadata.get("memory_type") or "").strip().lower()
+    if memory_type in _ARCHITECTURE_MEMORY_TYPES:
+        return True
+    tags = record.get("tags") or metadata.get("tags") or []
+    concepts = {str(item).strip().lower() for item in tags if str(item).strip()}
+    semantic_type = str(metadata.get("semantic_type") or "").strip().lower()
+    return semantic_type == "decision-log" and bool(_ARCHITECTURE_TAXONOMY_TAGS & concepts)
 
 
-def _architectural_laws_total_sync() -> int:
-    total = 0
-    for record in _load_live_memories():
-        metadata = record.get("metadata") or {}
-        memory_type = str(record.get("memory_type") or metadata.get("memory_type") or "").lower()
-        concepts = {str(item).lower() for item in (record.get("tags") or [])}
-        semantic_type = str(metadata.get("semantic_type") or "").lower()
-        if memory_type in {"architecture", "adr"}:
-            total += 1
-        elif semantic_type == "decision-log" and {"architecture", "law", "adr"} & concepts:
-            total += 1
-    return total
+def _knowledge_counter_group(records: list[dict[str, Any]]) -> dict[str, Any]:
+    counts = {"active_count": 0, "archived_count": 0, "tombstoned_count": 0}
+    for record in records:
+        counts[f"{_memory_lifecycle(record)}_count"] += 1
+    return {**counts, "total_count": sum(counts.values())}
+
+
+def _knowledge_counters_sync(records: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    source_records = records if records is not None else _load_live_memories()
+    architecture_records = [record for record in source_records if _is_architecture_decision(record)]
+    projects = sorted({str(record.get("project") or "") for record in source_records if record.get("project")})
+    return {
+        "schema_version": _KNOWLEDGE_COUNTERS_SCHEMA_VERSION,
+        "source": {
+            "authority": "sqlite",
+            "table": "memories",
+            "projection_used": False,
+        },
+        "scope": {
+            "kind": "all-local-projects",
+            "project_filter": None,
+            "project_count": len(projects),
+        },
+        "memory_records": {
+            "label": "Active memory records",
+            **_knowledge_counter_group(source_records),
+            "definition": "All SQLite memory records grouped by lifecycle.",
+        },
+        "architecture_decisions": {
+            "label": "Active architecture decisions",
+            **_knowledge_counter_group(architecture_records),
+            "definition": (
+                "SQLite memory records classified as architecture or ADR by memory type, "
+                "or as decision-log records with architecture taxonomy tags."
+            ),
+        },
+    }
 
 
 def _collect_host_telemetry_sync() -> dict[str, Any]:
@@ -1463,8 +1609,7 @@ def _collect_host_telemetry_sync() -> dict[str, Any]:
         "bhm_working_set_mb": _current_working_set_mb(),
         "wsl_shared_overhead_gb": _wsl_shared_overhead_gb(),
         "qdrant_healthy": _qdrant_healthy_sync(),
-        "crystals_total": _crystals_total_sync(),
-        "architectural_laws_total": _architectural_laws_total_sync(),
+        "knowledge_counters": _knowledge_counters_sync(),
         "hook_queue_pending": queue_status["pending"],
         "hook_queue_capacity": queue_status["capacity"],
         "hook_queue_queued": queue_status["counts"]["queued"],
@@ -1480,6 +1625,8 @@ async def _collect_sys_status_payload() -> dict[str, Any]:
     return {
         "event": "sys_status",
         "data": {
+            "schema_version": _DASHBOARD_STATUS_SCHEMA_VERSION,
+            "observed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "mcp_active_pipes": 0,
             "mcp_max_instances": 0,
             "mcp_surface": resolve_mcp_surface().value,
@@ -1803,13 +1950,15 @@ async def _app_lifespan(_app: FastAPI):
         f"global={collection_report['global']['collection_name']}",
         flush=True,
     )
-    warmup_task = asyncio.create_task(warmup_provider_probe())
+    warmup_task: asyncio.Task[None] | None = None
     boot_report_task: asyncio.Task[None] | None = None
-    if _boot_report_is_pending():
-        boot_report_task = asyncio.create_task(_finalize_pending_boot_report(warmup_task))
-    telemetry_task = asyncio.create_task(_telemetry_harvester_loop())
-    await _start_hook_queue_workers()
+    telemetry_task: asyncio.Task[None] | None = None
     try:
+        warmup_task = asyncio.create_task(warmup_provider_probe())
+        if _boot_report_is_pending():
+            boot_report_task = asyncio.create_task(_finalize_pending_boot_report(warmup_task))
+        telemetry_task = asyncio.create_task(_telemetry_harvester_loop())
+        await _start_hook_queue_workers()
         async with _MCP_STREAMABLE_HTTP.run():
             yield
     finally:
@@ -1821,16 +1970,14 @@ async def _app_lifespan(_app: FastAPI):
                 await boot_report_task
             except asyncio.CancelledError:
                 pass
-        telemetry_task.cancel()
-        try:
-            await telemetry_task
-        except asyncio.CancelledError:
-            pass
-        warmup_task.cancel()
-        try:
-            await warmup_task
-        except asyncio.CancelledError:
-            pass
+        for task in (telemetry_task, warmup_task):
+            if task is None:
+                continue
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         await _cleanup_registered_infra_processes(reason="api_shutdown")
 
 
@@ -3937,7 +4084,7 @@ async def _semantic_readiness_receipt(
         graph_digest=graph_digest,
     )
     try:
-        outbox = _memory_service().outbox_status()
+        outbox = await _run_bounded_read("semantic.readiness.outbox", _memory_service().outbox_status)
     except MemoryServiceNotReady:
         outbox = {"pending": 1, "failed": 1}
     projection_pending = max(int(outbox.get("pending") or 0), 0)
@@ -4029,6 +4176,28 @@ def _project_aliases(project: str | None) -> set[str]:
 
 def _canonical_project(project: str | None) -> str:
     return _PROJECT_REGISTRY.canonicalize(project)
+
+
+def _effective_search_project(project: str | None) -> str:
+    """Resolve one fail-closed project scope for public memory search.
+
+    Missing project input means the configured default project, never an
+    unscoped search. ``global`` is a reserved storage contour, not a public
+    tenant/project selector; global points are queried only as a secondary
+    contour and are still filtered by the requested project.
+    """
+
+    raw_project = str(project or "").strip()
+    candidate = _canonical_project(raw_project or settings.qdrant_collection)
+    if normalize_project_key(candidate) == "global":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "global_scope_requires_explicit_internal_capability",
+                "message": "global is a reserved BHM contour and is not a public project search scope",
+            },
+        )
+    return candidate
 
 
 def _find_live_memory(memory_id: str, project: str | None = None) -> dict | None:
@@ -4443,12 +4612,13 @@ def _memory_matches_filters(
 
 
 def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tuple[list[dict], int]:
+    project = _effective_search_project(request.project)
     candidates = []
     query = (request.query or "").strip()
     for record in _load_live_memories():
         if not _memory_matches_filters(
             record,
-            project=request.project,
+            project=project,
             memory_type=request.memory_type,
             concepts=request.concepts,
             files=request.files,
@@ -4551,6 +4721,31 @@ def _recent_activity_live_memories(request: MemoryRecentActivityRequest) -> list
     ]
     items.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
     return items[: max(min(request.limit, 200), 1)]
+
+
+def _list_live_memories(
+    *,
+    project: str | None,
+    memory_type: str | None,
+    include_archived: bool,
+    limit: int,
+    offset: int,
+) -> tuple[list[dict], int, int, int]:
+    items = [
+        item
+        for item in _load_live_memories()
+        if _memory_matches_filters(
+            item,
+            project=project,
+            memory_type=memory_type,
+            include_archived=include_archived,
+        )
+    ]
+    items.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
+    total = len(items)
+    effective_limit = max(min(limit, 200), 1)
+    effective_offset = max(offset, 0)
+    return items[effective_offset : effective_offset + effective_limit], total, effective_limit, effective_offset
 
 
 def _load_checkpoints() -> list[dict]:
@@ -5132,12 +5327,13 @@ def _mem0_user_ids_for_search(user_id: str) -> list[str]:
 def _vector_item_matches_search_request(item: dict, request: SearchRequest) -> bool:
     metadata = item.get("metadata") or {}
     metadata_source_id = metadata.get("source_id")
-    live_record = _resolve_live_memory_for_vector_item(item, request.project)
+    project = _effective_search_project(request.project)
+    live_record = _resolve_live_memory_for_vector_item(item, project)
     if live_record is not None:
         item["metadata"] = _mem0_metadata_for_record(live_record)
         return _memory_matches_filters(
             live_record,
-            project=request.project,
+            project=project,
             include_archived=request.include_archived,
             include_logs=request.include_logs,
             domain=request.domain,
@@ -5147,10 +5343,9 @@ def _vector_item_matches_search_request(item: dict, request: SearchRequest) -> b
     if metadata_source_id:
         return False
 
-    if request.project:
-        accepted_projects = _project_aliases(request.project)
-        if metadata.get("project") not in accepted_projects:
-            return False
+    accepted_projects = _project_aliases(project)
+    if metadata.get("project") not in accepted_projects:
+        return False
     return _metadata_matches_taxonomy_filters(
         metadata,
         domain=request.domain,
@@ -7955,10 +8150,11 @@ def _memory_type_migrate(request: TypeMigrateRequest) -> dict:
 
 
 def _search_hybrid(request: HybridSearchRequest) -> dict:
+    project = _effective_search_project(request.project)
     advanced = _advanced_search_live_memories(
         MemoryAdvancedSearchRequest(
             query=request.query,
-            project=request.project,
+            project=project,
             domain=request.domain,
             semantic_type=request.semantic_type,
             priority=request.priority,
@@ -7968,14 +8164,15 @@ def _search_hybrid(request: HybridSearchRequest) -> dict:
             offset=0,
         )
     )[0]
-    suggestions = _query_suggestions(request.project)
+    suggestions = _query_suggestions(project)
     return {"memories": [_serialize_memory_record(item) for item in advanced], "suggestions": suggestions[:5]}
 
 
 def _search_by_source_ref(request: SearchByRefRequest) -> dict:
+    project = _effective_search_project(request.project)
     items = []
     for record in _load_live_memories():
-        if not _memory_matches_filters(record, project=request.project, include_archived=False):
+        if not _memory_matches_filters(record, project=project, include_archived=False):
             continue
         refs = set(((record.get("metadata") or {}).get("source_refs") or []) + ((record.get("metadata") or {}).get("files") or []))
         if request.ref in refs:
@@ -7985,9 +8182,11 @@ def _search_by_source_ref(request: SearchByRefRequest) -> dict:
 
 
 def _search_by_upsert_key(request: SearchByUpsertKeyRequest) -> dict:
+    project = _effective_search_project(request.project)
+    accepted_projects = _project_aliases(project)
     items = []
     for record in _load_live_memories():
-        if request.project and record.get("project") != request.project:
+        if record.get("project") not in accepted_projects:
             continue
         if ((record.get("metadata") or {}).get("upsert_key")) == request.upsert_key:
             items.append(record)
@@ -10513,7 +10712,7 @@ async def federated_search(
     include_graph_expansion: bool = True,
     include_global: bool = True,
 ) -> tuple[list[dict], int]:
-    project_name = _canonical_project(project_name)
+    project_name = _effective_search_project(project_name)
     page_limit = max(min(limit, 200), 1)
     page_offset = max(offset, 0)
     candidate_count = max(page_limit + page_offset, 20)
@@ -11009,46 +11208,51 @@ def local_redoc() -> HTMLResponse:
 
 @app.get("/health/live")
 def health_live() -> dict:
-    return health_live_payload(service=settings.app_name, environment=settings.app_env)
+    return build_live(_health_runtime_dependencies())
 
 
 @app.get("/health/dependencies")
 def health_dependencies() -> dict:
-    return dependency_report(include_optional=True)
+    return dict(_health_runtime_dependencies().dependency_report(include_optional=True))
+
+
+def _health_runtime_dependencies() -> HealthRuntimeDependencies:
+    return HealthRuntimeDependencies(
+        app_name=settings.app_name,
+        app_env=settings.app_env,
+        runtime_version=RUNTIME_VERSION,
+        port=settings.port,
+        dependency_report=dependency_report,
+        storage_runtime_state=storage_runtime_state,
+        memory_store_state=_memory_store_state,
+        configured_fallback_mode=_configured_fallback_mode,
+        fallback_grace_active=_fallback_grace_active,
+        mem0_runtime_plan=mem0_runtime_plan,
+        provider_warmup_status=_get_provider_warmup_status,
+        utc_now=_utc_now_iso,
+        transport_snapshot=lambda: _MCP_STREAMABLE_HTTP.contract_snapshot()["sessions"],
+        hook_queue_path=_hook_queue_path,
+        hook_queue=_hook_queue,
+        memory_service=_memory_service,
+        sqlite_authoritative_mode=MemoryStoreMode.SQLITE_AUTHORITATIVE.value,
+        memory_service_not_ready=MemoryServiceNotReady,
+    )
+
+
+def health_ready() -> dict:
+    return build_ready(_health_runtime_dependencies())
 
 
 @app.get("/health/ready")
-def health_ready() -> dict:
-    report = dependency_report()
-    storage = storage_runtime_state()
-    memory_store = _memory_store_state()
-    fallback_active = _fallback_grace_active()
-    return health_ready_payload(
-        dependency_report=report,
-        storage=storage.as_dict(),
-        memory_store=memory_store.as_dict(),
-        fallback_mode=_configured_fallback_mode(),
-        fallback_active=fallback_active,
-        mem0_plan=mem0_runtime_plan(),
-        provider_warmup=_get_provider_warmup_status(),
-    )
+def health_ready_endpoint() -> dict[str, Any]:
+    """Expose only the minimal anonymous readiness contract."""
+
+    return build_ready_public(_health_runtime_dependencies())
 
 
 @app.get("/bhm/health")
 def bhm_health() -> dict:
-    storage = storage_runtime_state()
-    memory_store = _memory_store_state()
-    fallback_active = _fallback_grace_active()
-    return bhm_health_payload(
-        service=settings.app_name,
-        version=RUNTIME_VERSION,
-        port=settings.port,
-        transport=_MCP_STREAMABLE_HTTP.contract_snapshot()["sessions"],
-        storage=storage.as_dict(),
-        memory_store=memory_store.as_dict(),
-        fallback_mode=_configured_fallback_mode(),
-        fallback_active=fallback_active,
-    )
+    return build_bhm_health(_health_runtime_dependencies())
 
 
 @app.get("/bhm/infra/boot-report")
@@ -11764,6 +11968,38 @@ def _public_code_projects(database_path: Path) -> dict[str, Any]:
     }
 
 
+def _public_code_request_context(
+    request: PublicCodeToolRequest,
+) -> tuple[Path, str, str]:
+    root = _resolve_public_code_root(request.root)
+    project = _canonical_project(request.project)
+    return root, project, _public_code_root_id(project, root)
+
+
+def _current_code_graph_snapshot(
+    database_path: Path,
+    project: str,
+    root_id: str,
+    *,
+    include_material: bool = False,
+) -> Mapping[str, Any] | None:
+    return SQLiteCodeGraphStore(database_path).current_snapshot(
+        project,
+        root_id,
+        include_material=include_material,
+    )
+
+
+def _read_git_head(root: Path) -> str:
+    return subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    ).stdout.strip()
+
+
 @app.post("/bhm/code-tools", include_in_schema=False)
 async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any]:
     """Unified public MCP code-tools contract with bounded provenance.
@@ -11788,23 +12024,39 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         )
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
     if operation == "projects":
-        return {**_public_code_projects(database_path), "contract_digest": _public_code_contract_digest()}
+        projects = await _run_bounded_read("code.projects", _public_code_projects, database_path)
+        return {**projects, "contract_digest": _public_code_contract_digest()}
     if operation == "cross_repo":
         try:
+            preview = await _run_bounded_read(
+                "code.cross_repo",
+                build_cross_repo_link_preview,
+                database_path,
+                limit=request.limit,
+                project=request.project,
+            )
             return {
-                **build_cross_repo_link_preview(database_path, limit=request.limit, project=request.project),
+                **preview,
                 "operation": operation,
                 "contract_digest": _public_code_contract_digest(),
             }
         except (CodeGraphError, OSError, sqlite3.Error) as exc:
             raise HTTPException(status_code=503, detail={"error": "cross_repo_preview_unavailable", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
-    root = _resolve_public_code_root(request.root)
-    project = _canonical_project(request.project)
-    root_id = _public_code_root_id(project, root)
+    root, project, root_id = await _run_bounded_read(
+        "code.request_context",
+        _public_code_request_context,
+        request,
+    )
     if operation == "package_resolution":
         package_snapshot: Mapping[str, Any] = {}
         try:
-            snapshot_probe = SQLiteCodeGraphStore(database_path).current_snapshot(project, root_id, include_material=False)
+            snapshot_probe = await _run_bounded_read(
+                "code.package_resolution.snapshot",
+                _current_code_graph_snapshot,
+                database_path,
+                project,
+                root_id,
+            )
             if isinstance(snapshot_probe, Mapping):
                 package_snapshot = snapshot_probe
         except (CodeGraphError, OSError, sqlite3.Error):
@@ -11815,7 +12067,12 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         if request.expected_graph_digest and request.expected_graph_digest != package_graph_digest:
             raise HTTPException(status_code=409, detail={"error": "expected_graph_digest_mismatch", "expected_graph_digest": request.expected_graph_digest, "actual_graph_digest": package_graph_digest})
         try:
-            result = resolve_package_manifests(root, limit=min(int(request.limit), 64))
+            result = await _run_bounded_read(
+                "code.package_resolution.scan",
+                resolve_package_manifests,
+                root,
+                limit=min(int(request.limit), 64),
+            )
         except PackageResolutionError as exc:
             raise HTTPException(status_code=422, detail={"error": "package_resolution_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
         result["resolution_receipt"] = build_package_resolution_receipt(result)
@@ -11840,12 +12097,23 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         }
     if operation == "dependency_provenance":
         try:
-            result = resolve_dependency_provenance(root, limit=min(int(request.limit), 64))
+            result = await _run_bounded_read(
+                "code.dependency_provenance.scan",
+                resolve_dependency_provenance,
+                root,
+                limit=min(int(request.limit), 64),
+            )
         except DependencyProvenanceError as exc:
             raise HTTPException(status_code=422, detail={"error": "dependency_provenance_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
         current_snapshot: Mapping[str, Any] = {}
         try:
-            snapshot_probe = SQLiteCodeGraphStore(database_path).current_snapshot(project, root_id, include_material=False)
+            snapshot_probe = await _run_bounded_read(
+                "code.dependency_provenance.snapshot",
+                _current_code_graph_snapshot,
+                database_path,
+                project,
+                root_id,
+            )
             if isinstance(snapshot_probe, Mapping):
                 current_snapshot = snapshot_probe
         except (CodeGraphError, OSError, sqlite3.Error):
@@ -11853,7 +12121,7 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         dependency_graph_digest = str(current_snapshot.get("graph_digest") or "")
         if request.expected_graph_digest and request.expected_graph_digest != dependency_graph_digest:
             raise HTTPException(status_code=409, detail={"error": "expected_graph_digest_mismatch", "expected_graph_digest": request.expected_graph_digest, "actual_graph_digest": dependency_graph_digest})
-        slo_payload = bhm_health_slo()
+        slo_payload = await _run_bounded_read("code.dependency_provenance.slo", bhm_health_slo)
         slo_status = str(slo_payload.get("status") or "unknown") if isinstance(slo_payload, Mapping) else "unknown"
         result["quality_receipt"] = build_dependency_provenance_receipt(
             result,
@@ -11885,7 +12153,9 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
     if operation == "graph_query":
         try:
             return {
-                **query_graph_dsl(
+                **await _run_bounded_read(
+                    "code.graph_query",
+                    query_graph_dsl,
                     str(database_path),
                     project=project,
                     root_id=root_id,
@@ -11903,7 +12173,12 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         if not request.artifact_path:
             raise HTTPException(status_code=422, detail={"error": "artifact_path_required"})
         try:
-            verified = verify_graph_artifact(request.artifact_path, runtime_dir=settings.runtime_dir)
+            verified = await _run_bounded_read(
+                "code.graph_artifact.verify",
+                verify_graph_artifact,
+                request.artifact_path,
+                runtime_dir=settings.runtime_dir,
+            )
         except CodeGraphArtifactError as exc:
             raise HTTPException(status_code=422, detail={"error": "graph_artifact_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
         return {
@@ -11920,8 +12195,19 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         if not request.artifact_path:
             raise HTTPException(status_code=422, detail={"error": "artifact_path_required"})
         try:
-            verified = verify_graph_artifact(request.artifact_path, runtime_dir=settings.runtime_dir)
-            current_graph = SQLiteCodeGraphStore(database_path).current_snapshot(project, root_id, include_material=False)
+            verified = await _run_bounded_read(
+                "code.graph_artifact.promotion.verify",
+                verify_graph_artifact,
+                request.artifact_path,
+                runtime_dir=settings.runtime_dir,
+            )
+            current_graph = await _run_bounded_read(
+                "code.graph_artifact.promotion.snapshot",
+                _current_code_graph_snapshot,
+                database_path,
+                project,
+                root_id,
+            )
             plan = build_graph_artifact_promotion_plan(
                 verified,
                 project=project,
@@ -11954,20 +12240,45 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                 "execution": {"writes_sqlite_state": False, "writes_runtime_artifact": False, "raw_source_returned": False},
                 "provenance": {"source": "sqlite-authoritative", "authority": "non-authoritative artifact preview"},
             }
-        current_graph = SQLiteCodeGraphStore(database_path).current_snapshot(project, root_id, include_material=False)
+        current_graph = await _run_bounded_read(
+            "code.graph_artifact.export.snapshot",
+            _current_code_graph_snapshot,
+            database_path,
+            project,
+            root_id,
+        )
         if not current_graph:
             raise HTTPException(status_code=503, detail={"error": "graph_snapshot_unavailable"})
         try:
-            material = SQLiteCodeGraphStore(database_path).snapshot(str(current_graph.get("graph_snapshot_id")), include_material=True, read_only=True)
+            material = await _run_bounded_read(
+                "code.graph_artifact.export.material",
+                SQLiteCodeGraphStore(database_path).snapshot,
+                str(current_graph.get("graph_snapshot_id")),
+                include_material=True,
+                read_only=True,
+            )
             previous_id = str(current_graph.get("previous_graph_snapshot_id") or "")
             if previous_id:
                 try:
-                    previous = SQLiteCodeGraphStore(database_path).snapshot(previous_id, include_material=False, read_only=True)
+                    previous = await _run_bounded_read(
+                        "code.graph_artifact.export.previous",
+                        SQLiteCodeGraphStore(database_path).snapshot,
+                        previous_id,
+                        include_material=False,
+                        read_only=True,
+                    )
                 except CodeGraphError:
                     previous = {}
                 material["previous_graph_snapshot_id"] = previous_id
                 material["previous_graph_digest"] = previous.get("graph_digest")
-            exported = export_graph_artifact(material, runtime_dir=settings.runtime_dir, project=project, root_id=root_id)
+            exported = await _run_bounded_write(
+                "code.graph_artifact.export",
+                export_graph_artifact,
+                material,
+                runtime_dir=settings.runtime_dir,
+                project=project,
+                root_id=root_id,
+            )
         except (CodeGraphArtifactError, CodeGraphError) as exc:
             raise HTTPException(status_code=422, detail={"error": "graph_artifact_export_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
         return {
@@ -12005,10 +12316,23 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                 project=project,
                 source=RepositorySourceProvenance(source_url=f"local://{root.name}", owner="operator"),
             )
-            watched = watcher.run(cycles=request.cycles, interval_seconds=request.interval_seconds, debounce_seconds=request.debounce_seconds, index_on_change=True)
+            watched = await _run_bounded_write(
+                "code.watch",
+                watcher.run,
+                cycles=request.cycles,
+                interval_seconds=request.interval_seconds,
+                debounce_seconds=request.debounce_seconds,
+                index_on_change=True,
+            )
             graph = None
             if any(event.get("index") for event in watched.get("events") or []):
-                graph = build_code_graph(database_path, project=project, root_id=root_id)
+                graph = await _run_bounded_write(
+                    "code.watch.build_graph",
+                    build_code_graph,
+                    database_path,
+                    project=project,
+                    root_id=root_id,
+                )
         except (RepositoryIndexError, CodeGraphError, ValueError) as exc:
             raise HTTPException(status_code=422, detail={"error": "code_watch_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
         return {
@@ -12024,8 +12348,20 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             "provenance": {"source": "local-operator", "authority": "sqlite-authoritative", "source_persisted": False},
         }
     if operation == "status":
-        status = repository_index_status(root, database_path, project=project)
-        graph_current = SQLiteCodeGraphStore(database_path).current_snapshot(project, root_id, include_material=False)
+        status = await _run_bounded_read(
+            "code.index.status",
+            repository_index_status,
+            root,
+            database_path,
+            project=project,
+        )
+        graph_current = await _run_bounded_read(
+            "code.graph.status",
+            _current_code_graph_snapshot,
+            database_path,
+            project,
+            root_id,
+        )
         return {
             "schema_version": "bhm.public-code-tools.v1",
             "contract_digest": _public_code_contract_digest(),
@@ -12039,7 +12375,13 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             "provenance": {"source": "sqlite-authoritative", "root_allowlist": "repos-root"},
         }
     if operation == "index":
-        status = repository_index_status(root, database_path, project=project)
+        status = await _run_bounded_read(
+            "code.index.plan",
+            repository_index_status,
+            root,
+            database_path,
+            project=project,
+        )
         if not request.apply:
             return {
                 "schema_version": "bhm.public-code-tools.v1",
@@ -12056,14 +12398,26 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                 "provenance": {"source": "local-operator", "license": "operator-owned", "evidence_class": "E0"},
             }
         try:
-            indexed = index_repository(
+            indexed = await _run_bounded_write(
+                "code.index",
+                index_repository,
                 root,
                 database_path,
                 project=project,
                 source=RepositorySourceProvenance(source_url=f"local://{root.name}", owner="operator"),
                 force_refresh=request.force_refresh,
             )
-            graph = build_code_graph(database_path, project=project, root_id=root_id) if request.build_graph else None
+            graph = (
+                await _run_bounded_write(
+                    "code.index.build_graph",
+                    build_code_graph,
+                    database_path,
+                    project=project,
+                    root_id=root_id,
+                )
+                if request.build_graph
+                else None
+            )
         except (RepositoryIndexError, CodeGraphError, ValueError) as exc:
             raise HTTPException(status_code=422, detail={"error": "code_index_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
         return {
@@ -12079,7 +12433,9 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             "provenance": {"source": "local-operator", "license": "operator-owned", "evidence_class": "E0"},
         }
     if operation == "trace_evidence":
-        observations = _observation_store().load(
+        observations = await _run_bounded_read(
+            "code.trace_evidence.observations",
+            _observation_store().load,
             project=project,
             include_archived=False,
             include_purged=False,
@@ -12102,10 +12458,22 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             "status": "graph_snapshot_unavailable",
             "execution": {"writes_sqlite_state": False, "writes_qdrant": False, "raw_source_returned": False, "trace_edges_promoted": False},
         }
-        current_graph = SQLiteCodeGraphStore(database_path).current_snapshot(project, root_id, include_material=False)
+        current_graph = await _run_bounded_read(
+            "code.trace_evidence.snapshot",
+            _current_code_graph_snapshot,
+            database_path,
+            project,
+            root_id,
+        )
         if current_graph:
             try:
-                material = SQLiteCodeGraphStore(database_path).snapshot(str(current_graph.get("graph_snapshot_id")), include_material=True, read_only=True)
+                material = await _run_bounded_read(
+                    "code.trace_evidence.material",
+                    SQLiteCodeGraphStore(database_path).snapshot,
+                    str(current_graph.get("graph_snapshot_id")),
+                    include_material=True,
+                    read_only=True,
+                )
                 code_trace_receipt = build_service_trace_receipt(
                     material.get("nodes") or [],
                     material.get("edges") or [],
@@ -12124,7 +12492,13 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             "execution": {"writes_sqlite_state": False, "writes_qdrant": False, "writes_retrieval": False, "model_started": False, "raw_source_returned": False, "trace_edges_promoted": False},
         }
     graph_store = SQLiteCodeGraphStore(database_path)
-    current = graph_store.current_snapshot(project, root_id, include_material=False)
+    current = await _run_bounded_read(
+        "code.graph.current",
+        _current_code_graph_snapshot,
+        database_path,
+        project,
+        root_id,
+    )
     if operation == "type_references":
         if current is None:
             raise HTTPException(status_code=503, detail={"error": "graph_snapshot_unavailable"})
@@ -12132,7 +12506,13 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         if request.expected_graph_digest and request.expected_graph_digest != current_graph_digest:
             raise HTTPException(status_code=409, detail={"error": "expected_graph_digest_mismatch", "expected_graph_digest": request.expected_graph_digest, "actual_graph_digest": current_graph_digest})
         try:
-            material = graph_store.snapshot(str(current.get("graph_snapshot_id")), include_material=True, read_only=True)
+            material = await _run_bounded_read(
+                "code.type_references.material",
+                graph_store.snapshot,
+                str(current.get("graph_snapshot_id")),
+                include_material=True,
+                read_only=True,
+            )
             result = build_type_reference_resolution(material.get("nodes") or [], material.get("edges") or [], max_items=request.limit)
         except CodeGraphError as exc:
             raise HTTPException(status_code=503, detail={"error": "type_reference_resolution_unavailable", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
@@ -12162,7 +12542,13 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         if current is None:
             raise HTTPException(status_code=503, detail={"error": "graph_snapshot_unavailable"})
         try:
-            material = graph_store.snapshot(str(current.get("graph_snapshot_id")), include_material=True, read_only=True)
+            material = await _run_bounded_read(
+                "code.bicep_resolution.material",
+                graph_store.snapshot,
+                str(current.get("graph_snapshot_id")),
+                include_material=True,
+                read_only=True,
+            )
             result = build_bicep_module_resolution(material.get("nodes") or [], material.get("edges") or [], max_items=request.limit)
         except CodeGraphError as exc:
             raise HTTPException(status_code=503, detail={"error": "bicep_module_resolution_unavailable", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
@@ -12182,7 +12568,9 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             raise HTTPException(status_code=503, detail={"error": "repository_snapshot_unavailable"})
         index_store = SQLiteRepositoryIndexStore(database_path)
         try:
-            snapshot = index_store.snapshot(
+            snapshot = await _run_bounded_read(
+                "code.search.repository_snapshot",
+                index_store.snapshot,
                 str(current.get("repository_snapshot_id") or current.get("snapshot_id") or ""),
                 include_files=True,
                 read_only=True,
@@ -12260,7 +12648,14 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                                 semantic_latency_ms = round((time.perf_counter() - semantic_started) * 1000.0, 3)
                 if request.search_mode == "metadata":
                     if request.query:
-                        baseline_matches = graph_store.search_metadata(str(current.get("graph_snapshot_id") or ""), request.query, limit=request.limit, offset=request.offset)
+                        baseline_matches = await _run_bounded_read(
+                            "code.search.metadata",
+                            graph_store.search_metadata,
+                            str(current.get("graph_snapshot_id") or ""),
+                            request.query,
+                            limit=request.limit,
+                            offset=request.offset,
+                        )
                     else:
                         baseline_matches = []
                     matches = baseline_matches
@@ -12281,7 +12676,9 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                     }
                 else:
                     if request.query or not request.semantic_query:
-                        baseline_result = search_repository_code(
+                        baseline_result = await _run_bounded_read(
+                            "code.search.baseline",
+                            search_repository_code,
                             root,
                             files,
                             query=request.query,
@@ -12295,7 +12692,9 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                             offset=request.offset,
                         )
                         baseline_matches = list(baseline_result.get("matches") or [])
-                        result = search_repository_code(
+                        result = await _run_bounded_read(
+                            "code.search.repository",
+                            search_repository_code,
                             root,
                             files,
                             query=request.query,
@@ -12327,7 +12726,9 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                     if str(current.get("status") or "completed") != "completed":
                         raise SemanticCodeSearchError("semantic_query requires a completed graph snapshot")
                     try:
-                        semantic_material = graph_store.snapshot(
+                        semantic_material = await _run_bounded_read(
+                            "code.search.semantic_material",
+                            graph_store.snapshot,
                             str(current.get("graph_snapshot_id") or ""),
                             include_material=True,
                             read_only=True,
@@ -12374,7 +12775,10 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                     # take several seconds on a large SQLite store).
                     runtime_slo_status = str(
                         (semantic_readiness or {}).get("runtime_slo_status")
-                        or _fast_semantic_runtime_slo_status()
+                        or await _run_bounded_read(
+                            "code.semantic_runtime_slo",
+                            _fast_semantic_runtime_slo_status,
+                        )
                     )
                 else:
                     runtime_slo_status = "unknown"
@@ -12448,7 +12852,9 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             else:
                 if not request.path:
                     raise CodeSearchError("path is required for code_snippet")
-                result = get_repository_snippet(
+                result = await _run_bounded_read(
+                    "code.snippet",
+                    get_repository_snippet,
                     root,
                     files,
                     path=request.path,
@@ -12479,18 +12885,47 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         if current is None:
             raise HTTPException(status_code=503, detail={"error": "graph_snapshot_unavailable"})
         try:
-            material = graph_store.snapshot(str(current.get("graph_snapshot_id")), include_material=True, read_only=True)
+            material = await _run_bounded_read(
+                "code.impact.material",
+                graph_store.snapshot,
+                str(current.get("graph_snapshot_id")),
+                include_material=True,
+                read_only=True,
+            )
             changed_paths = list(request.changed_paths)
             git_context: dict[str, Any] = {"source": "request", "writes_worktree": False, "base_revision": request.base_revision}
             if not changed_paths:
-                git_context = collect_git_change_paths(root, base_revision=request.base_revision)
+                git_context = await _run_bounded_read(
+                    "code.impact.git_changes",
+                    collect_git_change_paths,
+                    root,
+                    base_revision=request.base_revision,
+                )
             elif request.base_revision:
-                git_context["diff_hunks"] = collect_git_diff_hunks(root, base_revision=request.base_revision, paths=changed_paths)
-            conventions = preview_convention_memory(database_path, project=project, root_id=root_id, graph_snapshot_id=str(current.get("graph_snapshot_id")))
+                git_context["diff_hunks"] = await _run_bounded_read(
+                    "code.impact.diff_hunks",
+                    collect_git_diff_hunks,
+                    root,
+                    base_revision=request.base_revision,
+                    paths=changed_paths,
+                )
+            conventions = await _run_bounded_read(
+                "code.impact.conventions",
+                preview_convention_memory,
+                database_path,
+                project=project,
+                root_id=root_id,
+                graph_snapshot_id=str(current.get("graph_snapshot_id")),
+            )
             result = build_change_impact_preview(material, changed_paths, conventions=conventions, expected_graph_digest=request.expected_graph_digest)
             result["git_context"] = git_context
             if request.include_git_history and changed_paths:
-                result["git_history"] = collect_git_history_stats(root, changed_paths[:8])
+                result["git_history"] = await _run_bounded_read(
+                    "code.impact.git_history",
+                    collect_git_history_stats,
+                    root,
+                    changed_paths[:8],
+                )
             else:
                 result["git_history"] = {"commits_considered": 0, "hotspots": [], "cochange": [], "writes_worktree": False, "available": False}
             result["history_correlation"] = build_git_history_correlation_receipt(
@@ -12527,7 +12962,11 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
                 impact_binding=result["impact_binding"],
             )
             try:
-                head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True, encoding="utf-8").stdout.strip()
+                head = await _run_bounded_read(
+                    "code.impact.git_head",
+                    _read_git_head,
+                    root,
+                )
             except (OSError, subprocess.CalledProcessError):
                 head = ""
             result["git_context"]["head_revision"] = head
@@ -12546,7 +12985,9 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
         elif operation == "impact":
             graph_operation = "impact"
         try:
-            result = query_code_graph(
+            result = await _run_bounded_read(
+                "code.graph_query",
+                query_code_graph,
                 database_path,
                 project=project,
                 root_id=root_id,
@@ -12594,7 +13035,13 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             "execution": {"writes_sqlite_state": False, "raw_source_returned": False, "arbitrary_sql": False},
         }
     if operation == "coverage":
-        index_status = repository_index_status(root, database_path, project=project)
+        index_status = await _run_bounded_read(
+            "code.coverage.index",
+            repository_index_status,
+            root,
+            database_path,
+            project=project,
+        )
         graph = current or {}
         summary = dict(graph.get("summary") or {})
         parse_status = dict(summary.get("parse_status") or {})
@@ -12619,7 +13066,13 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
     if operation == "architecture":
         if current is None:
             raise HTTPException(status_code=503, detail={"error": "graph_snapshot_unavailable"})
-        material = graph_store.snapshot(str(current.get("graph_snapshot_id")), include_material=True, read_only=True)
+        material = await _run_bounded_read(
+            "code.architecture.material",
+            graph_store.snapshot,
+            str(current.get("graph_snapshot_id")),
+            include_material=True,
+            read_only=True,
+        )
         layer_counts: dict[str, int] = {}
         for node in list(material.get("nodes") or []):
             path = str(node.get("path") or "")
@@ -13641,18 +14094,7 @@ def bhm_qdrant_catalog() -> dict[str, Any]:
 
 @app.get("/health/cutover")
 def health_cutover() -> dict:
-    report = dependency_report()
-    storage = storage_runtime_state()
-    memory_store = _memory_store_state()
-    fallback_active = _fallback_grace_active()
-    return health_cutover_payload(
-        dependency_report=report,
-        storage=storage.as_dict(),
-        memory_store=memory_store.as_dict(),
-        fallback_mode=_configured_fallback_mode(),
-        fallback_active=fallback_active,
-        mem0_plan=mem0_runtime_plan(),
-    )
+    return build_cutover(_health_runtime_dependencies())
 
 
 @app.get("/bhm/health/slo")
@@ -13665,51 +14107,16 @@ def bhm_health_slo(
     require_provider_ready: bool = True,
 ) -> dict:
     """Expose a read-only, bounded health/SLO contract for operators and agents."""
-
-    budgets = {
-        "hook_queue_pending": max(int(max_hook_queue_pending), 0),
-        "hook_queue_failed": max(int(max_hook_queue_failed), 0),
-        "hook_queue_oldest_age_ms": max(int(max_hook_queue_oldest_age_ms), 0),
-        "projection_pending": max(int(max_projection_pending), 0),
-        "projection_failed": max(int(max_projection_failed), 0),
-        "require_provider_ready": bool(require_provider_ready),
-    }
-    ready = health_ready()
-    cutover = health_cutover()
-    warmup = _get_provider_warmup_status()
-    if _hook_queue_path().exists():
-        queue_status = _hook_queue().status()
-    else:
-        queue_status = {
-            "pending": 0,
-            "counts": {"queued": 0, "processing": 0, "failed": 0},
-            "oldestQueuedAgeMs": 0,
-        }
-    memory_store = _memory_store_state()
-    outbox = {
-        "available": False,
-        "pending": 0,
-        "processing": 0,
-        "failed": 0,
-        "dead_letter": 0,
-        "completed": 0,
-        "total": 0,
-    }
-    if memory_store.configured_mode == MemoryStoreMode.SQLITE_AUTHORITATIVE.value:
-        try:
-            outbox = {"available": True, **_memory_service().outbox_status()}
-        except MemoryServiceNotReady:
-            outbox["error"] = "memory_service_unavailable"
-
-    return health_slo_payload(
-        budgets=budgets,
-        ready=ready,
-        cutover=cutover,
-        provider_warmup=warmup,
-        queue_status=queue_status,
-        outbox=outbox,
-        service=settings.app_name,
-        generated_at=_utc_now_iso(),
+    return build_slo(
+        _health_runtime_dependencies(),
+        ready_factory=health_ready,
+        cutover_factory=health_cutover,
+        max_hook_queue_pending=max_hook_queue_pending,
+        max_hook_queue_failed=max_hook_queue_failed,
+        max_hook_queue_oldest_age_ms=max_hook_queue_oldest_age_ms,
+        max_projection_pending=max_projection_pending,
+        max_projection_failed=max_projection_failed,
+        require_provider_ready=require_provider_ready,
     )
 
 
@@ -13972,7 +14379,7 @@ async def bhm_infra_restart() -> dict:
 def mem0_search(request: SearchRequest) -> dict:
     try:
         _ensure_provider_warmup_ready_sync()
-        project_name = request.project or settings.qdrant_collection
+        project_name = _effective_search_project(request.project)
         hits, total = asyncio.run(
             federated_search(
                 request.query,
@@ -14029,25 +14436,20 @@ async def bhm_memories_list(
 ) -> dict:
     try:
         await _ensure_provider_warmup_ready()
-        items = _load_live_memories()
-        items = [
-            item for item in items
-            if _memory_matches_filters(
-                item,
-                project=project,
-                memory_type=memory_type,
-                include_archived=include_archived,
-            )
-        ]
-
-        items.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
-        total = len(items)
-        window = items[max(offset, 0):max(offset, 0) + max(min(limit, 200), 1)]
+        window, total, effective_limit, effective_offset = await _run_bounded_read(
+            "bhm.memories",
+            _list_live_memories,
+            project=project,
+            memory_type=memory_type,
+            include_archived=include_archived,
+            limit=limit,
+            offset=offset,
+        )
         return {
             "memories": [_serialize_memory_record(item) for item in window],
             "total": total,
-            "limit": max(min(limit, 200), 1),
-            "offset": max(offset, 0),
+            "limit": effective_limit,
+            "offset": effective_offset,
         }
     except Exception as exc:
         if _is_fallback_grace_error(exc):
@@ -14087,9 +14489,14 @@ async def bhm_forget_apply(request: ForgetApplyRequest) -> dict:
 
 @app.post("/bhm/search/advanced")
 async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
+    project_name = _effective_search_project(request.project)
     try:
         await _ensure_provider_warmup_ready()
-        memories, total = _advanced_search_live_memories(request)
+        memories, total = await _run_bounded_read(
+            "bhm.search.advanced",
+            _advanced_search_live_memories,
+            request,
+        )
         return {
             "memories": [_serialize_memory_record(item) for item in memories],
             "total": total,
@@ -14113,7 +14520,7 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
             response = _fallback_grace_memories_response(
                 "bhm.search.advanced",
                 exc,
-                project=request.project,
+                project=project_name,
                 memory_type=request.memory_type,
                 concepts=request.concepts,
                 files=request.files,
@@ -14135,9 +14542,9 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
 async def bhm_search(request: MemoryAdvancedSearchRequest) -> dict:
     if not request.query.strip():
         return await bhm_search_advanced(request)
+    project_name = _effective_search_project(request.project)
     try:
         await _ensure_provider_warmup_ready()
-        project_name = request.project or settings.qdrant_collection
         hits, total = await federated_search(
             request.query,
             project_name,
@@ -14191,7 +14598,7 @@ async def bhm_search(request: MemoryAdvancedSearchRequest) -> dict:
             response = _fallback_grace_memories_response(
                 "bhm.search.federated",
                 exc,
-                project=request.project,
+                project=project_name,
                 memory_type=request.memory_type,
                 concepts=request.concepts,
                 files=request.files,
@@ -14207,7 +14614,7 @@ async def bhm_search(request: MemoryAdvancedSearchRequest) -> dict:
             response["query"] = request.query
             response["retrieval"] = {
                 "mode": "federated-fallback-grace",
-                "local_collection": local_collection_name(request.project or settings.qdrant_collection),
+                "local_collection": local_collection_name(project_name),
                 "global_collection": global_collection_name(),
             }
             return response

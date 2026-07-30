@@ -31,6 +31,13 @@ def health_ready_payload(
     }
 
 
+def health_ready_public_payload(*, ready: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the minimal anonymous readiness contract."""
+
+    ok = bool(ready.get("ok"))
+    return {"ok": ok, "status": "ready" if ok else "not_ready"}
+
+
 def bhm_health_payload(
     *,
     service: str,
@@ -42,6 +49,7 @@ def bhm_health_payload(
     memory_store: Mapping[str, Any],
     fallback_mode: str,
     fallback_active: bool,
+    observed_at: str | None = None,
 ) -> dict[str, Any]:
     storage_ready = bool(storage["ready"])
     memory_store_ready = bool(memory_store["ready"])
@@ -60,6 +68,7 @@ def bhm_health_payload(
         "storage": dict(storage),
         "memory_store": dict(memory_store),
         "fallback": {"mode": fallback_mode, "active": fallback_active},
+        "observed_at": observed_at,
     }
     # The legacy heartbeat lease is retired from the public health contract.
     # Streamable HTTP is the sole current MCP lifecycle authority.

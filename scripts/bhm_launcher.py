@@ -34,7 +34,72 @@ from bhm_runtime_endpoints import endpoint_port
 from bhm_runtime_endpoints import endpoint_url
 
 
-def load_pyqt6_or_prompt() -> None:
+class PyQt6UnavailableError(RuntimeError):
+    """Raised only when GUI code is used without the optional PyQt6 dependency."""
+
+
+class _UnavailableQtType:
+    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        raise PyQt6UnavailableError(
+            "PyQt6 is required for the BHM Control Deck GUI; "
+            "install it with: python -m pip install PyQt6"
+        )
+
+
+class _UnavailableQtSignal:
+    def __get__(self, _instance: object, _owner: type | None = None) -> None:
+        return None
+
+    def connect(self, *_args: Any, **_kwargs: Any) -> None:
+        raise PyQt6UnavailableError("PyQt6 is required for GUI signals")
+
+
+def _unavailable_pyqt_signal(*_args: Any, **_kwargs: Any) -> _UnavailableQtSignal:
+    return _UnavailableQtSignal()
+
+
+def _install_pyqt_placeholders() -> None:
+    names = (
+        "QAction",
+        "QApplication",
+        "QColor",
+        "QCloseEvent",
+        "QComboBox",
+        "QFrame",
+        "QGridLayout",
+        "QHBoxLayout",
+        "QIcon",
+        "QLabel",
+        "QLineEdit",
+        "QMainWindow",
+        "QMenu",
+        "QMessageBox",
+        "QPainter",
+        "QPixmap",
+        "QProgressBar",
+        "QPushButton",
+        "QSizePolicy",
+        "QStackedWidget",
+        "QSystemTrayIcon",
+        "QTextCursor",
+        "QTextEdit",
+        "QThread",
+        "Qt",
+        "QVBoxLayout",
+        "QWidget",
+    )
+    for name in names:
+        globals()[name] = _UnavailableQtType
+    globals()["pyqtSignal"] = _unavailable_pyqt_signal
+
+
+_PYQT6_AVAILABLE = False
+_PYQT6_IMPORT_ERROR: str | None = None
+
+
+def load_pyqt6() -> bool:
+    """Load optional GUI dependencies without prompting or mutating the host."""
+
     global QAction
     global QApplication
     global QColor
@@ -63,6 +128,9 @@ def load_pyqt6_or_prompt() -> None:
     global QVBoxLayout
     global QWidget
     global pyqtSignal
+
+    global _PYQT6_AVAILABLE
+    global _PYQT6_IMPORT_ERROR
 
     try:
         from PyQt6.QtCore import QThread as _QThread, Qt as _Qt, pyqtSignal as _pyqtSignal
@@ -95,46 +163,11 @@ def load_pyqt6_or_prompt() -> None:
             QVBoxLayout as _QVBoxLayout,
             QWidget as _QWidget,
         )
-    except ImportError:
-        print("PyQt6 is required to run the BHM Control Deck GUI.")
-        try:
-            answer = input("Would you like to automatically install PyQt6 now? (y/n): ").strip().lower()
-        except EOFError:
-            print("No input was provided. Install PyQt6 manually with: python -m pip install PyQt6")
-            raise SystemExit(1)
-        if answer not in {"y", "yes"}:
-            raise SystemExit(1)
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6"])
-        from PyQt6.QtCore import QThread as _QThread, Qt as _Qt, pyqtSignal as _pyqtSignal
-        from PyQt6.QtGui import (
-            QAction as _QAction,
-            QColor as _QColor,
-            QCloseEvent as _QCloseEvent,
-            QIcon as _QIcon,
-            QPainter as _QPainter,
-            QPixmap as _QPixmap,
-            QTextCursor as _QTextCursor,
-        )
-        from PyQt6.QtWidgets import (
-            QApplication as _QApplication,
-            QComboBox as _QComboBox,
-            QFrame as _QFrame,
-            QGridLayout as _QGridLayout,
-            QHBoxLayout as _QHBoxLayout,
-            QLabel as _QLabel,
-            QLineEdit as _QLineEdit,
-            QMainWindow as _QMainWindow,
-            QMenu as _QMenu,
-            QMessageBox as _QMessageBox,
-            QProgressBar as _QProgressBar,
-            QPushButton as _QPushButton,
-            QSizePolicy as _QSizePolicy,
-            QStackedWidget as _QStackedWidget,
-            QSystemTrayIcon as _QSystemTrayIcon,
-            QTextEdit as _QTextEdit,
-            QVBoxLayout as _QVBoxLayout,
-            QWidget as _QWidget,
-        )
+    except ImportError as exc:
+        _PYQT6_AVAILABLE = False
+        _PYQT6_IMPORT_ERROR = str(exc)
+        _install_pyqt_placeholders()
+        return False
 
     QAction = _QAction
     QApplication = _QApplication
@@ -164,9 +197,12 @@ def load_pyqt6_or_prompt() -> None:
     QVBoxLayout = _QVBoxLayout
     QWidget = _QWidget
     pyqtSignal = _pyqtSignal
+    _PYQT6_AVAILABLE = True
+    _PYQT6_IMPORT_ERROR = None
+    return True
 
 
-load_pyqt6_or_prompt()
+load_pyqt6()
 
 
 REFRESH_SECONDS = 3
@@ -2519,6 +2555,22 @@ def build_qss() -> str:
 
 
 def main() -> int:
+    if "--check-dependencies" in sys.argv:
+        if _PYQT6_AVAILABLE:
+            print("PyQt6: available")
+            return 0
+        print(
+            "PyQt6: missing; install it with: python -m pip install PyQt6",
+            file=sys.stderr,
+        )
+        return 1
+    if not _PYQT6_AVAILABLE:
+        print(
+            "PyQt6 is required to run the BHM Control Deck GUI; "
+            "install it with: python -m pip install PyQt6",
+            file=sys.stderr,
+        )
+        return 1
     app = QApplication(sys.argv)
     app.setApplicationName("BlackHoleMemory Control Deck")
     app.setWindowIcon(make_bhm_icon())

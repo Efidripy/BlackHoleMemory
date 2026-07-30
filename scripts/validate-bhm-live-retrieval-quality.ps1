@@ -33,9 +33,10 @@ function Get-LiveRuntimeState {
     param([Parameter(Mandatory = $true)][string]$Url)
 
     try {
-        $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -TimeoutSec 10
-        $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -TimeoutSec 10
-        $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -TimeoutSec 10
+        $headers = Get-BhmCallerHeaders
+        $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -Headers $headers -TimeoutSec 10
+        $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -Headers $headers -TimeoutSec 10
+        $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -Headers $headers -TimeoutSec 10
         return [pscustomobject]@{
             ok = (
                 $health.status -eq "healthy" -and

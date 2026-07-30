@@ -158,9 +158,10 @@ function Verify-Archive {
 function Get-RuntimeSnapshot {
     param([Parameter(Mandatory = $true)][string]$Url)
     try {
-        $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -TimeoutSec 8
-        $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -TimeoutSec 8
-        $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -TimeoutSec 8
+        $headers = Get-BhmCallerHeaders
+        $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -Headers $headers -TimeoutSec 8
+        $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -Headers $headers -TimeoutSec 8
+        $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -Headers $headers -TimeoutSec 8
         return [pscustomobject]@{
             reachable = $true
             ok = ($health.status -eq "healthy" -and $health.memory_store.backend -eq "sqlite-authoritative" -and [bool]$cutover.ok -and $slo.status -eq "healthy")

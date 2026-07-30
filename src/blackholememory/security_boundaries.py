@@ -28,7 +28,19 @@ def resolve_under_root(root: Path, value: str | Path, *, require_leaf: bool = Fa
         raise SecurityBoundaryError("path is required")
     base = os.path.realpath(os.fspath(root))
     raw_path = os.path.expanduser(raw)
-    candidate = os.path.realpath(raw_path if os.path.isabs(raw_path) else os.path.join(base, raw_path))
+    # Treat both slash styles as separators before asking the host OS to
+    # resolve the path.  Otherwise ``..\\outside`` is a harmless filename on
+    # POSIX while it is traversal on Windows, and a Windows drive path is
+    # mistaken for a relative POSIX filename.
+    portable_path = raw_path.replace("\\", "/")
+    has_drive_prefix = bool(re.match(r"^[A-Za-z]:", portable_path))
+    portable_absolute = portable_path.startswith("/") or has_drive_prefix
+    if portable_absolute and not os.path.isabs(raw_path):
+        raise SecurityBoundaryError("path must remain under the approved root")
+    candidate_input = raw_path if portable_absolute else portable_path
+    candidate = os.path.realpath(
+        candidate_input if os.path.isabs(raw_path) else os.path.join(base, candidate_input)
+    )
     try:
         common = os.path.commonpath((base, candidate))
     except ValueError as exc:

@@ -148,6 +148,47 @@ function Stop-BhmProcesses {
   }
 }
 
+function Get-BhmCallerToken {
+  foreach ($target in @('Process', 'User')) {
+    $value = [Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', $target)
+    if (-not [string]::IsNullOrWhiteSpace($value)) {
+      return $value.Trim()
+    }
+  }
+
+  $userProfile = [Environment]::GetFolderPath('UserProfile')
+  $envPath = Join-Path $userProfile '.bhm\.env'
+  if (-not (Test-Path -LiteralPath $envPath)) {
+    return ''
+  }
+  foreach ($line in Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith('#') -or $trimmed.IndexOf('=') -lt 1) {
+      continue
+    }
+    $parts = $trimmed.Split('=', 2)
+    if ($parts[0].Trim() -ne 'BHM_CALLER_TOKEN') {
+      continue
+    }
+    $value = $parts[1].Split('#', 2)[0].Trim().Trim('"').Trim("'")
+    if ($value) {
+      return $value
+    }
+  }
+  return ''
+}
+
+function Get-BhmCallerHeaders {
+  $token = Get-BhmCallerToken
+  if ([string]::IsNullOrWhiteSpace($token)) {
+    return @{}
+  }
+  return @{
+    Authorization = "Bearer $token"
+    'X-BHM-Caller-Surface' = 'authoritative-launcher'
+  }
+}
+
 function Get-ContractSnapshot {
   param([string]$BaseUrl = '')
 
@@ -157,8 +198,12 @@ function Get-ContractSnapshot {
     # The health/cutover surfaces can legitimately take a few seconds on a
     # cold Windows/Qdrant start. Keep the probe bounded, but do not turn a
     # healthy slow response into a false launcher failure.
-    $health = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/bhm/health" -TimeoutSec 10
-    $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/health/cutover" -TimeoutSec 10
+    $headers = Get-BhmCallerHeaders
+    if ($headers.Count -eq 0) {
+      throw 'BHM_CALLER_TOKEN is unavailable for protected readiness probes.'
+    }
+    $health = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/bhm/health" -Headers $headers -TimeoutSec 10
+    $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/health/cutover" -Headers $headers -TimeoutSec 10
     return [pscustomobject]@{
       reachable = $true
       authoritative = (

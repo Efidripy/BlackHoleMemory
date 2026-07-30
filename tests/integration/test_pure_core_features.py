@@ -1119,6 +1119,145 @@ def test_hook_queue_worker_processes_compact_job(monkeypatch, tmp_path):
     assert calls and calls[0].eventId == "obs_hook_queue_007"
 
 
+def test_hook_queue_worker_logs_retryable_and_terminal_failure_context(monkeypatch, tmp_path, caplog):
+    queue = HookJobQueue(tmp_path / "hook-jobs.sqlite3", capacity=4)
+    payload = _hook_queue_payload("obs_hook_queue_failure_001")
+    queued = queue.enqueue("compact", payload, priority=10, max_attempts=2)
+
+    async def fail_execute(_job):
+        raise RuntimeError("synthetic processing failure")
+
+    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(bhm_app, "_execute_hook_job", fail_execute)
+    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
+    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_RETRY_BASE_SECONDS", 0.0)
+    caplog.set_level("WARNING")
+
+    async def run_worker() -> None:
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            bhm_app._hook_queue_worker(
+                worker_name="pytest-failure-visibility",
+                kinds=("compact",),
+                stop_event=stop_event,
+            )
+        )
+        for _ in range(400):
+            job = queue.get(queued.job_id)
+            if job and job["status"] == "failed":
+                break
+            await asyncio.sleep(0.005)
+        stop_event.set()
+        await asyncio.wait_for(task, timeout=2.0)
+
+    asyncio.run(run_worker())
+
+    terminal = queue.get(queued.job_id)
+    assert terminal and terminal["status"] == "failed"
+    assert terminal["attempts"] == 2
+    failures = [record for record in caplog.records if record.msg == "hook_job_failed"]
+    assert [record.classification for record in failures] == ["retryable", "terminal"]
+    assert failures[-1].job_id == queued.job_id
+    assert failures[-1].event_id == payload["eventId"]
+    assert failures[-1].correlation_id == payload["correlationId"]
+    assert failures[-1].status == "failed"
+
+
+def test_hook_queue_worker_does_not_hide_failure_recording_error(monkeypatch, tmp_path, caplog):
+    queue = HookJobQueue(tmp_path / "hook-jobs.sqlite3", capacity=4)
+    payload = _hook_queue_payload("obs_hook_queue_failure_002")
+    queued = queue.enqueue("compact", payload, priority=10, max_attempts=2)
+    original_fail = queue.fail
+    fail_calls = 0
+
+    def fail_once(*args, **kwargs):
+        nonlocal fail_calls
+        fail_calls += 1
+        if fail_calls == 1:
+            raise RuntimeError("synthetic SQLite failure while recording status")
+        return original_fail(*args, **kwargs)
+
+    async def fail_execute(_job):
+        raise RuntimeError("synthetic processing failure")
+
+    monkeypatch.setattr(queue, "fail", fail_once)
+    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(bhm_app, "_execute_hook_job", fail_execute)
+    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
+    caplog.set_level("ERROR")
+
+    async def run_worker() -> None:
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            bhm_app._hook_queue_worker(
+                worker_name="pytest-failure-recording",
+                kinds=("compact",),
+                stop_event=stop_event,
+            )
+        )
+        for _ in range(400):
+            if any(record.msg == "hook_job_failure_recording_failed" for record in caplog.records):
+                break
+            await asyncio.sleep(0.005)
+        stop_event.set()
+        await asyncio.wait_for(task, timeout=2.0)
+
+    asyncio.run(run_worker())
+
+    record = next(record for record in caplog.records if record.msg == "hook_job_failure_recording_failed")
+    assert record.job_id == queued.job_id
+    assert record.event_id == payload["eventId"]
+    assert record.correlation_id == payload["correlationId"]
+    assert record.classification == "failure_recording"
+    assert queue.get(queued.job_id)["status"] == "processing"
+    assert queue.recover_processing(reason="pytest recovery") == 1
+    assert queue.get(queued.job_id)["status"] == "queued"
+
+
+def test_hook_queue_worker_cancellation_is_recovered_not_terminal(monkeypatch, tmp_path, caplog):
+    queue = HookJobQueue(tmp_path / "hook-jobs.sqlite3", capacity=4)
+    payload = _hook_queue_payload("obs_hook_queue_cancel_001")
+    queued = queue.enqueue("compact", payload, priority=10, max_attempts=1)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocked_execute(_job):
+        started.set()
+        await release.wait()
+        return {"success": True}
+
+    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(bhm_app, "_execute_hook_job", blocked_execute)
+    caplog.set_level("INFO")
+
+    async def run_worker() -> None:
+        stop_event = asyncio.Event()
+        task = asyncio.create_task(
+            bhm_app._hook_queue_worker(
+                worker_name="pytest-cancellation",
+                kinds=("compact",),
+                stop_event=stop_event,
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=2.0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run_worker())
+
+    processing = queue.get(queued.job_id)
+    assert processing and processing["status"] == "processing"
+    assert any(
+        record.msg == "hook_job_cancelled" and record.job_id == queued.job_id
+        for record in caplog.records
+    )
+    assert queue.recover_processing(reason="pytest cancellation recovery") == 1
+    recovered = queue.get(queued.job_id)
+    assert recovered and recovered["status"] == "queued"
+    assert recovered["lastError"] == "pytest cancellation recovery"
+
+
 def test_hook_queue_manager_starts_and_drains_fixed_workers(monkeypatch, tmp_path):
     queue = HookJobQueue(tmp_path / "hook-jobs.sqlite3", capacity=4)
     compact = queue.enqueue("compact", _hook_queue_payload("obs_hook_queue_008"), priority=10)
@@ -2009,8 +2148,13 @@ def test_telemetry_payload_integrity(monkeypatch):
             "bhm_working_set_mb": 64.5,
             "wsl_shared_overhead_gb": 1.25,
             "qdrant_healthy": True,
-            "crystals_total": 11,
-            "architectural_laws_total": 4,
+            "knowledge_counters": {
+                "schema_version": "bhm.dashboard.knowledge-counters.v1",
+                "source": {"authority": "sqlite", "table": "memories", "projection_used": False},
+                "scope": {"kind": "all-local-projects", "project_filter": None, "project_count": 1},
+                "memory_records": {"active_count": 11, "archived_count": 2, "tombstoned_count": 1, "total_count": 14},
+                "architecture_decisions": {"active_count": 4, "archived_count": 0, "tombstoned_count": 0, "total_count": 4},
+            },
         },
     )
     monkeypatch.setattr(bhm_app, "_get_provider_warmup_status", lambda: {"ready": True})
@@ -2024,6 +2168,43 @@ def test_telemetry_payload_integrity(monkeypatch):
     assert data["mcp_max_instances"] == 0
     assert data["launcher_circuit_breaker_status"] == "STREAMABLE_HTTP"
     assert data["llm_warmup_status"] == "READY"
+    assert data["knowledge_counters"]["schema_version"] == "bhm.dashboard.knowledge-counters.v1"
+    assert data["knowledge_counters"]["source"]["authority"] == "sqlite"
+
+
+def test_telemetry_knowledge_counters_group_lifecycle_and_architecture_taxonomy(monkeypatch):
+    records = [
+        {"project": "alpha", "memory_type": "knowledge", "metadata": {}},
+        {"project": "alpha", "memory_type": "architecture", "metadata": {}},
+        {"project": "beta", "memory_type": "adr", "lifecycle": "archived", "metadata": {}},
+        {
+            "project": "beta",
+            "memory_type": "knowledge",
+            "lifecycle": "tombstoned",
+            "metadata": {"semantic_type": "decision-log", "tags": ["architecture"]},
+        },
+        {"project": "beta", "memory_type": "knowledge", "metadata": {"lifecycle": "archived"}},
+        {"project": "beta", "memory_type": "knowledge", "metadata": {"semantic_type": "decision-log", "tags": ["note"]}},
+    ]
+    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+
+    result = bhm_app._knowledge_counters_sync()
+
+    assert result["schema_version"] == "bhm.dashboard.knowledge-counters.v1"
+    assert result["source"] == {"authority": "sqlite", "table": "memories", "projection_used": False}
+    assert result["scope"] == {"kind": "all-local-projects", "project_filter": None, "project_count": 2}
+    assert result["memory_records"] == {
+        "label": "Active memory records",
+        "active_count": 3,
+        "archived_count": 2,
+        "tombstoned_count": 1,
+        "total_count": 6,
+        "definition": "All SQLite memory records grouped by lifecycle.",
+    }
+    assert result["architecture_decisions"]["active_count"] == 1
+    assert result["architecture_decisions"]["archived_count"] == 1
+    assert result["architecture_decisions"]["tombstoned_count"] == 1
+    assert result["architecture_decisions"]["total_count"] == 3
 
 
 class FakeAuditLLM:

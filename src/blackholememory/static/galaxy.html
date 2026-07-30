@@ -444,6 +444,55 @@
       border-radius: 18px;
       background: rgba(10, 14, 26, 0.78);
     }
+    .system-context {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+      padding: 14px;
+      border: 1px solid rgba(103, 232, 249, 0.2);
+      border-radius: 18px;
+      background: linear-gradient(135deg, rgba(34, 211, 238, 0.08), rgba(10, 14, 26, 0.78));
+    }
+    .system-context-header,
+    .context-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .system-context-header small,
+    .context-source {
+      color: var(--muted-2);
+      font: 10px/1.3 var(--mono);
+    }
+    .context-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .context-card {
+      min-width: 0;
+      padding: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.14);
+      border-radius: 12px;
+      background: rgba(2, 4, 10, 0.3);
+    }
+    .context-label {
+      color: var(--muted-2);
+      font: 10px/1.2 var(--mono);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .context-value {
+      color: var(--text);
+      font: 700 12px/1.25 var(--mono);
+      text-align: right;
+    }
+    .context-value[data-state="healthy"] { color: #86efac; }
+    .context-value[data-state="idle"],
+    .context-value[data-state="pending"] { color: #fbbf24; }
+    .context-value[data-state="degraded"],
+    .context-value[data-state="offline"] { color: #fda4af; }
     .quality-card-header {
       display: flex;
       align-items: center;
@@ -640,18 +689,20 @@
       color: #86efac;
     }
     .mcp-panel-status[data-state="warning"],
+    .mcp-panel-status[data-state="idle"],
+    .mcp-panel-status[data-state="detached"],
     .mcp-panel-status[data-state="degraded"],
     .mcp-gate-status[data-state="partial"],
     .mcp-gate-status[data-state="pending"],
     .mcp-gate-status[data-state="unverified"],
     .mcp-gate-status[data-state="native MCP"],
     .mcp-gate-status[data-state="native MCP live; current session unverified"],
-    .mcp-gate-status[data-state="native MCP transport ready; session idle or detached"] {
+    .mcp-gate-status[data-state="native MCP transport ready; session idle or detached"],
+    .mcp-gate-status[data-state="detached"] {
       border-color: rgba(251, 146, 60, 0.36);
       color: #fdba74;
     }
     .mcp-panel-status[data-state="unavailable"],
-    .mcp-gate-status[data-state="detached"],
     .mcp-gate-status[data-state="detected"],
     .mcp-gate-status[data-state="MCP unavailable"] {
       border-color: rgba(248, 113, 113, 0.4);
@@ -1737,6 +1788,18 @@
             <div id="scopeLabel" class="value" style="font-size: 18px;">all</div>
           </div>
         </div>
+        <section id="systemContext" class="system-context" aria-labelledby="systemContextTitle">
+          <div class="system-context-header">
+            <div id="systemContextTitle" class="section-title">Runtime context</div>
+            <small id="contextObservedAt">waiting for runtime sample</small>
+          </div>
+          <div class="context-grid">
+            <div class="context-card"><div class="context-row"><span class="context-label">Core</span><strong id="contextCore" class="context-value" data-state="unverified">unverified</strong></div><div class="context-source">health/ready + cutover</div></div>
+            <div class="context-card"><div class="context-row"><span class="context-label">Memory authority</span><strong id="contextStorage" class="context-value" data-state="unverified">unverified</strong></div><div class="context-source">SQLite authoritative</div></div>
+            <div class="context-card"><div class="context-row"><span class="context-label">MCP transport</span><strong id="contextMcp" class="context-value" data-state="unverified">unverified</strong></div><div class="context-source">Streamable HTTP sessions</div></div>
+            <div class="context-card"><div class="context-row"><span class="context-label">Projection / queue</span><strong id="contextProjection" class="context-value" data-state="unverified">unverified</strong></div><div class="context-source">SQLite outbox + bounded queue</div></div>
+          </div>
+        </section>
         <section id="qualityCard" class="quality-card" aria-labelledby="qualityTitle">
           <div class="quality-card-header">
             <div id="qualityTitle" class="section-title">Состояние snapshot</div>
@@ -1985,6 +2048,11 @@
     const qualityMetricsEl = document.getElementById("qualityMetrics");
     const sloCheckListEl = document.getElementById("sloCheckList");
     const growthAlertEl = document.getElementById("growthAlert");
+    const contextObservedAtEl = document.getElementById("contextObservedAt");
+    const contextCoreEl = document.getElementById("contextCore");
+    const contextStorageEl = document.getElementById("contextStorage");
+    const contextMcpEl = document.getElementById("contextMcp");
+    const contextProjectionEl = document.getElementById("contextProjection");
     const mcpPanelStatusEl = document.getElementById("mcpPanelStatus");
     const mcpPanelSummaryEl = document.getElementById("mcpPanelSummary");
     const mcpPanelDetailsEl = document.getElementById("mcpPanelDetails");
@@ -3756,6 +3824,54 @@
       return `SLO ${status}; projection ${pending} pending / ${failed} failed.`;
     }
 
+    function renderSystemContext() {
+      const quality = state.runtimeQuality;
+      const panel = state.mcpPanel;
+      const set = (element, stateValue, label) => {
+        if (!element) return;
+        element.dataset.state = stateValue;
+        element.textContent = label;
+      };
+      if (!quality || quality.loading) {
+        set(contextCoreEl, "unverified", "loading");
+        set(contextStorageEl, "unverified", "loading");
+        set(contextMcpEl, "unverified", "loading");
+        set(contextProjectionEl, "unverified", "loading");
+        if (contextObservedAtEl) contextObservedAtEl.textContent = "waiting for runtime sample";
+        return;
+      }
+      if (quality.error) {
+        set(contextCoreEl, "offline", "unavailable");
+        set(contextStorageEl, "unverified", "not verified");
+        set(contextMcpEl, "unverified", "not verified");
+        set(contextProjectionEl, "unverified", "not verified");
+        if (contextObservedAtEl) contextObservedAtEl.textContent = "runtime sample unavailable";
+        return;
+      }
+      const slo = quality.slo || {};
+      const observed = slo.observed || {};
+      const cutover = quality.cutover || {};
+      const memoryStore = cutover.memory_store || {};
+      const worker = memoryStore.projection_worker || {};
+      const transport = panel && panel.transport ? panel.transport : {};
+      const transportSessions = transport.sessions && typeof transport.sessions === "object" ? transport.sessions : transport;
+      const transportState = String(transportSessions.status || (panel && panel.connected && panel.connected.state) || "unverified").toLowerCase();
+      const pending = Number(observed.projection_pending || 0) + Number(observed.hook_queue_pending || 0) + Number(transportSessions.queued_count || 0);
+      const failed = Number(observed.projection_failed || 0) + Number(observed.hook_queue_failed || 0);
+      const mcpLabel = transportState === "detached" ? "idle · no agent" : `${transportState} · ${Number(transportSessions.active_count || 0)}/${Number(transportSessions.max_sessions || 0) || "?"}`;
+      const projectionLabel = failed ? `${failed} failed` : pending ? `${pending} pending` : `clean · worker ${worker.enabled ? "on" : "off"}`;
+      set(contextCoreEl, slo.status === "healthy" && cutover.ok ? "healthy" : "degraded", slo.status === "healthy" && cutover.ok ? "ready" : "attention");
+      set(contextStorageEl, memoryStore.ready === false ? "degraded" : "healthy", memoryStore.backend || "sqlite-authoritative");
+      set(contextMcpEl, transportState === "degraded" ? "degraded" : transportState === "attached" ? "healthy" : transportState === "detached" ? "idle" : transportState === "pending" ? "pending" : "unverified", mcpLabel);
+      set(contextProjectionEl, failed ? "degraded" : pending ? "pending" : "healthy", projectionLabel);
+      if (contextObservedAtEl) {
+        const observedAt = slo.generated_at ? new Date(slo.generated_at) : null;
+        contextObservedAtEl.textContent = observedAt && !Number.isNaN(observedAt.getTime())
+          ? `sample ${observedAt.toLocaleTimeString()}`
+          : "sample timestamp unavailable";
+      }
+    }
+
     function renderSloDashboard() {
       sloCheckListEl.replaceChildren();
       const quality = state.runtimeQuality;
@@ -3859,6 +3975,7 @@
     }
 
     function renderRuntimeQuality() {
+      renderSystemContext();
       const snapshot = graphQualitySnapshot();
       const quality = state.runtimeQuality;
       const status = quality && quality.error
@@ -3902,6 +4019,7 @@
       renderSloDashboard();
       renderGrowthAlerts();
       renderReconciliationView();
+      renderSystemContext();
     }
 
     async function refreshRuntimeQuality() {
@@ -3974,6 +4092,7 @@
     function renderMcpPanel() {
       const panel = state.mcpPanel;
       if (!panel || panel.loading) {
+        renderSystemContext();
         mcpPanelStatusEl.textContent = "Loading";
         mcpPanelStatusEl.dataset.state = "loading";
         mcpPanelSummaryEl.textContent = "Loading configured, connected, catalog and runtime states…";
@@ -3988,6 +4107,7 @@
         return;
       }
       if (panel.error) {
+        renderSystemContext();
         mcpPanelStatusEl.textContent = "error";
         mcpPanelStatusEl.dataset.state = "unavailable";
         mcpPanelSummaryEl.textContent = `MCP panel unavailable: ${panel.error}`;
@@ -4010,6 +4130,7 @@
       const rest = panel.rest_degraded || {};
       const drift = panel.schema_drift || {};
       const transport = panel.transport || {};
+      const transportSessions = transport.sessions && typeof transport.sessions === "object" ? transport.sessions : transport;
       const mcpStateLabel = (value) => {
         const raw = String(value || "unknown");
         const labels = {
@@ -4031,6 +4152,9 @@
         };
         return labels[raw] || raw.replace(/\s+/g, " ").replace(/_/g, " ").slice(0, 32);
       };
+      const idleOverall = String(overall.state || "").toLowerCase() === "degraded"
+        && /(idle|detached)/i.test(String(overall.reason_code || ""));
+      const displayOverallState = idleOverall ? "detached" : String(overall.state || "unknown");
       const mcpReasonLabel = (value) => {
         const raw = String(value || "");
         const labels = {
@@ -4059,13 +4183,13 @@
         status.title = String(value || "unknown");
         status.dataset.state = String(stateValue || "unknown");
       };
-      mcpPanelStatusEl.textContent = mcpStateLabel(overall.state);
+      mcpPanelStatusEl.textContent = mcpStateLabel(displayOverallState);
       mcpPanelStatusEl.title = String(overall.state || "unknown");
-      mcpPanelStatusEl.dataset.state = String(overall.state || "unknown");
-      const activeSessionCount = Number(transport.active_count ?? transport.session_count ?? connected.attached_count ?? 0);
-      const maxSessionCount = Number(transport.max_sessions || 0);
-      const queuedSessionCount = Number(transport.queued_count || 0);
-      mcpPanelSummaryEl.textContent = `MCP ${mcpStateLabel(overall.state)} · sessions ${activeSessionCount}/${maxSessionCount || "?"} · ` +
+      mcpPanelStatusEl.dataset.state = displayOverallState;
+      const activeSessionCount = Number(transportSessions.active_count ?? transportSessions.session_count ?? connected.attached_count ?? 0);
+      const maxSessionCount = Number(transportSessions.max_sessions || 0);
+      const queuedSessionCount = Number(transportSessions.queued_count || 0);
+      mcpPanelSummaryEl.textContent = `MCP ${mcpStateLabel(displayOverallState)} · sessions ${activeSessionCount}/${maxSessionCount || "?"} · ` +
         `queue ${queuedSessionCount} · catalog ${mcpStateLabel(catalog.state)} · runtime ${mcpStateLabel(runtime.state)}.`;
       setGate("configured", configured.state, configured.state);
       setGate("connected", connected.state, connected.state);
@@ -4088,7 +4212,7 @@
         `Recovery: ${diagnosticLabel(rest.recovery_action || "verify runtime and canonical MCP transport, then re-probe")}`
       ];
       mcpPanelDetailsEl.textContent = details.join(" ");
-      const sessions = Array.isArray(transport.sessions) ? transport.sessions.slice(0, 8) : [];
+      const sessions = Array.isArray(transportSessions.sessions) ? transportSessions.sessions.slice(0, 8) : [];
       const leaseSeconds = sessions
         .map(item => Number(item?.lease_remaining_seconds))
         .filter(value => Number.isFinite(value) && value >= 0)
@@ -4098,18 +4222,19 @@
         : "not exposed";
       const contractStates = [...new Set(sessions.map(item => String(item?.contract_state || "unverified")).slice(0, 4))];
       renderEvidenceReceipt(mcpLeaseEvidenceTextEl, [
-        ["Transport", transport.status || connected.transports?.[0] || "unknown"],
+        ["Transport", transportSessions.status || connected.transports?.[0] || "unknown"],
         ["Sessions", `${activeSessionCount}/${maxSessionCount || "?"}`],
         ["Queue", queuedSessionCount],
-        ["Pending", Number(transport.pending_count || connected.pending_count || 0)],
+        ["Pending", Number(transportSessions.pending_count || connected.pending_count || 0)],
         ["Lease remaining", leaseSummary],
         ["Contract", contractStates.length ? contractStates.join(", ") : "unverified"],
-        ["Contract drift", Number(transport.contract_drift_count || 0)],
+        ["Contract drift", Number(transportSessions.contract_drift_count || 0)],
         ["Boundary", "read-only · raw source disabled"],
         ["Recovery", rest.recovery_action || "retry refresh; native probe remains separate"]
       ]);
       renderMcpReconnectReceipt(panel.reconnect_receipt);
       renderMcpCatalogCoverageReceipt(catalogCoverage);
+      renderSystemContext();
     }
 
     async function refreshMcpPanel() {

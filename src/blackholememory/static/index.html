@@ -595,7 +595,7 @@
 
     .status-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 12px;
       margin-bottom: 20px;
     }
@@ -663,6 +663,50 @@
       color: var(--text);
       text-align: right;
       overflow-wrap: anywhere;
+    }
+
+    .block-state {
+      padding: 3px 7px;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      border-radius: 999px;
+      color: var(--muted);
+      background: rgba(148, 163, 184, 0.08);
+      font: 700 10px/1.2 var(--mono);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .block-state[data-state="healthy"] {
+      border-color: rgba(52, 211, 153, 0.34);
+      color: var(--green);
+      background: rgba(52, 211, 153, 0.08);
+    }
+
+    .block-state[data-state="idle"],
+    .block-state[data-state="pending"],
+    .block-state[data-state="unverified"] {
+      border-color: rgba(251, 191, 36, 0.34);
+      color: var(--amber);
+      background: rgba(251, 191, 36, 0.08);
+    }
+
+    .block-state[data-state="disabled"] {
+      border-color: rgba(148, 163, 184, 0.2);
+      color: var(--dim);
+      background: rgba(148, 163, 184, 0.06);
+    }
+
+    .block-state[data-state="degraded"],
+    .block-state[data-state="offline"] {
+      border-color: rgba(251, 113, 133, 0.4);
+      color: var(--red);
+      background: rgba(251, 113, 133, 0.08);
+    }
+
+    .block-source {
+      margin-top: 11px;
+      color: var(--dim);
+      font: 10px/1.3 var(--mono);
     }
 
     .status-detail,
@@ -750,6 +794,65 @@
       color: var(--muted);
       font: 10px/1.2 var(--mono);
       text-transform: uppercase;
+    }
+
+    .knowledge-counter-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 13px;
+    }
+
+    .knowledge-counter {
+      padding: 14px 10px;
+      border: 1px solid rgba(103, 232, 249, 0.18);
+      border-radius: 14px;
+      background: rgba(103, 232, 249, 0.06);
+      text-align: center;
+    }
+
+    .knowledge-counter.architecture {
+      border-color: rgba(244, 114, 182, 0.18);
+      background: rgba(244, 114, 182, 0.06);
+    }
+
+    .knowledge-counter strong {
+      display: block;
+      color: var(--cyan);
+      font: 700 34px/1 var(--mono);
+    }
+
+    .knowledge-counter.architecture strong { color: var(--pink); }
+
+    .knowledge-counter span {
+      display: block;
+      margin-top: 7px;
+      color: var(--muted);
+      font: 10px/1.2 var(--mono);
+      text-transform: uppercase;
+    }
+
+    .knowledge-breakdown {
+      display: grid;
+      gap: 6px;
+      margin-top: 12px;
+      color: var(--muted);
+      font: 11px/1.3 var(--mono);
+    }
+
+    .knowledge-breakdown > div {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .knowledge-breakdown b { color: var(--text); font-weight: 600; text-align: right; }
+
+    .knowledge-definition {
+      min-height: 38px;
+      margin-top: 11px;
+      color: var(--dim);
+      font: 10px/1.35 var(--mono);
     }
 
     .stamp-inline {
@@ -879,43 +982,73 @@
         <div id="dashboardOverallStatus" class="overall-badge">Проверка</div>
       </section>
 
-      <details class="system-details">
-        <summary>System details · runtime / authority / agents / CBM</summary>
+      <section class="system-details" aria-labelledby="systemBlocksTitle">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Runtime truth map</p>
+            <h3 id="systemBlocksTitle">Системные блоки</h3>
+          </div>
+          <span id="healthObservedAt" class="section-caption">Health snapshot: waiting</span>
+        </div>
         <section class="status-grid" aria-label="System status blocks">
-        <article class="status-card">
-          <div class="card-kicker">01 · Runtime</div>
-          <h3>Ядро и готовность</h3>
-          <div class="status-line"><span>Версия</span><strong id="runtimeVersion">--</strong></div>
-          <div class="status-line"><span>Readiness</span><strong id="readinessState">--</strong></div>
-          <div class="status-line"><span>Режим</span><strong id="runtimeMode">--</strong></div>
-        </article>
+          <article class="status-card">
+            <div class="card-kicker">01 · Core</div>
+            <h3>Ядро</h3>
+            <div class="status-line"><span>Состояние</span><strong id="coreBlockState" class="block-state" data-state="unverified">unverified</strong></div>
+            <div class="status-line"><span>Версия</span><strong id="runtimeVersion">--</strong></div>
+            <div class="status-line"><span>Readiness</span><strong id="readinessState">--</strong></div>
+            <p class="block-source">Источник: <code>/bhm/health</code></p>
+          </article>
 
-        <article class="status-card">
-          <div class="card-kicker">02 · Memory authority</div>
-          <h3>Где лежит истина</h3>
-          <div class="status-line"><span>Источник записей</span><strong id="authorityState">--</strong></div>
-          <p id="authorityDetail" class="status-detail">--</p>
-          <div class="status-line"><span>Проекция</span><strong id="projectionState">--</strong></div>
-          <p id="projectionDetail" class="status-detail">--</p>
-        </article>
+          <article class="status-card">
+            <div class="card-kicker">02 · MCP</div>
+            <h3>Transport</h3>
+            <div class="status-line"><span>Состояние</span><strong id="mcpBlockState" class="block-state" data-state="unverified">unverified</strong></div>
+            <div class="status-line"><span>Sessions</span><strong id="mcpConnection">--</strong></div>
+            <p id="mcpSessionNote" class="status-detail">--</p>
+            <p class="block-source">Источник: <code>mcp_transport</code> · endpoint не равен agent session</p>
+          </article>
 
-        <article class="status-card">
-          <div class="card-kicker">03 · Agent access</div>
-          <h3>MCP-соединение</h3>
-          <div class="status-line"><span>MCP endpoint</span><strong id="mcpEndpointState">--</strong></div>
-          <div class="status-line"><span>Agent session</span><strong id="mcpConnection">--</strong></div>
-          <p id="mcpSessionNote" class="status-detail">--</p>
-          <div class="status-line"><span>Qdrant dependency</span><strong id="qdrantDependency">--</strong></div>
-        </article>
+          <article class="status-card">
+            <div class="card-kicker">03 · Browser</div>
+            <h3>UI session</h3>
+            <div class="status-line"><span>Состояние</span><strong id="uiSessionBlockState" class="block-state" data-state="unverified">unverified</strong></div>
+            <div class="status-line"><span>Active browser leases</span><strong id="uiSessionCount">--</strong></div>
+            <p id="uiSessionNote" class="status-detail">Проверяем cookie lease и same-origin session.</p>
+            <p class="block-source">Источник: <code>/bhm/ui/session/status</code></p>
+          </article>
 
-        <article class="status-card">
-          <div class="card-kicker">04 · CBM</div>
-          <h3>Code intelligence</h3>
-          <div class="status-line"><span>Поверхность</span><strong id="cbmStatus">доступна</strong></div>
-          <a class="inline-link" href="/bhm/galaxy?domain=code">Открыть CBM-граф →</a>
-        </article>
+          <article class="status-card">
+            <div class="card-kicker">04 · Agents</div>
+            <h3>Agent sessions</h3>
+            <div class="status-line"><span>Состояние</span><strong id="agentSessionBlockState" class="block-state" data-state="unverified">unverified</strong></div>
+            <div class="status-line"><span>Active / max</span><strong id="agentSessionCount">--</strong></div>
+            <div class="status-line"><span>Waiting</span><strong id="agentSessionQueue">--</strong></div>
+            <p class="block-source">Источник: MCP Streamable HTTP leases · `0` active — штатный idle</p>
+          </article>
+
+          <article class="status-card">
+            <div class="card-kicker">05 · Queue</div>
+            <h3>Очередь</h3>
+            <div class="status-line"><span>Состояние</span><strong id="queueBlockState" class="block-state" data-state="unverified">unverified</strong></div>
+            <div class="status-line"><span>Write / hook</span><strong id="queueWriteState">--</strong></div>
+            <div class="status-line"><span>MCP waiting</span><strong id="queueMcpState">--</strong></div>
+            <p id="queueNote" class="status-detail">Пустая очередь — штатное состояние, не ошибка.</p>
+            <p class="block-source">Источник: live <code>sys_status</code> · timestamp below</p>
+          </article>
+
+          <article class="status-card">
+            <div class="card-kicker">06 · Storage</div>
+            <h3>Хранилище</h3>
+            <div class="status-line"><span>Состояние</span><strong id="storageBlockState" class="block-state" data-state="unverified">unverified</strong></div>
+            <div class="status-line"><span>Authority</span><strong id="authorityState">--</strong></div>
+            <div class="status-line"><span>Projection</span><strong id="projectionState">--</strong></div>
+            <p id="authorityDetail" class="status-detail">--</p>
+            <p id="projectionDetail" class="status-detail">--</p>
+            <p class="block-source">Источник: <code>/bhm/health</code> · Qdrant rebuildable projection</p>
+          </article>
         </section>
-      </details>
+      </section>
 
       <section class="dashboard-section" aria-labelledby="knowledgeTitle">
         <div class="section-heading">
@@ -927,11 +1060,24 @@
         </div>
         <div class="knowledge-grid">
           <article class="metric-panel">
-            <div class="metric-panel-title">Память и архитектура</div>
-            <div class="stat-pair">
-              <div><strong id="crystalsTotal">--</strong><span>memory records</span></div>
-              <div><strong id="lawsTotal">--</strong><span>architecture laws</span></div>
+            <div class="metric-panel-title">Знания · SQLite authority</div>
+            <div class="knowledge-counter-grid">
+              <div class="knowledge-counter">
+                <strong id="memoryRecordsActive">--</strong>
+                <span>active memory records</span>
+              </div>
+              <div class="knowledge-counter architecture">
+                <strong id="architectureDecisionsActive">--</strong>
+                <span>active architecture decisions</span>
+              </div>
             </div>
+            <div class="knowledge-breakdown">
+              <div><span>Memory lifecycle</span><b id="memoryRecordsBreakdown">--</b></div>
+              <div><span>Architecture lifecycle</span><b id="architectureDecisionsBreakdown">--</b></div>
+            </div>
+            <p id="knowledgeDefinition" class="knowledge-definition">Ожидание knowledge counters...</p>
+            <div class="status-row"><span>Scope</span><span id="knowledgeScope" class="pill">--</span></div>
+            <div class="status-row"><span>Source</span><span id="knowledgeSource" class="pill">--</span></div>
             <div class="status-row"><span>Последнее событие</span><span id="lastTick" class="pill warn">waiting</span></div>
           </article>
 
@@ -1019,13 +1165,35 @@
       if (element) element.textContent = value == null || value === "" ? "--" : String(value);
     }
 
-    function renderHealthSnapshot(data) {
+    function setBlockState(id, state, label = state) {
+      const element = document.getElementById(id);
+      if (!element) return;
+      const normalized = String(state || "unverified").toLowerCase();
+      element.dataset.state = normalized;
+      element.textContent = label || normalized;
+    }
+
+    function formatObservedAt(value) {
+      if (!value) return "Health snapshot: unavailable";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime())
+        ? `Health snapshot: ${String(value)}`
+        : `Health snapshot: ${date.toLocaleTimeString("ru-RU")}`;
+    }
+
+    function renderHealthSnapshot(data, uiSession = null) {
       const memoryStore = data.memory_store || {};
       const storage = data.storage || {};
       const mcp = data.mcp_transport || {};
       const runtimeReady = data.status === "healthy" && memoryStore.ready !== false && storage.ready !== false;
       const mcpState = String(mcp.status || "unknown").toLowerCase();
       const mcpAttached = mcpState === "attached" && Number(mcp.attached_count || 0) > 0;
+      const mcpQueued = Number(mcp.queued_count || 0);
+      const mcpDrifted = Number(mcp.contract_drift_count || 0) > 0;
+
+      setHealthText("healthObservedAt", formatObservedAt(data.observed_at));
+      setBlockState("coreBlockState", runtimeReady ? "healthy" : data.status === "degraded" ? "degraded" : "offline", runtimeReady ? "healthy" : data.status || "offline");
+      setBlockState("mcpBlockState", mcpDrifted ? "degraded" : mcpQueued ? "pending" : mcpAttached ? "healthy" : mcpState === "detached" ? "idle" : "unverified", mcpDrifted ? "drifted" : mcpQueued ? "queued" : mcpAttached ? "attached" : mcpState === "detached" ? "idle" : "unverified");
 
       setHealthText("runtimeVersion", data.version || "unknown");
       setHealthText("readinessState", runtimeReady ? "готово" : "внимание");
@@ -1042,7 +1210,7 @@
       setHealthText("mcpEndpointState", runtimeReady ? "ready" : "attention");
       const activeSessions = Number(mcp.active_count ?? mcp.session_count ?? 0);
       const maxSessions = Number(mcp.max_sessions || 0);
-      const queuedSessions = Number(mcp.queued_count || 0);
+      const queuedSessions = mcpQueued;
       setHealthText("mcpConnection", activeSessions ? `${activeSessions} / ${maxSessions || "?"}` : "нет активной сессии");
       setHealthText("mcpSessionNote", queuedSessions
         ? `В очереди: ${queuedSessions}. FIFO освободит слот после закрытия или expiry.`
@@ -1050,6 +1218,29 @@
           ? `${Number(mcp.attached_count || 0)} catalog-ready.`
           : "Сейчас нет внешней MCP-сессии; endpoint остаётся готовым.");
       setHealthText("qdrantDependency", storage.ready ? "готова" : "недоступна");
+      setHealthText("agentSessionCount", `${activeSessions} / ${maxSessions || "?"}`);
+      setHealthText("agentSessionQueue", queuedSessions ? `${queuedSessions} ожидают` : "0 · пусто");
+      setBlockState("agentSessionBlockState", queuedSessions ? "pending" : activeSessions ? "healthy" : "idle", queuedSessions ? "queued" : activeSessions ? "active" : "idle");
+      setHealthText("queueMcpState", queuedSessions ? `${queuedSessions} waiting` : "empty · idle");
+
+      const hookPending = Number(data.hook_queue_pending || 0);
+      const hookFailed = Number(data.hook_queue_failed || 0);
+      const writeState = hookFailed ? `${hookFailed} failed` : hookPending ? `${hookPending} pending` : "empty · idle";
+      setHealthText("queueWriteState", writeState);
+      setHealthText("queueNote", hookFailed
+        ? "Hook queue содержит ошибки; требуется operator review."
+        : hookPending
+          ? "Hook queue обрабатывается bounded workers."
+          : "Пустая очередь — штатное idle-состояние, не ошибка.");
+      setBlockState("queueBlockState", hookFailed ? "degraded" : hookPending || queuedSessions ? "pending" : "idle", hookFailed ? "attention" : hookPending || queuedSessions ? "pending" : "idle");
+      setBlockState("storageBlockState", storage.ready && memoryStore.ready ? "healthy" : "degraded", storage.ready && memoryStore.ready ? "healthy" : "attention");
+      const browserSessionCount = Number(uiSession?.session_count || 0);
+      const browserSessionReady = uiSession?.authenticated === true;
+      setBlockState("uiSessionBlockState", browserSessionReady ? "healthy" : "unverified", browserSessionReady ? "active" : "unverified");
+      setHealthText("uiSessionCount", browserSessionReady ? `${browserSessionCount} · active lease${browserSessionCount === 1 ? "" : "s"}` : "unverified");
+      setHealthText("uiSessionNote", browserSessionReady
+        ? "Same-origin browser lease подтверждён текущим запросом."
+        : "UI lease не подтверждён этим health-снимком.");
 
       dashboardOverallStatus.textContent = runtimeReady ? (mcpAttached ? "CORE ONLINE" : "CORE ONLINE · NO AGENT SESSION") : "ТРЕБУЕТ ВНИМАНИЯ";
       dashboardOverallStatus.className = `overall-badge ${runtimeReady && !mcpAttached ? "warn" : runtimeReady ? "" : "bad"}`.trim();
@@ -1062,7 +1253,15 @@
       try {
         const response = await bhmFetch("/bhm/health", { cache: "no-store" });
         if (!response.ok) throw new Error(`health ${response.status}`);
-        renderHealthSnapshot(await response.json());
+        const health = await response.json();
+        let uiSession = null;
+        try {
+          const sessionResponse = await bhmFetch("/bhm/ui/session/status", { cache: "no-store" });
+          if (sessionResponse.ok) uiSession = await sessionResponse.json();
+        } catch {
+          uiSession = null;
+        }
+        renderHealthSnapshot(health, uiSession);
       } catch (error) {
         if (!uiSessionBlocked) {
           dashboardOverallStatus.textContent = "HEALTH UNKNOWN";
@@ -1228,6 +1427,8 @@
       const pipes = Number(mcpTransport.active_count ?? mcpTransport.session_count) || 0;
       const pipeMax = Number(mcpTransport.max_sessions) || 0;
       const queue = Number(mcpTransport.queued_count) || 0;
+      const hookPending = Number(data.hook_queue_pending) || 0;
+      const hookFailed = Number(data.hook_queue_failed) || 0;
 
       const bhmState = cssState(bhmMb, 900, 1400);
       const wslState = cssState(wslGb, 6, 9);
@@ -1249,16 +1450,38 @@
       setBar("semBar", semUsed, semMax, semState);
 
       setValue("pipeValue", pipes, "", pipeState);
-      document.getElementById("pipeLabel").textContent = `${pipes} / ${pipeMax || "?"}`;
+      document.getElementById("pipeLabel").textContent = pipeMax ? `${pipes} / ${pipeMax}` : "not configured";
       setBar("pipeBar", pipes, pipeMax, pipeState);
-      setPill("mcpQueueState", queue ? `${queue} waiting` : "empty", queue ? "warn" : "");
+      setPill("mcpQueueState", queue ? `${queue} waiting` : "empty · idle", queue ? "warn" : "");
+      setHealthText("healthObservedAt", formatObservedAt(data.observed_at));
+      setHealthText("queueWriteState", hookFailed ? `${hookFailed} failed` : hookPending ? `${hookPending} pending` : "empty · idle");
+      setHealthText("queueMcpState", queue ? `${queue} waiting` : "empty · idle");
+      setHealthText("queueNote", hookFailed
+        ? "Hook queue содержит ошибки; требуется operator review."
+        : hookPending || queue
+          ? "Очереди не пусты: runtime показывает pending до освобождения capacity."
+          : "Пустые очереди — штатное idle-состояние, не ошибка.");
+      setBlockState("queueBlockState", hookFailed ? "degraded" : hookPending || queue ? "pending" : "idle", hookFailed ? "attention" : hookPending || queue ? "pending" : "idle");
+      setHealthText("agentSessionQueue", queue ? `${queue} ожидают` : "0 · пусто");
+      setHealthText("agentSessionCount", `${pipes} / ${pipeMax || "?"}`);
+      setBlockState("agentSessionBlockState", queue ? "pending" : pipes ? "healthy" : "idle", queue ? "queued" : pipes ? "active" : "idle");
 
       setPill("breakerState", data.launcher_circuit_breaker_status || "unknown");
       setPill("warmupState", data.llm_warmup_status || "unknown", data.llm_warmup_status === "READY" ? "" : "warn");
       setPill("fallbackState", data.fallback_grace_active ? "active" : "idle", data.fallback_grace_active ? "warn" : "");
 
-      document.getElementById("crystalsTotal").textContent = data.crystals_total ?? "--";
-      document.getElementById("lawsTotal").textContent = data.architectural_laws_total ?? "--";
+      const knowledge = data.knowledge_counters || {};
+      const memoryRecords = knowledge.memory_records || {};
+      const architectureDecisions = knowledge.architecture_decisions || {};
+      const lifecycleText = (group) => `${Number(group.active_count) || 0} active · ${Number(group.archived_count) || 0} archived · ${Number(group.tombstoned_count) || 0} tombstoned`;
+      document.getElementById("memoryRecordsActive").textContent = memoryRecords.active_count ?? "--";
+      document.getElementById("architectureDecisionsActive").textContent = architectureDecisions.active_count ?? "--";
+      document.getElementById("memoryRecordsBreakdown").textContent = lifecycleText(memoryRecords);
+      document.getElementById("architectureDecisionsBreakdown").textContent = lifecycleText(architectureDecisions);
+      document.getElementById("knowledgeDefinition").textContent = memoryRecords.definition || "SQLite memory records grouped by lifecycle.";
+      const scope = knowledge.scope || {};
+      document.getElementById("knowledgeScope").textContent = `${scope.kind || "unknown"} · ${Number(scope.project_count) || 0} projects`;
+      document.getElementById("knowledgeSource").textContent = knowledge.source?.authority || "unknown";
       setPill("lastTick", new Date().toLocaleTimeString("ru-RU"));
       setSocket("live", "live");
     }

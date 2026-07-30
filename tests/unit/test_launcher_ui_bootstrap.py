@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -20,6 +22,43 @@ import bhm_launcher as launcher
 
 BOOTSTRAP_TOKEN = "bootstrap-token-00000000000000000000+/="
 CALLER_TOKEN = "caller-token-000000000000000000000000"
+
+
+def test_launcher_import_is_safe_without_pyqt6_and_reports_headless_diagnostic() -> None:
+    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+    assert "input(" not in source
+    assert "load_pyqt6_or_prompt()" not in source
+
+    code = """
+import builtins
+import sys
+
+real_import = builtins.__import__
+
+def guarded_import(name, *args, **kwargs):
+    if name == "PyQt6" or name.startswith("PyQt6."):
+        raise ImportError("synthetic missing PyQt6")
+    return real_import(name, *args, **kwargs)
+
+builtins.__import__ = guarded_import
+import bhm_launcher
+
+assert bhm_launcher._PYQT6_AVAILABLE is False
+sys.argv = ["bhm_launcher.py", "--check-dependencies"]
+raise SystemExit(bhm_launcher.main())
+"""
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(SCRIPTS_ROOT)
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+
+    assert completed.returncode == 1
+    assert "PyQt6: missing" in completed.stdout + completed.stderr
 
 
 def test_launcher_local_state_stays_under_dot_runtime() -> None:

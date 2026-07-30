@@ -4,6 +4,7 @@ from blackholememory.health_contract import bhm_health_payload
 from blackholememory.health_contract import health_cutover_payload
 from blackholememory.health_contract import health_live_payload
 from blackholememory.health_contract import health_ready_payload
+from blackholememory.health_contract import health_ready_public_payload
 from blackholememory.health_contract import health_slo_payload
 
 
@@ -51,9 +52,24 @@ def test_health_contract_builders_preserve_public_shapes():
 
     assert live == {"ok": True, "service": "BlackHoleMemory", "env": "test"}
     assert ready["ok"] is True
+    assert health_ready_public_payload(ready=ready) == {"ok": True, "status": "ready"}
     assert health["status"] == "healthy"
+    assert "observed_at" in health
     assert health["memory_store"]["backend"] == "sqlite-authoritative"
     assert cutover["ok"] is True and cutover["required_ok"] is True
+
+
+def test_public_readiness_contract_does_not_expose_diagnostics():
+    public = health_ready_public_payload(
+        ready={
+            "ok": True,
+            "memory_store": {"database_path": "C:/private/memories.sqlite3"},
+            "dependencies": [{"name": "qdrant", "ok": True}],
+            "provider_warmup": {"attempts": 3},
+        }
+    )
+
+    assert public == {"ok": True, "status": "ready"}
 
 
 def test_health_contract_exposes_streamable_transport_as_the_only_mcp_truth():
@@ -70,10 +86,12 @@ def test_health_contract_exposes_streamable_transport_as_the_only_mcp_truth():
         memory_store=_memory_store(),
         fallback_mode="explicit",
         fallback_active=False,
+        observed_at="2026-07-30T16:00:00Z",
     )
 
     assert health["mcp_transport"]["status"] == "attached"
     assert health["mcp_transport"]["authoritative_source"] == "streamable_http_sessions"
+    assert health["observed_at"] == "2026-07-30T16:00:00Z"
     assert "mcp_attach" not in health
 
 

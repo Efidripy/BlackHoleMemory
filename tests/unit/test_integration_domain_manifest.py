@@ -24,6 +24,6 @@ def test_every_integration_test_has_one_domain():
     # Keep the manifest fail-closed while accounting for the WI-82..WI-198
     # parity, semantic-readiness and security regression surfaces now present
     # in the current test tree.
-    assert len(assignments) == 223
+    assert len(assignments) == 229
     assert set(assignments) == set(DOMAIN_NAMES)
     assert all(assignments.count(domain) > 0 for domain in DOMAIN_NAMES)
