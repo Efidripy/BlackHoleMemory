@@ -50,7 +50,7 @@ if hasattr(sys.stderr, "reconfigure"):
 DEFAULT_BHM_HOST, DEFAULT_BHM_PORT = endpoint_parts("bhm_api")
 
 
-DEFAULT_DATABASE = REPO_ROOT / "runtime" / "live-memory" / "memories.sqlite3"
+DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 QUARANTINE_COLLECTION_PREFIX = "bhm_quarantine_projection_"
 SAFE_COLLECTION_RE = re.compile(r"^[a-z0-9_]+$")
 

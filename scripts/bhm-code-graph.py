@@ -15,7 +15,7 @@ from blackholememory.repository_index import probe_repository_state
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATABASE = REPO_ROOT / "runtime" / "live-memory" / "memories.sqlite3"
+DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 DEFAULT_FEATURE_CONFIG = REPO_ROOT / "config" / "cbm-integration.json"
 
 

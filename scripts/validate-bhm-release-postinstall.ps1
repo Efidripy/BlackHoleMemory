@@ -188,8 +188,8 @@ if ($Action -eq "rollback-plan") {
         archive = $ReleaseArchive
         archive_sha256 = $releaseHash
         rollback_surfaces = @(
-            "runtime/live-memory/migration-backups",
-            "runtime/live-memory/outbox-recovery",
+            ".runtime/live-memory/migration-backups",
+            ".runtime/live-memory/outbox-recovery",
             "workspace/local/tmp/bhm-releases"
         )
         note = "Plan only; no process stop, archive replacement, database restore or Qdrant mutation was performed."

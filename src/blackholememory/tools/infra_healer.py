@@ -168,7 +168,7 @@ def tool_check_and_heal_docker() -> str:
 
 
 def _write_mcp_reset_marker() -> Path:
-    marker_path = Path(os.getenv(MCP_RESET_MARKER_ENV) or (_repo_root() / "runtime" / "infra" / "mcp-bridge-reset.json"))
+    marker_path = Path(os.getenv(MCP_RESET_MARKER_ENV) or (_repo_root() / ".runtime" / "infra" / "mcp-bridge-reset.json"))
     marker_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "requested_at": _now_iso(),

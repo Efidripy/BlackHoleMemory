@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-AGENT_INPUT_ROOT = REPO_ROOT / "runtime" / "agent-inputs"
+AGENT_INPUT_ROOT = REPO_ROOT / ".runtime" / "agent-inputs"
 _SENSITIVE_PARTS = frozenset(
     {
         ".git",

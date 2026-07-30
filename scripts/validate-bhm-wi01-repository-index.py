@@ -103,7 +103,7 @@ def main() -> int:
             for source_item in registry["sources"]
         )
         live_schema = SQLiteRepositoryIndexStore(
-            ROOT / "runtime" / "live-memory" / "memories.sqlite3"
+            ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
         ).inspect_schema()
         checks["live_schema_ready_and_unpublished"] = live_schema["ready"] is True and live_schema.get("schema_version") == 2
 

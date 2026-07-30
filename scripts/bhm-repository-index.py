@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--action", choices=("plan", "index", "watch", "status", "migrate"), default="plan")
     parser.add_argument("--root", type=Path, default=ROOT)
-    parser.add_argument("--database", type=Path, default=ROOT / "runtime" / "live-memory" / "memories.sqlite3")
+    parser.add_argument("--database", type=Path, default=ROOT / ".runtime" / "live-memory" / "memories.sqlite3")
     parser.add_argument("--project", default="blackholememory")
     parser.add_argument("--source-url", default="local://operator-owned")
     parser.add_argument("--license", dest="source_license", default="operator-owned")

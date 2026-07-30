@@ -14272,7 +14272,7 @@ def bhm_ui_session_renew(request: Request) -> JSONResponse:
             headers={"Cache-Control": "no-store"},
             content={"detail": {"code": "ui_session_expired"}},
         )
-    _principal, lease_seconds = renewed
+    _principal, lease_seconds, renewed_session_token = renewed
     response = JSONResponse(
         content={
             "ok": True,
@@ -14284,7 +14284,7 @@ def bhm_ui_session_renew(request: Request) -> JSONResponse:
     )
     response.set_cookie(
         key=UI_SESSION_COOKIE,
-        value=session_token,
+        value=renewed_session_token,
         max_age=int(lease_seconds),
         path="/bhm",
         secure=request.url.scheme.casefold() == "https",
