@@ -39,11 +39,11 @@ function Test-BhmCallerAuthRequired {
 
     if ($Method.ToUpperInvariant() -eq 'OPTIONS') { return $false }
     $path = ([Uri]$Url).AbsolutePath
-    if ($path -in @('/bhm/health', '/bhm/health/slo')) { return $false }
     return (
         $path -eq '/mcp' -or
         $path -eq '/openapi-admin.json' -or
         $path -eq '/graph/status' -or
+        $path -eq '/health/cutover' -or
         $path -eq '/bhm' -or
         $path.StartsWith('/bhm/', [StringComparison]::Ordinal)
     )

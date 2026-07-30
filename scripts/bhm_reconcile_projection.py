@@ -43,7 +43,7 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
 
 
-DEFAULT_DATABASE = REPO_ROOT / "runtime" / "live-memory" / "memories.sqlite3"
+DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 DEFAULT_BHM_HOST, DEFAULT_BHM_PORT = endpoint_parts("bhm_api")
 
 

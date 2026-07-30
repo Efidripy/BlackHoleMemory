@@ -58,12 +58,16 @@ def test_renew_session_extends_a_valid_lease(monkeypatch) -> None:
     assert renewed is not None
     assert renewed[0] == principal
     assert renewed[1] == ui_session.SESSION_TTL_SECONDS
+    renewed_token = renewed[2]
+    assert renewed_token != session_token
+    assert registry.resolve_session(session_token) is None
+    assert registry.resolve_session(renewed_token) == principal
 
     now += ui_session.SESSION_TTL_SECONDS - 1
-    assert registry.resolve_session(session_token) == principal
+    assert registry.resolve_session(renewed_token) == principal
 
     now += 2
-    assert registry.renew_session(session_token) is None
+    assert registry.renew_session(renewed_token) is None
 
 
 def test_registry_is_bounded_and_snapshot_is_redacted(monkeypatch) -> None:

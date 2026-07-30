@@ -2531,7 +2531,7 @@ class QuarantineGatewayNode:
     Single ingress for destructive quarantine-demo stress work.
 
     Quarantine records are never sent to normal BHM retrieval. They live in
-    runtime/live-memory/quarantine-demo.json until teardown, while the optional
+    .runtime/live-memory/quarantine-demo.json until teardown, while the optional
     external persistence path writes only a compact validated fact crystal.
     """
 

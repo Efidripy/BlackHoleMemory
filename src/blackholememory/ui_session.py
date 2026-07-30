@@ -105,8 +105,8 @@ class UiSessionRegistry:
         lease = self.resolve_session_lease(session_token)
         return lease[0] if lease is not None else None
 
-    def renew_session(self, session_token: str | None) -> tuple[CallerPrincipal, float] | None:
-        """Extend a valid UI lease without changing its HttpOnly token."""
+    def renew_session(self, session_token: str | None) -> tuple[CallerPrincipal, float, str] | None:
+        """Rotate and extend a valid UI lease, returning a server-generated token."""
 
         if not session_token:
             return None
@@ -117,12 +117,14 @@ class UiSessionRegistry:
             record = self._sessions.get(digest)
             if record is None:
                 return None
+            renewed_token = _token()
             renewed = _SessionRecord(
                 principal=record.principal,
                 expires_at=now + SESSION_TTL_SECONDS,
             )
-            self._sessions[digest] = renewed
-            return renewed.principal, SESSION_TTL_SECONDS
+            self._sessions.pop(digest, None)
+            self._sessions[_digest(renewed_token)] = renewed
+            return renewed.principal, SESSION_TTL_SECONDS, renewed_token
 
     def resolve_session_lease(self, session_token: str | None) -> tuple[CallerPrincipal, float] | None:
         if not session_token:

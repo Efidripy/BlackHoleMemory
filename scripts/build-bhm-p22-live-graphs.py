@@ -12,7 +12,7 @@ from blackholememory.task_graph import build_task_graph
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DATABASE = ROOT / "runtime" / "live-memory" / "memories.sqlite3"
+DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 
 
 def main() -> int:

@@ -12,7 +12,7 @@ from blackholememory.parser_activation import write_report
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATABASE = ROOT / "runtime" / "live-memory" / "memories.sqlite3"
+DEFAULT_DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 
 
 def main() -> int:

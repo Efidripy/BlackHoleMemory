@@ -20,8 +20,8 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config" / "cbm-integration.json"
-DATABASE = ROOT / "runtime" / "live-memory" / "memories.sqlite3"
-BACKUP_ROOT = ROOT / "runtime" / "live-memory" / "recovery-backups"
+DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
+BACKUP_ROOT = ROOT / ".runtime" / "live-memory" / "recovery-backups"
 
 
 def sha256_bytes(data: bytes) -> str:

@@ -67,7 +67,7 @@ def _repo_root() -> Path:
 
 
 def _namespace_root() -> Path:
-    return _repo_root() / "runtime" / "memory" / "swarm_scratchpad"
+    return _repo_root() / ".runtime" / "memory" / "swarm_scratchpad"
 
 
 def _sanitize_controls(value: str) -> str:
@@ -177,7 +177,7 @@ def _scratchpad_path(
         if not path.is_absolute():
             path = _repo_root() / path
     else:
-        path = _repo_root() / "runtime" / "memory" / "swarm_scratchpad.md"
+        path = _repo_root() / ".runtime" / "memory" / "swarm_scratchpad.md"
     return _validate_path(path, isolated=False)
 
 

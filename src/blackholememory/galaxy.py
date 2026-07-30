@@ -9,12 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .config import settings
 from .memory_service import SQLiteMemoryService
 from .observation_store import ObservationStore
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LIVE_MEMORY_DIR = REPO_ROOT / "runtime" / "live-memory"
+LIVE_MEMORY_DIR = settings.runtime_dir / "live-memory"
 LESSON_FILE = LIVE_MEMORY_DIR / "lessons.json"
 SLOT_FILE = LIVE_MEMORY_DIR / "slots.json"
 OBSERVATION_STORE_FILE = LIVE_MEMORY_DIR / "observations.sqlite3"

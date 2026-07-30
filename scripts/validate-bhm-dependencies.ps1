@@ -34,8 +34,8 @@ $lockExit = $LASTEXITCODE
 $ErrorActionPreference = $previousErrorAction
 Add-Check -Id "uv-lock-check" -Ok ($lockExit -eq 0) -Detail (($lockOutput -join " ").Trim())
 
-$testExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?test\s*=\s*\[.*?pytest==8\.4\.2.*?pytest-cov==7\.1\.0.*?\]'
-$devExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?dev\s*=\s*\[.*?pytest==8\.4\.2.*?pytest-cov==7\.1\.0.*?ruff==0\.15\.10.*?\]'
+$testExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?test\s*=\s*\[.*?pytest==9\.0\.3.*?pytest-cov==7\.1\.0.*?\]'
+$devExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?dev\s*=\s*\[.*?pytest==9\.0\.3.*?pytest-cov==7\.1\.0.*?ruff==0\.15\.10.*?\]'
 $buildExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?build\s*=\s*\[.*?PyQt6==6\.11\.0.*?pyinstaller==6\.21\.0.*?\]'
 Add-Check -Id "test-extra" -Ok $testExtraOk -Detail "pytest and pytest-cov are pinned in [project.optional-dependencies].test"
 Add-Check -Id "dev-extra" -Ok $devExtraOk -Detail "pytest, pytest-cov and ruff are pinned in [project.optional-dependencies].dev"

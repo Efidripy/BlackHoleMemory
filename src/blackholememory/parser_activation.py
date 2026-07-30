@@ -82,7 +82,7 @@ def activate_parser_v2(
     database_path = Path(database).expanduser().resolve()
     root_path = Path(root).expanduser().resolve()
     project_name = str(project).strip().casefold()
-    live_database = Path(__file__).resolve().parents[2] / "runtime" / "live-memory" / "memories.sqlite3"
+    live_database = Path(__file__).resolve().parents[2] / ".runtime" / "live-memory" / "memories.sqlite3"
     if database_path == live_database.resolve() and not allow_live:
         raise ParserActivationError("live activation requires allow_live=True")
     if not project_name:
