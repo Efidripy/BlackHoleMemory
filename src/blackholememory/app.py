@@ -13848,6 +13848,44 @@ def bhm_ui_session_exchange(request: Request, payload: UiSessionExchangeRequest)
     return response
 
 
+@app.post("/bhm/ui/session/renew")
+def bhm_ui_session_renew(request: Request) -> JSONResponse:
+    if not _ui_browser_request_is_same_origin(request, require_origin=True):
+        return JSONResponse(
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+            content={"detail": {"code": "ui_session_origin_rejected"}},
+        )
+    session_token = str(request.cookies.get(UI_SESSION_COOKIE) or "")
+    renewed = _UI_SESSIONS.renew_session(session_token)
+    if renewed is None:
+        return JSONResponse(
+            status_code=401,
+            headers={"Cache-Control": "no-store"},
+            content={"detail": {"code": "ui_session_expired"}},
+        )
+    _principal, lease_seconds = renewed
+    response = JSONResponse(
+        content={
+            "ok": True,
+            "schema_version": "bhm.ui.session.v1",
+            "renewed": True,
+            "expires_in_seconds": int(lease_seconds),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+    response.set_cookie(
+        key=UI_SESSION_COOKIE,
+        value=session_token,
+        max_age=int(lease_seconds),
+        path="/bhm",
+        secure=request.url.scheme.casefold() == "https",
+        httponly=True,
+        samesite="strict",
+    )
+    return response
+
+
 @app.get("/bhm/ui/session/status")
 def bhm_ui_session_status(request: Request) -> dict:
     principal = getattr(request.state, "bhm_caller_principal", None)
