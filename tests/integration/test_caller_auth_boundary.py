@@ -54,6 +54,58 @@ def test_missing_or_wrong_bearer_is_rejected() -> None:
     assert missing.headers["www-authenticate"] == "Bearer"
 
 
+@pytest.mark.parametrize(
+    ("path", "payload", "response_key"),
+    (
+        (
+            "/bhm/checkpoint",
+            {
+                "project": "blackholememory",
+                "title": "auth boundary checkpoint",
+                "done": "auth contract",
+            },
+            "checkpoint",
+        ),
+        (
+            "/bhm/session-record",
+            {
+                "project": "blackholememory",
+                "title": "auth boundary session",
+                "done": "auth contract",
+            },
+            "session_record",
+        ),
+    ),
+)
+def test_checkpoint_and_session_record_writes_require_and_forward_caller_auth(
+    monkeypatch,
+    path: str,
+    payload: dict[str, str],
+    response_key: str,
+) -> None:
+    """WL-004: protected ritual writes never silently become anonymous."""
+
+    missing = _client(authorization="").post(path, json=payload)
+    assert missing.status_code == 401
+    assert missing.json()["detail"]["code"] == "caller_auth_required"
+
+    async def fake_bounded_write(operation, handler, request):
+        assert operation in {"bhm.checkpoint", "bhm.session-record"}
+        return "created", {
+            "id": "auth-boundary-fixture",
+            "project": request.project,
+            "title": request.title,
+            "done": request.done,
+        }
+
+    monkeypatch.setattr(bhm_app, "_run_bounded_write", fake_bounded_write)
+    accepted = _client().post(path, json=payload)
+
+    assert accepted.status_code == 200
+    assert accepted.json()["success"] is True
+    assert accepted.json()[response_key]["project"] == "blackholememory"
+
+
 def test_scoped_caller_rejects_foreign_project_and_allows_alias(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
