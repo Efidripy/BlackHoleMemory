@@ -801,3 +801,87 @@ def test_streamable_http_cancelled_initialize_is_removed_from_fifo_queue():
                 assert deleted.status_code == 200
 
     asyncio.run(exercise())
+
+
+def test_streamable_http_50_session_fifo_smoke_has_no_memory_writes():
+    memory_write_calls: list[dict[str, Any]] = []
+
+    async def dispatch(message: dict[str, Any]) -> dict[str, Any]:
+        # This fixture intentionally has no memory write path. Keep an explicit
+        # ledger so the session admission smoke cannot silently persist data.
+        if message["method"] == "tools/call":
+            memory_write_calls.append(message)
+        return {
+            "jsonrpc": "2.0",
+            "id": message.get("id"),
+            "result": {"tools": []},
+        }
+
+    async def exercise() -> None:
+        gateway = BhmStreamableHttpGateway(
+            dispatch,
+            server_version="test",
+            max_sessions=32,
+        )
+        async with gateway.run():
+            transport = httpx.ASGITransport(app=gateway.asgi_app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+                tasks = [
+                    asyncio.create_task(_initialize_named(client, index, f"client-{index}"))
+                    for index in range(50)
+                ]
+                for _ in range(200):
+                    snapshot = gateway.sessions.snapshot()
+                    if snapshot["active_count"] == 32 and snapshot["queued_count"] == 18:
+                        break
+                    await asyncio.sleep(0.01)
+
+                queued = gateway.sessions.snapshot()
+                assert queued["active_count"] == 32
+                assert queued["reserved_count"] == 0
+                assert queued["queued_count"] == 18
+                assert queued["session_count"] == 32
+                assert queued["pending_count"] == 50
+
+                first_batch = await asyncio.gather(*tasks[:32])
+                first_batch_ids = [session_id for _, session_id in first_batch]
+                for session_id in first_batch_ids:
+                    deleted = await client.delete(
+                        "/mcp",
+                        headers={
+                            **BASE_HEADERS,
+                            "mcp-session-id": session_id,
+                            "mcp-protocol-version": "2025-06-18",
+                        },
+                    )
+                    assert deleted.status_code == 200
+
+                all_results = await asyncio.gather(*tasks)
+                queued_batch_ids = [session_id for _, session_id in all_results[32:]]
+                drained = gateway.sessions.snapshot()
+                assert drained["queued_count"] == 0
+                assert drained["session_count"] == 18
+                assert drained["active_count"] == 18
+                assert [row["client_id"] for row in drained["sessions"]] == [
+                    f"client-{index}" for index in range(32, 50)
+                ]
+
+                for session_id in queued_batch_ids:
+                    deleted = await client.delete(
+                        "/mcp",
+                        headers={
+                            **BASE_HEADERS,
+                            "mcp-session-id": session_id,
+                            "mcp-protocol-version": "2025-06-18",
+                        },
+                    )
+                    assert deleted.status_code == 200
+
+                finished = gateway.sessions.snapshot()
+                assert finished["active_count"] == 0
+                assert finished["queued_count"] == 0
+                assert finished["session_count"] == 0
+                assert finished["pending_count"] == 0
+                assert memory_write_calls == []
+
+    asyncio.run(exercise())

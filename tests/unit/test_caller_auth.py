@@ -22,9 +22,12 @@ def test_bearer_parsing_and_constant_time_validation(monkeypatch) -> None:
     assert caller_auth.is_caller_token_valid("wrong") is False
 
 
-def test_health_and_openapi_are_anonymous_but_data_routes_are_protected() -> None:
+def test_readiness_and_openapi_are_anonymous_but_diagnostics_are_protected() -> None:
     assert caller_auth.caller_route_requires_auth("/health/ready", "GET") is False
-    assert caller_auth.caller_route_requires_auth("/bhm/health/slo", "GET") is False
+    assert caller_auth.caller_route_requires_auth("/bhm/health/slo", "GET") is True
+    assert caller_auth.caller_route_requires_auth("/health/dependencies", "GET") is True
+    assert caller_auth.caller_route_requires_auth("/health/cutover", "GET") is True
+    assert caller_auth.caller_route_requires_auth("/bhm/health", "GET") is True
     assert caller_auth.caller_route_requires_auth("/openapi.json", "GET") is False
     assert caller_auth.caller_route_requires_auth("/bhm/memory", "GET") is True
     assert caller_auth.caller_route_requires_auth("/bhm/search", "POST") is True

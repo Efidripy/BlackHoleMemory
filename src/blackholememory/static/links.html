@@ -375,7 +375,7 @@
         <div class="metric"><strong data-key="mcp_active_pipes">--</strong><span>Active MCP pipe clients</span></div>
         <div class="metric"><strong data-key="bhm_working_set_mb">--</strong><span>BHM working set, MB</span></div>
         <div class="metric"><strong data-key="wsl_shared_overhead_gb">--</strong><span>WSL shared overhead, GB</span></div>
-        <div class="metric"><strong data-key="crystals_total">--</strong><span>Fact crystals total</span></div>
+        <div class="metric"><strong id="memoryRecordsActive">--</strong><span>Active memory records</span></div>
       </section>
 
       <section class="ops-grid">
@@ -432,6 +432,8 @@
         const value = data[key];
         el.textContent = typeof value === "number" ? fmt.format(value) : value ?? "--";
       }
+      const memoryRecords = data.knowledge_counters?.memory_records || {};
+      document.getElementById("memoryRecordsActive").textContent = memoryRecords.active_count ?? "--";
 
       const activePipes = Number(data.mcp_active_pipes) || 0;
       const maxPipes = Number(data.mcp_max_instances) || 0;

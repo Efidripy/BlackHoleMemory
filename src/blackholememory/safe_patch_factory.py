@@ -326,13 +326,7 @@ def default_safe_patch_root() -> Path:
 def _normalize_allowed_files(files: Sequence[str]) -> list[str]:
     values: list[str] = []
     for raw in files:
-        text = str(raw or "").replace("\\", "/").strip()
-        if not text or text.startswith("/") or re.match(r"^[A-Za-z]:", text):
-            raise SafePatchPathError(f"invalid allowlisted path: {raw}")
-        path = Path(text)
-        if any(part in {"", ".", "..", ".git"} for part in path.parts):
-            raise SafePatchPathError(f"unsafe allowlisted path: {raw}")
-        normalized = "/".join(path.parts)
+        normalized = _normalize_relative_path(raw)
         if normalized not in values:
             values.append(normalized)
     if not values:
@@ -350,11 +344,22 @@ def _patch_paths(patch_text: str) -> list[str]:
         if raw == "/dev/null":
             continue
         normalized = raw[2:] if raw.startswith(("a/", "b/")) else raw
-        if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized) or ".." in Path(normalized).parts:
-            raise SafePatchPathError(f"unsafe patch path: {raw}")
+        normalized = _normalize_relative_path(normalized)
         if normalized not in paths:
             paths.append(normalized)
     return paths
+
+
+def _normalize_relative_path(raw: str) -> str:
+    """Return one portable relative path representation or reject it."""
+
+    text = str(raw or "").strip().replace("\\", "/")
+    parts = text.split("/")
+    if not text or text.startswith("/") or re.match(r"^[A-Za-z]:", text):
+        raise SafePatchPathError(f"invalid relative path: {raw}")
+    if any(part in {"", ".", "..", ".git"} for part in parts):
+        raise SafePatchPathError(f"unsafe relative path: {raw}")
+    return "/".join(parts)
 
 
 def _changed_files(plan: SafePatchPlan) -> list[str]:

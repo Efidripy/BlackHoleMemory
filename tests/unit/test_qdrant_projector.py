@@ -135,6 +135,60 @@ def test_equivalent_replay_acks_without_reembedding(tmp_path):
     assert len(vector_calls) == 1
 
 
+def test_retrying_stale_event_cannot_regress_newer_authoritative_revision(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    active = _memory()
+    repository.save_memory(active)
+    newer = Memory.from_record(
+        {
+            "source_system": "bhm",
+            "source_id": active.id,
+            "project": active.project,
+            "agent_id": "workspace",
+            "memory_type": active.memory_type,
+            "content": "projector contract, newer revision",
+            "tags": list(active.tags),
+            "session_refs": list(active.session_refs),
+            "created_at": active.created_at,
+            "updated_at": "2026-07-13T12:01:00Z",
+            "metadata": dict(active.metadata),
+        }
+    )
+    repository.save_memory(
+        newer,
+        expected_revision_id=active.current_revision.revision_id,
+    )
+
+    client = _FakeQdrant()
+    projector = _projector(client)
+    claimed = repository.claim_outbox(limit=2)
+    by_revision = {
+        str(event.payload["current_revision"]["revision_id"]): event
+        for event in claimed
+    }
+    old_event = by_revision[active.current_revision.revision_id]
+    new_event = by_revision[newer.current_revision.revision_id]
+
+    # Simulate out-of-order completion: the newer event reaches Qdrant first,
+    # while the older leased event is retried later.
+    projector.project_event(new_event)
+    repository.ack_outbox(new_event.event_id, new_event.claim_token or "")
+    repository.fail_outbox(
+        old_event.event_id,
+        old_event.claim_token or "",
+        "temporary Qdrant failure",
+        retry_after_seconds=0,
+        max_attempts=3,
+    )
+
+    replayed = projector.run_once(repository)
+
+    assert (replayed.claimed, replayed.completed, replayed.failed) == (1, 1, 0)
+    for point in client.points.values():
+        assert point.payload["revision_id"] == newer.current_revision.revision_id
+        assert point.payload["content"] == newer.current_revision.content
+
+
 def test_projector_partial_failure_is_replayable(tmp_path):
     repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
     memory = _memory()
@@ -179,6 +233,24 @@ def test_invalid_vector_fails_event_without_ack(tmp_path):
 
     assert (result.claimed, result.completed, result.failed) == (1, 0, 1)
     assert repository.list_outbox(status=OutboxStatus.FAILED)[0].last_error
+
+
+def test_projector_terminal_failure_is_dead_letter_and_logged(tmp_path, caplog):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    repository.save_memory(_memory())
+    projector = QdrantProjector(_FakeQdrant(), lambda _memory: [float("nan")], expected_dimensions=2)
+    caplog.set_level("WARNING")
+
+    result = projector.run_once(repository, retry_after_seconds=0, max_attempts=1)
+
+    assert (result.claimed, result.completed, result.failed) == (1, 0, 1)
+    dead_letter = repository.list_outbox(status=OutboxStatus.DEAD_LETTER)
+    assert len(dead_letter) == 1
+    record = next(record for record in caplog.records if record.msg == "projection_event_failed")
+    assert record.event_id == dead_letter[0].event_id
+    assert record.aggregate_id == _memory().id
+    assert record.classification == "dead_letter"
+    assert record.status == "dead_letter"
 
 
 def test_projector_and_live_record_routing_share_the_same_classifier():

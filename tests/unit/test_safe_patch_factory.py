@@ -81,3 +81,16 @@ def test_factory_rejects_unsafe_cleanup_and_path_traversal(tmp_path: Path):
             allowed_files=["../outside.py"],
             patch_text=PATCH,
         )
+
+
+@pytest.mark.parametrize("path", [r"..\outside.py", r"C:\outside.py", r"\\server\share\outside.py"])
+def test_factory_rejects_portable_unsafe_allowlist_paths(tmp_path: Path, path: str) -> None:
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+
+    with pytest.raises(SafePatchPathError):
+        factory.prepare(
+            task_id="safe-patch-portable-path",
+            repo_root=tmp_path,
+            allowed_files=[path],
+            patch_text=PATCH,
+        )

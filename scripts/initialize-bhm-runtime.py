@@ -31,6 +31,12 @@ def default_database_path(runtime_dir: Path) -> Path:
     return runtime_dir.expanduser().resolve() / "live-memory" / "memories.sqlite3"
 
 
+def default_runtime_dir() -> Path:
+    """Return the hidden, local-only runtime root used by the authoritative launcher."""
+
+    return REPO_ROOT / ".runtime"
+
+
 def initialize_runtime_database(database_path: Path, *, verify_only: bool = False) -> dict[str, Any]:
     """Create/verify a canonical SQLite target and return a JSON-safe report."""
 
@@ -74,7 +80,7 @@ def main() -> int:
     parser.add_argument(
         "--runtime-dir",
         type=Path,
-        default=REPO_ROOT / "runtime",
+        default=default_runtime_dir(),
         help="installation runtime root; database is created below live-memory/",
     )
     parser.add_argument("--database", type=Path, help="explicit SQLite database path")

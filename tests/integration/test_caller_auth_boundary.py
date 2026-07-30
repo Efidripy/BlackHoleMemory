@@ -22,6 +22,22 @@ def test_health_remains_anonymous() -> None:
 
     assert response.status_code == 200
 
+    readiness = _client(authorization="").get("/health/ready")
+    assert readiness.status_code == 200
+    assert set(readiness.json()) == {"ok", "status"}
+    assert "database_path" not in readiness.text
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/health/dependencies", "/health/cutover", "/bhm/health", "/bhm/health/slo"],
+)
+def test_diagnostic_health_routes_require_caller_auth(path: str) -> None:
+    response = _client(authorization="").get(path)
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "caller_auth_required"
+
 
 def test_registered_route_inventory_has_no_implicit_auth_policy() -> None:
     implicit: list[str] = []

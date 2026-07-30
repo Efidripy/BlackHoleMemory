@@ -637,7 +637,7 @@ def default_llm_cache_path() -> Path:
     configured = str(os.getenv("BHM_LLM_CACHE_PATH") or "").strip()
     if configured:
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[2] / "runtime" / "llm-jobs" / "cache.sqlite3"
+    return Path(__file__).resolve().parents[2] / ".runtime" / "llm-jobs" / "cache.sqlite3"
 
 
 def _sanitize(value: Any, *, source: str, project: str) -> Any:

@@ -44,3 +44,17 @@ def test_historical_marker_hygiene_does_not_claim_parity() -> None:
     assert "P28.81 / WI-152" in section
     assert "does not claim full CBM parity" in section
     assert "acceptance readiness" in section
+
+
+def test_cap12_cap13_cap14_are_retired_from_current_plan_scope() -> None:
+    text = _canonical_plan_text()
+    if text is None:
+        return
+
+    assert "Retirement override (2026-07-31)" in text
+    override = text[text.index("Retirement override (2026-07-31)") : text.index("Closed history:")]
+    assert "permanently excluded" in override
+    assert "every active backlog" in override
+
+    backlog = text[text.index("## 7. Execution backlog") : text.index("## 7A.")]
+    assert all(capability not in backlog for capability in ("CAP12", "CAP13", "CAP14"))

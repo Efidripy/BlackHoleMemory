@@ -15,10 +15,31 @@ $hookQueueValidator = Join-Path $PSScriptRoot "validate-bhm-hook-queue.ps1"
 $retentionValidator = Join-Path $PSScriptRoot "validate-bhm-retention.ps1"
 $resilienceValidator = Join-Path $PSScriptRoot "validate-bhm-p1.9-resilience.ps1"
 
+function Get-BhmCallerHeaders {
+    $token = [string][Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', 'Process')
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $token = [string][Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', 'User')
+    }
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $envPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.bhm\.env'
+        foreach ($line in Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue) {
+            if ($line -match '^\s*BHM_CALLER_TOKEN\s*=') {
+                $token = $line.Split('=', 2)[1].Split('#', 2)[0].Trim().Trim('"').Trim("'")
+                break
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($token) -or $token.Trim().Length -lt 32) {
+        throw 'BHM_CALLER_TOKEN is unavailable'
+    }
+    return @{ Authorization = "Bearer $($token.Trim())"; 'X-BHM-Caller-Surface' = 'cutover-validator' }
+}
+
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 
+$headers = Get-BhmCallerHeaders
 $ready = Invoke-RestMethod -Method Get "$serviceUrl/health/ready"
-$cutover = Invoke-RestMethod -Method Get "$serviceUrl/health/cutover"
+$cutover = Invoke-RestMethod -Method Get "$serviceUrl/health/cutover" -Headers $headers
 
 $surfaceJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $surfaceValidator
 $surfaceExitCode = $LASTEXITCODE

@@ -88,12 +88,36 @@ function Stop-BhmProcesses {
     }
 }
 
+function Get-BhmCallerHeaders {
+    $token = [string][Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', 'Process')
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $token = [string][Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', 'User')
+    }
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $envPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.bhm\.env'
+        foreach ($line in Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue) {
+            if ($line -match '^\s*BHM_CALLER_TOKEN\s*=') {
+                $token = $line.Split('=', 2)[1].Split('#', 2)[0].Trim().Trim('"').Trim("'")
+                break
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($token) -or $token.Trim().Length -lt 32) {
+        throw 'BHM_CALLER_TOKEN is unavailable'
+    }
+    return @{
+        Authorization = "Bearer $($token.Trim())"
+        'X-BHM-Caller-Surface' = 'projection-operator'
+    }
+}
+
 function Get-LiveSlo {
     param([Parameter(Mandatory = $true)][string]$Url)
 
-    $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -TimeoutSec 10
-    $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -TimeoutSec 10
-    $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -TimeoutSec 10
+    $headers = Get-BhmCallerHeaders
+    $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -Headers $headers -TimeoutSec 10
+    $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -Headers $headers -TimeoutSec 10
+    $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -Headers $headers -TimeoutSec 10
     [pscustomobject]@{
         health = $health.status
         version = $health.version

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import math
 import uuid
 from collections.abc import Callable, Sequence
@@ -18,6 +19,8 @@ from .mem0_adapter import global_collection_name
 from .mem0_adapter import local_collection_name
 from .outbox import OutboxEvent
 from .vector_routing import route_vector_targets
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class ProjectorError(RuntimeError):
@@ -257,7 +260,25 @@ class QdrantProjector:
         failed = 0
         for event in claimed:
             try:
-                memory = Memory.from_dict(event.payload)
+                event_memory = Memory.from_dict(event.payload)
+                if event_memory.id != event.aggregate_id:
+                    raise ProjectorError(
+                        "outbox aggregate does not match memory payload: "
+                        f"{event.event_id}"
+                    )
+
+                # Outbox payloads are immutable snapshots.  A retry can arrive
+                # after a newer revision/lifecycle event has already reached
+                # Qdrant (for example, an old update failed while a newer one
+                # succeeded).  Always re-read the SQLite authority before
+                # projecting so an old snapshot can never regress the
+                # rebuildable vector projection.
+                memory = repository.get_memory(event.aggregate_id)
+                if memory is None:
+                    raise ProjectorError(
+                        "outbox aggregate is absent from SQLite authority: "
+                        f"{event.aggregate_id}"
+                    )
                 if self.projection_matches(memory):
                     outcome = self._projection_outcome(memory, event_id=event.event_id)
                 else:
@@ -272,13 +293,43 @@ class QdrantProjector:
                 failed += 1
                 token = event.claim_token
                 if token:
-                    repository.fail_outbox(
-                        event.event_id,
-                        token,
-                        str(exc),
-                        retry_after_seconds=retry_after_seconds,
-                        max_attempts=max_attempts,
-                    )
+                    try:
+                        failed_event = repository.fail_outbox(
+                            event.event_id,
+                            token,
+                            str(exc),
+                            retry_after_seconds=retry_after_seconds,
+                            max_attempts=max_attempts,
+                        )
+                        failure_status = str(
+                            getattr(failed_event.status, "value", failed_event.status)
+                        )
+                        _LOGGER.warning(
+                            "projection_event_failed",
+                            extra={
+                                "event_id": event.event_id,
+                                "aggregate_id": event.aggregate_id,
+                                "attempts": failed_event.attempts,
+                                "max_attempts": max_attempts,
+                                "classification": (
+                                    "dead_letter"
+                                    if failure_status == "dead_letter"
+                                    else "retryable"
+                                ),
+                                "status": failure_status,
+                                "error": str(exc)[:2000],
+                            },
+                        )
+                    except Exception as record_exc:
+                        _LOGGER.exception(
+                            "projection_failure_recording_failed",
+                            extra={
+                                "event_id": event.event_id,
+                                "aggregate_id": event.aggregate_id,
+                                "classification": "failure_recording",
+                                "error": str(record_exc)[:2000],
+                            },
+                        )
         return ProjectorRunResult(
             claimed=len(claimed),
             completed=completed,
