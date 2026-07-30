@@ -267,6 +267,30 @@ def test_ui_bootstrap_exchange_is_one_time_origin_bound_and_httponly() -> None:
     assert rejected_renew.status_code == 403
 
 
+def test_ui_bootstrap_rejects_noncanonical_port_and_scheme() -> None:
+    browser = _client(authorization="")
+
+    wrong_port = browser.get(
+        "/bhm/ui/session/bootstrap",
+        headers={
+            "Host": "127.0.0.1:9000",
+            "Origin": "http://127.0.0.1:9000",
+            "Sec-Fetch-Site": "same-origin",
+        },
+    )
+    assert wrong_port.status_code == 403
+
+    wrong_scheme = browser.get(
+        "/bhm/ui/session/bootstrap",
+        headers={
+            "Host": "127.0.0.1:8000",
+            "Origin": "https://127.0.0.1:8000",
+            "Sec-Fetch-Site": "same-origin",
+        },
+    )
+    assert wrong_scheme.status_code == 403
+
+
 def test_direct_browser_mcp_status_requires_ui_session_and_denies_post() -> None:
     """WI-152: Galaxy's final status read is session-bound; POST stays denied."""
 

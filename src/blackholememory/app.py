@@ -1724,9 +1724,10 @@ def _request_host_parts(host_header: str | None) -> tuple[str, str] | None:
     try:
         parsed = urlsplit(f"http://{raw_host}")
         hostname = str(parsed.hostname or "").casefold()
+        port = parsed.port
     except ValueError:
         return None
-    if hostname not in _LOOPBACK_HOSTS:
+    if hostname not in _LOOPBACK_HOSTS or port != settings.port or parsed.username or parsed.password:
         return None
     return hostname, raw_host.casefold()
 
@@ -1747,7 +1748,7 @@ def _ui_browser_request_is_same_origin(request: Request, *, require_origin: bool
     except ValueError:
         return False
     return (
-        origin.scheme.casefold() in {"http", "https"}
+        origin.scheme.casefold() == request.url.scheme.casefold()
         and origin_host in _LOOPBACK_HOSTS
         and origin.netloc.casefold() == host_parts[1]
     )
