@@ -5,6 +5,23 @@ authoritative lifecycle и metadata, Mem0 отвечает за semantic/logical
 Qdrant используется как восстанавливаемая vector projection, а LangGraph — для
 оркестрации stateful flows.
 
+## Authority and projection
+
+SQLite is the authoritative store. In the canonical authoritative runtime the
+projection worker is intentionally disabled by the SQLite authority guard;
+this is a protection boundary, not a runtime failure. Qdrant remains a
+rebuildable read projection and must not become a second source of truth.
+
+When an operator needs to reconcile a backlog, use the bounded operator flow:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bhm-projection-operator.ps1 -Action drain -MaxCycles 32
+```
+
+The flow temporarily runs the explicit projection worker in `sqlite-shadow`
+mode, then restores the canonical `sqlite-authoritative` runtime and verifies
+that pending and failed projection events are zero.
+
 ## MCP
 
 Канонический локальный endpoint:

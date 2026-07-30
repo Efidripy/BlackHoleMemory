@@ -1033,7 +1033,12 @@
       setHealthText("authorityState", memoryStore.backend || memoryStore.configured_mode || "unknown");
       setHealthText("authorityDetail", memoryStore.parity_confirmed ? "SQLite подтверждён как authoritative store." : "Parity не подтверждён текущим health-снимком.");
       setHealthText("projectionState", data.mem0?.status || storage.backend || "unknown");
-      setHealthText("projectionDetail", storage.ready ? "Qdrant projection доступна." : "Projection dependency требует внимания.");
+      const projectionWorker = memoryStore.projection_worker || {};
+      setHealthText("projectionDetail", storage.ready
+        ? projectionWorker.enabled
+          ? "Qdrant projection доступна, projection worker включён."
+          : "Qdrant projection доступна, projection worker выключен: SQLite authority guard."
+        : "Projection dependency требует внимания.");
       setHealthText("mcpEndpointState", runtimeReady ? "ready" : "attention");
       const activeSessions = Number(mcp.active_count ?? mcp.session_count ?? 0);
       const maxSessions = Number(mcp.max_sessions || 0);
