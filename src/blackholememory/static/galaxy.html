@@ -3874,6 +3874,7 @@
       const memoryStore = cutover.memory_store || {};
       const projectionWorker = memoryStore.projection_worker || {};
       const projection = `${Number(observed.projection_pending || 0)} pending · ${Number(observed.projection_failed || 0)} failed`;
+      const projectionWorkerText = projectionWorker.enabled ? "worker on" : "worker off · SQLite authority guard";
       const cutoverText = [memoryStore.backend || memoryStore.configured_mode, cutover.mem0 && cutover.mem0.status]
         .filter(Boolean)
         .join(" · ") || "unknown";
@@ -3885,7 +3886,7 @@
       const rows = [
         ["Lifecycle", formatQualityCounts(snapshot.lifecycleCounts)],
         ["Provenance", provenanceCoverage],
-        ["Projection", `${projection}${projectionWorker.enabled ? " · worker on" : " · worker off"}`],
+        ["Projection", `${projection} · ${projectionWorkerText}`],
         ["Cutover", cutoverText]
       ];
       for (const [label, value] of rows) {
@@ -4518,7 +4519,7 @@
           `${Number(outbox.pending || 0)} pending · ${Number(outbox.processing || 0)} processing`,
           `${Number(outbox.failed || 0)} failed · ${Number(outbox.dead_letter || 0)} dead-letter`,
           `${Number(outbox.completed || 0)} completed / ${Number(outbox.total || 0)} total`,
-          `Worker ${worker.enabled ? "on" : "off"}`
+          `Worker ${worker.enabled ? "on" : "off · SQLite authority guard"}`
         ]
       );
       addDiagnosticItem(

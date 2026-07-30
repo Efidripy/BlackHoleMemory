@@ -129,6 +129,15 @@ def test_galaxy_cbm_graph_query_is_bounded_cancellable_and_metadata_only():
     assert 'payload.query_plan?.pattern?.two_hop' in html
 
 
+def test_projection_worker_off_is_explained_as_authoritative_guard():
+    html = GALAXY_HTML.read_text(encoding="utf-8")
+    usage = (GALAXY_HTML.parents[3] / "docs/usage.md").read_text(encoding="utf-8")
+
+    assert "SQLite authority guard" in html
+    assert "projection worker" in usage
+    assert "authoritative store" in usage
+
+
 def test_galaxy_query_quality_receipt_is_progressively_disclosed_from_server_fields():
     html = GALAXY_HTML.read_text(encoding="utf-8")
 
