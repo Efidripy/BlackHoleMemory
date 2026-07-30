@@ -2711,7 +2711,9 @@
     });
     uiSessionRetryBtn?.addEventListener("click", () => {
       uiSessionRetryBtn.disabled = true;
-      void renewUiSession().catch(() => window.location.reload());
+      void renewUiSession().catch(() => {
+        window.location.reload();
+      });
     });
     mcpPanelRefreshBtn.addEventListener("click", refreshMcpPanel);
     mcpLeaseCancelBtn.addEventListener("click", cancelMcpPanelRefresh);
