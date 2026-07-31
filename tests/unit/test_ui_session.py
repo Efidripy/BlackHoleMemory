@@ -88,8 +88,12 @@ def test_registry_is_bounded_and_snapshot_is_redacted(monkeypatch) -> None:
 def test_only_explicit_read_only_ui_routes_are_allowed() -> None:
     assert ui_session.ui_session_route_allowed("/bhm/galaxy/data", "GET") is True
     assert ui_session.ui_session_route_allowed("/bhm/mcp/http/status", "GET") is True
+    assert ui_session.ui_session_route_allowed("/bhm/health", "GET") is True
+    assert ui_session.ui_session_route_allowed("/bhm/health/slo", "GET") is True
+    assert ui_session.ui_session_route_allowed("/health/cutover", "GET") is True
     assert ui_session.ui_session_route_allowed("/bhm/retrieval/explain", "POST") is True
     assert ui_session.ui_session_route_allowed("/bhm/ui/session/renew", "POST") is True
     assert ui_session.ui_session_route_allowed("/bhm/mcp/http/status", "POST") is False
+    assert ui_session.ui_session_route_allowed("/bhm/health", "POST") is False
     assert ui_session.ui_session_route_allowed("/bhm/infra/restart", "POST") is False
     assert ui_session.ui_session_route_allowed("/bhm/memory/update", "POST") is False
