@@ -286,7 +286,7 @@ def test_ui_bootstrap_exchange_is_one_time_origin_bound_and_httponly() -> None:
     assert "bhm_ui_session=" in set_cookie
     assert "httponly" in set_cookie
     assert "samesite=strict" in set_cookie
-    assert "path=/bhm" in set_cookie
+    assert "path=/" in set_cookie
     assert TEST_CALLER_TOKEN not in set_cookie
 
     replay = _client(authorization="").post(
@@ -313,6 +313,16 @@ def test_ui_bootstrap_exchange_is_one_time_origin_bound_and_httponly() -> None:
     )
     assert ui_boot_report.status_code == 200
     assert set(ui_boot_report.json()).issubset({"status", "elapsed_seconds", "qdrant", "lm_studio", "timestamp"})
+
+    for path in ("/bhm/health", "/bhm/health/slo", "/health/cutover"):
+        ui_health = browser.get(
+            path,
+            headers={"Host": "127.0.0.1:8000", "Sec-Fetch-Site": "same-origin"},
+        )
+        assert ui_health.status_code == 200, (path, ui_health.text)
+
+    anonymous_health = _client(authorization="").get("/bhm/health")
+    assert anonymous_health.status_code == 401
 
     raw_boot_report = browser.get(
         "/bhm/infra/boot-report",
