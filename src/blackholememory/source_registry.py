@@ -21,7 +21,7 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from .filesystem_boundaries import assert_safe_path
 from .filesystem_boundaries import replace_bytes_safely
@@ -216,9 +216,24 @@ def _json_write_atomic(path: Path, payload: dict[str, Any]) -> None:
 _SENSITIVE_KEY_RE = re.compile(r"(?i)(?:token|secret|password|credential|authorization|private[_-]?key|api[_-]?key)")
 
 
+def _redact_source_url(value: str) -> str:
+    """Keep source identity while removing query material from persisted evidence."""
+
+    raw = str(value or "").strip()
+    try:
+        parsed = urlsplit(raw)
+    except ValueError:
+        return "[REDACTED]"
+    if not parsed.query:
+        return raw
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
 def _redact_persisted_payload(value: Any, *, key: str = "") -> Any:
     """Keep registry receipts useful without persisting credential material."""
 
+    if key.casefold() == "source_url" and isinstance(value, str):
+        return _redact_source_url(value)
     if _SENSITIVE_KEY_RE.search(key):
         return "[REDACTED]"
     if isinstance(value, dict):
@@ -828,7 +843,10 @@ def sync_web_source(source: dict[str, Any], source_root: Path, *, refresh: bool 
                     error_path.unlink()
         except (OSError, urllib.error.URLError, SourceRegistryError) as exc:
             status = "failed"
-            safe_error = f"fetch failed for {source['source_url']}: {type(exc).__name__}: {exc}\n"
+            safe_error = (
+                f"fetch failed for {_redact_source_url(str(source['source_url']))}: "
+                f"{type(exc).__name__}: {exc}\n"
+            )
             replace_bytes_safely(error_path, safe_error.encode("utf-8"))
     if snapshot.exists() and status != "failed":
         material = snapshot

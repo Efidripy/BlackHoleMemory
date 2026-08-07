@@ -81,6 +81,21 @@ def test_sync_web_source_uses_bounded_external_transport(monkeypatch, tmp_path: 
     assert (tmp_path / ".src" / "web-fixture" / "reference.bin").read_bytes() == b"reference body"
 
 
+def test_persisted_web_source_evidence_redacts_query_material(monkeypatch, tmp_path: Path) -> None:
+    response = _Response(b"reference body")
+    monkeypatch.setattr(source_registry, "_open_web_source", lambda *_args, **_kwargs: response)
+
+    manifest = source_registry.sync_web_source(
+        _web_source("https://example.com/reference.txt?token=synthetic-secret"),
+        tmp_path / ".src",
+    )
+
+    assert manifest["source_url"] == "https://example.com/reference.txt?token=synthetic-secret"
+    persisted = (tmp_path / ".src" / "web-fixture" / "SOURCE-MANIFEST.json").read_text(encoding="utf-8")
+    assert "synthetic-secret" not in persisted
+    assert "https://example.com/reference.txt" in persisted
+
+
 def test_source_registry_web_timeout_is_registry_bounded() -> None:
     assert source_registry.SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS == 45
     assert source_registry.bounded_source_registry_web_timeout(7) == 7.0
