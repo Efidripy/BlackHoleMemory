@@ -738,6 +738,14 @@ def test_ui_session_is_invalidated_when_caller_credential_rotates(monkeypatch) -
     assert stale.status_code == 401
     assert stale.json()["detail"]["code"] == "caller_auth_required"
 
+    with pytest.raises(WebSocketDisconnect) as stale_socket:
+        with browser.websocket_connect(
+            "/bhm/ws",
+            headers=_ui_headers(),
+        ):
+            pass
+    assert stale_socket.value.code == 4401
+
 
 def test_ui_bootstrap_rejects_noncanonical_port_and_scheme() -> None:
     browser = _client(authorization="")

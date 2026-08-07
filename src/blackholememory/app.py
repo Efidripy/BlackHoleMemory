@@ -14949,7 +14949,10 @@ async def bhm_memory_pulse_ws(websocket: WebSocket) -> None:
     supplied = parse_bearer_token(websocket.headers.get("authorization"))
     bearer_authenticated = configured_principal is not None and is_caller_token_valid(supplied)
     ui_session_token = "" if bearer_authenticated else str(websocket.cookies.get(UI_SESSION_COOKIE) or "")
-    ui_session_lease = _UI_SESSIONS.resolve_session_lease(ui_session_token)
+    ui_session_lease = _UI_SESSIONS.resolve_session_lease(
+        ui_session_token,
+        expected_principal=configured_principal,
+    )
     principal = configured_principal if bearer_authenticated else (ui_session_lease[0] if ui_session_lease else None)
     if principal is None:
         await websocket.close(code=4401, reason="caller_auth_required")
@@ -14974,7 +14977,10 @@ async def bhm_memory_pulse_ws(websocket: WebSocket) -> None:
             if bearer_authenticated:
                 await websocket.receive_text()
                 continue
-            lease = _UI_SESSIONS.resolve_session_lease(ui_session_token)
+            lease = _UI_SESSIONS.resolve_session_lease(
+                ui_session_token,
+                expected_principal=configured_principal,
+            )
             if lease is None:
                 await websocket.close(code=4408, reason="ui_session_expired")
                 return
