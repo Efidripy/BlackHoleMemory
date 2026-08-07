@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from blackholememory.convention_memory import CONVENTION_SCHEMA_VERSION
@@ -20,6 +21,15 @@ from blackholememory.code_graph import SQLiteCodeGraphStore
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 DEFAULT_FEATURE_CONFIG = REPO_ROOT / "config" / "cbm-integration.json"
+
+
+def _is_default_database(database: Path) -> bool:
+    if database == DEFAULT_DATABASE:
+        return True
+    try:
+        return os.path.samefile(database, DEFAULT_DATABASE)
+    except (FileNotFoundError, OSError):
+        return False
 
 
 def _emit(value: object, report: str | None = None) -> None:
@@ -44,7 +54,7 @@ def _base(args: argparse.Namespace) -> tuple[Path, Path, str, str]:
 
 
 def _live_guard(args: argparse.Namespace, database: Path) -> None:
-    if database != DEFAULT_DATABASE:
+    if not _is_default_database(database):
         return
     if not args.allow_live:
         raise ConventionMemoryError("live convention build/review requires --allow-live; use an isolated evidence database")
