@@ -83,3 +83,91 @@ def test_admin_export_filters_alias_and_foreign_nested_records(monkeypatch, tmp_
     assert payload["project"] == "blackholememory"
     assert {item["id"] for item in payload["links"]} == {"local-link"}
     assert {item["id"] for item in payload["artifacts"]["checkpoint"]} == {"local-artifact"}
+
+
+def test_admin_snapshot_rejects_cross_project_link_endpoints(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: [
+            {"source_id": "local", "project": "blackholememory"},
+            {"source_id": "foreign", "project": "e-github-workspace"},
+        ],
+    )
+    monkeypatch.setattr(bhm_app, "_artifact_store_pairs", lambda: {})
+
+    with pytest.raises(HTTPException) as error:
+        bhm_app._validate_admin_snapshot_ownership(
+            {
+                "memories": [{"source_id": "local", "project": "blackholememory"}],
+                "links": [
+                    {
+                        "source_id": "local",
+                        "target_id": "foreign",
+                        "relation": "relates_to",
+                        "project": "blackholememory",
+                    }
+                ],
+                "artifacts": {},
+            }
+        )
+
+    assert error.value.status_code == 403
+    assert error.value.detail["code"] == "caller_project_forbidden"
+
+
+def test_admin_snapshot_rejects_artifact_backing_memory_from_foreign_project(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: [
+            {"source_id": "local", "project": "blackholememory"},
+            {"source_id": "foreign", "project": "e-github-workspace"},
+        ],
+    )
+    monkeypatch.setattr(
+        bhm_app,
+        "_artifact_store_pairs",
+        lambda: {"checkpoint": (lambda: [], lambda _items: None)},
+    )
+
+    with pytest.raises(HTTPException) as error:
+        bhm_app._validate_admin_snapshot_ownership(
+            {
+                "memories": [{"source_id": "local", "project": "blackholememory"}],
+                "links": [],
+                "artifacts": {
+                    "checkpoint": [
+                        {
+                            "id": "checkpoint-1",
+                            "project": "blackholememory",
+                            "memory_id": "foreign",
+                        }
+                    ]
+                },
+            }
+        )
+
+    assert error.value.status_code == 403
+    assert error.value.detail["code"] == "caller_project_forbidden"
+
+
+def test_admin_snapshot_rejects_foreign_memory_id_collision_before_merge(monkeypatch) -> None:
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: [{"source_id": "shared-id", "project": "e-github-workspace"}],
+    )
+    monkeypatch.setattr(bhm_app, "_artifact_store_pairs", lambda: {})
+
+    with pytest.raises(HTTPException) as error:
+        bhm_app._validate_admin_snapshot_ownership(
+            {
+                "memories": [{"source_id": "shared-id", "project": "blackholememory"}],
+                "links": [],
+                "artifacts": {},
+            }
+        )
+
+    assert error.value.status_code == 403
+    assert error.value.detail["code"] == "caller_project_forbidden"

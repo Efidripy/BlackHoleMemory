@@ -9837,6 +9837,95 @@ def _canonicalize_admin_snapshot_payload(payload: dict[str, Any], requested_proj
     return scope
 
 
+def _validate_admin_snapshot_ownership(payload: Mapping[str, Any]) -> None:
+    """Reject snapshot links/artifacts that cross memory project ownership.
+
+    Project labels on nested records are not sufficient: links and artifacts
+    carry foreign keys which can otherwise bind an allowed-project snapshot to
+    a memory owned by another project.  Validate the complete relationship
+    graph before the import writes any authoritative sidecar data.
+    """
+
+    incoming_memories = payload.get("memories") or []
+    incoming_by_id: dict[str, str] = {}
+    for item in incoming_memories:
+        if not isinstance(item, Mapping):
+            continue
+        source_id = str(item.get("source_id") or "").strip()
+        project = str(item.get("project") or "").strip()
+        if not source_id or not project:
+            continue
+        canonical = _canonical_project(project)
+        previous = incoming_by_id.get(source_id)
+        if previous is not None and previous != canonical:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "caller_project_forbidden"},
+            )
+        incoming_by_id[source_id] = canonical
+
+    existing_by_id: dict[str, str] = {}
+    for item in _load_live_memories():
+        source_id = str(item.get("source_id") or "").strip()
+        project = str(item.get("project") or "").strip()
+        if source_id and project:
+            existing_by_id[source_id] = _canonical_project(project)
+
+    # Do not let either merge mode silently bind an incoming memory id to a
+    # different project already present in the authoritative store.
+    for source_id, incoming_project in incoming_by_id.items():
+        existing_project = existing_by_id.get(source_id)
+        if existing_project is not None and existing_project != incoming_project:
+            raise HTTPException(
+                status_code=403,
+                detail={"code": "caller_project_forbidden"},
+            )
+
+    memory_projects = {**existing_by_id, **incoming_by_id}
+    for item in payload.get("links") or []:
+        if not isinstance(item, Mapping):
+            raise HTTPException(status_code=422, detail={"code": "admin_snapshot_invalid"})
+        link_project = str(item.get("project") or "").strip()
+        source_id = str(item.get("source_id") or "").strip()
+        target_id = str(item.get("target_id") or "").strip()
+        if not link_project or not source_id or not target_id:
+            raise HTTPException(status_code=422, detail={"code": "admin_snapshot_link_invalid"})
+        canonical_link_project = _canonical_project(link_project)
+        for endpoint_id in (source_id, target_id):
+            endpoint_project = memory_projects.get(endpoint_id)
+            if endpoint_project != canonical_link_project:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": "caller_project_forbidden"},
+                )
+
+    for artifact_type, items in (payload.get("artifacts") or {}).items():
+        existing_artifacts = {
+            str(item.get("id")): _canonical_project(item.get("project"))
+            for item in _artifact_store_pairs().get(artifact_type, (lambda: [], lambda _items: None))[0]()
+            if isinstance(item, Mapping) and str(item.get("id") or "").strip() and str(item.get("project") or "").strip()
+        }
+        for item in items:
+            if not isinstance(item, Mapping):
+                raise HTTPException(status_code=422, detail={"code": "admin_snapshot_invalid"})
+            artifact_project = str(item.get("project") or "").strip()
+            if not artifact_project:
+                raise HTTPException(status_code=422, detail={"code": "admin_snapshot_project_required"})
+            canonical_artifact_project = _canonical_project(artifact_project)
+            artifact_id = str(item.get("id") or "").strip()
+            if artifact_id and artifact_id in existing_artifacts and existing_artifacts[artifact_id] != canonical_artifact_project:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": "caller_project_forbidden"},
+                )
+            memory_id = str(item.get("memory_id") or "").strip()
+            if memory_id and memory_projects.get(memory_id) != canonical_artifact_project:
+                raise HTTPException(
+                    status_code=403,
+                    detail={"code": "caller_project_forbidden"},
+                )
+
+
 def _admin_export(request: AdminExportRequest) -> dict:
     export_dir = settings.runtime_dir / "admin-exports"
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -9878,6 +9967,7 @@ def _admin_import_preview(request: AdminImportPreviewRequest, *, http_request: R
     payload = _load_admin_snapshot_payload(path)
     _authorize_admin_snapshot_project(http_request, request.project, payload)
     scope = _canonicalize_admin_snapshot_payload(payload, request.project)
+    _validate_admin_snapshot_ownership(payload)
     return {
         "path": str(path),
         "project": scope,
@@ -9898,6 +9988,7 @@ def _admin_import_apply(request: AdminImportApplyRequest, *, http_request: Reque
     payload = _load_admin_snapshot_payload(path)
     _authorize_admin_snapshot_project(http_request, request.project, payload)
     scope = _canonicalize_admin_snapshot_payload(payload, request.project)
+    _validate_admin_snapshot_ownership(payload)
     imported = {"memories": 0, "links": 0, "artifacts": 0}
     live_records = _load_live_memories()
     by_id = {item.get("source_id"): item for item in live_records}
