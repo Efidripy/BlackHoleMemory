@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 from blackholememory.code_graph import CODE_GRAPH_SCHEMA_VERSION
@@ -17,6 +18,15 @@ from blackholememory.repository_index import probe_repository_state
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 DEFAULT_FEATURE_CONFIG = REPO_ROOT / "config" / "cbm-integration.json"
+
+
+def _is_default_database(database: Path) -> bool:
+    if database == DEFAULT_DATABASE:
+        return True
+    try:
+        return os.path.samefile(database, DEFAULT_DATABASE)
+    except (FileNotFoundError, OSError):
+        return False
 
 
 def _json(value: object, report: str | None = None) -> None:
@@ -65,9 +75,10 @@ def main() -> int:
             return 0
         if not args.confirm:
             raise CodeGraphError("build requires --confirm")
-        if database == DEFAULT_DATABASE and not args.allow_live:
+        is_live_database = _is_default_database(database)
+        if is_live_database and not args.allow_live:
             raise CodeGraphError("live database build requires --allow-live; use an isolated evidence database for WI-02")
-        if database == DEFAULT_DATABASE and args.allow_live:
+        if is_live_database and args.allow_live:
             flags = _config(Path(args.feature_config)).get("feature_flags") or {}
             if not bool(flags.get("integration_enabled")) or not bool(flags.get("code_index_enabled")):
                 raise CodeGraphError("live graph build requires integration_enabled=true and code_index_enabled=true")
