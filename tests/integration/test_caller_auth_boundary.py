@@ -14,7 +14,11 @@ from blackholememory import ui_session as ui_session_module
 
 TEST_CALLER_TOKEN = "bhm-test-caller-token-0000000000000001"
 def _client(*, authorization: str = f"Bearer {TEST_CALLER_TOKEN}") -> TestClient:
-    return TestClient(bhm_app.app, headers={"Authorization": authorization})
+    return TestClient(
+        bhm_app.app,
+        client=("127.0.0.1", 54321),
+        headers={"Authorization": authorization},
+    )
 
 
 def test_health_remains_anonymous() -> None:
@@ -648,6 +652,21 @@ def test_ui_bootstrap_exchange_is_one_time_origin_bound_and_httponly() -> None:
         headers={**_ui_headers(), "Origin": "http://127.0.0.1:9000"},
     )
     assert rejected_renew.status_code == 403
+
+
+def test_ui_session_mint_rejects_non_loopback_client() -> None:
+    remote = TestClient(
+        bhm_app.app,
+        base_url="http://127.0.0.1:8000",
+        client=("198.51.100.7", 54321),
+        headers={"Authorization": f"Bearer {TEST_CALLER_TOKEN}"},
+    )
+
+    response = remote.post("/bhm/ui/session/mint")
+
+    assert response.status_code == 403
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["detail"]["code"] == "ui_session_mint_loopback_only"
 
 
 def test_ui_session_is_invalidated_when_caller_credential_rotates(monkeypatch) -> None:
