@@ -62,7 +62,29 @@ def read_private_key(path: Path):
 def write_text(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     validate_output_path(path)
-    path.write_text(value + "\n", encoding="utf-8", newline="\n")
+    payload = (value + "\n").encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    # O_EXCL prevents replacement of an existing file or symlink.  Where the
+    # platform exposes O_NOFOLLOW, keep the final open fail-closed as well;
+    # validation remains defense-in-depth for parent reparse points.
+    flags |= int(getattr(os, "O_NOFOLLOW", 0))
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except FileExistsError as exc:
+        raise SystemExit(f"signing output already exists; refusing overwrite: {path}") from exc
+    except OSError as exc:
+        raise SystemExit(f"unable to create signing output exclusively: {path}") from exc
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except Exception:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def _reject_reparse_ancestors(path: Path, message: str) -> None:
@@ -245,6 +267,13 @@ def main() -> int:
     signature_out = (args.signature_out or Path(f"{archive}.sig")).absolute()
     public_key_out = (args.public_key_out or Path(f"{archive}.pub")).absolute()
     receipt_out = (args.receipt_out or Path(f"{archive}.trust.json")).absolute()
+    # Validate every destination before creating any sidecar so a pre-existing
+    # or unsafe sibling cannot leave a partially published signature set.
+    for output in (signature_out, public_key_out, receipt_out):
+        output.parent.mkdir(parents=True, exist_ok=True)
+        validate_output_path(output)
+        if output.exists() or output.is_symlink():
+            raise SystemExit(f"signing output already exists; refusing overwrite: {output}")
     write_text(signature_out, base64.b64encode(signature).decode("ascii"))
     write_text(public_key_out, base64.b64encode(public_key).decode("ascii"))
     receipt = build_receipt(
@@ -259,9 +288,7 @@ def main() -> int:
         created_at=created_at,
         signed_envelope=signed_envelope,
     )
-    receipt_out.parent.mkdir(parents=True, exist_ok=True)
-    validate_output_path(receipt_out)
-    receipt_out.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    write_text(receipt_out, json.dumps(receipt, ensure_ascii=False, indent=2))
     print(json.dumps({
         "ok": True,
         "archive": str(archive),
