@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sqlite3
 import urllib.request
 from datetime import datetime, timezone
@@ -62,7 +63,7 @@ def qdrant_collections(base_url: str) -> dict[str, Any]:
 
 def online_backup(source: Path, target: Path) -> dict[str, Any]:
     target.parent.mkdir(parents=True, exist_ok=True)
-    if target.exists():
+    if os.path.lexists(target) or target.exists():
         raise RuntimeError(f"backup already exists: {target}")
     source_db = sqlite3.connect(str(source))
     target_db = sqlite3.connect(str(target))
