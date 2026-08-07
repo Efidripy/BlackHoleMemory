@@ -402,6 +402,34 @@ def test_detached_signer_rejects_hardlinked_output(tmp_path: Path) -> None:
     assert output.read_bytes() == b"do not replace"
 
 
+def test_detached_signer_refuses_existing_single_link_output(tmp_path: Path) -> None:
+    archive = tmp_path / "BHM-Release-v1.8.0.zip"
+    key = tmp_path / "signer.pem"
+    output = tmp_path / "existing.sig"
+    archive.write_bytes(b"immutable release bytes")
+    _key(key)
+    output.write_bytes(b"do not replace")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SIGN),
+            "--archive", str(archive),
+            "--private-key", str(key),
+            "--expected-version", "v1.8.0",
+            "--signer-id", "test-signer",
+            "--signature-out", str(output),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "refusing overwrite" in result.stderr.lower()
+    assert output.read_bytes() == b"do not replace"
+
+
 def test_detached_signer_rejects_symlink_output(tmp_path: Path) -> None:
     archive = tmp_path / "BHM-Release-v1.8.0.zip"
     key = tmp_path / "signer.pem"
