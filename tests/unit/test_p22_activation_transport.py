@@ -55,3 +55,18 @@ def test_qdrant_collections_uses_local_bounded_transport(monkeypatch) -> None:
 def test_qdrant_collections_rejects_non_local_endpoint() -> None:
     with pytest.raises(LocalEndpointError, match="local-only"):
         MODULE.qdrant_collections("https://example.com")
+
+
+def test_online_backup_rejects_dangling_symlink_target(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite3"
+    source.write_bytes(b"SQLite format 3\x00synthetic")
+    outside = tmp_path / "outside.sqlite3"
+    target = tmp_path / "backup.sqlite3"
+    try:
+        target.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    with pytest.raises(RuntimeError, match="backup already exists"):
+        MODULE.online_backup(source, target)
+    assert not outside.exists()
