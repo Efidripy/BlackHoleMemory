@@ -75,6 +75,17 @@ def test_lifespan_cleans_background_tasks_when_worker_startup_fails(monkeypatch:
     assert all(task.done() and task.cancelled() for task in created)
 
 
+def test_lifespan_rejects_non_loopback_listener_before_runtime_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(bhm_app.settings, "host", "0.0.0.0")
+
+    async def exercise() -> None:
+        manager = bhm_app._app_lifespan(bhm_app.app)
+        with pytest.raises(RuntimeError, match="loopback-only"):
+            await manager.__aenter__()
+
+    asyncio.run(exercise())
+
+
 def test_lifespan_shutdown_stops_workers_and_infra_after_context_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
     created: list[asyncio.Task] = []
@@ -99,5 +110,72 @@ def test_lifespan_shutdown_stops_workers_and_infra_after_context_exit(monkeypatc
     asyncio.run(exercise())
 
     assert events == ["workers_started", "mcp_enter", "body", "mcp_exit", "workers_stopped", "api_shutdown"]
+    assert created
+    assert all(task.done() and task.cancelled() for task in created)
+
+
+def test_lifespan_observes_failed_background_task_and_cleans_siblings(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str] = []
+    created: list[asyncio.Task] = []
+
+    async def fail_warmup() -> None:
+        raise RuntimeError("synthetic provider warmup failure")
+
+    @asynccontextmanager
+    async def fake_mcp_run():
+        events.append("mcp_enter")
+        yield
+        events.append("mcp_exit")
+
+    async def start_workers() -> None:
+        events.append("workers_started")
+
+    async def exercise() -> None:
+        nonlocal created
+        created = _patch_lifespan_dependencies(monkeypatch, events)
+        monkeypatch.setattr(bhm_app, "warmup_provider_probe", fail_warmup)
+        monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", start_workers)
+        monkeypatch.setattr(bhm_app._MCP_STREAMABLE_HTTP, "run", fake_mcp_run)
+        async with bhm_app._app_lifespan(bhm_app.app):
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            events.append("body")
+
+    asyncio.run(exercise())
+
+    assert events == ["workers_started", "mcp_enter", "body", "mcp_exit", "workers_stopped", "api_shutdown"]
+    assert created
+    assert all(task.done() and (task.cancelled() or task.exception() is not None) for task in created)
+
+
+def test_lifespan_cleanup_runs_when_worker_stop_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    events: list[str] = []
+    created: list[asyncio.Task] = []
+
+    @asynccontextmanager
+    async def fake_mcp_run():
+        events.append("mcp_enter")
+        yield
+        events.append("mcp_exit")
+
+    async def start_workers() -> None:
+        events.append("workers_started")
+
+    async def fail_stop_workers() -> None:
+        raise RuntimeError("synthetic hook worker shutdown failure")
+
+    async def exercise() -> None:
+        nonlocal created
+        created = _patch_lifespan_dependencies(monkeypatch, events)
+        monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", start_workers)
+        monkeypatch.setattr(bhm_app, "_stop_hook_queue_workers", fail_stop_workers)
+        monkeypatch.setattr(bhm_app._MCP_STREAMABLE_HTTP, "run", fake_mcp_run)
+        with pytest.raises(RuntimeError, match="synthetic hook worker shutdown failure"):
+            async with bhm_app._app_lifespan(bhm_app.app):
+                events.append("body")
+
+    asyncio.run(exercise())
+
+    assert events == ["workers_started", "mcp_enter", "body", "mcp_exit", "api_shutdown"]
     assert created
     assert all(task.done() and task.cancelled() for task in created)

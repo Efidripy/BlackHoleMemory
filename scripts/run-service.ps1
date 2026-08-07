@@ -33,6 +33,7 @@ $lmStudioUrl = Get-BhmRuntimeEndpoint -Name "lm_studio" -RepoRoot $repoRoot
 $lmStudioPort = (Get-BhmRuntimeEndpointParts -Name "lm_studio" -RepoRoot $repoRoot).Port
 $env:BHM_HOST = if ($env:BHM_HOST) { $env:BHM_HOST } else { $apiParts.Host }
 $env:BHM_PORT = if ($env:BHM_PORT) { $env:BHM_PORT } else { [string]$apiParts.Port }
+Assert-BhmApiLoopbackHost -HostName ([string]$env:BHM_HOST)
 
 function Get-ConfiguredOpenAiBaseUrl {
   if ($env:OPENAI_BASE_URL) {

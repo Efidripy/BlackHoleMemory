@@ -98,6 +98,30 @@ def test_path_explain_quality_receipt_classifies_unresolved_and_truncated_paths(
     assert receipt["evidence_digest"] == repeat["evidence_digest"]
 
 
+def test_explicit_snapshot_cannot_cross_project_scope(tmp_path: Path) -> None:
+    database = tmp_path / "graph.sqlite3"
+    source = RepositorySourceProvenance(owner="fixture", source_url="local://scope", license="MIT", evidence_class="E0")
+    snapshots: dict[str, tuple[str, str]] = {}
+    for project, name in (("project_a", "a"), ("project_b", "b")):
+        root = tmp_path / name
+        root.mkdir()
+        (root / "module.py").write_text(f"def {name}_secret():\n    return '{project}'\n", encoding="utf-8")
+        indexed = index_repository(root, database, project=project, source=source)
+        state = probe_repository_state(root, project=project)
+        graph = build_code_graph(database, project=project, root_id=state.root_id, repository_snapshot_id=indexed["snapshot_id"])
+        snapshots[project] = (str(state.root_id), str(graph["graph_snapshot_id"]))
+
+    with pytest.raises(CodeGraphQueryError, match="outside the requested project/root scope"):
+        query_code_graph(
+            database,
+            project="project_a",
+            root_id=snapshots["project_a"][0],
+            operation="symbol",
+            query="secret",
+            snapshot_id=snapshots["project_b"][1],
+        )
+
+
 def test_resolve_returns_metadata_only_module_package_and_symbol_candidates(tmp_path: Path) -> None:
     _root, database, root_id, _repository_snapshot_id, _graph_snapshot_id = _fixture(tmp_path)
     resolved = query_code_graph(database, project="demo", root_id=root_id, operation="resolve", query="Service", limit=16)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -97,8 +99,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         output = Path(args.report).expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(output, (rendered + "\n").encode("utf-8"))
     return 0 if report["ok"] else 1
 
 

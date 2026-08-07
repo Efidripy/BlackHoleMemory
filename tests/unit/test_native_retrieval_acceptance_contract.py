@@ -16,6 +16,8 @@ def test_native_acceptance_contract_is_read_only_and_bounded():
         "mutation",
         "memory.search",
         "compatibility fallback is not called",
+        r"172\.18",
+        "endpoint_url(\"lm_studio\")",
     ):
         assert marker in text
 
@@ -24,3 +26,9 @@ def test_native_acceptance_has_no_mutating_qdrant_calls():
     text = SCRIPT.read_text(encoding="utf-8")
     for forbidden in ("set_payload", "overwrite_payload", "upsert", "delete"):
         assert forbidden not in text
+
+
+def test_native_acceptance_provider_probe_uses_registry_timeout():
+    text = SCRIPT.read_text(encoding="utf-8")
+    assert "LLM_INVENTORY_HTTP_TIMEOUT_SECONDS" in text
+    assert "urlopen(request, timeout=2)" not in text

@@ -8,12 +8,76 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+Add-Type -AssemblyName System.Net.Http
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
 $apiParts = Get-BhmRuntimeEndpointParts -Name 'bhm_api' -RepoRoot $repoRoot
 $lmStudioParts = Get-BhmRuntimeEndpointParts -Name 'lm_studio' -RepoRoot $repoRoot
 $lmStudioUrl = Get-BhmRuntimeEndpoint -Name 'lm_studio' -RepoRoot $repoRoot
 $llmDefaultUrl = Get-BhmRuntimeEndpoint -Name 'llm_default' -RepoRoot $repoRoot
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot }
+
+$ProjectionHttpTimeoutSec = 10
+$ProjectionHttpMaxResponseBytes = 262144
+$ProjectionShutdownTimeoutSec = 5
+
+function Assert-ProjectionOperatorUri {
+    param([Parameter(Mandatory = $true)][string]$Candidate)
+
+    $parsed = $null
+    if (-not [Uri]::TryCreate($Candidate, [UriKind]::Absolute, [ref]$parsed)) {
+        throw 'projection operator probe URL is not an absolute URI'
+    }
+    $allowedHosts = @('127.0.0.1', 'localhost', '::1')
+    if ($parsed.Scheme -ne 'http' -or $allowedHosts -notcontains $parsed.Host.ToLowerInvariant()) {
+        throw 'projection operator probes require an HTTP loopback endpoint'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.UserInfo)) {
+        throw 'projection operator probe URL must not contain userinfo'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.Query) -or -not [string]::IsNullOrWhiteSpace($parsed.Fragment)) {
+        throw 'projection operator probe URL must not contain query or fragment'
+    }
+    return $parsed
+}
+
+function Invoke-ProjectionOperatorJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [hashtable]$Headers = @{}
+    )
+
+    $parsed = Assert-ProjectionOperatorUri -Candidate $Uri
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseProxy = $false
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds($ProjectionHttpTimeoutSec)
+    $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $parsed)
+    $response = $null
+    try {
+        foreach ($key in $Headers.Keys) {
+            $request.Headers.TryAddWithoutValidation([string]$key, [string]$Headers[$key]) | Out-Null
+        }
+        $response = $client.SendAsync(
+            $request,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        ).GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) {
+            throw "projection operator probe returned HTTP $([int]$response.StatusCode)"
+        }
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        if ($bytes.Length -gt $ProjectionHttpMaxResponseBytes) {
+            throw "projection operator probe response exceeded bounded limit $ProjectionHttpMaxResponseBytes bytes"
+        }
+        return ([Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json)
+    }
+    finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
 
 function Get-ConfiguredOpenAiBaseUrl {
     if (-not [string]::IsNullOrWhiteSpace([string]$env:OPENAI_BASE_URL)) {
@@ -40,8 +104,8 @@ function Test-OpenAiBaseUrl {
     param([Parameter(Mandatory = $true)][string]$Candidate)
 
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri "$($Candidate.TrimEnd('/'))/models" -TimeoutSec 2
-        return [int]$response.StatusCode -eq 200
+        $null = Invoke-ProjectionOperatorJson -Uri "$($Candidate.TrimEnd('/'))/models"
+        return $true
     } catch {
         return $false
     }
@@ -86,6 +150,26 @@ function Stop-BhmProcesses {
             Stop-Process -Id $listenerId -Force -ErrorAction SilentlyContinue
         }
     }
+    $deadline = [DateTime]::UtcNow.AddSeconds($ProjectionShutdownTimeoutSec)
+    do {
+        $remaining = @($knownIds | Where-Object {
+            try { $null -ne (Get-Process -Id $_ -ErrorAction Stop) } catch { $false }
+        })
+        if ($remaining.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    foreach ($processId in $remaining) {
+        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+    }
+    $retryDeadline = [DateTime]::UtcNow.AddSeconds($ProjectionShutdownTimeoutSec)
+    do {
+        $remaining = @($remaining | Where-Object {
+            try { $null -ne (Get-Process -Id $_ -ErrorAction Stop) } catch { $false }
+        })
+        if ($remaining.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $retryDeadline)
+    throw "Projection operator process cleanup exceeded bounded shutdown deadline of $ProjectionShutdownTimeoutSec seconds. Remaining PIDs: $($remaining -join ', ')"
 }
 
 function Get-BhmCallerHeaders {
@@ -115,9 +199,9 @@ function Get-LiveSlo {
     param([Parameter(Mandatory = $true)][string]$Url)
 
     $headers = Get-BhmCallerHeaders
-    $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -Headers $headers -TimeoutSec 10
-    $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -Headers $headers -TimeoutSec 10
-    $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -Headers $headers -TimeoutSec 10
+    $health = Invoke-ProjectionOperatorJson -Uri "$($Url.TrimEnd('/'))/bhm/health" -Headers $headers
+    $cutover = Invoke-ProjectionOperatorJson -Uri "$($Url.TrimEnd('/'))/health/cutover" -Headers $headers
+    $slo = Invoke-ProjectionOperatorJson -Uri "$($Url.TrimEnd('/'))/bhm/health/slo" -Headers $headers
     [pscustomobject]@{
         health = $health.status
         version = $health.version
@@ -189,14 +273,25 @@ $stderr = Join-Path $RepoRoot ".runtime\bootstrap\projection-operator-launcher.s
         Start-Sleep -Seconds 1
         $launcher.Refresh()
     }
+    $timedOut = -not $launcher.HasExited
+    if ($timedOut) {
+        Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue
+        $stopDeadline = [DateTime]::UtcNow.AddSeconds($ProjectionShutdownTimeoutSec)
+        do {
+            try { $launcher.Refresh() } catch { break }
+            if ($launcher.HasExited) { break }
+            Start-Sleep -Milliseconds 250
+        } while ([DateTime]::UtcNow -lt $stopDeadline)
+    }
     $launcher.Refresh()
     $text = if (Test-Path -LiteralPath $stdout) { Get-Content -LiteralPath $stdout -Raw } else { "" }
     $errorText = if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr -Raw } else { "" }
     $safeText = if ($null -eq $text) { "" } else { [string]$text }
     $safeErrorText = if ($null -eq $errorText) { "" } else { [string]$errorText }
     [pscustomobject]@{
-        ok = ($launcher.HasExited -and [string]::IsNullOrWhiteSpace($safeErrorText) -and $safeText -match '"ok"\s*:\s*true')
+        ok = ($launcher.HasExited -and -not $timedOut -and [string]::IsNullOrWhiteSpace($safeErrorText) -and $safeText -match '"ok"\s*:\s*true')
         exited = $launcher.HasExited
+        timed_out = $timedOut
         stdout = $safeText.Trim()
         stderr = $safeErrorText.Trim()
     }

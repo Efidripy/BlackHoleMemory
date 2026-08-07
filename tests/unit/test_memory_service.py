@@ -66,6 +66,22 @@ def test_service_tombstone_is_explicit_and_does_not_physical_delete(tmp_path):
     assert service.repository.get_memory("mem_bhm_service_001") is not None
 
 
+def test_service_lifecycle_lookup_is_project_scoped(tmp_path):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    service.upsert_records([_record()])
+
+    assert service.get_record("mem_bhm_service_001", project="other-project") is None
+    assert service.tombstone(
+        "mem_bhm_service_001",
+        project="other-project",
+        reason="foreign-project-attempt",
+    ) is None
+    current = service.repository.get_memory("mem_bhm_service_001", project="blackholememory")
+
+    assert current is not None
+    assert current.lifecycle.value == "active"
+
+
 def test_service_outbox_status_reports_bounded_counts(tmp_path):
     service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
     service.upsert_records([_record()])

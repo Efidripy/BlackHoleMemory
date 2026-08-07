@@ -10,6 +10,81 @@ $ErrorActionPreference = "Stop"
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\runtime-endpoints.ps1')
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot (Split-Path -Parent $PSScriptRoot) }
 
+$RefineryHttpTimeoutSec = 20
+$RefineryHttpMaxResponseBytes = 262144
+
+function Assert-RefineryUri {
+    param([Parameter(Mandatory = $true)][string]$Candidate)
+
+    $parsed = $null
+    if (-not [Uri]::TryCreate($Candidate, [UriKind]::Absolute, [ref]$parsed)) {
+        throw 'memory refinery URL is not an absolute URI'
+    }
+    $allowedHosts = @('127.0.0.1', 'localhost', '::1')
+    if ($parsed.Scheme -ne 'http' -or $allowedHosts -notcontains $parsed.Host.ToLowerInvariant()) {
+        throw 'memory refinery requires an HTTP loopback endpoint'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.UserInfo)) {
+        throw 'memory refinery URL must not contain userinfo'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.Fragment)) {
+        throw 'memory refinery URL must not contain a fragment'
+    }
+    return $parsed
+}
+
+function Invoke-RefineryJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Method,
+        [Parameter(Mandatory = $true)][string]$Url,
+        [object]$Body
+    )
+
+    $parsed = Assert-RefineryUri -Candidate $Url
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseProxy = $false
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds($RefineryHttpTimeoutSec)
+    $request = [System.Net.Http.HttpRequestMessage]::new(
+        [System.Net.Http.HttpMethod]::new($Method.ToUpperInvariant()),
+        $parsed
+    )
+    $response = $null
+    try {
+        $token = Get-BhmCallerToken
+        $request.Headers.TryAddWithoutValidation('Authorization', "Bearer $token") | Out-Null
+        if ($null -ne $Body) {
+            $jsonBody = $Body | ConvertTo-Json -Depth 12 -Compress
+            $request.Content = [System.Net.Http.StringContent]::new(
+                $jsonBody,
+                [Text.Encoding]::UTF8,
+                'application/json'
+            )
+        }
+        $response = $client.SendAsync(
+            $request,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        ).GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) {
+            throw "memory refinery returned HTTP $([int]$response.StatusCode)"
+        }
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        if ($bytes.Length -gt $RefineryHttpMaxResponseBytes) {
+            throw "memory refinery response exceeded bounded limit $RefineryHttpMaxResponseBytes bytes"
+        }
+        $text = [Text.Encoding]::UTF8.GetString($bytes)
+        if ([string]::IsNullOrWhiteSpace($text)) { return $null }
+        return $text | ConvertFrom-Json
+    }
+    finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
 function Get-BhmCallerToken {
     $token = [string]$env:BHM_CALLER_TOKEN
     if ($token.Length -lt 32) {
@@ -28,17 +103,7 @@ function Invoke-BhmJson {
         [object]$Body
     )
 
-    $headers = @{ Authorization = 'Bearer {0}' -f (Get-BhmCallerToken) }
-    if ($null -ne $Body) {
-        return Invoke-RestMethod `
-            -Method $Method `
-            -Uri $Url `
-            -Headers $headers `
-            -ContentType "application/json" `
-            -Body ($Body | ConvertTo-Json -Depth 12)
-    }
-
-    return Invoke-RestMethod -Method $Method -Uri $Url -Headers $headers
+    return Invoke-RefineryJson -Method $Method -Url $Url -Body $Body
 }
 
 function Add-Step {

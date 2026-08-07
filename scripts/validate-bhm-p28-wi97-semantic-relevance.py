@@ -24,6 +24,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.code_search import fuse_code_search_matches  # noqa: E402
+from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
 
 SCHEMA_VERSION = "bhm.p28.wi97.semantic-relevance.v1"
 MAX_CASES = 32
@@ -106,7 +107,7 @@ def main() -> int:
     result = run(args.cases)
     payload = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.output:
-        args.output.write_text(payload, encoding="utf-8")
+        replace_bytes_safely(args.output, payload.encode("utf-8"))
     print(payload, end="")
     return 0 if result["ok"] else 1
 

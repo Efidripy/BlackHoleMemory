@@ -20,8 +20,8 @@ import httpx
 
 from .llm_gateway import is_local_endpoint
 from .llm_gateway import normalize_json_content
-from .value_benchmark import DEFAULT_CASE_COUNT
-from .value_benchmark import DEFAULT_REPEAT_COUNT
+from .filesystem_boundaries import replace_bytes_safely
+from .local_endpoint_policy import MAX_RESPONSE_BYTES
 from .value_benchmark import ValueBenchmarkCase
 from .value_benchmark import build_value_benchmark_cases
 from .value_benchmark import build_value_benchmark_context
@@ -32,9 +32,13 @@ LOCAL_MODEL_REPLAY_SCHEMA_VERSION = "bhm.local-model-replay.v1"
 DEFAULT_BASE_URL = "http://127.0.0.1:13666/v1"
 DEFAULT_MODEL_ID = "qwen2.5-coder-7b-instruct"
 DEFAULT_MODES = ("file-only", "bhm-full")
+LOCAL_MODEL_REPLAY_DEFAULT_CASE_COUNT = 111
+LOCAL_MODEL_REPLAY_DEFAULT_REPEAT_COUNT = 3
+LOCAL_MODEL_REPLAY_EXPECTED_CALLS = 666
 PROMPT_ID = "bhm-agent-replay"
 PROMPT_VERSION = "1.0"
 MAX_FAILURE_SAMPLES = 24
+MAX_REPLAY_RESPONSE_BYTES = MAX_RESPONSE_BYTES
 
 SYSTEM_PROMPT = """You are a local, evidence-constrained software agent.
 Use only the supplied CONTEXT. Do not use outside knowledge.
@@ -49,8 +53,8 @@ Tool budget is zero: do not invent tool calls."""
 async def run_local_model_replay(
     *,
     cases: Sequence[ValueBenchmarkCase] | None = None,
-    case_count: int = DEFAULT_CASE_COUNT,
-    repeats: int = DEFAULT_REPEAT_COUNT,
+    case_count: int = LOCAL_MODEL_REPLAY_DEFAULT_CASE_COUNT,
+    repeats: int = LOCAL_MODEL_REPLAY_DEFAULT_REPEAT_COUNT,
     base_url: str = DEFAULT_BASE_URL,
     model_id: str = DEFAULT_MODEL_ID,
     modes: Sequence[str] = DEFAULT_MODES,
@@ -93,9 +97,15 @@ async def run_local_model_replay(
     if not fixture:
         raise ValueError("local-model replay requires at least one case")
     fixture_digest = value_benchmark_fixture_digest(fixture)
+    total_model_calls = len(fixture) * repeat_count * len(selected_modes)
 
     runs: list[dict[str, Any]] = []
-    async with httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=timeout) as client:
+    async with httpx.AsyncClient(
+        base_url=base_url.rstrip("/"),
+        timeout=timeout,
+        trust_env=False,
+        follow_redirects=False,
+    ) as client:
         available_models = await _discover_models(client, model_id)
         for repetition in range(1, repeat_count + 1):
             run_started = time.perf_counter()
@@ -130,6 +140,11 @@ async def run_local_model_replay(
         "benchmark": "BHM Local Model Replay v1",
         "case_count": len(fixture),
         "repeat_count": repeat_count,
+        "total_model_calls": total_model_calls,
+        "call_budget": {
+            "expected_total_model_calls": LOCAL_MODEL_REPLAY_EXPECTED_CALLS,
+            "status": "pass" if total_model_calls == LOCAL_MODEL_REPLAY_EXPECTED_CALLS else "mismatch",
+        },
         "fixture_digest": fixture_digest,
         "modes": list(selected_modes),
         "model": {
@@ -186,7 +201,8 @@ def render_local_model_replay_markdown(report: Mapping[str, Any]) -> str:
         "## BHM Local Model Replay",
         "",
         f"Local model: `{model.get('model_id')}` at `{model.get('base_url')}`. "
-        f"Workload: {report.get('case_count')} cases × {report.get('repeat_count')} repetitions. "
+        f"Workload: {report.get('case_count')} cases × {report.get('repeat_count')} repetitions; "
+        f"total model calls: {report.get('total_model_calls')}. "
         f"Evidence class: `{report.get('evidence_class')}`.",
         "",
         f"Fixed contract: prompt `{fixed.get('prompt_id')}@{fixed.get('prompt_version')}`, "
@@ -216,16 +232,34 @@ def render_local_model_replay_markdown(report: Mapping[str, Any]) -> str:
 
 
 def write_local_model_replay_report(report: Mapping[str, Any], output_json: Path, output_markdown: Path) -> None:
-    output_json.parent.mkdir(parents=True, exist_ok=True)
-    output_markdown.parent.mkdir(parents=True, exist_ok=True)
-    output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    output_markdown.write_text(render_local_model_replay_markdown(report), encoding="utf-8")
+    replace_bytes_safely(
+        output_json,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
+    replace_bytes_safely(output_markdown, render_local_model_replay_markdown(report).encode("utf-8"))
+
+
+def _bounded_json_response(response: httpx.Response) -> Any:
+    """Reject oversized local-model responses before JSON parsing."""
+
+    content_length = response.headers.get("content-length")
+    if content_length:
+        try:
+            declared_length = int(content_length)
+        except ValueError as exc:
+            raise ValueError("local-model response has invalid content-length") from exc
+        if declared_length < 0 or declared_length > MAX_REPLAY_RESPONSE_BYTES:
+            raise ValueError("local-model response exceeded bounded limit")
+    content = response.content
+    if len(content) > MAX_REPLAY_RESPONSE_BYTES:
+        raise ValueError("local-model response exceeded bounded limit")
+    return response.json()
 
 
 async def _discover_models(client: httpx.AsyncClient, model_id: str) -> list[str]:
     response = await client.get("/models")
     response.raise_for_status()
-    body = response.json()
+    body = _bounded_json_response(response)
     models = body.get("data") if isinstance(body, dict) else []
     ids = sorted({str(item.get("id")) for item in models if isinstance(item, dict) and item.get("id")})
     if model_id not in ids:
@@ -267,7 +301,7 @@ async def _run_mode(
             async with semaphore:
                 response = await client.post("/chat/completions", json=payload, timeout=timeout_seconds)
             response.raise_for_status()
-            body = response.json()
+            body = _bounded_json_response(response)
             content = _response_content(body)
             parsed = normalize_json_content(content)
             scored = _score_response(case, context, parsed)
@@ -437,6 +471,9 @@ __all__ = [
     "DEFAULT_BASE_URL",
     "DEFAULT_MODEL_ID",
     "DEFAULT_MODES",
+    "LOCAL_MODEL_REPLAY_DEFAULT_CASE_COUNT",
+    "LOCAL_MODEL_REPLAY_DEFAULT_REPEAT_COUNT",
+    "LOCAL_MODEL_REPLAY_EXPECTED_CALLS",
     "LOCAL_MODEL_REPLAY_SCHEMA_VERSION",
     "render_local_model_replay_markdown",
     "run_local_model_replay",

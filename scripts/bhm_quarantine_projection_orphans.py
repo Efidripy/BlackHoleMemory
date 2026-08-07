@@ -40,6 +40,7 @@ from blackholememory.projection_reconciliation import projection_review_classifi
 from blackholememory.projection_reconciliation import ProjectionReviewDisposition
 from blackholememory.runtime_storage import inspect_memory_store_schema
 from blackholememory.runtime_endpoints import endpoint_parts
+from blackholememory.resource_limits import LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -61,7 +62,7 @@ class ProjectionQuarantineCliError(RuntimeError):
 
 def _listener_open(host: str = DEFAULT_BHM_HOST, port: int = DEFAULT_BHM_PORT) -> bool:
     try:
-        with socket.create_connection((host, port), timeout=0.25):
+        with socket.create_connection((host, port), timeout=LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS):
             return True
     except OSError:
         return False

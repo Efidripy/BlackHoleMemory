@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import os
@@ -11,6 +13,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.factory_integration import build_factory_integration_preview
 from blackholememory.factory_integration import verify_factory_integration_digest
@@ -21,6 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-factories.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-wi10-factories.py"
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+WI10_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+WI10_EXPECTED_CORE_TOOL_COUNT = 35
 
 
 def _fixture():
@@ -31,6 +36,26 @@ def _api_hidden() -> bool:
     routes = {str(route.path): route for route in bhm_app.app.routes if hasattr(route, "path")}
     route = routes.get("/bhm/factories/preview")
     return route is not None and route.include_in_schema is False
+
+
+def _run_bounded_child(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run disposable WI-10 children with a finite wait."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=WI10_PROCESS_TIMEOUT_SECONDS,
+    )
 
 
 def main() -> int:
@@ -47,7 +72,7 @@ def main() -> int:
         "human_review_risk_gate": bool(preview["review_queue"]) and all(item["requires_human_review"] for item in preview["review_queue"]),
         "no_raw_or_secret_output": preview["gates"]["raw_log_output"] is False and preview["gates"]["secret_output"] is False,
         "proposal_no_writes": preview["execution"]["writes_performed"] is False and preview["execution"]["tests_started"] is False and preview["execution"]["documents_written"] is False and preview["execution"]["model_started"] is False,
-        "public_mcp_unchanged": len(CORE_TOOL_NAMES) == 12,
+        "public_mcp_unchanged": len(CORE_TOOL_NAMES) == WI10_EXPECTED_CORE_TOOL_COUNT,
         "hidden_api": _api_hidden(),
     }
     with tempfile.TemporaryDirectory(prefix="bhm-wi10-validator-") as raw:
@@ -57,11 +82,11 @@ def main() -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
         cli_report = temp / "cli.json"
-        cli = subprocess.run([sys.executable, str(CLI_PATH), "--action", "preview", "--fixture", str(fixture_path), "--project", "fixture", "--risk-class", "high", "--report", str(cli_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        cli = _run_bounded_child([sys.executable, str(CLI_PATH), "--action", "preview", "--fixture", str(fixture_path), "--project", "fixture", "--risk-class", "high", "--report", str(cli_report)], cwd=ROOT, env=env)
         cli_payload = json.loads(cli_report.read_text(encoding="utf-8")) if cli_report.exists() else {}
         checks["cli_smoke"] = cli.returncode == 0 and cli_payload.get("schema_version") == "bhm.factory-integration.v1" and cli_payload.get("execution", {}).get("writes_performed") is False
         benchmark_report = temp / "benchmark.json"
-        benchmark = subprocess.run([sys.executable, str(BENCHMARK_PATH), "--items", "16", "--iterations", "8", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        benchmark = _run_bounded_child([sys.executable, str(BENCHMARK_PATH), "--items", "16", "--iterations", "8", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env)
         benchmark_payload = json.loads(benchmark_report.read_text(encoding="utf-8")) if benchmark_report.exists() else {}
         checks["latency_benchmark"] = benchmark.returncode == 0 and benchmark_payload.get("ok") is True and benchmark_payload.get("checks", {}).get("p95_budget") is True
         details = {"preview_digest": preview["preview_digest"], "summary": {"qa": preview["qa"]["summary"], "documentation": preview["documentation"]["summary"], "crosswalk_count": len(preview["crosswalk"])}, "benchmark": benchmark_payload.get("latency", {})}
@@ -71,8 +96,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         target = Path(args.report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
     return 0 if not failed else 1
 
 

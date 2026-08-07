@@ -6,6 +6,8 @@ import threading
 import time
 
 from blackholememory.infra.mcp_broker import McpIpcBroker
+from blackholememory.resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
+from blackholememory.resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
 
 
 def _decode(raw: bytes) -> dict:
@@ -69,6 +71,11 @@ def test_broker_limits_have_safe_minimums():
         assert broker.dispatch_timeout_seconds == 0.1
     finally:
         broker.close()
+
+
+def test_broker_lifecycle_waits_use_registry_bounds():
+    assert MCP_BROKER_JOIN_TIMEOUT_SECONDS == 3.0
+    assert MCP_BROKER_CAPACITY_WAIT_SECONDS == 0.2
 
 
 def test_broker_propagates_connection_context_to_handler():

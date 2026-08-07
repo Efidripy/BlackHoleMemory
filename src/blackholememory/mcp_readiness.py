@@ -170,7 +170,9 @@ def default_lock_path(repo_root: Path) -> Path:
     local_app_data = os.getenv("LOCALAPPDATA", "").strip()
     if local_app_data:
         return Path(local_app_data) / "BlackHoleMemory" / "mcp-readiness.lock"
-    return Path(repo_root) / "runtime" / "mcp" / "mcp-readiness.lock"
+    # `.runtime` is the canonical disposable runtime boundary. Do not fall
+    # back to a public `runtime/` tree when LOCALAPPDATA is unavailable.
+    return Path(repo_root) / ".runtime" / "mcp" / "mcp-readiness.lock"
 
 
 @dataclass(frozen=True)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import hashlib
 import json
 import subprocess
@@ -12,6 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / ".src" / "codebase-memory-mcp" / "source"
 MANIFEST = ROOT / ".src" / "codebase-memory-mcp" / "SOURCE-MANIFEST.json"
 OUT = ROOT / "docs" / "ops" / "bhm-p28-wi68-component-license-sbom-inventory-2026-07-23.json"
+GIT_PROBE_TIMEOUT_SECONDS = 30
+
+
+class GitInventoryError(RuntimeError):
+    """Raised when the read-only Git inventory probe cannot complete."""
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -23,7 +30,19 @@ def sha256_file(path: Path) -> str:
 
 
 def tracked_paths() -> tuple[set[str], set[str]]:
-    rows = subprocess.check_output(["git", "-C", str(SOURCE), "ls-files"], text=True).splitlines()
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(SOURCE), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=GIT_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GitInventoryError("git source inventory probe unavailable") from exc
+    rows = completed.stdout.splitlines()
     regular: set[str] = set()
     symlinks: set[str] = set()
     for row in rows:
@@ -127,7 +146,7 @@ def main() -> int:
         "components": components,
         "review": {"reviewer": "Codex /root", "reviewed_at": "2026-07-23", "recheck_date": "2026-10-21", "status": "partial-evidence; no unverified component enters runtime"},
     }
-    OUT.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    replace_bytes_safely(OUT, (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
     print(json.dumps({"path": str(OUT), "regular_files": len(regular), "symlinks": len(symlinks), "components": len(components)}, indent=2))
     return 0
 

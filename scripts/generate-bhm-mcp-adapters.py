@@ -25,6 +25,7 @@ from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 from blackholememory.runtime_endpoints import endpoint_url
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -404,20 +405,7 @@ def _atomic_write(path: Path, content: str) -> None:
 
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temp_path: Path | None = None
-    try:
-        fd, raw_temp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-        temp_path = Path(raw_temp)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, path)
-        temp_path = None
-    finally:
-        if temp_path is not None:
-            temp_path.unlink(missing_ok=True)
+    replace_bytes_safely(path, content)
 
 
 def _backup_target(path: Path, backup_dir: Path, client: str) -> dict[str, Any]:

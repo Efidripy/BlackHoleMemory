@@ -105,8 +105,12 @@ class PayloadSanitizer:
                 self.dropped_items += len(items) - self.max_collection_items
                 items = items[: self.max_collection_items]
             for raw_key, raw_value in items:
-                key = self._sanitize_key(raw_key)
-                if self._is_sensitive_key(key):
+                raw_key_text = str(raw_key)
+                # Detect sensitive markers before truncating/hash-suffixing a
+                # long key, otherwise `password`/`*_token` can be lost.
+                sensitive_key = self._is_sensitive_key(raw_key_text)
+                key = self._sanitize_key(raw_key_text)
+                if sensitive_key:
                     if isinstance(raw_value, str) and raw_value.startswith(_REDACTED_PREFIX):
                         result[key] = raw_value
                     else:
@@ -173,7 +177,11 @@ class PayloadSanitizer:
     @staticmethod
     def _is_sensitive_key(value: str) -> bool:
         normalized = re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
-        return normalized in _SENSITIVE_KEYS or normalized.endswith(_SENSITIVE_KEY_SUFFIXES)
+        return (
+            normalized in _SENSITIVE_KEYS
+            or normalized.endswith(_SENSITIVE_KEY_SUFFIXES)
+            or any(normalized.startswith(prefix) for prefix in _SENSITIVE_KEYS)
+        )
 
 
 class ObservationPayloadTooLarge(ValueError):
@@ -235,6 +243,15 @@ _TEXT_REDACTION_RULES: tuple[tuple[re.Pattern[str], str | Any, str], ...] = (
         re.compile(
             r"\b([A-Z][A-Z0-9_]*(?:API_KEY|ACCESS_TOKEN|REFRESH_TOKEN|CLIENT_SECRET|PASSWORD|PRIVATE_KEY))"
             r"\s*=(?!(?:\s*)\[REDACTED:)\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+        ),
+        lambda match: f"{match.group(1)}=[REDACTED:env-secret]",
+        "env-secret",
+    ),
+    (
+        re.compile(
+            r"\b(BHM_(?:CALLER_TOKEN|MCP_ADMIN_CAPABILITY))"
+            r"\s*=(?!(?:\s*)\[REDACTED:)\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)",
+            re.IGNORECASE,
         ),
         lambda match: f"{match.group(1)}=[REDACTED:env-secret]",
         "env-secret",

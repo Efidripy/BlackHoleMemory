@@ -25,11 +25,17 @@ from typing import Any, Mapping
 from urllib.parse import urlsplit
 
 from .mcp_catalog_contract import CatalogContractError
+from .local_endpoint_policy import LocalEndpointError
 from .mcp_catalog_contract import build_catalog_contract
 from .mcp_surfaces import CORE_TOOL_NAMES
 from .mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
+from .local_endpoint_policy import open_local_url
+from .local_endpoint_policy import read_bounded_response
+from .local_endpoint_policy import validate_local_endpoint
 from .runtime_endpoints import endpoint_url
 from .version_manifest import PACKAGE_VERSION
+from .resource_limits import PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS
+from .resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS
 
 
 SCHEMA_VERSION = "bhm.mcp.doctor.v1"
@@ -43,11 +49,7 @@ MAX_CONNECTION_STATES = 16
 _ANONYMOUS_BHM_HEALTH_PATHS = frozenset(
     {
         "/health/live",
-        "/health/dependencies",
         "/health/ready",
-        "/health/cutover",
-        "/bhm/health",
-        "/bhm/health/slo",
     }
 )
 
@@ -94,12 +96,10 @@ class DoctorConfig:
     timeout_seconds: float = 45.0
 
     def __post_init__(self) -> None:
-        base_url = str(self.base_url or DEFAULT_BASE_URL).strip().rstrip("/")
+        base_url = validate_local_endpoint(str(self.base_url or DEFAULT_BASE_URL).strip())
         parsed = urlsplit(base_url)
-        if parsed.username or parsed.password or not parsed.scheme or not parsed.netloc:
-            raise ValueError("base_url must be an HTTP URL without credentials")
-        if parsed.scheme.casefold() not in {"http", "https"}:
-            raise ValueError("base_url must use http or https")
+        if not parsed.scheme or not parsed.netloc:
+            raise ValueError("base_url must be a local HTTP URL")
         if not 1.0 <= float(self.timeout_seconds) <= 120.0:
             raise ValueError("timeout_seconds must be between 1 and 120")
         object.__setattr__(self, "base_url", base_url)
@@ -188,7 +188,7 @@ def _run_json_script(script: Path, args: list[str], *, config: DoctorConfig) -> 
             env=environment,
             capture_output=True,
             text=True,
-            timeout=max(min(float(config.timeout_seconds), 60.0), 1.0),
+            timeout=max(min(float(config.timeout_seconds), PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS), 1.0),
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
@@ -312,8 +312,11 @@ def _get_json(base_url: str, path: str, *, timeout_seconds: float) -> tuple[dict
         headers=_bhm_request_headers(path, accept="application/json"),
     )
     try:
-        with urllib.request.urlopen(request, timeout=max(min(timeout_seconds, 15.0), 0.2)) as response:  # noqa: S310
-            raw = response.read(MAX_HTTP_BYTES + 1)
+        with open_local_url(request, timeout=max(min(timeout_seconds, 15.0), 0.2)) as response:
+            try:
+                raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
+            except LocalEndpointError:
+                return None, "response_too_large"
         if len(raw) > MAX_HTTP_BYTES:
             return None, "response_too_large"
         payload = json.loads(raw.decode("utf-8"))
@@ -416,8 +419,8 @@ def _close_process(process: subprocess.Popen[bytes], timeout_seconds: float) -> 
         code = process.wait(timeout=max(timeout_seconds, 1.0))
     except subprocess.TimeoutExpired:
         process.kill()
-        code = process.wait(timeout=5)
-    thread.join(timeout=5)
+        code = process.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
+    thread.join(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
     return int(code), (stderr_holder[0] if stderr_holder else b"").decode("utf-8", errors="replace")
 
 
@@ -521,7 +524,7 @@ def _stdio_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[st
                     error_code = "probe_shutdown_timeout"
                     try:
                         process.kill()
-                        returncode = int(process.wait(timeout=5))
+                        returncode = int(process.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS))
                     except (OSError, subprocess.TimeoutExpired):
                         returncode = None
             else:
@@ -611,8 +614,11 @@ def _http_mcp_request(
         headers["MCP-Protocol-Version"] = CURRENT_PROTOCOL_VERSION
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(request, timeout=max(min(timeout_seconds, 15.0), 0.2)) as response:  # noqa: S310
-            raw = response.read(MAX_HTTP_BYTES + 1)
+        with open_local_url(request, timeout=max(min(timeout_seconds, 15.0), 0.2)) as response:
+            try:
+                raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
+            except LocalEndpointError as exc:
+                raise ValueError("response_too_large") from exc
             status = int(response.status)
             response_headers = dict(response.headers.items())
     except urllib.error.HTTPError as exc:

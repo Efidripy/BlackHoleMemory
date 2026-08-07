@@ -8,6 +8,7 @@ from blackholememory.llm_resource_governor import AdmissionRequest
 from blackholememory.llm_resource_governor import GovernorConfig
 from blackholememory.llm_resource_governor import LLMResourceGovernor
 from blackholememory.llm_resource_governor import MaintenanceWindow
+from blackholememory.llm_resource_governor import nvidia_smi_snapshot
 from blackholememory.llm_resource_governor import ResourceSnapshot
 from blackholememory.llm_resource_governor import WorkloadLimits
 
@@ -122,3 +123,17 @@ def test_invalid_window_and_config_fail_closed():
         MaintenanceWindow.parse("25:00-01:00")
     with pytest.raises(ValueError):
         GovernorConfig(max_concurrency=1, interactive_reserve=1)
+
+
+def test_gpu_snapshot_uses_registry_timeout(monkeypatch):
+    observed = {}
+
+    def fake_run(*args, **kwargs):
+        observed["timeout"] = kwargs["timeout"]
+        return type("Completed", (), {"stdout": "4000, 12000, 60\n"})()
+
+    monkeypatch.setattr("blackholememory.llm_resource_governor.subprocess.run", fake_run)
+    snapshot = nvidia_smi_snapshot()
+
+    assert snapshot.gpu_available is True
+    assert observed["timeout"] == 2

@@ -66,18 +66,19 @@ Qdrant и Mem0 не изменяются.
 
 ```powershell
 uv run python scripts\run-bhm-local-model-replay.py `
-  --cases 1000 `
-  --repeats 10 `
+  --cases 111 `
+  --repeats 3 `
   --max-in-flight 4 `
   --max-tokens 96 `
   --tool-budget 0 `
-  --output-dir docs\benchmarks\results\bhm-local-model-v1-20260728
+  --output-dir .runtime\local-model-replay-666-20260804
 ```
 
-Это 20 000 model calls: 1000 кейсов × 10 повторов × 2 режима. В текущем release
-прогон не завершён и receipt намеренно не публикуется; незавершённый запуск не
-считается measurement. После полного завершения receipt можно добавить рядом с
-этой методикой.
+Это 666 model calls: 111 кейсов × 3 повтора × 2 режима. Полный запуск уже
+завершён с `total_model_calls=666`, `failed_calls=0` и receipt в
+`.runtime/local-model-replay-666-20260804/`. CLI fail-closed для любого другого
+call budget; незавершённый запуск не считается measurement и не публикуется как
+evidence.
 Этот слой evidence — `local-model-replay`: он измеряет конкретную локальную модель,
 зафиксированный prompt и frozen context, но не real-user telemetry и не человеческую
 оценку качества ответов.

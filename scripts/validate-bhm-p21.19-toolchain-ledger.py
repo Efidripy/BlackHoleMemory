@@ -7,6 +7,8 @@ import argparse
 import json
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 ENTRIES = [
     {"tool": "BHM runtime", "status": "used", "action": "runtime health and evidence/checkpoint path", "evidence": [".docs/ops/bhm-p21.0-r2-mcp-sdk-compatibility-2026-07-21.md"]},
@@ -22,6 +24,10 @@ ENTRIES = [
     {"tool": "n8n", "status": "not-required", "action": "no webhook/notification workflow was needed; local validators are the canonical path", "evidence": [".docs/ops/bhm-p21.18-wi36-source-freeze-2026-07-21.md"]},
     {"tool": ".src quarantine", "status": "used", "action": "manifest/hash/provenance boundary and source freeze", "evidence": [".docs/ops/bhm-p21.18-wi36-source-freeze-2026-07-21.md", "scripts/verify-local-source-boundary.ps1"]},
 ]
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(path, (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def main() -> int:
@@ -47,8 +53,7 @@ def main() -> int:
         "failures": failures,
         "ok": not failures and not reportable_silent_skip(ENTRIES),
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps({"ok": report["ok"], "entries": len(ENTRIES), "failures": failures, "silent_skips": report["silent_skips"]}, ensure_ascii=False))
     return 0 if report["ok"] else 1
 

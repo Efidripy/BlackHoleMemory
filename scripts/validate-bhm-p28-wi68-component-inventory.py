@@ -8,8 +8,15 @@ import json
 import subprocess
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 ROOT = Path(__file__).resolve().parents[1]
+GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+
+
+class GitInventoryError(RuntimeError):
+    """Raised when the read-only Git inventory probe cannot complete."""
 
 
 def sha256(path: Path) -> str:
@@ -17,9 +24,19 @@ def sha256(path: Path) -> str:
 
 
 def git_files(source_root: Path) -> tuple[set[str], set[str]]:
-    rows = subprocess.check_output(
-        ["git", "-C", str(source_root), "ls-files"], text=True
-    ).splitlines()
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(source_root), "ls-files"],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=GIT_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise GitInventoryError("git source inventory probe unavailable") from exc
+    rows = completed.stdout.splitlines()
     regular: set[str] = set()
     symlinks: set[str] = set()
     for row in rows:
@@ -122,7 +139,25 @@ def main() -> int:
     manifest_path = ROOT / ".src" / "codebase-memory-mcp" / "SOURCE-MANIFEST.json"
     data = json.loads(inventory_path.read_text(encoding="utf-8"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    regular, symlinks = git_files(source_root)
+    try:
+        regular, symlinks = git_files(source_root)
+    except GitInventoryError as exc:
+        report = {
+            "schema_version": "bhm.p28.wi68.component-license-sbom-inventory-check.v1",
+            "inventory": args.inventory,
+            "source_id": data.get("source_id"),
+            "regular_files": 0,
+            "symlinks": 0,
+            "covered_files": 0,
+            "writes_live_state": False,
+            "failures": [str(exc)],
+            "ok": False,
+        }
+        rendered = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
+        if args.report:
+            replace_bytes_safely(Path(args.report), rendered.encode("utf-8"))
+        print(rendered, end="")
+        return 1
     failures: list[str] = []
 
     if sha256(manifest_path) != data["source_manifest"]["sha256"]:
@@ -189,7 +224,7 @@ def main() -> int:
     }
     rendered = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
     if args.report:
-        Path(args.report).write_text(rendered, encoding="utf-8")
+        replace_bytes_safely(Path(args.report), rendered.encode("utf-8"))
     print(rendered, end="")
     return 0 if not failures else 1
 

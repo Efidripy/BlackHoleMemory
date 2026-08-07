@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+from types import SimpleNamespace
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -54,3 +56,20 @@ def test_regression_gate_fails_on_schema_and_coverage_drift():
     result = gate.compare_contracts(baseline, current, {"totals": {"percent_covered": 10.0}}, {"ok": False}, {"ok": False})
     assert result["ok"] is False
     assert {"semantic_routes_digest", "openapi_digest", "coverage_floor", "startup_probe", "latency"}.issubset(result["failures"])
+
+
+def test_regression_children_use_registry_process_bounds(monkeypatch):
+    gate = load_gate()
+    calls: list[float] = []
+
+    def fake_run(*_args, **kwargs):
+        calls.append(kwargs["timeout"])
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"ok": True}), stderr="")
+
+    monkeypatch.setattr(gate.subprocess, "run", fake_run)
+    assert gate.run_startup_probe()["ok"] is True
+    assert gate.run_latency(2)["ok"] is True
+    assert calls == [
+        gate.PROCESS_EXECUTION_P15_STARTUP_TIMEOUT_SECONDS,
+        gate.PROCESS_EXECUTION_P15_LATENCY_TIMEOUT_SECONDS,
+    ]

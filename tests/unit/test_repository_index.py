@@ -12,6 +12,7 @@ from blackholememory.repository_index import RepositoryWatcher
 from blackholememory.repository_index import SQLiteRepositoryIndexStore
 from blackholememory.repository_index import index_repository
 from blackholememory.repository_index import probe_repository_state
+from blackholememory.repository_index import RepositoryRootError
 from blackholememory.repository_index import verify_repository_snapshot
 
 
@@ -210,6 +211,47 @@ def test_job_resumes_after_bounded_stop_and_matches_full_snapshot(tmp_path: Path
     assert resumed["status"] == "completed"
     assert resumed["metrics"]["resumed"] is True
     assert resumed["snapshot"]["snapshot_digest"] == full["snapshot"]["snapshot_digest"]
+
+
+def test_probe_rejects_reparse_and_hardlink_candidates_before_resolve(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    source = root / "main.py"
+    source.write_text("print('ok')\n", encoding="utf-8")
+    symlink = root / "inside-link.py"
+    try:
+        symlink.symlink_to(source)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+    hard_source = root / "hard-source.py"
+    hard_source.write_text("print('hard')\n", encoding="utf-8")
+    hardlink = root / "hard.py"
+    try:
+        hardlink.hardlink_to(hard_source)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    state = probe_repository_state(root, project="filesystem-boundary")
+    candidate_paths = {item.path for item in state.candidates}
+    skip_reasons = {item.path: item.reason for item in state.prefiltered_skips}
+    assert "main.py" in candidate_paths
+    assert "inside-link.py" not in candidate_paths
+    assert "hard.py" not in candidate_paths
+    assert skip_reasons["inside-link.py"] == "filesystem-boundary"
+    assert skip_reasons["hard.py"] == "filesystem-boundary"
+
+
+def test_probe_rejects_reparse_repository_root_before_resolution(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(root, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(RepositoryRootError, match="filesystem boundary"):
+        probe_repository_state(linked_root, project="filesystem-boundary")
 
 
 def test_failure_before_publish_preserves_last_known_good_then_recovers(tmp_path: Path) -> None:

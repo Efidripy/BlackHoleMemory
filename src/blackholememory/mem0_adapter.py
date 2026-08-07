@@ -12,7 +12,6 @@ import re
 import threading
 import time
 import urllib.request
-import uuid
 import warnings
 from collections import Counter
 from datetime import datetime
@@ -32,8 +31,14 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
 
 from .config import settings
+from .filesystem_boundaries import append_bytes_safely
+from .filesystem_boundaries import replace_bytes_safely
+from .local_endpoint_policy import open_local_url
+from .local_endpoint_policy import read_bounded_response
 from .project_registry import canonical_project_id
 from .retrieval_fusion import weighted_rank_fusion
+from .resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
+from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
 from .runtime_storage import MemoryStoreMode
 from .runtime_storage import resolve_runtime_storage_mode
 from .storage_state import StorageState
@@ -169,7 +174,12 @@ def normalize_semantic_edge_type(edge_type: Any) -> str:
 
 def _remote_qdrant_available() -> bool:
     try:
-        with urllib.request.urlopen(f"{settings.qdrant_url.rstrip('/')}/healthz", timeout=1.0) as response:
+        request = urllib.request.Request(
+            f"{settings.qdrant_url.rstrip('/')}/healthz",
+            headers={"User-Agent": "BlackHoleMemory-Qdrant-Health/1.0"},
+        )
+        with open_local_url(request, timeout=QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS) as response:
+            read_bounded_response(response, limit=128)
             return 200 <= getattr(response, "status", 200) < 300
     except Exception:
         return False
@@ -178,7 +188,10 @@ def _remote_qdrant_available() -> bool:
 def _qdrant_connection_config() -> dict[str, Any]:
     state = evaluate_storage_state(None, remote_available=_remote_qdrant_available())
     if state.backend == "remote":
-        config: dict[str, Any] = {"url": settings.qdrant_url}
+        config: dict[str, Any] = {
+            "url": settings.qdrant_url,
+            "timeout": QDRANT_SDK_TIMEOUT_SECONDS,
+        }
         if settings.qdrant_api_key:
             config["api_key"] = settings.qdrant_api_key
         return config
@@ -227,26 +240,20 @@ class BHMGraphManager:
         return graph
 
     def _write_graph_sync(self, graph: dict[str, list[dict[str, str]]]) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = self.path.with_name(f".{self.path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            temp_path.write_text(json.dumps(graph, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            retry_delays = (0.025, 0.05, 0.1, 0.2, 0.4, 0.8, None)
-            for retry_delay in retry_delays:
-                try:
-                    temp_path.replace(self.path)
-                    break
-                except PermissionError:
-                    if retry_delay is None:
-                        raise
-                    time.sleep(retry_delay)
-                except OSError as exc:
-                    if retry_delay is None or getattr(exc, "winerror", None) not in {5, 32}:
-                        raise
-                    time.sleep(retry_delay)
-        finally:
-            if temp_path.exists():
-                temp_path.unlink(missing_ok=True)
+        payload = (json.dumps(graph, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+        retry_delays = (0.025, 0.05, 0.1, 0.2, 0.4, 0.8, None)
+        for retry_delay in retry_delays:
+            try:
+                replace_bytes_safely(self.path, payload)
+                return
+            except PermissionError:
+                if retry_delay is None:
+                    raise
+                time.sleep(retry_delay)
+            except OSError as exc:
+                if retry_delay is None or getattr(exc, "winerror", None) not in {5, 32}:
+                    raise
+                time.sleep(retry_delay)
 
     def _add_semantic_link_sync(self, source_id: str, target_id: str, edge_type: str) -> dict[str, str]:
         source = str(source_id or "").strip()
@@ -425,7 +432,6 @@ def _append_decayed_payload_archive(
     threshold: float,
     archived_at: str,
 ) -> None:
-    DECAY_ARCHIVE_PATH.parent.mkdir(parents=True, exist_ok=True)
     archive_record = {
         "archived_at": archived_at,
         "collection": collection_name,
@@ -434,8 +440,10 @@ def _append_decayed_payload_archive(
         "threshold": threshold,
         "payload": payload,
     }
-    with DECAY_ARCHIVE_PATH.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(archive_record, ensure_ascii=False, sort_keys=True) + "\n")
+    append_bytes_safely(
+        DECAY_ARCHIVE_PATH,
+        (json.dumps(archive_record, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"),
+    )
 
 
 def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
@@ -554,7 +562,15 @@ def mem0_runtime_plan() -> dict[str, Any]:
 
 
 def build_mem0_config(collection_name: str) -> dict[str, Any]:
-    qdrant_config = _qdrant_connection_config()
+    # Mem0 validates the Qdrant provider config against its own schema, which
+    # does not accept the SDK client's ``timeout`` option. Keep the bounded
+    # timeout on the native QdrantClient path and pass only provider-supported
+    # fields into Mem0.
+    qdrant_config = {
+        key: value
+        for key, value in _qdrant_connection_config().items()
+        if key != "timeout"
+    }
     qdrant_config.update(
         {
             "collection_name": collection_name,
@@ -589,7 +605,9 @@ def build_mem0_config(collection_name: str) -> dict[str, Any]:
 
 @lru_cache(maxsize=1)
 def get_qdrant_client() -> QdrantClient:
-    return QdrantClient(**_qdrant_connection_config())
+    config = dict(_qdrant_connection_config())
+    config.setdefault("timeout", QDRANT_SDK_TIMEOUT_SECONDS)
+    return QdrantClient(**config)
 
 
 def _ensure_qdrant_collection(collection_name: str) -> dict[str, Any]:

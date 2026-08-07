@@ -15,6 +15,9 @@ $hookQueueValidator = Join-Path $PSScriptRoot "validate-bhm-hook-queue.ps1"
 $retentionValidator = Join-Path $PSScriptRoot "validate-bhm-retention.ps1"
 $resilienceValidator = Join-Path $PSScriptRoot "validate-bhm-p1.9-resilience.ps1"
 
+$CutoverReadinessHttpTimeoutSec = 10
+$CutoverReadinessMaxResponseBytes = 262144
+
 function Get-BhmCallerHeaders {
     $token = [string][Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', 'Process')
     if ([string]::IsNullOrWhiteSpace($token)) {
@@ -35,11 +38,70 @@ function Get-BhmCallerHeaders {
     return @{ Authorization = "Bearer $($token.Trim())"; 'X-BHM-Caller-Surface' = 'cutover-validator' }
 }
 
+function Assert-CutoverReadinessUri {
+    param([Parameter(Mandatory = $true)][string]$Candidate)
+
+    $parsed = $null
+    if (-not [Uri]::TryCreate($Candidate, [UriKind]::Absolute, [ref]$parsed)) {
+        throw 'cutover readiness URL is not an absolute URI'
+    }
+    $allowedHosts = @('127.0.0.1', 'localhost', '::1')
+    if ($parsed.Scheme -ne 'http' -or $allowedHosts -notcontains $parsed.Host.ToLowerInvariant()) {
+        throw 'cutover readiness requires an HTTP loopback endpoint'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.UserInfo)) {
+        throw 'cutover readiness URL must not contain userinfo'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.Fragment)) {
+        throw 'cutover readiness URL must not contain a fragment'
+    }
+    return $parsed
+}
+
+function Invoke-CutoverReadinessJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [hashtable]$Headers = @{}
+    )
+
+    $parsed = Assert-CutoverReadinessUri -Candidate $Uri
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseProxy = $false
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds($CutoverReadinessHttpTimeoutSec)
+    $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $parsed)
+    $response = $null
+    try {
+        foreach ($key in $Headers.Keys) {
+            $request.Headers.TryAddWithoutValidation([string]$key, [string]$Headers[$key]) | Out-Null
+        }
+        $response = $client.SendAsync(
+            $request,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        ).GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) {
+            throw "cutover readiness returned HTTP $([int]$response.StatusCode)"
+        }
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        if ($bytes.Length -gt $CutoverReadinessMaxResponseBytes) {
+            throw "cutover readiness response exceeded bounded limit $CutoverReadinessMaxResponseBytes bytes"
+        }
+        return ([Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json)
+    }
+    finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
 New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 
 $headers = Get-BhmCallerHeaders
-$ready = Invoke-RestMethod -Method Get "$serviceUrl/health/ready"
-$cutover = Invoke-RestMethod -Method Get "$serviceUrl/health/cutover" -Headers $headers
+$ready = Invoke-CutoverReadinessJson -Uri "$($serviceUrl.TrimEnd('/'))/health/ready"
+$cutover = Invoke-CutoverReadinessJson -Uri "$($serviceUrl.TrimEnd('/'))/health/cutover" -Headers $headers
 
 $surfaceJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $surfaceValidator
 $surfaceExitCode = $LASTEXITCODE

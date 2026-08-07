@@ -126,3 +126,178 @@ def test_rest_search_rejects_reserved_global_scope_before_provider_work():
         asyncio.run(bhm_app.bhm_search(request))
 
     assert exc_info.value.status_code == 403
+
+
+def test_repair_live_indexes_isolates_project_scope(monkeypatch):
+    memories = [_record("blackholememory", "present")]
+    links = [
+        {"source_id": memories[0]["source_id"], "target_id": "missing-a", "project": "BlackHoleMemory"},
+        {"source_id": "missing-b", "target_id": "missing-c", "project": "e-github-workspace"},
+    ]
+    artifacts = [
+        {"id": "artifact-a", "project": "BlackHoleMemory", "memory_id": "missing-a"},
+        {"id": "artifact-b", "project": "e-github-workspace", "memory_id": "missing-b"},
+    ]
+    saved_links = {}
+    saved_artifacts = {}
+
+    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: memories)
+    monkeypatch.setattr(bhm_app, "_load_memory_links", lambda: links)
+    monkeypatch.setattr(bhm_app, "_save_memory_links", lambda value: saved_links.setdefault("items", value))
+    for name in (
+        "_load_checkpoints",
+        "_load_project_maps",
+        "_load_adrs",
+        "_load_handoffs",
+        "_load_session_records",
+        "_load_task_contexts",
+        "_load_risk_registers",
+        "_load_validation_snapshots",
+    ):
+        monkeypatch.setattr(bhm_app, name, lambda: artifacts)
+    for name in (
+        "_save_checkpoints",
+        "_save_project_maps",
+        "_save_adrs",
+        "_save_handoffs",
+        "_save_session_records",
+        "_save_task_contexts",
+        "_save_risk_registers",
+        "_save_validation_snapshots",
+    ):
+        monkeypatch.setattr(bhm_app, name, lambda value, key=name: saved_artifacts.setdefault(key, value))
+
+    result = bhm_app._repair_live_indexes(
+        bhm_app.RepairLiveIndexesRequest(
+            project="BlackHoleMemory",
+            remove_orphan_links=True,
+            remove_orphan_artifacts=True,
+        )
+    )
+
+    assert result["project"] == "blackholememory"
+    assert result["removed_links"] == 1
+    assert [item["project"] for item in saved_links["items"]] == ["e-github-workspace"]
+    assert result["removed_artifacts"] == 8
+    assert all(
+        any(item["project"] == "e-github-workspace" for item in value)
+        for value in saved_artifacts.values()
+    )
+
+
+def test_repair_live_indexes_requires_project_or_explicit_aggregate():
+    with pytest.raises(HTTPException) as exc_info:
+        bhm_app._repair_live_indexes(bhm_app.RepairLiveIndexesRequest())
+
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == "repair_scope_required"
+
+
+def test_strict_repair_forwards_project_scope(monkeypatch):
+    captured = {}
+
+    monkeypatch.setattr(
+        bhm_app,
+        "_normalize_memory_metadata",
+        lambda project: captured.setdefault("normalize", project) or {"updated": 0},
+    )
+    monkeypatch.setattr(
+        bhm_app,
+        "_repair_live_indexes",
+        lambda request: captured.setdefault("repair", request) or {"removed_links": 0},
+    )
+    monkeypatch.setattr(
+        bhm_app,
+        "_schema_validate_strict",
+        lambda request: captured.setdefault("validate", request) or {"ok": True},
+    )
+
+    result = bhm_app._integrity_repair_strict(
+        bhm_app.IntegrityRepairStrictRequest(project="BlackHoleMemory")
+    )
+
+    assert result["project"] == "blackholememory"
+    assert captured["normalize"] == "blackholememory"
+    assert captured["repair"].project == "blackholememory"
+    assert captured["repair"].aggregate is False
+    assert captured["validate"].project == "blackholememory"
+
+
+def test_hard_delete_preserves_foreign_project_references(monkeypatch):
+    target = _record("blackholememory", "target")
+    monkeypatch.setattr(bhm_app, "_delete_live_memory", lambda _request: target)
+    links = [
+        {"source_id": target["source_id"], "target_id": "a", "project": "BlackHoleMemory"},
+        {"source_id": target["source_id"], "target_id": "b", "project": "e-github-workspace"},
+    ]
+    saved_links = {}
+    monkeypatch.setattr(bhm_app, "_load_memory_links", lambda: links)
+    monkeypatch.setattr(bhm_app, "_save_memory_links", lambda value: saved_links.setdefault("items", value))
+
+    artifact_stores = {}
+    for loader_name, saver_name in (
+        ("_load_checkpoints", "_save_checkpoints"),
+        ("_load_project_maps", "_save_project_maps"),
+        ("_load_adrs", "_save_adrs"),
+        ("_load_handoffs", "_save_handoffs"),
+        ("_load_session_records", "_save_session_records"),
+        ("_load_tasks", "_save_tasks"),
+        ("_load_task_contexts", "_save_task_contexts"),
+        ("_load_risk_registers", "_save_risk_registers"),
+        ("_load_validation_snapshots", "_save_validation_snapshots"),
+    ):
+        monkeypatch.setattr(
+            bhm_app,
+            loader_name,
+            lambda: [
+                {"id": "a-artifact", "memory_id": target["source_id"], "project": "blackholememory"},
+                {"id": "b-artifact", "memory_id": target["source_id"], "project": "e-github-workspace"},
+            ],
+        )
+        monkeypatch.setattr(
+            bhm_app,
+            saver_name,
+            lambda value, key=saver_name: artifact_stores.setdefault(key, value),
+        )
+
+    result = bhm_app._delete_live_memory_hard(
+        bhm_app.HardDeleteMemoryRequest(id=target["source_id"], project="BlackHoleMemory")
+    )
+
+    assert result["project"] == "blackholememory"
+    assert [item["project"] for item in saved_links["items"]] == ["e-github-workspace"]
+    assert all(
+        [item["project"] for item in items] == ["e-github-workspace"]
+        for items in artifact_stores.values()
+    )
+
+
+def test_refresh_all_requires_explicit_scope_or_aggregate(monkeypatch):
+    with pytest.raises(HTTPException) as exc_info:
+        bhm_app._project_summary_refresh_all(bhm_app.ProjectSummaryRefreshAllRequest())
+    assert exc_info.value.status_code == 403
+    assert exc_info.value.detail["code"] == "refresh_scope_required"
+
+    refreshed = []
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: [
+            {"source_id": "a", "project": "BlackHoleMemory"},
+            {"source_id": "b", "project": "e-github-workspace"},
+            {"source_id": "a2", "project": "blackholememory"},
+        ],
+    )
+    monkeypatch.setattr(
+        bhm_app,
+        "_rebuild_project_summary",
+        lambda request: refreshed.append(request.project) or {"project": request.project},
+    )
+
+    result = bhm_app._project_summary_refresh_all(
+        bhm_app.ProjectSummaryRefreshAllRequest(aggregate=True)
+    )
+
+    assert result["aggregate"] is True
+    assert result["projects"] == ["blackholememory", "e-github-workspace"]
+    assert refreshed == result["projects"]

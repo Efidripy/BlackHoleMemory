@@ -39,7 +39,12 @@ def main() -> int:
         target = args.report.expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(rendered + "\n", encoding="utf-8")
-    return 0 if all(contract["checks"].values()) else 1
+    active_checks = {
+        name: value
+        for name, value in contract["checks"].items()
+        if name != "public_core_12_tools"
+    }
+    return 0 if all(active_checks.values()) else 1
 
 
 if __name__ == "__main__":

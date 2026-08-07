@@ -10,7 +10,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from blackholememory.change_impact import build_git_symbol_impact_evidence
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
+
+GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 
 
 def _git(root: Path, *args: str) -> str:
@@ -22,7 +27,15 @@ def _git(root: Path, *args: str) -> str:
         "GIT_AUTHOR_DATE": "2026-07-23T00:00:00Z",
         "GIT_COMMITTER_DATE": "2026-07-23T00:00:00Z",
     }
-    result = subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True, encoding="utf-8", env=env)
+    result = subprocess.run(
+        ["git", "-C", str(root), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        timeout=GIT_PROBE_TIMEOUT_SECONDS,
+    )
     return result.stdout.strip()
 
 
@@ -85,8 +98,7 @@ def main() -> int:
     report = validate()
     payload = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(payload, encoding="utf-8")
+        replace_bytes_safely(args.report, payload.encode("utf-8"))
     print(payload, end="")
     return 0 if report["ok"] else 1
 

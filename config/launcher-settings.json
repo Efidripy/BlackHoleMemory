@@ -1,0 +1,7 @@
+{
+  "llm": {
+    "mode": "local",
+    "port": 13666,
+    "remote_url": ""
+  }
+}

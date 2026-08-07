@@ -12,11 +12,19 @@ import json
 import subprocess
 from datetime import date
 from pathlib import Path
+
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from typing import Any
 
 
 TARGET_IDS = ("CGM", "CBG", "BDS", "M0MCP")
 TODAY = date(2026, 7, 21).isoformat()
+GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+
+
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    replace_bytes_safely(path, (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -31,6 +39,7 @@ def _git(repo: Path, *args: str) -> str:
         text=True,
         encoding="utf-8",
         env={**__import__("os").environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"},
+        timeout=GIT_PROBE_TIMEOUT_SECONDS,
     )
     return completed.stdout.strip()
 
@@ -103,8 +112,7 @@ def main() -> int:
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     report = validate(args.repo_root.resolve())
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps({"ok": report["ok"], "entries": len(report["entries"]), "failures": report["failures"]}, indent=2))
     return 0 if report["ok"] else 1
 

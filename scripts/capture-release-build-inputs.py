@@ -7,6 +7,7 @@ import hashlib
 import importlib.metadata as metadata
 import json
 import platform
+import re
 import sys
 import tomllib
 from pathlib import Path
@@ -30,7 +31,17 @@ def installed_file_digest(distribution: metadata.Distribution) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def capture(root: Path, output: Path, *, source_revision: str, launcher: Path | None, uv_version: str) -> dict[str, object]:
+def capture(
+    root: Path,
+    output: Path,
+    *,
+    source_revision: str,
+    source_snapshot_sha256: str,
+    launcher: Path | None,
+    uv_version: str,
+) -> dict[str, object]:
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", source_snapshot_sha256):
+        raise SystemExit("source_snapshot_sha256 must be a 64-hex tracked source digest")
     lock_path = root / "uv.lock"
     lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
     packages: list[dict[str, object]] = []
@@ -60,6 +71,7 @@ def capture(root: Path, output: Path, *, source_revision: str, launcher: Path | 
         "schema_version": 1,
         "evidence_class": "installed_file_set",
         "source_revision": source_revision,
+        "source_snapshot_sha256": source_snapshot_sha256.lower(),
         "lock_sha256": digest_file(lock_path),
         "python_version": platform.python_version(),
         "platform": platform.platform(),
@@ -78,6 +90,7 @@ def main() -> int:
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--source-revision", required=True)
+    parser.add_argument("--source-snapshot-sha256", required=True)
     parser.add_argument("--launcher", type=Path)
     parser.add_argument("--uv-version", default="unknown")
     args = parser.parse_args()
@@ -85,6 +98,7 @@ def main() -> int:
         args.root.resolve(),
         args.output.resolve(),
         source_revision=args.source_revision,
+        source_snapshot_sha256=args.source_snapshot_sha256,
         launcher=args.launcher.resolve() if args.launcher else None,
         uv_version=args.uv_version,
     )

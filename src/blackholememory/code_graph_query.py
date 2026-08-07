@@ -360,6 +360,11 @@ def query_code_graph(
     snapshot = store.snapshot(selected_snapshot_id, include_material=True, read_only=True) if selected_snapshot_id else None
     if snapshot is None:
         raise CodeGraphQueryError("graph snapshot unavailable; build WI-02 graph first")
+    # Keep an explicit snapshot selector bound to the caller's authorized
+    # project/root. Otherwise a known foreign snapshot ID can disclose another
+    # project's graph metadata under the requested project's response labels.
+    if str(snapshot.get("project") or "") != str(project) or str(snapshot.get("root_id") or "") != str(root_id):
+        raise CodeGraphQueryError("graph snapshot is outside the requested project/root scope")
     stale = bool(current and current.get("graph_snapshot_id") != snapshot.get("graph_snapshot_id"))
     nodes = list(snapshot.get("nodes") or [])
     edges = list(snapshot.get("edges") or [])

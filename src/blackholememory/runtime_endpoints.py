@@ -8,6 +8,7 @@ an explicit URL variable wins over host/port composition.
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,34 @@ from urllib.parse import urlsplit, urlunsplit
 
 class EndpointConfigError(RuntimeError):
     """Raised when the endpoint catalog is missing or malformed."""
+
+
+_LOCAL_LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain"})
+
+
+def validate_loopback_listener_host(host: str) -> str:
+    """Enforce the local-only listener contract for the BHM API.
+
+    The API carries browser session bootstrap and local caller authority, so a
+    wildcard or LAN listener must fail closed before Uvicorn starts. DNS names
+    other than the two explicit localhost aliases are rejected because their
+    eventual address cannot be proven from configuration alone.
+    """
+
+    normalized = str(host or "").strip().casefold().rstrip(".")
+    if normalized in _LOCAL_LOOPBACK_HOSTNAMES:
+        return normalized
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError as exc:
+        raise EndpointConfigError(
+            "BHM API listener host must be loopback-only (localhost, 127.0.0.1, or ::1)"
+        ) from exc
+    if not address.is_loopback:
+        raise EndpointConfigError(
+            "BHM API listener host must be loopback-only (localhost, 127.0.0.1, or ::1)"
+        )
+    return normalized
 
 
 @dataclass(frozen=True)
@@ -115,4 +144,5 @@ __all__ = [
     "endpoint_parts",
     "endpoint_port",
     "endpoint_url",
+    "validate_loopback_listener_host",
 ]

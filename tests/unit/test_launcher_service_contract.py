@@ -19,6 +19,7 @@ def test_frozen_launcher_passes_real_project_root_to_api_service_script():
     assert 'BHM_CODE_SEMANTIC_FUSION = "1"' in service
     assert 'BHM_MEMORY_STORE_MODE = "sqlite-authoritative"' in service
     assert "Resolve-AuthoritativeProviderEndpoint" in service
+    assert "Assert-BhmApiLoopbackHost" in service
     assert 'Get-BhmRuntimeEndpoint -Name "lm_studio"' in service
     assert 'Get-BhmRuntimeEndpointParts -Name "lm_studio"' in service
     assert "172\\.18\\.0\\.1:13666/v1" not in service

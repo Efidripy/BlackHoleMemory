@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -11,6 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.code_graph import build_code_graph
 from blackholememory.convention_memory import ConventionMemoryInjectedFailure
@@ -29,6 +32,8 @@ CONFIG_PATH = ROOT / "config" / "cbm-integration.json"
 REGISTRY_PATH = ROOT / "config" / "source-registry.json"
 CLI_PATH = ROOT / "scripts" / "bhm-conventions.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-wi04-conventions.py"
+WI04_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+WI04_EXPECTED_CORE_TOOL_COUNT = 35
 
 
 def _digest(path: Path) -> str:
@@ -79,6 +84,26 @@ def _api_hidden() -> bool:
     return expected.issubset(routes) and all(getattr(routes[path], "include_in_schema", False) is False for path in expected)
 
 
+def _run_bounded_child(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run disposable WI-04 children with a finite wait."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=WI04_PROCESS_TIMEOUT_SECONDS,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report")
@@ -96,7 +121,7 @@ def main() -> int:
         graph = build_code_graph(database, project="fixture", root_id=state.root_id, repository_snapshot_id=indexed["snapshot_id"])
         checks["live_flags_remain_off"] = _flags_off()
         checks["source_registry_clean_room"] = _clean_room()
-        checks["canonical_mcp_core_unchanged"] = len(CORE_TOOL_NAMES) == 31 and "bhm_change_impact_preview" in CORE_TOOL_NAMES
+        checks["canonical_mcp_core_unchanged"] = len(CORE_TOOL_NAMES) == WI04_EXPECTED_CORE_TOOL_COUNT and "bhm_change_impact_preview" in CORE_TOOL_NAMES
         checks["internal_preview_route_hidden"] = _api_hidden()
         preview = preview_convention_memory(database, project="fixture", root_id=state.root_id, graph_snapshot_id=graph["graph_snapshot_id"])
         repeat = preview_convention_memory(database, project="fixture", root_id=state.root_id, graph_snapshot_id=graph["graph_snapshot_id"])
@@ -134,13 +159,25 @@ def main() -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
         cli_report = temp / "cli.json"
-        cli = subprocess.run([sys.executable, str(CLI_PATH), "--action", "preview", "--root", str(root), "--database", str(database), "--project", "fixture", "--report", str(cli_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        cli = _run_bounded_child(
+            [sys.executable, str(CLI_PATH), "--action", "preview", "--root", str(root), "--database", str(database), "--project", "fixture", "--report", str(cli_report)],
+            cwd=ROOT,
+            env=env,
+        )
         cli_payload = json.loads(cli_report.read_text(encoding="utf-8")) if cli_report.exists() else {}
         checks["cli_preview_smoke"] = cli.returncode == 0 and cli_payload.get("schema_version") == "bhm.repository-conventions.v1" and cli_payload.get("execution", {}).get("writes_sqlite_state") is False
-        denied = subprocess.run([sys.executable, str(CLI_PATH), "--action", "build", "--root", str(root), "--database", str(database), "--project", "fixture"], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        denied = _run_bounded_child(
+            [sys.executable, str(CLI_PATH), "--action", "build", "--root", str(root), "--database", str(database), "--project", "fixture"],
+            cwd=ROOT,
+            env=env,
+        )
         checks["cli_confirm_gate"] = denied.returncode == 2 and "confirm" in denied.stdout.casefold()
         benchmark_report = temp / "benchmark.json"
-        benchmark = subprocess.run([sys.executable, str(BENCHMARK_PATH), "--files", "24", "--iterations", "3", "--p95-budget-ms", "2000", "--report", str(benchmark_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        benchmark = _run_bounded_child(
+            [sys.executable, str(BENCHMARK_PATH), "--files", "24", "--iterations", "3", "--p95-budget-ms", "2000", "--report", str(benchmark_report)],
+            cwd=ROOT,
+            env=env,
+        )
         benchmark_payload = json.loads(benchmark_report.read_text(encoding="utf-8")) if benchmark_report.exists() else {}
         checks["latency_benchmark_green"] = benchmark.returncode == 0 and benchmark_payload.get("ok") is True and benchmark_payload.get("checks", {}).get("preview_no_writes") is True
         details = {
@@ -159,8 +196,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         output = Path(args.report).expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(output, (rendered + "\n").encode("utf-8"))
     return 0 if not failed else 1
 
 

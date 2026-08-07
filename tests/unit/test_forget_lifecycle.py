@@ -42,12 +42,20 @@ def _install_forget_store(monkeypatch):
     monkeypatch.setattr(bhm_app, "_canonical_project", lambda project: (project or "").strip().lower())
     monkeypatch.setattr(bhm_app, "_project_aliases", lambda project: {project})
     class FakeMemoryService:
-        def get_record(self, memory_id):
-            return next((copy.deepcopy(item) for item in records if item["source_id"] == memory_id), None)
+        def get_record(self, memory_id, *, project=None):
+            return next(
+                (
+                    copy.deepcopy(item)
+                    for item in records
+                    if item["source_id"] == memory_id
+                    and (project is None or item["project"] == project)
+                ),
+                None,
+            )
 
-        def tombstone(self, memory_id, *, reason="user_delete"):
+        def tombstone(self, memory_id, *, project=None, reason="user_delete"):
             for item in records:
-                if item["source_id"] != memory_id:
+                if item["source_id"] != memory_id or (project is not None and item["project"] != project):
                     continue
                 metadata = item.setdefault("metadata", {})
                 if metadata.get("lifecycle") == "tombstoned":
@@ -61,9 +69,9 @@ def _install_forget_store(monkeypatch):
                 return copy.deepcopy(item)
             return None
 
-        def restore_tombstone(self, memory_id, *, reason="forget undo", undo_window_seconds=900):
+        def restore_tombstone(self, memory_id, *, project=None, reason="forget undo", undo_window_seconds=900):
             for item in records:
-                if item["source_id"] != memory_id:
+                if item["source_id"] != memory_id or (project is not None and item["project"] != project):
                     continue
                 metadata = item.setdefault("metadata", {})
                 if metadata.get("lifecycle") != "tombstoned":

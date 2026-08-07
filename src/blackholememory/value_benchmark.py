@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .context_compiler import compile_context
+from .filesystem_boundaries import replace_bytes_safely
 from .retrieval_benchmark import filter_benchmark_hits
 from .retrieval_fusion import weighted_rank_fusion
 
@@ -543,10 +544,11 @@ def _pct(value: float) -> str:
 
 
 def write_value_benchmark_report(report: Mapping[str, Any], output_json: Path, output_markdown: Path) -> None:
-    output_json.parent.mkdir(parents=True, exist_ok=True)
-    output_markdown.parent.mkdir(parents=True, exist_ok=True)
-    output_json.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    output_markdown.write_text(render_value_benchmark_markdown(report), encoding="utf-8")
+    replace_bytes_safely(
+        output_json,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
+    replace_bytes_safely(output_markdown, render_value_benchmark_markdown(report).encode("utf-8"))
 
 
 __all__ = [

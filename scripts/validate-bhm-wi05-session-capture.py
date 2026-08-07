@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -12,6 +14,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 from blackholememory.session_capture import DISCLOSURE_LEVELS
@@ -23,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-session-capture.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-wi05-session-capture.py"
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+WI05_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+WI05_EXPECTED_CORE_TOOL_COUNT = 35
 
 
 def _fixture() -> dict[str, list[dict]]:
@@ -75,6 +80,26 @@ def _api_hidden() -> bool:
     return route is not None and getattr(route, "include_in_schema", False) is False
 
 
+def _run_bounded_child(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run disposable WI-05 children with a finite wait."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=WI05_PROCESS_TIMEOUT_SECONDS,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report")
@@ -104,7 +129,7 @@ def main() -> int:
     serialized = json.dumps(preview, ensure_ascii=False, sort_keys=True)
     checks["redaction_and_no_raw_payload"] = preview["execution"]["raw_payload_returned"] is False and "never-return" not in serialized and "stale raw" not in serialized
     checks["reversible_forget_preview"] = preview["packet"]["forget_preview"]["preview_only"] is True and bool(preview["packet"]["forget_preview"]["undo_token_digest"])
-    checks["read_only_and_public_mcp_unchanged"] = preview["execution"]["writes_sqlite"] is False and preview["execution"]["writes_qdrant"] is False and len(CORE_TOOL_NAMES) == 12
+    checks["read_only_and_public_mcp_unchanged"] = preview["execution"]["writes_sqlite"] is False and preview["execution"]["writes_qdrant"] is False and len(CORE_TOOL_NAMES) == WI05_EXPECTED_CORE_TOOL_COUNT
     checks["hidden_api"] = _api_hidden()
     after = _digest(fixture)
     checks["no_input_mutation"] = before == after
@@ -116,11 +141,19 @@ def main() -> int:
         cli_report = temp / "cli.json"
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
-        cli = subprocess.run([sys.executable, str(CLI_PATH), "--action", "preview", "--fixture", str(fixture_path), "--project", "fixture", "--session-id", "sess-1", "--disclosure", "audit", "--report", str(cli_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        cli = _run_bounded_child(
+            [sys.executable, str(CLI_PATH), "--action", "preview", "--fixture", str(fixture_path), "--project", "fixture", "--session-id", "sess-1", "--disclosure", "audit", "--report", str(cli_report)],
+            cwd=ROOT,
+            env=env,
+        )
         cli_payload = json.loads(cli_report.read_text(encoding="utf-8")) if cli_report.exists() else {}
         checks["cli_smoke"] = cli.returncode == 0 and cli_payload.get("schema_version") == "bhm.session-capture.v1" and cli_payload.get("execution", {}).get("writes_sqlite") is False
         benchmark_report = temp / "benchmark.json"
-        benchmark = subprocess.run([sys.executable, str(BENCHMARK_PATH), "--items-per-source", "20", "--iterations", "8", "--report", str(benchmark_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        benchmark = _run_bounded_child(
+            [sys.executable, str(BENCHMARK_PATH), "--items-per-source", "20", "--iterations", "8", "--report", str(benchmark_report)],
+            cwd=ROOT,
+            env=env,
+        )
         benchmark_payload = json.loads(benchmark_report.read_text(encoding="utf-8")) if benchmark_report.exists() else {}
         checks["latency_benchmark"] = benchmark.returncode == 0 and benchmark_payload.get("ok") is True and benchmark_payload.get("checks", {}).get("p95_budget") is True
         details = {"response_digest": preview["response_digest"], "counts": preview["counts"], "budget": preview["budget"], "benchmark": benchmark_payload.get("latency", {})}
@@ -142,8 +175,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         target = Path(args.report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
     return 0 if not failed else 1
 
 

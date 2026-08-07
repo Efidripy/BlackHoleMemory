@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from .error_taxonomy import error_contract_snapshot
+
 
 PROTOCOL_CONTRACT_SCHEMA_VERSION = "bhm.mcp.protocol-conformance.v1"
 CURRENT_PROTOCOL_VERSION = "2025-06-18"
@@ -201,4 +203,5 @@ def contract_snapshot() -> dict[str, Any]:
             "method_not_found": JSONRPC_METHOD_NOT_FOUND,
             "invalid_params": JSONRPC_INVALID_PARAMS,
         },
+        "error_taxonomy": error_contract_snapshot(),
     }

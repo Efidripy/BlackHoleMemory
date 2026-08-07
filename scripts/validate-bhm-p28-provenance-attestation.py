@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from blackholememory.provenance_attestation import build_provenance_attestation_report
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 def main() -> int:
@@ -23,8 +24,7 @@ def main() -> int:
     report = build_provenance_attestation_report(args.repo, args.attestation, package_paths=args.package, sbom_paths=args.sbom)
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
     if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(rendered, encoding="utf-8", newline="\n")
+        replace_bytes_safely(args.report, rendered.encode("utf-8"))
     print(rendered, end="")
     return 0 if report["state"] == "verified" else 1
 

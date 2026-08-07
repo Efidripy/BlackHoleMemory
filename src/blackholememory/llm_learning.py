@@ -24,6 +24,7 @@ from typing import Any, Callable
 from .llm_safety import LLMSafetyViolation
 from .llm_safety import sanitize_llm_value
 from .llm_safety import scan_prompt_injection
+from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
 
 LLM_LEARNING_SCHEMA_VERSION = 1
@@ -489,9 +490,9 @@ class LLMLearningStore:
         }
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.path, timeout=5.0)
+        connection = sqlite3.connect(self.path, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute(f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}")
         connection.execute("PRAGMA foreign_keys=ON")
         return connection
 

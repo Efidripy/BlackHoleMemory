@@ -5,7 +5,8 @@ param(
   [switch]$SemanticFusion,
   [string]$BaseUrl = '',
   [ValidateRange(5, 300)][int]$TimeoutSec = 90,
-  [ValidateRange(1, 10)][int]$PollSeconds = 1
+  [ValidateRange(1, 10)][int]$PollSeconds = 1,
+  [ValidateRange(1, 60)][int]$ShutdownTimeoutSec = 5
 )
 
 Set-StrictMode -Version Latest
@@ -18,6 +19,7 @@ $lmStudioUrl = Get-BhmRuntimeEndpoint -Name 'lm_studio' -RepoRoot $repoRoot
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot }
 $env:BHM_HOST = if ($env:BHM_HOST) { $env:BHM_HOST } else { $apiParts.Host }
 $env:BHM_PORT = if ($env:BHM_PORT) { $env:BHM_PORT } else { [string]$apiParts.Port }
+Assert-BhmApiLoopbackHost -HostName ([string]$env:BHM_HOST)
 
 function Set-AuthoritativeEnvironment {
   $env:BHM_MEMORY_STORE_MODE = "sqlite-authoritative"
@@ -146,6 +148,26 @@ function Stop-BhmProcesses {
       Stop-Process -Id $listenerId -Force -ErrorAction SilentlyContinue
     }
   }
+  $deadline = [DateTime]::UtcNow.AddSeconds($ShutdownTimeoutSec)
+  do {
+    $remaining = @($knownIds | Where-Object {
+        try { $null -ne (Get-Process -Id $_ -ErrorAction Stop) } catch { $false }
+      })
+    if ($remaining.Count -eq 0) { return }
+    Start-Sleep -Milliseconds 250
+  } while ([DateTime]::UtcNow -lt $deadline)
+  foreach ($processId in $remaining) {
+    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+  }
+  $retryDeadline = [DateTime]::UtcNow.AddSeconds($ShutdownTimeoutSec)
+  do {
+    $remaining = @($remaining | Where-Object {
+        try { $null -ne (Get-Process -Id $_ -ErrorAction Stop) } catch { $false }
+      })
+    if ($remaining.Count -eq 0) { return }
+    Start-Sleep -Milliseconds 250
+  } while ([DateTime]::UtcNow -lt $retryDeadline)
+  throw "BHM process cleanup exceeded bounded shutdown deadline of $ShutdownTimeoutSec seconds. Remaining PIDs: $($remaining -join ', ')"
 }
 
 function Get-BhmCallerToken {

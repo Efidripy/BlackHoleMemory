@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import argparse
 import hashlib
 import json
+import math
 import re
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -15,12 +19,28 @@ from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_TIMEOUT = 20.0
+MAX_HTTP_RESPONSE_BYTES = 256 * 1024
 PORT_RE = re.compile(r"--port\s+(\d+)")
 CTX_RE = re.compile(r"--ctx-size\s+(\d+)")
 PARALLEL_RE = re.compile(r"--parallel\s+(\d+)")
 HOST_RE = re.compile(r"--host\s+([^\s]+)")
 MODEL_RE = re.compile(r"--model\s+(.+?)(?:\s+--|$)")
+
+# Source path is bootstrapped before project imports.
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from blackholememory.local_endpoint_policy import LocalEndpointError
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.local_endpoint_policy import validate_local_endpoint
+from blackholememory.resource_limits import LLM_INVENTORY_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_LLM_INVENTORY_HARDWARE_TIMEOUT_SECONDS
+
+
+# Compatibility name retained; the registry-backed local inventory bound is canonical.
+DEFAULT_TIMEOUT = float(LLM_INVENTORY_HTTP_TIMEOUT_SECONDS)
 
 
 def discover_llama_process(processes: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -66,7 +86,20 @@ def discover_llama_process(processes: list[dict[str, Any]] | None = None) -> dic
     return None
 
 
+def bounded_llm_inventory_timeout(value: float) -> float:
+    """Clamp local-LLM inventory HTTP waits to the finite registry bound."""
+
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("LLM inventory timeout must be numeric") from exc
+    if not math.isfinite(requested):
+        raise ValueError("LLM inventory timeout must be finite")
+    return max(min(requested, float(LLM_INVENTORY_HTTP_TIMEOUT_SECONDS)), 0.1)
+
+
 def probe_inventory(server: dict[str, Any], *, timeout: float = DEFAULT_TIMEOUT, samples: int = 3) -> dict[str, Any]:
+    timeout = bounded_llm_inventory_timeout(timeout)
     base_url = f"http://{server['host']}:{server['port']}/v1"
     headers = {}
     api_key = _command_value(_process_commandline(server.get("pid")), "--api-key") if server.get("pid") else ""
@@ -203,7 +236,13 @@ def hardware_snapshot() -> dict[str, Any]:
         "--format=csv,noheader,nounits",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=5, check=False)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=PROCESS_EXECUTION_LLM_INVENTORY_HARDWARE_TIMEOUT_SECONDS,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError):
         return {"available": False}
     if result.returncode != 0 or not result.stdout.strip():
@@ -234,14 +273,17 @@ def _safe_number(value: str) -> int | float | str:
 
 
 def _request_json(url: str, *, method: str, headers: dict[str, str], timeout: float, payload: dict[str, Any] | None = None) -> tuple[bool, dict[str, Any], str]:
+    timeout = bounded_llm_inventory_timeout(timeout)
     request = urllib.request.Request(url, method=method, headers={**headers, "Content-Type": "application/json"})
     if payload is not None:
         request.data = json.dumps(payload).encode("utf-8")
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            decoded = json.loads(response.read().decode("utf-8"))
+        validate_local_endpoint(url)
+        with open_local_url(request, timeout=timeout) as response:
+            raw = read_bounded_response(response, limit=MAX_HTTP_RESPONSE_BYTES)
+        decoded = json.loads(raw.decode("utf-8"))
         return True, decoded if isinstance(decoded, dict) else {}, ""
-    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
+    except (OSError, urllib.error.URLError, LocalEndpointError, json.JSONDecodeError) as exc:
         return False, {}, str(exc)
 
 
@@ -320,6 +362,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    args.timeout = bounded_llm_inventory_timeout(args.timeout)
     server = discover_llama_process()
     if server is None:
         report = {"ok": False, "local_only": False, "failure": {"stage": "process_discovery", "error": "llama-server not found"}}

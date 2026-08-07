@@ -22,10 +22,18 @@ from blackholememory.migration_compatibility import MIGRATION_COMPATIBILITY_SCHE
 from blackholememory.retention import RETENTION_BACKUP_SCHEMA_VERSION  # noqa: E402
 from blackholememory.retention import RETENTION_POLICY_SCHEMA_VERSION  # noqa: E402
 from blackholememory.runtime_storage import _MEMORY_STORE_SCHEMA_VERSION  # noqa: E402
+from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
 
 
 def _digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
 
 
 def main() -> int:
@@ -102,8 +110,7 @@ def main() -> int:
     }
     contract["contract_digest"] = _digest(contract)
     contract["ok"] = all(bool(value) for value in contract["checks"].values())
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_report(args.report, contract)
     print(json.dumps(contract, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if contract["ok"] else 1
 

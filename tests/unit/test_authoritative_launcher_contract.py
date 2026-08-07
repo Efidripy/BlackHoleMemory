@@ -34,6 +34,7 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
         "start-qdrant.ps1",
         "rolled-back",
         "Resolve-LocalLmStudioEndpoint",
+        "Assert-BhmApiLoopbackHost",
         "Test-OpenAiBaseUrl",
         "Get-BhmRuntimeEndpoint -Name 'lm_studio'",
         "Get-BhmRuntimeEndpointParts -Name 'lm_studio'",

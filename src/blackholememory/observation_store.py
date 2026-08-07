@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Literal, Sequence
 
+from .filesystem_boundaries import assert_safe_path
+
 
 OBSERVATION_STORE_SCHEMA_VERSION = 2
 OBSERVATION_STORE_BUSY_TIMEOUT_MS = 5_000
@@ -654,16 +656,18 @@ class ObservationStore:
 
     def backup_to(self, target: Path | str, *, overwrite: bool = False) -> Path:
         self.initialize()
-        target_path = Path(target)
+        target_path = assert_safe_path(target)
         if target_path.exists() and not overwrite:
             raise FileExistsError(target_path)
         target_path.parent.mkdir(parents=True, exist_ok=True)
+        assert_safe_path(target_path.parent)
         if overwrite:
             for candidate in (
                 target_path,
                 Path(f"{target_path}-wal"),
                 Path(f"{target_path}-shm"),
             ):
+                assert_safe_path(candidate)
                 if candidate.exists():
                     candidate.unlink()
         source_connection = self._connect()

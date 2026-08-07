@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, time, timezone
 from typing import Any, Callable, Literal
 
+from .resource_limits import PROCESS_EXECUTION_GPU_SNAPSHOT_TIMEOUT_SECONDS
+
 
 LLMWorkload = Literal["interactive", "foreground", "background"]
 WORKLOAD_PRIORITY: dict[LLMWorkload, int] = {
@@ -453,7 +455,7 @@ def nvidia_smi_snapshot() -> ResourceSnapshot:
             ],
             capture_output=True,
             text=True,
-            timeout=2,
+            timeout=PROCESS_EXECUTION_GPU_SNAPSHOT_TIMEOUT_SECONDS,
             check=True,
         )
         first = next((line.strip() for line in completed.stdout.splitlines() if line.strip()), "")

@@ -14,8 +14,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+Add-Type -AssemblyName System.Net.Http
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot }
+
+$RetrievalQualityHttpTimeoutSec = 20
+$RetrievalQualityMaxResponseBytes = 262144
 
 function Get-BhmCallerHeaders {
     $token = [string]$env:BHM_CALLER_TOKEN
@@ -29,14 +33,85 @@ function Get-BhmCallerHeaders {
     return @{ Authorization = "Bearer $token" }
 }
 
+function Assert-RetrievalQualityUri {
+    param([Parameter(Mandatory = $true)][string]$Candidate)
+
+    $parsed = $null
+    if (-not [Uri]::TryCreate($Candidate, [UriKind]::Absolute, [ref]$parsed)) {
+        throw 'retrieval quality URL is not an absolute URI'
+    }
+    $allowedHosts = @('127.0.0.1', 'localhost', '::1')
+    if ($parsed.Scheme -ne 'http' -or $allowedHosts -notcontains $parsed.Host.ToLowerInvariant()) {
+        throw 'retrieval quality requires an HTTP loopback endpoint'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.UserInfo)) {
+        throw 'retrieval quality URL must not contain userinfo'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.Query)) {
+        throw 'retrieval quality URL must not contain a query'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.Fragment)) {
+        throw 'retrieval quality URL must not contain a fragment'
+    }
+    return $parsed
+}
+
+function Invoke-RetrievalQualityJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [ValidateSet('GET', 'POST')][string]$Method = 'GET',
+        [hashtable]$RequestHeaders = @{},
+        [string]$Body = $null
+    )
+
+    $parsed = Assert-RetrievalQualityUri -Candidate $Uri
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseProxy = $false
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds($RetrievalQualityHttpTimeoutSec)
+    $httpMethod = if ($Method -eq 'POST') { [System.Net.Http.HttpMethod]::Post } else { [System.Net.Http.HttpMethod]::Get }
+    $request = [System.Net.Http.HttpRequestMessage]::new($httpMethod, $parsed)
+    $response = $null
+    $content = $null
+    try {
+        foreach ($key in $RequestHeaders.Keys) {
+            $request.Headers.TryAddWithoutValidation([string]$key, [string]$RequestHeaders[$key]) | Out-Null
+        }
+        if ($Method -eq 'POST' -and -not [string]::IsNullOrWhiteSpace($Body)) {
+            $content = [System.Net.Http.StringContent]::new($Body, [Text.Encoding]::UTF8, 'application/json')
+            $request.Content = $content
+        }
+        $response = $client.SendAsync(
+            $request,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        ).GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) {
+            throw "retrieval quality returned HTTP $([int]$response.StatusCode)"
+        }
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        if ($bytes.Length -gt $RetrievalQualityMaxResponseBytes) {
+            throw "retrieval quality response exceeded bounded limit $RetrievalQualityMaxResponseBytes bytes"
+        }
+        return ([Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json)
+    }
+    finally {
+        if ($null -ne $response) { $response.Dispose() }
+        if ($null -ne $content) { $content.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
 function Get-LiveRuntimeState {
     param([Parameter(Mandatory = $true)][string]$Url)
 
     try {
         $headers = Get-BhmCallerHeaders
-        $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -Headers $headers -TimeoutSec 10
-        $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -Headers $headers -TimeoutSec 10
-        $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -Headers $headers -TimeoutSec 10
+        $health = Invoke-RetrievalQualityJson -Uri "$($Url.TrimEnd('/'))/bhm/health" -RequestHeaders $headers
+        $cutover = Invoke-RetrievalQualityJson -Uri "$($Url.TrimEnd('/'))/health/cutover" -RequestHeaders $headers
+        $slo = Invoke-RetrievalQualityJson -Uri "$($Url.TrimEnd('/'))/bhm/health/slo" -RequestHeaders $headers
         return [pscustomobject]@{
             ok = (
                 $health.status -eq "healthy" -and
@@ -93,8 +168,8 @@ function Invoke-RetrievalProbe {
     } | ConvertTo-Json -Depth 5
     try {
         $callerHeaders = Get-BhmCallerHeaders
-        $compile = Invoke-RestMethod -Method Post -UseBasicParsing -Uri "$Url/bhm/context/compile" -Headers $callerHeaders -ContentType "application/json" -Body $body -TimeoutSec 20
-        $explain = Invoke-RestMethod -Method Post -UseBasicParsing -Uri "$Url/bhm/retrieval/explain" -Headers $callerHeaders -ContentType "application/json" -Body $body -TimeoutSec 20
+        $compile = Invoke-RetrievalQualityJson -Uri "$($Url.TrimEnd('/'))/bhm/context/compile" -Method POST -RequestHeaders $callerHeaders -Body $body
+        $explain = Invoke-RetrievalQualityJson -Uri "$($Url.TrimEnd('/'))/bhm/retrieval/explain" -Method POST -RequestHeaders $callerHeaders -Body $body
         $compileRetrieval = $compile.retrieval
         $explainRetrieval = $explain.retrieval
         $explainTotal = [int]$explain.total

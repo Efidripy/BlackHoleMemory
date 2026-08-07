@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 
 
@@ -12,6 +13,7 @@ _MODULE = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_MODULE)
 build_report = _MODULE.build_report
 validate_shape = _MODULE._validate_crosswalk_shape
+tracked_source_files = _MODULE._tracked_source_files
 
 
 def test_p28_acceptance_report_is_read_only_and_truthful() -> None:
@@ -57,3 +59,18 @@ def test_crosswalk_shape_rejects_traversal_secrets_and_duplicate_ids(tmp_path: P
     assert any("duplicate capability id" in item for item in result["failures"])
     assert any("unsafe evidence path" in item for item in result["failures"])
     assert any("blocked boundary" in item for item in result["failures"])
+
+
+def test_tracked_source_probe_is_bounded_and_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    def timeout(*_args, **kwargs):
+        calls.update(kwargs)
+        raise subprocess.TimeoutExpired(kwargs.get("args", "git"), _MODULE.GIT_PROBE_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr(_MODULE.subprocess, "run", timeout)
+    rows, failure = tracked_source_files(tmp_path)
+
+    assert rows == ["git-check-unavailable"]
+    assert failure == "git source-boundary check unavailable"
+    assert calls["timeout"] == _MODULE.GIT_PROBE_TIMEOUT_SECONDS

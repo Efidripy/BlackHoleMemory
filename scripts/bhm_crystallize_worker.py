@@ -43,6 +43,10 @@ if str(SRC_ROOT) not in sys.path:
 from blackholememory.observation_store import ObservationStore
 from blackholememory.memory_service import MemoryServiceNotReady
 from blackholememory.memory_service import SQLiteMemoryService
+from blackholememory.local_endpoint_policy import LocalEndpointError
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.local_endpoint_policy import validate_local_endpoint
 from blackholememory.runtime_endpoints import endpoint_url
 from blackholememory.runtime_storage import MemoryStoreMode
 from blackholememory.runtime_storage import resolve_runtime_storage_config
@@ -83,6 +87,7 @@ DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_MAX_RECORD_CHARS = 700
 DEFAULT_MAX_PROMPT_CHARS = 12_000
 MAX_PAYLOAD_CHARS = 20000
+MAX_REST_RESPONSE_BYTES = 256 * 1024
 DEFAULT_INTERVAL_SECONDS = 300.0
 DEFAULT_REPORT_LIST_LIMIT = 50
 ACTIVE_ZONE_RECENT_COUNT = 10
@@ -1561,6 +1566,10 @@ def rest_call(
     timeout: float,
     params: JsonDict | None = None,
 ) -> JsonDict:
+    try:
+        validated_base_url = validate_local_endpoint(base_url)
+    except LocalEndpointError as exc:
+        raise SoftFail(f"BHM REST endpoint rejected: {exc}") from exc
     url = build_url(base_url, path, params)
     data = None
     headers = _rest_headers(path)
@@ -1569,11 +1578,16 @@ def rest_call(
         headers["Content-Type"] = "application/json; charset=utf-8"
     req = request.Request(url, data=data, headers=headers, method=method.upper())
     try:
-        with request.urlopen(req, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
+        with open_local_url(req, timeout=timeout, endpoint=validated_base_url) as response:
+            raw = read_bounded_response(response, limit=MAX_REST_RESPONSE_BYTES).decode("utf-8")
     except error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")[:1200]
+        try:
+            body = read_bounded_response(exc, limit=4096).decode("utf-8", errors="replace")[:1200]
+        except LocalEndpointError:
+            body = "[response body exceeded bounded error limit]"
         raise SoftFail(f"BHM REST {method} {path} failed with HTTP {exc.code}: {body}") from exc
+    except LocalEndpointError as exc:
+        raise SoftFail(f"BHM REST {method} {path} rejected by local transport policy: {exc}") from exc
     except error.URLError as exc:
         raise SoftFail(f"BHM REST {method} {path} unavailable: {exc}") from exc
     except TimeoutError as exc:

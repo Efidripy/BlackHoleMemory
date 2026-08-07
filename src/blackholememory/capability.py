@@ -44,11 +44,17 @@ _ADMIN_ROUTE_PREFIXES = (
     "/bhm/memory/review-queue",
     "/bhm/memory/gc-candidates",
     "/bhm/memory/compaction-report",
+    "/bhm/memory/secret-scan",
     "/bhm/memory/type-migrate",
     "/bhm/memories/batch-",
     "/bhm/overlap/cleanup-apply",
     "/bhm/policy/",
     "/bhm/policy-guard",
+    # Similarity reports enumerate cross-project identifiers and shared
+    # fields; keep this operator-only until an explicit allowlist contract is
+    # available.
+    "/bhm/project-similarity-report",
+    "/bhm/repair-live-indexes",
     "/bhm/project-summary/refresh-all",
     "/bhm/project-summary/pin",
     "/bhm/project/retirement/apply",

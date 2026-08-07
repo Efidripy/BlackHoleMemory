@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
+from blackholememory import llm_gateway
 from blackholememory.llm_gateway import GatewayRequest
 from blackholememory.llm_gateway import LocalLLMGateway
 from blackholememory.llm_gateway import LocalOpenAICompatibleAdapter
@@ -12,6 +14,7 @@ from blackholememory.llm_gateway import ModelRegistry
 from blackholememory.llm_gateway import PromptDefinition
 from blackholememory.llm_gateway import PromptRegistry
 from blackholememory.llm_gateway import normalize_json_content
+from blackholememory.local_endpoint_policy import LocalEndpointError
 
 
 def _gateway(transport):
@@ -146,3 +149,118 @@ def test_gateway_applies_safety_envelope_before_transport_and_marks_proposal():
     assert result.authority == "proposal"
     assert result.auto_apply is False
     assert result.provenance["injection_findings"] == ["ignore_previous_instructions"]
+
+
+def test_default_http_transport_uses_local_policy_and_bounded_response(monkeypatch):
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, limit):
+            captured["read_limit"] = limit
+            return json.dumps({"choices": []}).encode("utf-8")
+
+    def fake_open(request, *, timeout):
+        captured.update({"url": request.full_url, "timeout": timeout})
+        return Response()
+
+    monkeypatch.setattr(llm_gateway, "open_local_url", fake_open)
+
+    payload = llm_gateway._http_transport(
+        "http://127.0.0.1:13666/v1/chat/completions",
+        {"model": "local-model"},
+        {"Content-Type": "application/json"},
+        4.5,
+    )
+
+    assert payload == {"choices": []}
+    assert captured["url"].endswith("/chat/completions")
+    assert captured["timeout"] == 4.5
+    assert captured["read_limit"] == llm_gateway.MAX_RESPONSE_BYTES + 1
+
+
+def test_default_http_transport_fails_closed_on_oversized_response(monkeypatch):
+    class OversizedResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, limit):
+            return b"x" * limit
+
+    monkeypatch.setattr(llm_gateway, "open_local_url", lambda *_args, **_kwargs: OversizedResponse())
+
+    with pytest.raises(RuntimeError, match="bounded limit") as exc_info:
+        llm_gateway._http_transport(
+            "http://127.0.0.1:13666/v1/chat/completions",
+            {},
+            {},
+            1.0,
+        )
+    assert isinstance(exc_info.value.__cause__, LocalEndpointError)
+
+
+def test_gateway_clamps_request_timeout_to_registry_bound():
+    captured = {}
+
+    def transport(_url, _payload, _headers, timeout):
+        captured["timeout"] = timeout
+        return {"choices": [{"message": {"content": '{"status":"ok"}'}}]}
+
+    result = _gateway(transport).complete(
+        GatewayRequest(
+            "req-timeout-bound",
+            "probe",
+            "local-model",
+            ({"role": "user", "content": "probe"},),
+            timeout_seconds=9999,
+            json_required_keys=("status",),
+        )
+    )
+    assert result.ok is True
+    assert captured["timeout"] == llm_gateway.LLM_HTTP_TIMEOUT_SECONDS
+
+
+def test_gateway_rejects_non_finite_request_timeout():
+    result = _gateway(lambda *_args: {}).complete(
+        GatewayRequest(
+            "req-timeout-nan",
+            "probe",
+            "local-model",
+            ({"role": "user", "content": "probe"},),
+            timeout_seconds=float("nan"),
+        )
+    )
+    assert result.ok is False
+    assert result.failure["code"] == "transport_error"
+
+
+def test_default_adapter_reports_timeout_as_structured_transport_failure(monkeypatch):
+    def fail_open(*_args, **_kwargs):
+        raise TimeoutError("provider timeout")
+
+    monkeypatch.setattr(llm_gateway, "open_local_url", fail_open)
+    adapter = LocalOpenAICompatibleAdapter()
+    prompt = PromptDefinition("probe", "1", "Return JSON", output_mode="json")
+    model = ModelDefinition("local-model", "http://127.0.0.1:13666/v1")
+    request = GatewayRequest(
+        "req-default-timeout",
+        "probe",
+        "local-model",
+        ({"role": "user", "content": "probe"},),
+        json_required_keys=("status",),
+        timeout_seconds=2.5,
+    )
+
+    result = adapter.complete(request, prompt=prompt, model=model)
+
+    assert result.ok is False
+    assert result.failure["code"] == "transport_error"
+    assert "provider timeout" in result.failure["message"]

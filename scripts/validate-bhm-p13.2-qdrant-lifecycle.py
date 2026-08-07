@@ -18,6 +18,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.config import settings
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.qdrant_lifecycle import LIFECYCLE_DECISIONS
@@ -29,6 +30,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", type=Path, help="Write the full bounded lifecycle report.")
     parser.add_argument("--summary-only", action="store_true", help="Print only the compact summary.")
     return parser.parse_args()
+
+
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    replace_bytes_safely(path, (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
 def _summary(report: dict[str, Any]) -> dict[str, Any]:
@@ -86,8 +91,7 @@ def main() -> int:
             qdrant_url=settings.qdrant_url,
         )
         if args.report:
-            args.report.parent.mkdir(parents=True, exist_ok=True)
-            args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            _write_report(args.report, report)
         summary = _summary(report)
         output = summary if args.summary_only else {**summary, "collections": report["collections"]}
         print(json.dumps(output, ensure_ascii=False, indent=2))

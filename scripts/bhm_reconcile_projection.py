@@ -35,6 +35,7 @@ from blackholememory.qdrant_projector import QdrantProjector
 from blackholememory.runtime_storage import inspect_memory_store_schema
 from blackholememory.config import settings
 from blackholememory.runtime_endpoints import endpoint_parts
+from blackholememory.resource_limits import LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -104,7 +105,7 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
 
 def _listener_open(host: str = DEFAULT_BHM_HOST, port: int = DEFAULT_BHM_PORT) -> bool:
     try:
-        with socket.create_connection((host, port), timeout=0.25):
+        with socket.create_connection((host, port), timeout=LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS):
             return True
     except OSError:
         return False

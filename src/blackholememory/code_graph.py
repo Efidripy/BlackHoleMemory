@@ -321,7 +321,25 @@ def _source_ref(path: str, line: int | None = None) -> str:
 
 
 def _language_for_path(path: str) -> str:
-    suffix = Path(path).suffix.casefold()
+    path_name = PurePosixPath(str(path).replace("\\", "/")).name.casefold()
+    special_names = {
+        "dockerfile": "dockerfile",
+        "makefile": "makefile",
+        "justfile": "justfile",
+        "cmakelists.txt": "cmake",
+        "meson.build": "meson",
+        "go.mod": "gomod",
+        "go.sum": "gomod",
+        "kconfig": "kconfig",
+        "kconfigfile": "kconfig",
+        "docker-bake.hcl": "hcl",
+        "build": "starlark",
+        "build.bazel": "starlark",
+        "workspace": "starlark",
+    }
+    if path_name in special_names:
+        return special_names[path_name]
+    suffix = Path(path_name).suffix.casefold()
     return {
         ".py": "python",
         ".pyi": "python",

@@ -9,10 +9,27 @@ import os
 import subprocess
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
+GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(path, (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+
 
 def git(*args: str) -> list[str]:
     env = {**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": "*"}
-    result = subprocess.run(["git", *args], check=True, capture_output=True, text=True, encoding="utf-8", env=env)
+    result = subprocess.run(
+        ["git", *args],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env=env,
+        timeout=GIT_PROBE_TIMEOUT_SECONDS,
+    )
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
@@ -85,8 +102,7 @@ def main() -> int:
         "failures": failures,
         "ok": not failures,
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps({"ok": report["ok"], "registry": len(sources), "manifests": len(manifests), "tracked": len(tracked), "staged": len(staged), "failures": failures}, ensure_ascii=False))
     return 0 if report["ok"] else 1
 

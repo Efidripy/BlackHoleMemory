@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 DOCKER_CHECK_TIMEOUT_SECONDS = 3
 DOCKER_RECOVERY_TIMEOUT_SECONDS = 20
@@ -175,7 +177,10 @@ def _write_mcp_reset_marker() -> Path:
         "pid": os.getpid(),
         "process_reset_enabled": os.getenv(MCP_PROCESS_RESET_ENV, "").strip().lower() in _TRUTHY,
     }
-    marker_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    replace_bytes_safely(
+        marker_path,
+        json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"),
+    )
     return marker_path
 
 

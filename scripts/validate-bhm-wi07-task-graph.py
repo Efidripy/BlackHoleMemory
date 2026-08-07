@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -11,6 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 from blackholememory.task_graph import TaskGraphError
@@ -22,6 +25,8 @@ from blackholememory.task_graph import simulate_conflict_recovery_fixture
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-task-graph.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-wi07-task-graph.py"
+WI07_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+WI07_EXPECTED_CORE_TOOL_COUNT = 35
 
 
 def _fixture() -> dict[str, list[dict]]:
@@ -39,6 +44,26 @@ def _digest(path: Path) -> str:
 def _api_hidden() -> bool:
     routes = {str(route.path): route for route in bhm_app.app.routes if hasattr(route, "path")}
     return all(path in routes and routes[path].include_in_schema is False for path in ("/bhm/task-graph/query", "/bhm/task-graph/explain"))
+
+
+def _run_bounded_child(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run disposable WI-07 children with a finite wait."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=WI07_PROCESS_TIMEOUT_SECONDS,
+    )
 
 
 def main() -> int:
@@ -69,17 +94,25 @@ def main() -> int:
             pass
         checks["lkg_rollback"] = query_task_graph(database, project="fixture")["snapshot_id"] == current["snapshot_id"]
         checks["fixture_deterministic"] = simulate_conflict_recovery_fixture() == simulate_conflict_recovery_fixture() and simulate_conflict_recovery_fixture()["final"]["evidence_backed"] is True
-        checks["hidden_api_and_public_mcp"] = _api_hidden() and len(CORE_TOOL_NAMES) == 12
+        checks["hidden_api_and_public_mcp"] = _api_hidden() and len(CORE_TOOL_NAMES) == WI07_EXPECTED_CORE_TOOL_COUNT
         fixture_path = temp / "fixture.json"
         fixture_path.write_text(json.dumps(fixture, ensure_ascii=False), encoding="utf-8")
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
         cli_report = temp / "cli.json"
-        cli = subprocess.run([sys.executable, str(CLI_PATH), "--action", "build", "--database", str(temp / "cli.sqlite3"), "--fixture", str(fixture_path), "--project", "fixture", "--report", str(cli_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        cli = _run_bounded_child(
+            [sys.executable, str(CLI_PATH), "--action", "build", "--database", str(temp / "cli.sqlite3"), "--fixture", str(fixture_path), "--project", "fixture", "--report", str(cli_report)],
+            cwd=ROOT,
+            env=env,
+        )
         cli_payload = json.loads(cli_report.read_text(encoding="utf-8")) if cli_report.exists() else {}
         checks["cli_smoke"] = cli.returncode == 0 and cli_payload.get("schema_version") == "bhm.task-graph.v1" and cli_payload.get("summary", {}).get("conflict_count") == 1
         benchmark_report = temp / "benchmark.json"
-        benchmark = subprocess.run([sys.executable, str(BENCHMARK_PATH), "--items", "24", "--iterations", "8", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        benchmark = _run_bounded_child(
+            [sys.executable, str(BENCHMARK_PATH), "--items", "24", "--iterations", "8", "--p95-budget-ms", "250", "--report", str(benchmark_report)],
+            cwd=ROOT,
+            env=env,
+        )
         benchmark_payload = json.loads(benchmark_report.read_text(encoding="utf-8")) if benchmark_report.exists() else {}
         checks["latency_benchmark"] = benchmark.returncode == 0 and benchmark_payload.get("ok") is True and benchmark_payload.get("checks", {}).get("query_p95_budget") is True
         details = {"snapshot_id": built["snapshot_id"], "graph_digest": built["graph_digest"], "summary": built["summary"], "benchmark": benchmark_payload.get("latency", {})}
@@ -89,8 +122,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         target = Path(args.report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
     return 0 if not failed else 1
 
 

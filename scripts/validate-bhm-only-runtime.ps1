@@ -6,6 +6,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Net.Http
 . (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\runtime-endpoints.ps1')
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot (Split-Path -Parent $PSScriptRoot) }
 
@@ -45,6 +46,76 @@ function Get-BhmCallerHeaders {
         throw 'BHM_CALLER_TOKEN is unavailable'
     }
     return @{ Authorization = "Bearer $($token.Trim())"; 'X-BHM-Caller-Surface' = 'runtime-validator' }
+}
+
+$RuntimeValidatorHttpTimeoutSec = 20
+$RuntimeValidatorMaxResponseBytes = 262144
+
+function Assert-RuntimeValidatorUri {
+    param([Parameter(Mandatory = $true)][string]$Candidate)
+
+    $parsed = $null
+    if (-not [Uri]::TryCreate($Candidate, [UriKind]::Absolute, [ref]$parsed)) {
+        throw 'runtime validator URL is not an absolute URI'
+    }
+    $allowedHosts = @('127.0.0.1', 'localhost', '::1')
+    if ($parsed.Scheme -ne 'http' -or $allowedHosts -notcontains $parsed.Host.ToLowerInvariant()) {
+        throw 'runtime validator requires an HTTP loopback endpoint'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.UserInfo)) {
+        throw 'runtime validator URL must not contain userinfo'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.Query)) {
+        throw 'runtime validator URL must not contain a query'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.Fragment)) {
+        throw 'runtime validator URL must not contain a fragment'
+    }
+    return $parsed
+}
+
+function Invoke-RuntimeValidatorJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [hashtable]$RequestHeaders = @{}
+    )
+
+    $parsed = Assert-RuntimeValidatorUri -Candidate $Uri
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseProxy = $false
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds($RuntimeValidatorHttpTimeoutSec)
+    $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $parsed)
+    $response = $null
+    try {
+        foreach ($key in $RequestHeaders.Keys) {
+            $request.Headers.TryAddWithoutValidation([string]$key, [string]$RequestHeaders[$key]) | Out-Null
+        }
+        $response = $client.SendAsync(
+            $request,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        ).GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) {
+            throw "runtime validator returned HTTP $([int]$response.StatusCode)"
+        }
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        if ($bytes.Length -gt $RuntimeValidatorMaxResponseBytes) {
+            throw "runtime validator response exceeded bounded limit $RuntimeValidatorMaxResponseBytes bytes"
+        }
+        return ([Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json)
+    }
+    finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+        $handler.Dispose()
+    }
+}
+
+function Get-BhmJson {
+    param([Parameter(Mandatory = $true)][string]$Path, [hashtable]$RequestHeaders = @{})
+    Invoke-RuntimeValidatorJson -Uri "$($BaseUrl.TrimEnd('/'))$Path" -RequestHeaders $RequestHeaders
 }
 
 function Get-ForbiddenRouteMatches {
@@ -138,7 +209,7 @@ Add-Check -Name "shared_script_names" -Ok ($forbiddenNamedSharedScripts.Count -e
 
 $openapi = $null
 try {
-    $openapi = Invoke-RestMethod -Method Get -Uri "$BaseUrl/openapi.json" -TimeoutSec 20
+    $openapi = Get-BhmJson -Path '/openapi.json'
     Add-Check -Name "openapi_reachable" -Ok $true -Detail "BHM OpenAPI is reachable."
 } catch {
     Add-Check -Name "openapi_reachable" -Ok $false -Detail $_.Exception.Message
@@ -164,14 +235,14 @@ if ($null -ne $openapi) {
 
 try {
     $headers = Get-BhmCallerHeaders
-    $health = Invoke-RestMethod -Method Get -Uri "$BaseUrl/bhm/health" -Headers $headers -TimeoutSec 10
+    $health = Get-BhmJson -Path '/bhm/health' -RequestHeaders $headers
     Add-Check -Name "bhm_health" -Ok ($health.status -eq "healthy") -Detail "BHM health must be healthy." -Evidence $health
 } catch {
     Add-Check -Name "bhm_health" -Ok $false -Detail $_.Exception.Message
 }
 
 try {
-    $ready = Invoke-RestMethod -Method Get -Uri "$BaseUrl/health/ready" -TimeoutSec 10
+    $ready = Get-BhmJson -Path '/health/ready'
     Add-Check -Name "bhm_ready" -Ok ([bool]$ready.ok) -Detail "BHM readiness must be green." -Evidence $ready
 } catch {
     Add-Check -Name "bhm_ready" -Ok $false -Detail $_.Exception.Message
@@ -179,7 +250,7 @@ try {
 
 try {
     $headers = Get-BhmCallerHeaders
-    $cutover = Invoke-RestMethod -Method Get -Uri "$BaseUrl/health/cutover" -Headers $headers -TimeoutSec 10
+    $cutover = Get-BhmJson -Path '/health/cutover' -RequestHeaders $headers
     Add-Check -Name "bhm_cutover_health" -Ok ([bool]$cutover.ok) -Detail "BHM cutover health must be green." -Evidence $cutover
 } catch {
     Add-Check -Name "bhm_cutover_health" -Ok $false -Detail $_.Exception.Message

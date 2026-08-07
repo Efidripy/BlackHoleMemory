@@ -11,6 +11,8 @@ SQLite is the authoritative store. In the canonical authoritative runtime the
 projection worker is intentionally disabled by the SQLite authority guard;
 this is a protection boundary, not a runtime failure. Qdrant remains a
 rebuildable read projection and must not become a second source of truth.
+The compatibility-sidecar boundary is documented in
+[`docs/architecture-authority.md`](architecture-authority.md).
 
 When an operator needs to reconcile a backlog, use the bounded operator flow:
 
@@ -22,11 +24,13 @@ The flow temporarily runs the explicit projection worker in `sqlite-shadow`
 mode, then restores the canonical `sqlite-authoritative` runtime and verifies
 that pending and failed projection events are zero.
 
-The browser UI contract is direct-loopback-only: use the canonical BHM API
-host/port, do not expose `/` or `/bhm/*` through an untrusted reverse proxy,
-and do not treat `X-Forwarded-*` headers as an authentication signal. A proxy
-deployment must preserve the loopback boundary and explicitly authenticate
-before forwarding requests.
+The browser UI is launcher-session-bound: start the trusted BHM launcher, which
+uses the caller bearer boundary and passes a one-time bootstrap token in the
+URL fragment. Bare anonymous browser requests to `/bhm/ui/session/bootstrap`
+are rejected even on loopback; do not expose `/` or `/bhm/*` through an
+untrusted reverse proxy, and do not treat `X-Forwarded-*` headers as an
+authentication signal. A proxy deployment must preserve the loopback boundary
+and explicitly authenticate before forwarding requests.
 
 ## MCP
 
@@ -49,6 +53,9 @@ http://127.0.0.1:8000/mcp
 
 Очередь ограничивает только MCP transport lifecycle; она не является очередью
 записи памяти и не создаёт записи в BHM сама по себе.
+
+REST/MCP clients should use the shared [BHM error taxonomy](error-taxonomy.md)
+instead of parsing free-form error messages.
 
 ## Принцип безопасности
 

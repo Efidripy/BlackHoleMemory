@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import json
+import math
 import mimetypes
 import os
 import platform
@@ -20,6 +21,8 @@ from typing import Any, Callable, Literal, TypedDict
 
 import httpx
 from langgraph.graph import END, START, StateGraph
+
+from ..langgraph_contract import build_langgraph_contract
 
 from blackholememory.tools.code_ast import ASTCodeManager
 from blackholememory.tools.agent_boundary import AGENT_INPUT_ROOT
@@ -39,13 +42,28 @@ from blackholememory.llm_gateway import ModelDefinition
 from blackholememory.llm_gateway import ModelRegistry
 from blackholememory.llm_gateway import PromptDefinition
 from blackholememory.llm_gateway import PromptRegistry
+from blackholememory.llm_gateway import is_local_endpoint
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
+from blackholememory.external_endpoint_policy import validate_public_https_endpoint
+from blackholememory.filesystem_boundaries import append_bytes_safely
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.runtime_endpoints import endpoint_url
 from blackholememory.caller_auth import configured_caller_token
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS
+from blackholememory.resource_limits import EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LLM_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_CONTAINER_TIMEOUT_SECONDS
+from blackholememory.resource_limits import RUNTIME_CHRONICLE_APPEND_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
+from blackholememory.version_manifest import RUNTIME_VERSION
 
 
 TRUNCATION_SUFFIX = " [TRUNCATED BY CONFIG]"
 ERROR_FALLBACK_MARKERS = {"error", "bug", "traceback", "failed", "crash", "exception", "panic", "fatal"}
-DEFAULT_SANDBOX_TIMEOUT_SECONDS = 15
+# Compatibility name retained for callers; the registry is authoritative.
+DEFAULT_SANDBOX_TIMEOUT_SECONDS = PROCESS_EXECUTION_CONTAINER_TIMEOUT_SECONDS
 DEFAULT_SANDBOX_HYPOTHESIS_COUNT = 4
 SANDBOX_IMAGE = (
     "python:3.11-alpine3.24@"
@@ -62,16 +80,29 @@ WEB_RAW_DATA_LIMIT = 20000
 WEB_FACT_VALUE_LIMIT = 2000
 WEB_FACT_CONTENT_LIMIT = 6000
 WEB_QUARANTINE_FIELDS = ("web_raw_search_output", "web_scraped_markdown", "extracted_web_fact")
-LIVE_SEARCH_TIMEOUT_SECONDS = 20
+PRODUCT_RUNTIME_METADATA_VERSION = RUNTIME_VERSION.removeprefix("bhm-v")
+LIVE_SEARCH_TIMEOUT_SECONDS = EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS
 LIVE_SEARCH_MAX_RESULTS = 3
 LIVE_SEARCH_USER_AGENT = "BlackHoleMemory-LiveSearch/4.2"
 SPECULATIVE_RAG_SEARCH_LIMIT = 3
 SPECULATIVE_RAG_TEXT_LIMIT = 1000
-SPECULATIVE_RAG_TIMEOUT_SECONDS = 3
+SPECULATIVE_RAG_TIMEOUT_SECONDS = BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS
 SWARM_REVISION_LIMIT = 3
 SWARM_QA_TOOL_ITERATION_LIMIT = 3
 SWARM_TOOL_TIMEOUT_SECONDS = 15
 SWARM_TOOL_OUTPUT_LIMIT = 5000
+
+
+def _bounded_agent_http_timeout(value: Any, *, upper_bound: float) -> float:
+    """Return a finite, operation-specific timeout for an owned HTTP client."""
+
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("HTTP timeout must be numeric") from exc
+    if not math.isfinite(requested):
+        raise ValueError("HTTP timeout must be finite")
+    return max(min(requested, float(upper_bound)), 1.0)
 _RETIRED_SWARM_MODEL_TOOLS = frozenset(
     {
         "bash",
@@ -342,6 +373,25 @@ def _normalize_live_web_search_result(value: Any, *, query: str, provider: str) 
     }
 
 
+def _bounded_httpx_json(response: httpx.Response, *, limit: int = MAX_RESPONSE_BYTES) -> Any:
+    """Reject oversized internal HTTP responses before JSON parsing."""
+
+    headers = getattr(response, "headers", {})
+    declared = headers.get("content-length") if hasattr(headers, "get") else None
+    if declared:
+        try:
+            if int(declared) > limit:
+                raise ValueError("internal HTTP response exceeded bounded limit")
+        except ValueError as exc:
+            if str(exc) == "internal HTTP response exceeded bounded limit":
+                raise
+            raise ValueError("internal HTTP response has invalid content-length") from exc
+    content = getattr(response, "content", None)
+    if isinstance(content, (bytes, bytearray)) and len(content) > limit:
+        raise ValueError("internal HTTP response exceeded bounded limit")
+    return response.json()
+
+
 async def _maybe_await(value: Any) -> Any:
     if hasattr(value, "__await__"):
         return await value
@@ -366,7 +416,7 @@ async def _execute_mcp_playwright_live_search(query: str) -> dict[str, Any] | No
 
 
 async def _execute_tavily_live_search(query: str, api_key: str) -> dict[str, Any]:
-    url = _read_bhm_env("TAVILY_SEARCH_URL", "https://api.tavily.com/search")
+    url = validate_public_https_endpoint(_read_bhm_env("TAVILY_SEARCH_URL", "https://api.tavily.com/search"))
     payload = {
         "query": query,
         "search_depth": "basic",
@@ -375,24 +425,34 @@ async def _execute_tavily_live_search(query: str, api_key: str) -> dict[str, Any
         "max_results": LIVE_SEARCH_MAX_RESULTS,
     }
     headers = {"Authorization": f"Bearer {api_key}", "User-Agent": LIVE_SEARCH_USER_AGENT}
-    async with httpx.AsyncClient(timeout=LIVE_SEARCH_TIMEOUT_SECONDS, headers={"User-Agent": LIVE_SEARCH_USER_AGENT}) as client:
+    async with httpx.AsyncClient(
+        timeout=LIVE_SEARCH_TIMEOUT_SECONDS,
+        headers={"User-Agent": LIVE_SEARCH_USER_AGENT},
+        trust_env=False,
+        follow_redirects=False,
+    ) as client:
         response = await client.post(url, json=payload, headers=headers)
         response.raise_for_status()
-        return _normalize_live_web_search_result(response.json(), query=query, provider="tavily")
+        return _normalize_live_web_search_result(_bounded_httpx_json(response), query=query, provider="tavily")
 
 
 async def _execute_google_live_search(query: str, api_key: str, search_engine_id: str) -> dict[str, Any]:
-    url = _read_bhm_env("GOOGLE_SEARCH_URL", "https://www.googleapis.com/customsearch/v1")
+    url = validate_public_https_endpoint(_read_bhm_env("GOOGLE_SEARCH_URL", "https://www.googleapis.com/customsearch/v1"))
     params = {
         "key": api_key,
         "cx": search_engine_id,
         "q": query,
         "num": LIVE_SEARCH_MAX_RESULTS,
     }
-    async with httpx.AsyncClient(timeout=LIVE_SEARCH_TIMEOUT_SECONDS, headers={"User-Agent": LIVE_SEARCH_USER_AGENT}) as client:
+    async with httpx.AsyncClient(
+        timeout=LIVE_SEARCH_TIMEOUT_SECONDS,
+        headers={"User-Agent": LIVE_SEARCH_USER_AGENT},
+        trust_env=False,
+        follow_redirects=False,
+    ) as client:
         response = await client.get(url, params=params)
         response.raise_for_status()
-        data = response.json()
+        data = _bounded_httpx_json(response)
         return _normalize_live_web_search_result(data, query=query, provider="google_custom_search")
 
 
@@ -614,14 +674,18 @@ async def _execute_speculative_bhm_search(payload: dict[str, Any]) -> Any:
     caller_token = configured_caller_token()
     if not caller_token:
         raise RuntimeError("BHM caller credential is unavailable")
+    if not is_local_endpoint(base_url):
+        raise RuntimeError("BHM internal endpoint must be loopback/private")
     async with httpx.AsyncClient(
         base_url=base_url,
         timeout=SPECULATIVE_RAG_TIMEOUT_SECONDS,
         headers={"Authorization": f"Bearer {caller_token}"},
+        trust_env=False,
+        follow_redirects=False,
     ) as client:
         response = await client.post("/bhm/search", json=payload)
         response.raise_for_status()
-        return response.json()
+        return _bounded_httpx_json(response)
 
 
 def _coerce_speculative_search_results(data: Any) -> list:
@@ -755,7 +819,7 @@ def _is_pid_running(pid: int) -> bool:
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS,
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired):
@@ -774,7 +838,18 @@ def _grace_wait(seconds: int) -> None:
         asyncio.run(asyncio.sleep(delay))
 
 
-def _terminate_spawned_pid_tree(pid: int, grace_seconds: int = 3) -> dict[str, Any]:
+def _bounded_termination_grace_seconds(value: Any) -> int:
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("termination grace must be an integer") from exc
+    if not math.isfinite(requested):
+        raise ValueError("termination grace must be finite")
+    return max(min(int(requested), PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS), 1)
+
+
+def _terminate_spawned_pid_tree(pid: int, grace_seconds: int = PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS) -> dict[str, Any]:
+    grace_seconds = _bounded_termination_grace_seconds(grace_seconds)
     result: dict[str, Any] = {"pid": pid, "terminated": False, "forced": False}
     if pid <= 0 or pid == os.getpid():
         result["error"] = "invalid_pid"
@@ -2358,9 +2433,11 @@ class ChronicleLogger:
         self.base_dir = _repo_root() / ".runtime" / "logs" / "agents" / safe_task_id
         self.chronicle_path = self.base_dir / "chronicle.md"
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        self.chronicle_path.write_text(
-            f"# Developer Agent Chronicle\n\n- task_id: `{safe_task_id}`\n- created_at: `{_now_iso()}`\n\n",
-            encoding="utf-8",
+        replace_bytes_safely(
+            self.chronicle_path,
+            (
+                f"# Developer Agent Chronicle\n\n- task_id: `{safe_task_id}`\n- created_at: `{_now_iso()}`\n\n"
+            ).encode("utf-8"),
         )
         self._append_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix=f"chronicle-{safe_task_id}")
 
@@ -2370,7 +2447,7 @@ class ChronicleLogger:
     def log_phase(self, phase: str, content: str) -> None:
         entry = f"## [PHASE: {phase}]\n\n- timestamp: `{_now_iso()}`\n\n{content.strip()}\n\n"
         future = self._append_executor.submit(self._append_text, entry)
-        future.result(timeout=10)
+        future.result(timeout=RUNTIME_CHRONICLE_APPEND_TIMEOUT_SECONDS)
 
     def log_retrieval(self, context: list[dict[str, Any]], mode: str, payload_summary: str) -> None:
         lines = [f"- mode: `{mode}`", f"- payload: {_limit_text(payload_summary, 700)}", f"- retrieved: {len(context)}"]
@@ -2435,7 +2512,7 @@ class ChronicleLogger:
             f"{safe_observation}\n\n"
         )
         future = self._append_executor.submit(self._append_text, entry)
-        future.result(timeout=10)
+        future.result(timeout=RUNTIME_CHRONICLE_APPEND_TIMEOUT_SECONDS)
 
     def save_json_stats(self, duration: float, iterations: int, status: str, tokens: dict):
         summary = (
@@ -2448,8 +2525,7 @@ class ChronicleLogger:
         self._append_executor.shutdown(wait=True)
 
     def _append_text(self, content: str):
-        with self.chronicle_path.open("a", encoding="utf-8") as handle:
-            handle.write(content)
+        append_bytes_safely(self.chronicle_path, content.encode("utf-8"))
 
 
 @dataclass(frozen=True)
@@ -2463,8 +2539,11 @@ class BHMSearchResult:
 
 class BHMRestClient:
     def __init__(self, base_url: str, timeout: float):
-        self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
+        normalized = base_url.rstrip("/")
+        if not is_local_endpoint(normalized):
+            raise ValueError("BHM internal endpoint must be loopback/private")
+        self.base_url = normalized
+        self.timeout = _bounded_agent_http_timeout(timeout, upper_bound=BHM_INTERNAL_HTTP_TIMEOUT_SECONDS)
 
     def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         caller_token = configured_caller_token()
@@ -2474,10 +2553,12 @@ class BHMRestClient:
             base_url=self.base_url,
             timeout=self.timeout,
             headers={"Authorization": f"Bearer {caller_token}"},
+            trust_env=False,
+            follow_redirects=False,
         ) as client:
             response = client.post(path, json=payload)
             response.raise_for_status()
-            return response.json()
+            return _bounded_httpx_json(response)
 
     def search(self, payload: dict[str, Any]) -> list[BHMSearchResult]:
         errors: list[str] = []
@@ -2638,9 +2719,10 @@ class QuarantineGatewayNode:
                 continue
 
     def _atomic_write_json(self, payload: list[dict[str, Any]]) -> None:
-        tmp_path = self.quarantine_file.with_suffix(self.quarantine_file.suffix + ".tmp")
-        tmp_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        tmp_path.replace(self.quarantine_file)
+        replace_bytes_safely(
+            self.quarantine_file,
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"),
+        )
 
     def _generate_avalanche_logs(self, task_query: str, log_count: int) -> list[dict[str, Any]]:
         count = max(0, int(log_count))
@@ -2702,7 +2784,7 @@ class LocalLLMClient:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
-        self.timeout = timeout
+        self.timeout = _bounded_agent_http_timeout(timeout, upper_bound=LLM_HTTP_TIMEOUT_SECONDS)
         self._gateway = LocalLLMGateway(
             prompts=PromptRegistry(
                 [
@@ -4450,7 +4532,7 @@ class BHMAgentExecutor:
                 "collection_targets": ["local", "global"],
                 "vector_scope": "local+global",
                 "global_collection_name": "bhm_global_core_knowledge",
-                "version": "1.8.0-PURE",
+                "version": PRODUCT_RUNTIME_METADATA_VERSION,
             },
         }
         result = self.bhm.batch_upsert([item])
@@ -4511,7 +4593,14 @@ class BHMAgentExecutor:
         next_state = self._cleanup_state_spawned_processes(next_state, "SUSPENDED")
         return next_state
 
-    def build_langgraph(self):
+    def build_langgraph(self, *, checkpointer: Any | None = None, resumable: bool = False):
+        contract = build_langgraph_contract(
+            "developer-agent",
+            purpose="multi-step code-generation and QA orchestration",
+            multi_step=True,
+            checkpointer=checkpointer,
+            resumable=resumable,
+        )
         graph = StateGraph(DeveloperAgentState)
         graph.add_node("supervisor", self.supervisor_node)
         graph.add_node("generate_code", self.generate_code_node)
@@ -4557,10 +4646,12 @@ class BHMAgentExecutor:
         )
         graph.add_edge("success_checkpoint", END)
         graph.add_edge("fix_suspended", END)
-        return graph.compile()
+        compiled = graph.compile(checkpointer=checkpointer) if checkpointer is not None else graph.compile()
+        setattr(compiled, "bhm_langgraph_contract", contract)
+        return compiled
 
-    def build_graph(self):
-        return self.build_langgraph()
+    def build_graph(self, *, checkpointer: Any | None = None, resumable: bool = False):
+        return self.build_langgraph(checkpointer=checkpointer, resumable=resumable)
 
     def _fix_success_state(self, task_id: str, error_node_id: str, solution_text: str):
         upsert_key = f"developer-agent-solution:{self._current_project}:{_stable_key(task_id, error_node_id, solution_text)}"

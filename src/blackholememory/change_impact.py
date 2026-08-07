@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from .git_history_test_receipt import build_commit_symbol_test_history_receipt
+from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 
 
 CHANGE_IMPACT_SCHEMA_VERSION = "bhm.change-impact.v1"
@@ -426,8 +427,8 @@ def collect_git_change_paths(repo_root: str | os.PathLike[str], *, base_revision
         command.extend([revision, "--"])
     else:
         command.append("--")
-    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
-    untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
+    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment, timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS)
+    untracked = subprocess.run(["git", "ls-files", "--others", "--exclude-standard"], check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment, timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS)
     candidates = [line for line in completed.stdout.splitlines() if line.strip()] + [line for line in untracked.stdout.splitlines() if line.strip()]
     paths = sorted({_path(line) for line in candidates})[:MAX_CHANGED_PATHS]
     return {"paths": paths, "base_revision": base_revision, "untracked_included": True, "bounded": len(paths) <= MAX_CHANGED_PATHS, "diff_hunks": collect_git_diff_hunks(root, base_revision=base_revision, paths=paths) if base_revision else [], "writes_worktree": False}
@@ -451,7 +452,7 @@ def collect_git_diff_hunks(
     # allowlist is applied while parsing the output below.
     command = ["git", "diff", "--unified=0", revision, "--"]
     # lgtm [py/command-line-injection]
-    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
+    completed = subprocess.run(command, check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment, timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS)
     current_path = ""
     selected_set = set(selected)
     hunks: list[dict[str, Any]] = []
@@ -556,7 +557,7 @@ def collect_git_history_stats(repo_root: str | os.PathLike[str], changed_paths: 
     if not 1 <= int(max_commits) <= MAX_GIT_HISTORY_COMMITS:
         raise ChangeImpactError("max_commits must be between 1 and 64")
     root, environment = _git_context(repo_root)
-    completed = subprocess.run(["git", "log", f"--max-count={int(max_commits)}", "--format=%H", "--name-only", "--diff-filter=ACMRTUXB", "--"], check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment)
+    completed = subprocess.run(["git", "log", f"--max-count={int(max_commits)}", "--format=%H", "--name-only", "--diff-filter=ACMRTUXB", "--"], check=True, capture_output=True, text=True, encoding="utf-8", cwd=root, env=environment, timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS)
     commits: list[list[str]] = []
     commit_ids: list[str] = []
     current: list[str] = []

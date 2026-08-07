@@ -606,6 +606,26 @@ def test_submit_is_idempotent_and_public_status_never_returns_payload(monkeypatc
     assert pending_result.json()["result_available"] is False
 
 
+def test_llm_job_status_result_and_cancel_recheck_stored_project_scope(monkeypatch, tmp_path):
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    client, queue = _client(monkeypatch, tmp_path)
+    created = queue.enqueue(
+        idempotency_key="codex-p17.7-cross-project",
+        job_type="context-review",
+        payload={"contract_version": "bhm.llm.delegation.v1", "input": {"text": "scoped"}},
+        project="other-project",
+    )
+
+    for method, path in (
+        (client.get, f"/bhm/llm/jobs/{created.job_id}"),
+        (client.get, f"/bhm/llm/jobs/{created.job_id}/result"),
+        (client.post, f"/bhm/llm/jobs/{created.job_id}/cancel"),
+    ):
+        response = method(path, params={"project": "blackholememory"})
+        assert response.status_code == 403
+        assert response.json()["detail"]["code"] == "caller_project_forbidden"
+
+
 def test_submit_rejects_idempotency_collision_and_cancel_is_reversible(monkeypatch, tmp_path):
     client, _queue = _client(monkeypatch, tmp_path)
     base = {

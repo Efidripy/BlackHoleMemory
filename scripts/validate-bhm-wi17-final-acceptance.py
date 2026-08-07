@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import os
@@ -11,6 +13,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory.product_value import build_product_value_benchmark
 from blackholememory.product_value import verify_product_value_digest
 
@@ -18,6 +21,7 @@ from blackholememory.product_value import verify_product_value_digest
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-product-value.py"
 BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi17-product-value.py"
+WI17_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
 
 
 def _archive_boundary(path: Path) -> dict[str, object]:
@@ -34,7 +38,19 @@ def _archive_boundary(path: Path) -> dict[str, object]:
 
 
 def _run(command: list[str], *, env: dict[str, str]) -> tuple[bool, str]:
-    result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+    try:
+        result = subprocess.run(
+            command,
+            cwd=ROOT,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=WI17_PROCESS_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return False, str(exc)
     return result.returncode == 0, (result.stdout + result.stderr)[-4_000:]
 
 
@@ -83,8 +99,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         target = Path(args.report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
     return 0 if report["ok"] else 1
 
 

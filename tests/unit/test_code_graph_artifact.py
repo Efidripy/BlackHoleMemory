@@ -10,6 +10,7 @@ from blackholememory.code_graph_artifact import export_graph_artifact
 from blackholememory.code_graph_artifact import build_graph_artifact_promotion_plan
 from blackholememory.code_graph_artifact import build_graph_artifact_delta_replay_receipt
 from blackholememory.code_graph_artifact import verify_graph_artifact
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
 def _material() -> dict:
@@ -41,6 +42,14 @@ def test_export_and_verify_are_source_free_and_integrity_bound(tmp_path: Path) -
     assert verified["replay_integrity"]["checks"]["deterministic_gzip"] is True
 
 
+def test_export_is_safe_on_deterministic_retry(tmp_path: Path) -> None:
+    first = export_graph_artifact(_material(), runtime_dir=tmp_path, project="demo", root_id="root_demo")
+    second = export_graph_artifact(_material(), runtime_dir=tmp_path, project="demo", root_id="root_demo")
+    assert second["path"] == first["path"]
+    assert Path(second["path"]).is_file()
+    assert Path(second["manifest_path"]).is_file()
+
+
 def test_delta_replay_receipt_binds_artifact_to_target_without_promotion(tmp_path: Path) -> None:
     exported = export_graph_artifact(_material(), runtime_dir=tmp_path, project="demo", root_id="root_demo")
     verified = verify_graph_artifact(exported["path"], runtime_dir=tmp_path)
@@ -68,6 +77,35 @@ def test_verify_rejects_path_escape(tmp_path: Path) -> None:
 def test_export_requires_completed_graph() -> None:
     with pytest.raises(CodeGraphArtifactError):
         export_graph_artifact({"nodes": [], "edges": []}, runtime_dir=Path("."), project="demo", root_id="root")
+
+
+def test_export_rejects_reparse_runtime_boundary(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_runtime = tmp_path / "linked-runtime"
+    try:
+        linked_runtime.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|reparse"):
+        export_graph_artifact(_material(), runtime_dir=linked_runtime, project="demo", root_id="root_demo")
+
+
+def test_export_rejects_hardlinked_artifact_target(tmp_path: Path) -> None:
+    exported = export_graph_artifact(_material(), runtime_dir=tmp_path, project="demo", root_id="root_demo")
+    artifact_path = Path(exported["path"])
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"sentinel")
+    artifact_path.unlink()
+    try:
+        artifact_path.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        export_graph_artifact(_material(), runtime_dir=tmp_path, project="demo", root_id="root_demo")
+    assert outside.read_bytes() == b"sentinel"
 
 
 def test_promotion_plan_is_compatible_preview_only(tmp_path: Path) -> None:

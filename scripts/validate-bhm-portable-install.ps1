@@ -4,6 +4,7 @@ param(
     [string]$QdrantUrl = '',
     [string]$QdrantCollection = "blackholememory",
     [ValidateRange(0, 65535)][int]$Port = 0,
+    [ValidateRange(1, 60)][int]$CleanupTimeoutSeconds = 5,
     [switch]$KeepExtracted,
     [switch]$AsJson
 )
@@ -43,12 +44,32 @@ function Get-JsonUrl {
     return Invoke-RestMethod -UseBasicParsing -Uri $Url -TimeoutSec 5
 }
 
+function Get-ArchiveReleaseVersion {
+    param([Parameter(Mandatory = $true)][string]$Archive)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($Archive)
+    try {
+        $entry = $zip.Entries | Where-Object {
+            $_.FullName.Replace('\', '/') -eq 'BlackHoleMemory/config/version-manifest.json'
+        } | Select-Object -First 1
+        if ($null -eq $entry) { throw "Archive has no canonical version manifest: $Archive" }
+        $reader = [IO.StreamReader]::new($entry.Open())
+        try { return ([string](($reader.ReadToEnd() | ConvertFrom-Json).release_version)).Trim() }
+        finally { $reader.Dispose() }
+    }
+    finally { $zip.Dispose() }
+}
+
 if (-not (Test-Path -LiteralPath $ReleaseArchive)) {
     throw "Release archive not found: $ReleaseArchive"
 }
 
 $python = Resolve-Python -Candidate $PythonPath
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$archivePath = (Resolve-Path -LiteralPath $ReleaseArchive).Path
+$releaseVersion = Get-ArchiveReleaseVersion -Archive $archivePath
+if ([string]::IsNullOrWhiteSpace($releaseVersion)) { throw "Archive release version is empty: $archivePath" }
+$expectedVersion = "v$releaseVersion"
 $verifyScript = Join-Path $repoRoot "scripts\verify-release-build.py"
 $trustVerifyScript = Join-Path $repoRoot "scripts\verify-release-trust.py"
 $tempRoot = Join-Path $env:TEMP ("bhm-portable-install-{0}" -f ([guid]::NewGuid().ToString("N")))
@@ -57,20 +78,53 @@ $stdout = Join-Path $tempRoot "service-stdout.log"
 $stderr = Join-Path $tempRoot "service-stderr.log"
 $process = $null
 $result = $null
+$cleanupError = $null
+
+function Stop-PortableProcessBounded {
+    param(
+        [Parameter(Mandatory = $true)][System.Diagnostics.Process]$Target,
+        [Parameter(Mandatory = $true)][int]$TimeoutSeconds
+    )
+    try { $Target.Refresh() } catch { return $true }
+    if ($Target.HasExited) { return $true }
+    Stop-Process -Id $Target.Id -Force -ErrorAction SilentlyContinue
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $Target.Refresh()
+            if ($Target.HasExited) { return $true }
+        } catch {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $deadline)
+    Stop-Process -Id $Target.Id -Force -ErrorAction SilentlyContinue
+    $retryDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    do {
+        try {
+            $Target.Refresh()
+            if ($Target.HasExited) { return $true }
+        } catch {
+            return $true
+        }
+        Start-Sleep -Milliseconds 250
+    } while ([DateTime]::UtcNow -lt $retryDeadline)
+    return $false
+}
 
 try {
     New-Item -ItemType Directory -Force -Path $tempRoot | Out-Null
 
     $archiveVerification = Invoke-JsonScript -Python $python -Script $verifyScript -Arguments @(
-        "--archive", (Resolve-Path -LiteralPath $ReleaseArchive).Path,
-        "--expected-version", "v1.8.0"
+        "--archive", $archivePath,
+        "--expected-version", $expectedVersion
     )
     if (-not [bool]$archiveVerification.ok) {
         throw "Release archive verifier returned not-ok."
     }
     $trustVerification = Invoke-JsonScript -Python $python -Script $trustVerifyScript -Arguments @(
-        "--archive", (Resolve-Path -LiteralPath $ReleaseArchive).Path,
-        "--expected-version", "v1.8.0"
+        "--archive", $archivePath,
+        "--expected-version", $expectedVersion
     )
     if (-not [bool]$trustVerification.ok) {
         throw "Release trust verifier returned not-ok."
@@ -152,7 +206,7 @@ try {
     }
     $authoritative = (
         $health.status -eq "healthy" -and
-        $health.version -eq "bhm-v1.8.0-PURE" -and
+        $health.version -eq "bhm-v$releaseVersion-PURE" -and
         $health.memory_store.backend -eq "sqlite-authoritative" -and
         [bool]$cutover.ok -and
         $slo.status -eq "healthy"
@@ -178,9 +232,14 @@ try {
         note = "Runtime process used only the extracted bundle as cwd/PYTHONPATH; host Python supplied dependencies."
     }
 } finally {
-    if ($process -and -not $process.HasExited) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 500
+    if ($process) {
+        try {
+            if (-not (Stop-PortableProcessBounded -Target $process -TimeoutSeconds $CleanupTimeoutSeconds)) {
+                $cleanupError = "Portable runtime process cleanup exceeded bounded deadline of $CleanupTimeoutSeconds seconds. PID: $($process.Id)"
+            }
+        } catch {
+            $cleanupError = $_.Exception.Message
+        }
     }
     foreach ($name in @("BHM_MEMORY_STORE_MODE", "BHM_MEMORY_STORE_PARITY_CONFIRMED", "BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED", "BHM_FALLBACK_MODE", "BHM_PROJECTION_WORKER_ENABLED", "BHM_RUNTIME_DIR", "BHM_QDRANT_URL", "BHM_QDRANT_COLLECTION", "BHM_MEM0_ENABLED", "BHM_PROVIDER_WARMUP_DISABLED", "PYTHONPATH")) {
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
@@ -190,6 +249,9 @@ try {
     }
 }
 
+if ($cleanupError) {
+    throw $cleanupError
+}
 if ($null -eq $result) {
     throw "Portable install validator produced no result."
 }

@@ -12,6 +12,9 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
+from ..resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
+
 JsonRpcHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
 ConnectionCloseHandler = Callable[[str, str], None]
 
@@ -139,7 +142,7 @@ class McpIpcBroker:
         self._stop_event.set()
         self._wake_listener()
         if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=3.0)
+            self._thread.join(timeout=MCP_BROKER_JOIN_TIMEOUT_SECONDS)
         self._thread = None
         if self._server_socket is not None:
             try:
@@ -168,7 +171,7 @@ class McpIpcBroker:
     def _wait_for_capacity(self) -> bool:
         with self._active_condition:
             while not self._stop_event.is_set() and self._active_clients >= self.max_clients:
-                self._active_condition.wait(timeout=0.2)
+                self._active_condition.wait(timeout=MCP_BROKER_CAPACITY_WAIT_SECONDS)
             if self._stop_event.is_set():
                 return False
             self._active_clients += 1

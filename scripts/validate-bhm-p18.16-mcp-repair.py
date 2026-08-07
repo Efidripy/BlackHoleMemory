@@ -23,7 +23,10 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.caller_auth import configured_caller_token
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.mcp_repair import SCHEMA_VERSION
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
 
 VALIDATION_SCHEMA_VERSION = "bhm.mcp.repair-validation.v1"
@@ -82,12 +85,14 @@ def _json_request(
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310
-            payload = json.loads(response.read().decode("utf-8"))
-            return int(response.status), payload if isinstance(payload, dict) else {}
+        with open_local_url(request, timeout=BHM_INTERNAL_HTTP_TIMEOUT_SECONDS) as response:
+            payload = json.loads(read_bounded_response(response).decode("utf-8"))
+            status_value = getattr(response, "status", None)
+            status = int(status_value if status_value is not None else response.getcode())
+            return status, payload if isinstance(payload, dict) else {}
     except urllib.error.HTTPError as exc:
         try:
-            payload = json.loads(exc.read().decode("utf-8"))
+            payload = json.loads(read_bounded_response(exc).decode("utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             payload = {}
         return int(exc.code), payload if isinstance(payload, dict) else {}

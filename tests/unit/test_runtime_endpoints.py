@@ -5,6 +5,8 @@ from pathlib import Path
 
 from blackholememory.runtime_endpoints import endpoint_parts
 from blackholememory.runtime_endpoints import endpoint_url
+from blackholememory.runtime_endpoints import EndpointConfigError
+from blackholememory.runtime_endpoints import validate_loopback_listener_host
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -22,6 +24,19 @@ def test_endpoint_catalog_honors_environment_overrides(monkeypatch):
     assert endpoint_url("bhm_api") == "http://localhost:8123"
     monkeypatch.setenv("BHM_BASE_URL", "http://127.0.0.1:9010/custom")
     assert endpoint_url("bhm_api", "/health/ready") == "http://127.0.0.1:9010/custom/health/ready"
+
+
+def test_bhm_listener_host_contract_is_loopback_only():
+    assert validate_loopback_listener_host("localhost") == "localhost"
+    assert validate_loopback_listener_host("127.0.0.1") == "127.0.0.1"
+    assert validate_loopback_listener_host("::1") == "::1"
+
+    for host in ("0.0.0.0", "192.168.1.20", "bhm.example.test"):
+        try:
+            validate_loopback_listener_host(host)
+        except EndpointConfigError:
+            continue
+        raise AssertionError(f"non-loopback host unexpectedly accepted: {host}")
 
 
 def test_cleanup_audit_is_read_only_and_utf8_clean():

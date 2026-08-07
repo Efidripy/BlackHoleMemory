@@ -172,9 +172,9 @@ class SQLiteMemoryService:
         )
         return [memory.to_record() for memory in memories]
 
-    def get_record(self, memory_id: str) -> dict[str, Any] | None:
+    def get_record(self, memory_id: str, *, project: str | None = None) -> dict[str, Any] | None:
         self._ensure_ready()
-        memory = self.repository.get_memory(str(memory_id))
+        memory = self.repository.get_memory(str(memory_id), project=project)
         return memory.to_record() if memory is not None else None
 
     def upsert_records(self, records: Iterable[Mapping[str, Any]]) -> Path:
@@ -228,9 +228,15 @@ class SQLiteMemoryService:
                 self.repository.save_memory(memory)
         return self.path
 
-    def tombstone(self, memory_id: str, *, reason: str = "user_delete") -> dict[str, Any] | None:
+    def tombstone(
+        self,
+        memory_id: str,
+        *,
+        project: str | None = None,
+        reason: str = "user_delete",
+    ) -> dict[str, Any] | None:
         self._ensure_ready()
-        memory = self.repository.get_memory(str(memory_id))
+        memory = self.repository.get_memory(str(memory_id), project=project)
         if memory is None or memory.lifecycle is Lifecycle.TOMBSTONED:
             return None
         result = self.lifecycle.tombstone(memory, reason=reason)
@@ -246,11 +252,12 @@ class SQLiteMemoryService:
         self,
         memory_id: str,
         *,
+        project: str | None = None,
         reason: str = "forget undo",
         undo_window_seconds: int = 900,
     ) -> dict[str, Any] | None:
         self._ensure_ready()
-        memory = self.repository.get_memory(str(memory_id))
+        memory = self.repository.get_memory(str(memory_id), project=project)
         if memory is None or memory.lifecycle is not Lifecycle.TOMBSTONED:
             return None
         lifecycle = MemoryLifecycleService(self.repository, undo_window_seconds=undo_window_seconds)

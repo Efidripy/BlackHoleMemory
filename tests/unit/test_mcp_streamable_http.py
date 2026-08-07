@@ -680,6 +680,17 @@ def test_streamable_http_tool_call_does_not_block_event_loop():
     asyncio.run(exercise())
 
 
+def test_jsonrpc_errors_and_results_redact_secret_assignments() -> None:
+    secret_name = "BHM_CALLER_" + "TOKEN"
+    error = bhm_app._jsonrpc_error(1, -32603, f"tool failed: {secret_name}=super-secret-token")
+    assert "super-secret-token" not in error["error"]["message"]
+    assert "REDACTED" in error["error"]["message"]
+
+    success = bhm_app._jsonrpc_success(2, {"content": [{"text": "authorization: Bearer super-secret-token"}]})
+    assert "super-secret-token" not in success["result"]["content"][0]["text"]
+    assert "REDACTED" in success["result"]["content"][0]["text"]
+
+
 def test_streamable_http_initialize_uses_fifo_admission_without_eviction():
     async def dispatch(message: dict[str, Any]) -> dict[str, Any]:
         return {

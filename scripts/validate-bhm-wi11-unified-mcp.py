@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -11,6 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 from blackholememory.unified_mcp_contract import build_unified_mcp_contract
@@ -20,6 +23,8 @@ from blackholememory.unified_mcp_contract import verify_unified_mcp_contract_dig
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-unified-mcp.py"
 BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi11-unified-mcp.py"
+WI11_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+WI11_EXPECTED_CORE_TOOL_COUNT = 35
 
 
 def _hidden_api() -> bool:
@@ -34,6 +39,26 @@ def _fixture() -> dict:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _run_bounded_child(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run disposable WI-11 children with a finite wait."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=WI11_PROCESS_TIMEOUT_SECONDS,
+    )
 
 
 def main() -> int:
@@ -60,7 +85,7 @@ def main() -> int:
     checks = {
         "schema_digest": contract["schema_version"] == "bhm.mcp.unified-contract.v1" and verify_unified_mcp_contract_digest(contract),
         "one_canonical_namespace": contract["checks"]["one_canonical_namespace"] and contract["namespaces"] == ["bhm"],
-        "public_core_12_tools": len(CORE_TOOL_NAMES) == 12 and contract["checks"]["public_core_12_tools"],
+        "public_core_tools": len(CORE_TOOL_NAMES) == WI11_EXPECTED_CORE_TOOL_COUNT and contract["checks"]["public_core_tools"],
         "client_matrix_alignment": aligned["checks"]["client_matrix_aligned"] and not aligned["issues"],
         "schema_mismatch_fail_closed": any(item.get("code") == "schema_hash_mismatch" for item in mismatch["issues"]),
         "hook_idempotency_bounds": contract["checks"]["hooks_idempotent_bounded_observable"] and len(contract["hooks"]) == 6,
@@ -77,11 +102,11 @@ def main() -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
         cli_report = temp / "cli.json"
-        cli = subprocess.run([sys.executable, str(CLI), "--fixture", str(fixture_path), "--report", str(cli_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        cli = _run_bounded_child([sys.executable, str(CLI), "--fixture", str(fixture_path), "--report", str(cli_report)], cwd=ROOT, env=env)
         cli_payload = json.loads(cli_report.read_text(encoding="utf-8")) if cli_report.exists() else {}
         checks["cli_smoke"] = cli.returncode == 0 and cli_payload.get("contract_digest") == contract.get("contract_digest")
         benchmark_report = temp / "benchmark.json"
-        benchmark = subprocess.run([sys.executable, str(BENCHMARK), "--iterations", "12", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        benchmark = _run_bounded_child([sys.executable, str(BENCHMARK), "--iterations", "12", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env)
         benchmark_payload = json.loads(benchmark_report.read_text(encoding="utf-8")) if benchmark_report.exists() else {}
         checks["benchmark"] = benchmark.returncode == 0 and benchmark_payload.get("ok") is True
         details = {"contract_digest": contract["contract_digest"], "schema_hash": contract["catalog"]["schema_hash"], "benchmark": benchmark_payload.get("latency", {})}
@@ -101,8 +126,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         target = Path(args.report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
     return 0 if report["ok"] else 1
 
 

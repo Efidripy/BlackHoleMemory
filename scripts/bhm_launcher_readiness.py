@@ -9,10 +9,15 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable
 
+from blackholememory.local_endpoint_policy import LocalEndpointError
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+
 
 Probe = Callable[[], tuple[bool, str]]
 Start = Callable[[], Any]
 Rollback = Callable[[Any], None]
+MAX_HTTP_BYTES = 128 * 1024
 
 
 @dataclass(frozen=True)
@@ -36,21 +41,25 @@ class ReadinessResult:
 
 
 def probe_http(url: str, *, timeout: float = 2.0, require_json_ok: bool = False) -> tuple[bool, str]:
-    """Probe a health URL without treating a transient network error as fatal."""
+    """Probe a local health URL with bounded, fail-closed transport."""
 
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "BHM-Control-Deck"})
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with open_local_url(request, timeout=timeout) as response:
             if int(response.status) != 200:
                 return False, f"HTTP {response.status}"
             if not require_json_ok:
                 return True, "HTTP 200"
-            payload = json.loads(response.read().decode("utf-8"))
+            raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
+            payload = json.loads(raw.decode("utf-8"))
             if isinstance(payload, dict) and bool(payload.get("ok")):
                 return True, "ready"
             return False, "health payload is not ready"
     except urllib.error.HTTPError as exc:
         return False, f"HTTP {exc.code}"
+    except LocalEndpointError as exc:
+        detail = str(exc).replace("\r", " ").replace("\n", " ").strip()
+        return False, detail[:140] or "local endpoint rejected"
     except (OSError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
         detail = str(exc).replace("\r", " ").replace("\n", " ").strip()
         return False, detail[:140] or exc.__class__.__name__

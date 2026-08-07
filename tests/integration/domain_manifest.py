@@ -139,6 +139,7 @@ PREFIX_DOMAINS = (
         "crystallization",
         (
             "test_compact_hook_",
+            "test_fact_synthesis_",
         ),
     ),
     (
