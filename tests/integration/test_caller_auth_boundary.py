@@ -468,6 +468,51 @@ def test_admin_import_snapshot_cannot_cross_scoped_project(monkeypatch, tmp_path
     assert response.json()["detail"]["code"] == "caller_project_forbidden"
 
 
+def test_admin_import_snapshot_rejects_cross_project_link_endpoint(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
+    export_dir = tmp_path / "admin-exports"
+    export_dir.mkdir()
+    (export_dir / "cross-link.json").write_text(
+        json.dumps(
+            {
+                "project": "blackholememory",
+                "memories": [{"source_id": "local", "project": "blackholememory"}],
+                "links": [
+                    {
+                        "source_id": "local",
+                        "target_id": "foreign",
+                        "relation": "relates_to",
+                        "project": "blackholememory",
+                    }
+                ],
+                "artifacts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", tmp_path)
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: [
+            {"source_id": "local", "project": "blackholememory"},
+            {"source_id": "foreign", "project": "e-github-workspace"},
+        ],
+    )
+    monkeypatch.setattr(bhm_app, "_artifact_store_pairs", lambda: {})
+
+    response = _client().post(
+        "/bhm/admin/import-preview",
+        json={"path": "cross-link.json", "project": "blackholememory"},
+        headers={"X-BHM-Admin-Capability": "admin-test-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "caller_project_forbidden"
+
+
 def test_json_body_is_replayed_after_project_authorization(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
