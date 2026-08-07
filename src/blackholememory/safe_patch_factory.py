@@ -15,11 +15,14 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
+
+from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 
 
 SAFE_PATCH_SCHEMA_VERSION = "bhm.llm.safe-patch.v1"
@@ -196,7 +199,7 @@ class SafePatchFactory:
     def diff_evidence(self, plan: SafePatchPlan) -> dict[str, Any]:
         baseline = Path(plan.quarantine_root) / "baseline"
         candidate = Path(plan.quarantine_root) / "candidate"
-        result = _run_command(["git", "diff", "--no-index", "--binary", "--", str(baseline), str(candidate)], cwd=Path(plan.quarantine_root), timeout=30)
+        result = _run_command(["git", "diff", "--no-index", "--binary", "--", str(baseline), str(candidate)], cwd=Path(plan.quarantine_root), timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS)
         diff_text = result["stdout"]
         changed_files = _changed_files(plan)
         suspicious: set[str] = set()
@@ -290,10 +293,17 @@ class SafePatchFactory:
         }
 
     def cleanup(self, quarantine_root: Path | str) -> bool:
-        target = Path(quarantine_root).expanduser().resolve()
+        requested = Path(quarantine_root).expanduser()
+        target_lexical = Path(os.path.abspath(os.fspath(requested)))
+        if not _is_relative_to(target_lexical, self.root) or target_lexical == self.root:
+            raise SafePatchPathError(f"refusing cleanup outside safe patch root: {requested}")
+        _assert_no_reparse_components(target_lexical, self.root)
+        target = target_lexical.resolve(strict=False)
         if not _is_relative_to(target, self.root) or target == self.root:
             raise SafePatchPathError(f"refusing cleanup outside safe patch root: {target}")
         if target.exists():
+            if not target.is_dir():
+                raise SafePatchPathError(f"refusing cleanup of non-directory quarantine target: {target}")
             shutil.rmtree(target)
             return True
         return False
@@ -303,7 +313,7 @@ class SafePatchFactory:
         result = _run_command(
             ["git", "apply", "--check", "--whitespace=nowarn", "-"],
             cwd=candidate_root,
-            timeout=30,
+            timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS,
             input_text=patch_text,
         )
         if result["exit_code"] != 0:
@@ -311,7 +321,7 @@ class SafePatchFactory:
         result = _run_command(
             ["git", "apply", "--whitespace=nowarn", "-"],
             cwd=candidate_root,
-            timeout=30,
+            timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS,
             input_text=patch_text,
         )
         if result["exit_code"] != 0:
@@ -377,10 +387,56 @@ def _changed_files(plan: SafePatchPlan) -> list[str]:
 
 
 def _contained_path(root: Path, relative: str) -> Path:
-    candidate = (root / relative).resolve()
+    root = root.resolve()
+    lexical = Path(os.path.abspath(os.fspath(root / relative)))
+    if not _is_relative_to(lexical, root):
+        raise SafePatchPathError(f"path escapes repository root: {relative}")
+    _assert_no_reparse_components(lexical, root)
+    candidate = lexical.resolve(strict=False)
     if not _is_relative_to(candidate, root):
         raise SafePatchPathError(f"path escapes repository root: {relative}")
     return candidate
+
+
+def _assert_no_reparse_components(path: Path, root: Path) -> None:
+    """Reject symlink/junction/reparse components before filesystem access."""
+
+    current = Path(os.path.abspath(os.fspath(path)))
+    boundary = Path(os.path.abspath(os.fspath(root)))
+    boundary_key = os.path.normcase(os.fspath(boundary))
+    while True:
+        current_key = os.path.normcase(os.fspath(current))
+        if not _is_relative_to(current, boundary):
+            raise SafePatchPathError(f"path escapes filesystem boundary: {path}")
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            info = None
+        except OSError as exc:
+            raise SafePatchPathError(f"cannot inspect filesystem boundary component: {current}") from exc
+        if info is not None and _is_reparse_point(current, info):
+            raise SafePatchPathError(f"reparse point is not allowed in filesystem boundary: {current}")
+        if current_key == boundary_key:
+            return
+        parent = current.parent
+        if parent == current:
+            raise SafePatchPathError(f"filesystem boundary root not reached: {root}")
+        current = parent
+
+
+def _is_reparse_point(path: Path, info: os.stat_result) -> bool:
+    if stat.S_ISLNK(info.st_mode):
+        return True
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    if reparse_flag and int(getattr(info, "st_file_attributes", 0)) & reparse_flag:
+        return True
+    is_junction = getattr(path, "is_junction", None)
+    if is_junction is not None:
+        try:
+            return bool(is_junction())
+        except OSError as exc:
+            raise SafePatchPathError(f"cannot inspect junction boundary component: {path}") from exc
+    return False
 
 
 def _safe_identifier(value: str, field: str) -> str:

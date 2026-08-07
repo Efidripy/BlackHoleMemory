@@ -1,0 +1,50 @@
+{
+  "schema_version": "bhm.p22.4.wi43-continuity.v1",
+  "ok": true,
+  "project": "blackholememory",
+  "checks": {
+    "session_capture_preview": true,
+    "memory_graph_query": true,
+    "memory_graph_explain": true,
+    "task_graph_query": true,
+    "task_graph_explain": true,
+    "unified_context_compile": true,
+    "raw_payloads_excluded": true,
+    "raw_source_excluded": true,
+    "model_started": false,
+    "auto_apply": false
+  },
+  "digests": {
+    "session": "5d2ad99d1d1255f75f03bf2b952635b4fc25bb2e1cddee659d156d3d8900a66a",
+    "memory_graph": "mgraph_e2614896e917d2400b7fa88f",
+    "task_graph": "tgraph_d9de2b62450c8645125a7629",
+    "context": "eee885583a815a6b2f1ad919ed21a1254c777354bc6acdde67674f21ebb4dcbd"
+  },
+  "counts": {
+    "session": {
+      "events": 0,
+      "session_records": 0,
+      "memories": 0,
+      "fact_crystals": 0
+    },
+    "memory": {},
+    "task": {
+      "conflict_count": 0,
+      "edge_count": 0,
+      "evidence_backed_close_count": 0,
+      "lease_expired_count": 0,
+      "node_count": 17,
+      "quarantine_count": 0,
+      "ready_count": 8
+    },
+    "context": {}
+  },
+  "execution": {
+    "writes_sqlite": false,
+    "writes_qdrant": false,
+    "writes_mem0": false,
+    "model_started": false,
+    "auto_apply": false,
+    "public_mcp": false
+  }
+}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import json
 import argparse
 import subprocess
@@ -9,6 +11,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory.code_graph import CodeGraphInjectedFailure
 from blackholememory.code_graph import CodeGraphInputChangedError
 from blackholememory.code_graph import SQLiteCodeGraphStore
@@ -22,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / "config" / "cbm-integration.json"
 REGISTRY_PATH = REPO_ROOT / "config" / "source-registry.json"
 CLI_PATH = REPO_ROOT / "scripts" / "bhm-code-graph.py"
+WI02_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 
 def _fixture(root: Path) -> None:
@@ -100,6 +104,20 @@ def _registry_clean_room() -> bool:
     )
 
 
+def _run_bounded_cli(args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Run the fixture CLI with a finite wait; outer validation fails closed."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=WI02_PROCESS_TIMEOUT_SECONDS,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report")
@@ -158,7 +176,21 @@ def main() -> int:
         fourth_graph = store.snapshot(fourth["graph_snapshot_id"], include_material=True)
         checks["deleted_symbol_lifecycle"] = "remove_me" in {node["name"] for node in store.snapshot(third["graph_snapshot_id"], include_material=True)["nodes"]} and "remove_me" not in {node["name"] for node in fourth_graph["nodes"]} and store.snapshot(third["graph_snapshot_id"])["status"] == "completed"
         details = {"first_graph_snapshot_id": first["graph_snapshot_id"], "second_graph_snapshot_id": second["graph_snapshot_id"], "graph_digest": first["graph_digest"], "node_count": first["summary"]["node_count"], "edge_count": first["summary"]["edge_count"], "parser_error_rate": first["summary"]["parser_error_rate"], "node_kinds": first["summary"]["node_kinds"], "edge_kinds": first["summary"]["edge_kinds"]}
-        cli = subprocess.run([sys.executable, str(CLI_PATH), "--action", "build", "--root", str(root), "--database", str(temp_root / "cli.sqlite3"), "--project", "fixture"], capture_output=True, text=True, encoding="utf-8")
+        cli = _run_bounded_cli(
+            [
+                sys.executable,
+                str(CLI_PATH),
+                "--action",
+                "build",
+                "--root",
+                str(root),
+                "--database",
+                str(temp_root / "cli.sqlite3"),
+                "--project",
+                "fixture",
+            ],
+            cwd=REPO_ROOT,
+        )
         checks["cli_confirm_gate"] = cli.returncode == 2 and "--confirm" in cli.stdout
     failed = [name for name, ok in checks.items() if not ok]
     report = {"schema_version": "bhm.wi02.code-graph-validation.v1", "ok": not failed, "check_count": len(checks), "passed_count": len(checks) - len(failed), "checks": checks, "failed": failed, "details": details, "writes_live_state": False, "writes_qdrant": False, "model_started": False}
@@ -166,8 +198,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         output = Path(args.report).expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(output, (rendered + "\n").encode("utf-8"))
     return 0 if not failed else 1
 
 

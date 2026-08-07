@@ -6,6 +6,7 @@ from blackholememory.change_impact import ChangeImpactError, build_change_impact
 from blackholememory.change_impact import build_cross_repo_history_preview, build_git_history_correlation_receipt, build_git_symbol_impact_evidence
 from blackholememory.change_impact import collect_git_diff_hunks
 from blackholememory.change_impact import correlate_diff_hunks_to_symbols, summarize_diff_hunks
+from blackholememory import change_impact
 
 
 def _snapshot() -> dict:
@@ -176,6 +177,22 @@ def test_git_diff_hunks_return_ranges_without_diff_text(tmp_path) -> None:
     hunks = collect_git_diff_hunks(root, base_revision=base, paths=["service.py"])
     assert hunks == [{"path": "service.py", "old_start": 2, "old_count": 1, "new_start": 2, "new_count": 1}]
     assert "return" not in str(hunks)
+
+
+def test_git_metadata_commands_use_bounded_process_timeout(monkeypatch, tmp_path) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_run(command, **kwargs):
+        calls.append(kwargs)
+        return type("Completed", (), {"stdout": "", "returncode": 0})()
+
+    monkeypatch.setattr(change_impact.subprocess, "run", fake_run)
+    result = change_impact.collect_git_change_paths(tmp_path)
+    assert result["paths"] == []
+    assert len(calls) == 2
+    change_impact.collect_git_history_stats(tmp_path, [])
+    assert len(calls) == 3
+    assert all(call["timeout"] == 30 for call in calls)
 
 
 def test_diff_hunk_summary_is_deterministic_and_metadata_only() -> None:

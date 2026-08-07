@@ -83,6 +83,45 @@ def test_factory_rejects_unsafe_cleanup_and_path_traversal(tmp_path: Path):
         )
 
 
+def test_factory_rejects_reparse_cleanup_target_without_following_it(tmp_path: Path) -> None:
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    marker = outside / "marker.txt"
+    marker.write_text("keep", encoding="utf-8")
+    link = factory.root / "linked-quarantine"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(SafePatchPathError, match="reparse point"):
+        factory.cleanup(link)
+    assert marker.read_text(encoding="utf-8") == "keep"
+
+
+def test_factory_rejects_reparse_source_before_copy(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    outside = tmp_path / "outside.py"
+    outside.write_text("VALUE = 'outside'\n", encoding="utf-8")
+    source_link = repo / "src" / "demo.py"
+    try:
+        source_link.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+    with pytest.raises(SafePatchPathError, match="reparse point"):
+        factory.prepare(
+            task_id="safe-patch-reparse-source",
+            repo_root=repo,
+            allowed_files=["src/demo.py"],
+            patch_text=PATCH,
+        )
+    assert outside.read_text(encoding="utf-8") == "VALUE = 'outside'\n"
+
+
 @pytest.mark.parametrize("path", [r"..\outside.py", r"C:\outside.py", r"\\server\share\outside.py"])
 def test_factory_rejects_portable_unsafe_allowlist_paths(tmp_path: Path, path: str) -> None:
     factory = SafePatchFactory(root=tmp_path / "quarantine")

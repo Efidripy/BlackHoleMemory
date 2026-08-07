@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "generate-bhm-mcp-adapters.py"
@@ -72,6 +74,20 @@ def test_json_generation_preserves_unmanaged_server(tmp_path):
         "type": "http",
         "headers": {"Authorization": "Bearer ${BHM_CALLER_TOKEN}"},
     }
+
+
+def test_atomic_adapter_writer_rejects_hardlink_target(tmp_path: Path) -> None:
+    target = tmp_path / "adapter.json"
+    outside = tmp_path / "outside.json"
+    outside.write_text("sentinel", encoding="utf-8")
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        generator._atomic_write(target, "{\"changed\": true}\n")
+    assert outside.read_text(encoding="utf-8") == "sentinel"
 
 
 def test_toml_generation_replaces_only_managed_block(tmp_path):

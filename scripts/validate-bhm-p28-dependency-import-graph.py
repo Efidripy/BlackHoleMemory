@@ -9,6 +9,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 def _digest(value: Any) -> str:
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -123,8 +125,7 @@ def main() -> int:
     report = _collect(args.repo.resolve())
     payload = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(payload, encoding="utf-8")
+        replace_bytes_safely(args.output, payload.encode("utf-8"))
     print(json.dumps({key: report[key] for key in ("schema_version", "module_count", "edge_count", "graph_digest", "cycles", "parse_errors", "ok")}, ensure_ascii=False, indent=2))
     return 0 if report["ok"] else 1
 

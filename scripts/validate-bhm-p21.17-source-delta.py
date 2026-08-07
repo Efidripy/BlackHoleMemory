@@ -8,6 +8,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 DISPOSITIONS = {
     "CXM": ("no-adoption-required", "hash/dedupe and timeline/detail retrieval are already BHM-native; no incremental delta is demonstrated", ["src/blackholememory/repository_index.py", "src/blackholememory/app.py", "tests/unit/test_repository_index.py"]),
@@ -26,6 +28,10 @@ DISPOSITIONS = {
     "KGF": ("reference-only", "community graph-curation UX is optional review guidance, not a runtime authority", ["src/blackholememory/human_ui_bridge.py", "tests/unit/test_human_ui_bridge.py"]),
     "EVS": ("reference-only", "local-sync description is retained as an export/import acceptance criterion; no plugin dependency is introduced", ["src/blackholememory/migration_compatibility.py", "tests/unit/test_migration_compatibility.py"]),
 }
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(path, (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def sha256(path: Path) -> str:
@@ -75,8 +81,7 @@ def main() -> int:
         "writes_live_state": False,
         "ok": not failures and all(item["outcome"] in {"adopt", "already-equivalent", "no-adoption-required", "reference-only", "rejected", "unavailable"} for item in entries),
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps({"ok": report["ok"], "entries": len(entries), "failures": failures, "adopted": report["adopted_delta_count"]}, ensure_ascii=False))
     return 0 if report["ok"] else 1
 

@@ -4,10 +4,17 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
+
+from blackholememory import app as bhm_app
+from blackholememory.mcp_repair import McpRepairError
 from blackholememory.mcp_repair import build_repair_preview
 from blackholememory.mcp_repair import build_reprobe
 from blackholememory.mcp_repair import execute_reconnect
 from blackholememory.mcp_repair import execute_rollback
+from blackholememory.mcp_repair import _plan_path
+from blackholememory.mcp_repair import _write_plan
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -175,3 +182,42 @@ def test_reprobe_is_read_only():
     assert result["operation"] == "reprobe"
     assert result["reprobe"]["writes_live_state"] is False
     assert result["writes_live_state"] is False
+
+
+def test_repair_plan_writer_rejects_hardlink_target(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    plan_id = "mcp-repair-0123456789abcdef"
+    target = _plan_path(repo_root, plan_id)
+    target.parent.mkdir(parents=True)
+    outside = tmp_path / "outside.json"
+    outside.write_text("sentinel", encoding="utf-8")
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        _write_plan(repo_root, plan_id, {"status": "new"})
+    assert outside.read_text(encoding="utf-8") == "sentinel"
+
+
+@pytest.mark.parametrize(
+    ("route", "patch_name", "expected_code"),
+    [
+        (bhm_app.bhm_mcp_repair_preview, "build_repair_preview", "mcp_repair_preview_failed"),
+        (bhm_app.bhm_mcp_repair_reprobe, "build_reprobe", "mcp_repair_reprobe_failed"),
+    ],
+)
+def test_repair_read_routes_redact_secret_like_errors(monkeypatch, route, patch_name, expected_code):
+    def fail(*_args, **_kwargs):
+        raise McpRepairError("upstream token=sk-live-abcdefghijklmnopqrstuvwxyz1234567890")
+
+    monkeypatch.setattr(bhm_app, patch_name, fail)
+    with pytest.raises(HTTPException) as caught:
+        route()
+
+    assert caught.value.status_code == 422
+    detail = caught.value.detail
+    assert detail["code"] == expected_code
+    assert "sk-live-abcdefghijklmnopqrstuvwxyz1234567890" not in detail["reason"]
+    assert "REDACTED" in detail["reason"]

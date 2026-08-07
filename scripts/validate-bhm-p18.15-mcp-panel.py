@@ -23,6 +23,9 @@ from blackholememory.mcp_panel import EXPECTED_CORE_TOOL_COUNT
 from blackholememory.mcp_panel import SCHEMA_VERSION
 from blackholememory.mcp_final_gate import EXPECTED_CLIENTS
 from blackholememory.caller_auth import configured_caller_token
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
 
 VALIDATION_SCHEMA_VERSION = "bhm.mcp.panel-validation.v1"
@@ -64,8 +67,12 @@ def _get_json(base_url: str, path: str) -> dict[str, Any]:
             "User-Agent": "BHM-P18.15-Validator/1.7.1",
         },
     )
-    with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310
-        payload = json.loads(response.read().decode("utf-8"))
+    with open_local_url(request, timeout=BHM_INTERNAL_HTTP_TIMEOUT_SECONDS) as response:
+        status_value = getattr(response, "status", None)
+        status = int(status_value if status_value is not None else response.getcode())
+        if status != 200:
+            raise RuntimeError(f"unexpected HTTP status {status}")
+        payload = json.loads(read_bounded_response(response, limit=128 * 1024).decode("utf-8"))
     if not isinstance(payload, dict):
         raise ValueError(f"non-object response from {path}")
     return payload

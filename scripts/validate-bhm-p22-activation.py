@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: E402
 """Create and verify the reversible P22 CBM activation passport.
 
 This is intentionally a bounded operator tool.  It never flips CBM flags and
@@ -17,11 +18,29 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
+
+
 CONFIG = ROOT / "config" / "cbm-integration.json"
 DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 BACKUP_ROOT = ROOT / ".runtime" / "live-memory" / "recovery-backups"
+
+
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -34,8 +53,8 @@ def sha256_file(path: Path) -> str:
 
 def qdrant_collections(base_url: str) -> dict[str, Any]:
     request = urllib.request.Request(base_url.rstrip("/") + "/collections", method="GET")
-    with urllib.request.urlopen(request, timeout=8) as response:
-        payload = json.loads(response.read().decode("utf-8"))
+    with open_local_url(request, timeout=QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS) as response:
+        payload = json.loads(read_bounded_response(response).decode("utf-8"))
     result = payload.get("result") if isinstance(payload, dict) else None
     collections = result.get("collections") if isinstance(result, dict) else []
     return {"ok": isinstance(collections, list), "collections": collections if isinstance(collections, list) else []}
@@ -102,8 +121,7 @@ def main() -> int:
             "source_quarantine_untouched": True,
         },
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_report(args.report, payload)
     print(json.dumps(payload, ensure_ascii=False, indent=2))
     return 0 if payload["ok"] else 1
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import os
@@ -10,6 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.migration_compatibility import build_migration_preview
 from blackholememory.migration_compatibility import compute_source_hash
@@ -19,6 +22,27 @@ from blackholememory.migration_compatibility import verify_migration_digest
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-migration.py"
 BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi14-migration.py"
+CHILD_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+
+
+def _run_child(command: list[str], *, cwd: Path, env: dict[str, str]) -> tuple[subprocess.CompletedProcess[str] | None, bool]:
+    """Run a fixture-only child validator with a finite fail-closed bound."""
+
+    try:
+        return (
+            subprocess.run(
+                command,
+                cwd=cwd,
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=CHILD_PROCESS_TIMEOUT_SECONDS,
+            ),
+            False,
+        )
+    except subprocess.TimeoutExpired:
+        return None, True
 
 
 def _fixture() -> list[dict]:
@@ -64,22 +88,21 @@ def main() -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
         cli_report = temp / "cli.json"
-        cli = subprocess.run([sys.executable, str(CLI), "--fixture", str(fixture_path), "--report", str(cli_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        cli, cli_timed_out = _run_child([sys.executable, str(CLI), "--fixture", str(fixture_path), "--report", str(cli_report)], cwd=ROOT, env=env)
         cli_payload = json.loads(cli_report.read_text(encoding="utf-8")) if cli_report.exists() else {}
-        checks["cli_smoke"] = cli.returncode == 0 and cli_payload.get("migration_digest") == preview.get("migration_digest")
+        checks["cli_smoke"] = cli is not None and cli.returncode == 0 and cli_payload.get("migration_digest") == preview.get("migration_digest")
         benchmark_report = temp / "benchmark.json"
-        benchmark = subprocess.run([sys.executable, str(BENCHMARK), "--items", "24", "--iterations", "16", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        benchmark, benchmark_timed_out = _run_child([sys.executable, str(BENCHMARK), "--items", "24", "--iterations", "16", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env)
         benchmark_payload = json.loads(benchmark_report.read_text(encoding="utf-8")) if benchmark_report.exists() else {}
-        checks["benchmark"] = benchmark.returncode == 0 and benchmark_payload.get("ok") is True
-        details = {"migration_digest": preview["migration_digest"], "counts": preview["counts"], "benchmark": benchmark_payload.get("latency", {})}
+        checks["benchmark"] = benchmark is not None and benchmark.returncode == 0 and benchmark_payload.get("ok") is True
+        details = {"migration_digest": preview["migration_digest"], "counts": preview["counts"], "benchmark": benchmark_payload.get("latency", {}), "timed_out": {"cli": cli_timed_out, "benchmark": benchmark_timed_out}}
     failed = [name for name, value in checks.items() if not value]
     report = {"schema_version": "bhm.wi14.migration-validation.v1", "ok": not failed, "check_count": len(checks), "passed_count": len(checks) - len(failed), "checks": checks, "failed": failed, "details": details, "writes_live_state": False, "apply_performed": False}
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)
     if args.report:
         target = Path(args.report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
     return 0 if report["ok"] else 1
 
 

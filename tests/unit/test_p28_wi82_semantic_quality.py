@@ -5,6 +5,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-p28-wi82-semantic-quality.py"
@@ -150,3 +152,50 @@ def test_live_client_rejects_non_local_target():
         assert "local BHM runtime" in str(exc)
     else:
         raise AssertionError("external runtime target must be rejected")
+
+
+def test_live_client_uses_local_bounded_transport(monkeypatch):
+    calls: dict[str, object] = {}
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, limit: int) -> bytes:
+            calls["limit"] = limit
+            return b'{"status":"healthy"}'
+
+    def fake_open(request, *, timeout):
+        calls["url"] = request.full_url
+        calls["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr(MODULE, "open_local_url", fake_open)
+    result = MODULE._LocalRuntimeClient("http://127.0.0.1:8000", "t" * 32).get("/bhm/health")
+    assert result == {"status": "healthy"}
+    assert calls == {
+        "url": "http://127.0.0.1:8000/bhm/health",
+        "timeout": 20.0,
+        "limit": MODULE.MAX_RESPONSE_BYTES + 1,
+    }
+
+
+def test_live_client_wraps_oversized_response_as_runtime_error(monkeypatch):
+    class Oversized:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, limit: int) -> bytes:
+            return b"x" * limit
+
+    monkeypatch.setattr(MODULE, "open_local_url", lambda *_args, **_kwargs: Oversized())
+    with pytest.raises(RuntimeError, match="bounded limit"):
+        MODULE._LocalRuntimeClient("http://127.0.0.1:8000", "t" * 32).get("/bhm/health")

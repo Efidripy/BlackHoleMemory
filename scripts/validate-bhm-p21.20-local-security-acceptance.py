@@ -30,12 +30,20 @@ from blackholememory.llm_gateway import PromptRegistry  # noqa: E402
 from blackholememory.local_security_gate import load_json_object  # noqa: E402
 from blackholememory.local_security_worker import LocalSecurityWorker  # noqa: E402
 from blackholememory.local_security_worker import worker_contract_descriptor  # noqa: E402
+from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
 
 
 TARGET_DIGEST = "b" * 64
 CONTENT_DIGEST = "c" * 64
 MODEL_ID = "qwen2.5-coder-7b-instruct:2"
 ENDPOINT = "http://127.0.0.1:13666/v1"
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
 
 
 def _worklist(prefix: str, count: int) -> list[dict[str, object]]:
@@ -134,8 +142,7 @@ def main() -> int:
         "authority": "proposal",
         "final_integrator": "codex:/root",
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["ok"] else 1
 

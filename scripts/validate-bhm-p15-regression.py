@@ -22,6 +22,14 @@ except ModuleNotFoundError:
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = REPO_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+from blackholememory.resource_limits import PROCESS_EXECUTION_P15_LATENCY_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_P15_STARTUP_TIMEOUT_SECONDS
+
+
 BASELINE_BUILDER = REPO_ROOT / "scripts" / "build-bhm-p15-dependency-baseline.py"
 LATENCY_SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-mcp-latency.py"
 START_SCRIPT = REPO_ROOT / "scripts" / "start-bhm-authoritative.ps1"
@@ -55,7 +63,13 @@ def run_startup_probe() -> dict[str, Any]:
         "-ProbeOnly",
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=20, check=False)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=PROCESS_EXECUTION_P15_STARTUP_TIMEOUT_SECONDS,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         return {"ok": False, "exit_code": None, "error": str(exc)}
     payload: dict[str, Any] = {}
@@ -76,7 +90,13 @@ def run_startup_probe() -> dict[str, Any]:
 def run_latency(iterations: int) -> dict[str, Any]:
     command = [sys.executable, str(LATENCY_SCRIPT), "--iterations", str(iterations)]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=90, check=False)
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=PROCESS_EXECUTION_P15_LATENCY_TIMEOUT_SECONDS,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         return {"ok": False, "exit_code": None, "error": str(exc)}
     try:

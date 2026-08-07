@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import sqlite3
@@ -11,6 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.repository_index import RepositoryIndexInjectedFailure
 from blackholememory.repository_index import RepositorySourceProvenance
@@ -22,6 +25,7 @@ from blackholememory.source_registry import load_registry
 
 
 ROOT = Path(__file__).resolve().parents[1]
+WI01_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,12 +35,25 @@ def parse_args() -> argparse.Namespace:
 
 
 def _git(root: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
+    _run_bounded(["git", "-C", str(root), *args], check=True)
+
+
+def _run_bounded(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    check: bool,
+) -> subprocess.CompletedProcess[str]:
+    """Run a WI-01 child process with a finite, fail-closed wait."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd) if cwd is not None else None,
+        check=check,
         capture_output=True,
         text=True,
         encoding="utf-8",
+        timeout=WI01_PROCESS_TIMEOUT_SECONDS,
     )
 
 
@@ -201,7 +218,7 @@ def main() -> int:
             checks["no_raw_source_persistence"] = "content" not in file_columns and "content_sha256" in file_columns
             cli_script = ROOT / "scripts" / "bhm-repository-index.py"
             cli_database = temp / "cli.sqlite3"
-            denied = subprocess.run(
+            denied = _run_bounded(
                 [
                     sys.executable,
                     str(cli_script),
@@ -216,11 +233,8 @@ def main() -> int:
                 ],
                 cwd=ROOT,
                 check=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
             )
-            allowed = subprocess.run(
+            allowed = _run_bounded(
                 [
                     sys.executable,
                     str(cli_script),
@@ -236,11 +250,8 @@ def main() -> int:
                 ],
                 cwd=ROOT,
                 check=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
             )
-            denied_watch = subprocess.run(
+            denied_watch = _run_bounded(
                 [
                     sys.executable,
                     str(cli_script),
@@ -260,9 +271,6 @@ def main() -> int:
                 ],
                 cwd=ROOT,
                 check=False,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
             )
             checks["cli_confirm_gate"] = denied.returncode == 1 and "requires --confirm" in denied.stdout
             checks["cli_index_smoke"] = allowed.returncode == 0 and json.loads(allowed.stdout)["ok"] is True
@@ -303,8 +311,7 @@ def main() -> int:
         }
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(rendered, encoding="utf-8", newline="\n")
+        replace_bytes_safely(args.report, rendered.encode("utf-8"))
     print(rendered, end="")
     return 0 if result["ok"] else 1
 

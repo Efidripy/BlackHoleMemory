@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 import urllib.parse
 import urllib.request
@@ -19,10 +20,14 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.runtime_endpoints import endpoint_url
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
 
 
 DEFAULT_BASE_URL = endpoint_url("qdrant_http")
-DEFAULT_TIMEOUT_SECONDS = 30
+# Compatibility name retained; the registry-backed operator bound is canonical.
+DEFAULT_TIMEOUT_SECONDS = float(QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS)
 
 PROTECTED_COLLECTIONS = {
     "bhm_global_core_knowledge",
@@ -47,21 +52,34 @@ class CollectionInfo:
     status: str
 
 
-def request_json(base_url: str, method: str, path: str, *, timeout: int) -> dict[str, Any]:
+def bounded_qdrant_operator_timeout(value: float) -> float:
+    """Clamp Qdrant operator HTTP waits to the finite registry-backed bound."""
+
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Qdrant operator timeout must be numeric") from exc
+    if not math.isfinite(requested):
+        raise ValueError("Qdrant operator timeout must be finite")
+    return max(min(requested, float(QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS)), 1.0)
+
+
+def request_json(base_url: str, method: str, path: str, *, timeout: float) -> dict[str, Any]:
+    bounded_timeout = bounded_qdrant_operator_timeout(timeout)
     request = urllib.request.Request(f"{base_url.rstrip('/')}{path}", method=method)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        raw = response.read().decode("utf-8")
+    with open_local_url(request, timeout=bounded_timeout) as response:
+        raw = read_bounded_response(response).decode("utf-8")
     if not raw:
         return {}
     return json.loads(raw)
 
 
-def collection_names(base_url: str, *, timeout: int) -> list[str]:
+def collection_names(base_url: str, *, timeout: float) -> list[str]:
     data = request_json(base_url, "GET", "/collections", timeout=timeout)
     return sorted(str(item["name"]) for item in data["result"]["collections"])
 
 
-def collection_info(base_url: str, name: str, *, timeout: int) -> CollectionInfo:
+def collection_info(base_url: str, name: str, *, timeout: float) -> CollectionInfo:
     encoded = urllib.parse.quote(name, safe="")
     data = request_json(base_url, "GET", f"/collections/{encoded}", timeout=timeout)
     result = data.get("result") or {}
@@ -82,7 +100,7 @@ def is_cleanup_candidate(name: str) -> bool:
     return any(marker in lowered for marker in CLEANUP_MARKERS)
 
 
-def delete_collection(base_url: str, name: str, *, timeout: int) -> None:
+def delete_collection(base_url: str, name: str, *, timeout: float) -> None:
     encoded = urllib.parse.quote(name, safe="")
     request_json(base_url, "DELETE", f"/collections/{encoded}", timeout=timeout)
 
@@ -90,7 +108,7 @@ def delete_collection(base_url: str, name: str, *, timeout: int) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Qdrant HTTP base URL.")
-    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS, help="HTTP timeout in seconds.")
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="HTTP timeout in seconds.")
     parser.add_argument("--apply", action="store_true", help="Delete candidate collections. Default is dry-run.")
     parser.add_argument(
         "--json",
@@ -102,6 +120,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    args.timeout = bounded_qdrant_operator_timeout(args.timeout)
     names = collection_names(args.base_url, timeout=args.timeout)
     candidates = [name for name in names if is_cleanup_candidate(name)]
     protected_present = [name for name in names if name in PROTECTED_COLLECTIONS]

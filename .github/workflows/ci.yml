@@ -1,0 +1,90 @@
+name: BHM CI
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          # Keep CI toolchain resolution reproducible; update deliberately with
+          # a lockfile/test receipt rather than following a mutable latest tag.
+          version: "0.11.17"
+
+      - name: Sync locked development environment
+        run: uv sync --locked --extra dev
+
+      - name: Run tests
+        run: >-
+          uv run pytest -q
+          --cov=src/blackholememory
+          --cov-report=term-missing
+          --cov-fail-under=75
+
+      - name: Release trust and source provenance regressions
+        run: uv run pytest -q tests/unit/test_release_signature.py tests/unit/test_p14_release_trust_contract.py tests/unit/test_release_source_tree.py
+
+      - name: Hermetic release manifest/trust/build gate
+        run: uv run python scripts/validate-release-fixture.py
+
+      - name: Ruff check
+        run: uv run ruff check src tests scripts
+
+      - name: Version manifest gate
+        shell: pwsh
+        run: ./scripts/validate-bhm-version-manifest.ps1
+
+      - name: Public tree gate
+        run: uv run python scripts/validate_public_tree.py
+
+      - name: Active documentation link gate
+        run: uv run python scripts/validate_doc_links.py
+
+      - name: Immutable workflow action pin gate
+        run: uv run python scripts/validate-ci-workflow-pinning.py
+
+      - name: Resource limit inventory gate
+        run: uv run python scripts/validate-bhm-resource-limits.py
+
+      - name: Acceptance contract gate
+        run: uv run python scripts/validate-bhm-p28-acceptance.py
+
+      - name: Bind CI receipt to checked revision
+        run: >-
+          uv run python scripts/validate-ci-receipt-binding.py
+          --expected-sha "${{ github.sha }}"
+          --output ci-receipt.json
+
+      - name: Upload revision-bound CI receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bhm-ci-receipt-${{ github.sha }}
+          path: ci-receipt.json
+          if-no-files-found: error
+
+      - name: Diff and secret hygiene
+        shell: bash
+        run: |
+          git diff --check
+          if git grep -n -I -E 'BHM_CALLER_TOKEN=[A-Za-z0-9._-]{12,}|BEGIN (OPENSSH|RSA|EC|PRIVATE) KEY' -- . ':!docs/audits' ':!*.lock'; then
+            echo "Potential secret material found in tracked source" >&2
+            exit 1
+          fi

@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import replace_bytes_safely
 
 SCHEMA_VERSION = "bhm.mcp.repair.v1"
 MAX_CLIENTS = 2
@@ -97,24 +99,24 @@ def _plan_path(repo_root: Path, repair_id: str) -> Path:
 
 def _write_plan(repo_root: Path, repair_id: str, payload: Mapping[str, Any]) -> None:
     path = _plan_path(repo_root, repair_id)
-    # lgtm [py/path-injection]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    encoded = json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    encoded = (json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
     with _PLAN_LOCK:
+        replace_bytes_safely(path, encoded)
         # lgtm [py/path-injection]
-        temporary.write_text(encoded, encoding="utf-8")
-        # lgtm [py/path-injection]
-        os.replace(temporary, path)
-        # lgtm [py/path-injection]
-        plans = sorted(path.parent.glob("mcp-repair-*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
+        plans = []
+        for item in path.parent.glob("mcp-repair-*.json"):
+            assert_safe_path(item)
+            plans.append(item)
+        plans.sort(key=lambda item: item.stat().st_mtime, reverse=True)
         for stale in plans[MAX_PLANS:]:
+            assert_safe_path(stale)
             stale.unlink(missing_ok=True)
 
 
 def _read_plan(repo_root: Path, repair_id: str) -> dict[str, Any] | None:
     path = _plan_path(repo_root, repair_id)
     try:
+        assert_safe_path(path)
         # lgtm [py/path-injection]
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):

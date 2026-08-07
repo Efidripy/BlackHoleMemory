@@ -8,6 +8,14 @@ import pytest
 from blackholememory.mcp_readiness import ReadinessConfig
 from blackholememory.mcp_readiness import ReadinessCoordinator
 from blackholememory.mcp_readiness import ReadinessError
+from blackholememory.mcp_readiness import default_lock_path
+
+
+def test_default_lock_path_uses_runtime_boundary_without_localappdata(monkeypatch, tmp_path):
+    monkeypatch.delenv("BHM_MCP_STARTUP_LOCK_PATH", raising=False)
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+
+    assert default_lock_path(tmp_path) == tmp_path / ".runtime" / "mcp" / "mcp-readiness.lock"
 
 
 def test_connect_only_fails_closed_without_invoking_launcher(tmp_path):

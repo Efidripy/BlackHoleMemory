@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 from .source_registry import verify_registry
+from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 
 
 PROVENANCE_BOUNDARY_SCHEMA = "bhm.p28.provenance-boundary.v1"
@@ -33,6 +34,7 @@ def _git_paths(root: Path, *args: str) -> list[str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         return ["git-check-unavailable"]

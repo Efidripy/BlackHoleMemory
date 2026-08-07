@@ -4,19 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field, replace
 from typing import Any, Awaitable, Callable
-from urllib.parse import urlparse
 
 from .llm_safety import PROPOSAL_AUTHORITY
 from .llm_safety import sanitize_llm_messages
 from .llm_safety import sanitize_llm_value
 from .llm_telemetry import LLMTelemetry
 from .llm_telemetry import get_llm_telemetry
+from .local_endpoint_policy import MAX_RESPONSE_BYTES
+from .local_endpoint_policy import LocalEndpointError
+from .local_endpoint_policy import open_local_url
+from .local_endpoint_policy import read_bounded_response
+from .local_endpoint_policy import validate_local_endpoint
+from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
 
 
 GATEWAY_SCHEMA_VERSION = "bhm.llm.gateway.v1"
@@ -157,6 +163,18 @@ Transport = Callable[[str, dict[str, Any], dict[str, str], float], dict[str, Any
 AsyncTransport = Callable[[str, dict[str, Any], dict[str, str], float], Awaitable[dict[str, Any]]]
 
 
+def _bounded_request_timeout(value: float) -> float:
+    """Return a finite gateway timeout within the registry-backed envelope."""
+
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("LLM request timeout must be numeric") from exc
+    if not math.isfinite(requested):
+        raise ValueError("LLM request timeout must be finite")
+    return max(min(requested, float(LLM_HTTP_TIMEOUT_SECONDS)), 1.0)
+
+
 class LocalOpenAICompatibleAdapter:
     def __init__(self, *, transport: Transport | None = None) -> None:
         self._transport = transport or _http_transport
@@ -177,7 +195,7 @@ class LocalOpenAICompatibleAdapter:
                 model.base_url.rstrip("/") + "/chat/completions",
                 payload,
                 headers,
-                max(float(request.timeout_seconds), 1.0),
+                _bounded_request_timeout(request.timeout_seconds),
             )
         except Exception as exc:  # adapter boundary returns structured failure
             return GatewayResult(
@@ -214,7 +232,7 @@ class LocalOpenAICompatibleAdapter:
                 model.base_url.rstrip("/") + "/chat/completions",
                 payload,
                 headers,
-                max(float(request.timeout_seconds), 1.0),
+                _bounded_request_timeout(request.timeout_seconds),
             )
         except Exception as exc:
             return GatewayResult(
@@ -381,17 +399,11 @@ def validate_json_payload(payload: dict[str, Any] | None, required_keys: tuple[s
 
 
 def is_local_endpoint(base_url: str) -> bool:
-    host = (urlparse(str(base_url)).hostname or "").casefold()
-    if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".test"):
-        return True
-    if host.startswith("10.") or host.startswith("192.168."):
-        return True
-    if host.startswith("172."):
-        try:
-            return 16 <= int(host.split(".")[1]) <= 31
-        except (IndexError, ValueError):
-            return False
-    return False
+    try:
+        validate_local_endpoint(base_url)
+    except (LocalEndpointError, ValueError):
+        return False
+    return True
 
 
 def _http_transport(url: str, payload: dict[str, Any], headers: dict[str, str], timeout: float) -> dict[str, Any]:
@@ -402,8 +414,8 @@ def _http_transport(url: str, payload: dict[str, Any], headers: dict[str, str], 
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            value = json.loads(response.read().decode("utf-8"))
+        with open_local_url(request, timeout=timeout) as response:
+            value = json.loads(read_bounded_response(response, limit=MAX_RESPONSE_BYTES).decode("utf-8"))
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
         raise RuntimeError(str(exc)) from exc
     if not isinstance(value, dict):

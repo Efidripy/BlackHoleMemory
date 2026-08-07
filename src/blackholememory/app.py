@@ -9,6 +9,7 @@ import importlib.util
 import ipaddress
 import json
 import logging
+import math
 import os
 import re
 import subprocess
@@ -21,11 +22,9 @@ import uuid
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping
 
-import httpx
 from fastapi import FastAPI
 from fastapi import HTTPException
 from fastapi import Request
@@ -53,14 +52,23 @@ from .llm_gateway import ModelDefinition
 from .llm_gateway import ModelRegistry
 from .llm_gateway import PromptDefinition
 from .llm_gateway import PromptRegistry
+from .local_endpoint_policy import open_local_url
+from .local_endpoint_policy import read_bounded_response
+from .memory_pulse_bus import MemoryPulseBus
+from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
+from .resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
+from .resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
+from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
 from .capability import ADMIN_CAPABILITY_HEADER
 from .capability import admin_route_requires_capability
 from .capability import configured_admin_capability
 from .capability import extract_mcp_capability
 from .capability import is_admin_capability_valid
 from .caller_auth import authorize_projects
+from .caller_auth import authorize_project_root
 from .caller_auth import caller_auth_configuration_error
 from .caller_auth import caller_route_policy
+from .caller_auth import caller_project_scope_requires_explicit
 from .caller_auth import CallerRoutePolicy
 from .caller_auth import configured_caller_principal
 from .caller_auth import extract_request_projects
@@ -75,6 +83,7 @@ from .ui_session import ui_session_route_allowed
 from .embedding_reuse import search_with_precomputed_embedding
 from .embedding_cache import EmbeddingCache
 from .embedding_cache import embed_query_with_cache
+from .filesystem_boundaries import replace_bytes_safely
 from .graph import build_graph
 from .galaxy import GalaxyOptions
 from .galaxy import build_galaxy_graph
@@ -125,6 +134,7 @@ from .retrieval_filters import build_candidate_filters
 from .retrieval_fusion import weighted_rank_fusion
 from .retrieval_diversity import mmr_select
 from .semantic_observation import build_semantic_observation
+from .runtime_endpoints import validate_loopback_listener_host
 from .semantic_relevance_receipt import build_semantic_relevance_receipt
 from .semantic_fusion_provenance_receipt import build_semantic_fusion_provenance_receipt
 from .semantic_readiness import SemanticReadinessCache
@@ -150,6 +160,10 @@ from .runtime_storage import resolve_runtime_storage_config
 from .memory_service import MemoryServiceNotReady
 from .memory_service import MemoryServiceValidationError
 from .memory_service import SQLiteMemoryService
+from .memory_search_service import MemorySearchDependencies
+from .memory_search_service import MemorySearchService
+from .memory_search_service import read_only_side_effects
+from . import memory_contracts as _memory_contracts
 from .sync_service import InvalidTombstone
 from .sync_service import UndoWindowExpired
 from .vector_routing import route_vector_targets
@@ -332,6 +346,7 @@ from .documentation_factory import DOCUMENTATION_FACTORY_FEATURES
 from .documentation_factory import DOCUMENTATION_FACTORY_MAX_DOCUMENTS
 from .documentation_factory import DOCUMENTATION_FACTORY_SCHEMA_VERSION
 from .documentation_factory import DocumentationFactoryError
+from .error_taxonomy import classify_jsonrpc_error
 from .documentation_factory import build_documentation_factory_preview
 from .night_shift import NIGHT_SHIFT_SAFE_JOB_TYPES
 from .night_shift import NIGHT_SHIFT_SCHEMA_VERSION
@@ -382,6 +397,21 @@ from .mcp_repair import execute_reconnect
 from .mcp_repair import execute_rollback
 from .surface_report import build_surface_report
 from .qdrant_catalog import build_qdrant_catalog
+
+
+MemoryMetadata = _memory_contracts.MemoryMetadata
+MetadataActionability = _memory_contracts.MetadataActionability
+MetadataDomain = _memory_contracts.MetadataDomain
+MetadataLanguage = _memory_contracts.MetadataLanguage
+MetadataLifecycle = _memory_contracts.MetadataLifecycle
+MetadataPriority = _memory_contracts.MetadataPriority
+MetadataProvenance = _memory_contracts.MetadataProvenance
+MetadataRetention = _memory_contracts.MetadataRetention
+MetadataScope = _memory_contracts.MetadataScope
+MetadataSemanticType = _memory_contracts.MetadataSemanticType
+MetadataSensitivity = _memory_contracts.MetadataSensitivity
+MetadataStakeholder = _memory_contracts.MetadataStakeholder
+MetadataVerification = _memory_contracts.MetadataVerification
 
 
 _INFRA_SPAWNED_PIDS: set[int] = set()
@@ -444,7 +474,7 @@ _HOOK_QUEUE_TASKS: list[asyncio.Task[None]] = []
 _HOOK_QUEUE_STOP_EVENT: asyncio.Event | None = None
 _HOOK_QUEUE_ACCEPTING = True
 _STORAGE_STARTUP_TIMEOUT_SECONDS = _env_float("BHM_STORAGE_STARTUP_TIMEOUT_SECONDS", 30.0, 0.1)
-_QDRANT_HEALTH_TIMEOUT_SECONDS = _env_float("BHM_QDRANT_HEALTH_TIMEOUT_SECONDS", 2.0, 0.1)
+_QDRANT_HEALTH_TIMEOUT_SECONDS = _env_float("BHM_QDRANT_HEALTH_TIMEOUT_SECONDS", QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS, 0.1)
 _FALLBACK_MODE_ENV = "BHM_FALLBACK_MODE"
 _TELEMETRY_INTERVAL_SECONDS = 2.5
 _KNOWLEDGE_COUNTERS_SCHEMA_VERSION = "bhm.dashboard.knowledge-counters.v1"
@@ -634,8 +664,8 @@ def _post_provider_warmup_probe() -> None:
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=_PROVIDER_WARMUP_TIMEOUT_SECONDS) as response:
-        response.read(128)
+    with open_local_url(request, timeout=_PROVIDER_WARMUP_TIMEOUT_SECONDS) as response:
+        read_bounded_response(response, limit=128)
 
 
 def _post_provider_embedding_warmup_probe() -> None:
@@ -660,10 +690,10 @@ def _post_provider_embedding_warmup_probe() -> None:
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=_PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS) as response:
+    with open_local_url(request, timeout=_PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS) as response:
         # Do not expose or retain the returned embedding vector.  Reading a
         # bounded prefix is enough to let urllib close the response cleanly.
-        response.read(128)
+        read_bounded_response(response, limit=128)
 
 
 def _provider_memory_warmup_projects() -> list[str]:
@@ -1520,7 +1550,12 @@ def _wsl_shared_overhead_gb() -> float:
 
 def _qdrant_healthy_sync() -> bool:
     try:
-        with urllib.request.urlopen(f"{settings.qdrant_url.rstrip('/')}/healthz", timeout=_QDRANT_HEALTH_TIMEOUT_SECONDS) as response:
+        request = urllib.request.Request(
+            f"{settings.qdrant_url.rstrip('/')}/healthz",
+            headers={"User-Agent": "BlackHoleMemory-Qdrant-Health/1.0"},
+        )
+        with open_local_url(request, timeout=_QDRANT_HEALTH_TIMEOUT_SECONDS) as response:
+            read_bounded_response(response, limit=128)
             return 200 <= int(response.status) < 300
     except (OSError, TimeoutError, urllib.error.URLError):
         return False
@@ -1673,11 +1708,32 @@ def _mcp_model_dump(value: Any) -> Any:
 
 
 def _jsonrpc_success(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "result": result}
+    def sanitize(value: Any) -> Any:
+        if isinstance(value, str):
+            return redact_secret_text(value).value
+        if isinstance(value, dict):
+            return {key: sanitize(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        return value
+
+    return {"jsonrpc": "2.0", "id": request_id, "result": sanitize(result)}
 
 
 def _jsonrpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
-    return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+    safe_message = redact_secret_text(str(message)).value[:2_000]
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {
+            "code": code,
+            "message": safe_message,
+            "data": {
+                "bhm_error_code": classify_jsonrpc_error(code),
+                "schema_version": "bhm.error-taxonomy.v1",
+            },
+        },
+    }
 
 
 def _validate_bhm_remember_mcp_arguments(arguments: dict[str, Any]) -> str | None:
@@ -1774,7 +1830,7 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
 
             content = await bhm_mcp.mcp.call_tool(name, arguments)
         except Exception as exc:
-            return _jsonrpc_error(request_id, -32603, f"{name} failed: {exc}")
+            return _jsonrpc_error(request_id, -32603, f"{name} failed: {redact_secret_text(str(exc)).value}")
         dumped = _mcp_model_dump(content)
         if isinstance(dumped, dict):
             result: dict[str, Any] = {
@@ -1853,6 +1909,7 @@ _MCP_STREAMABLE_HTTP = BhmStreamableHttpGateway(
 )
 _UI_SESSIONS = UiSessionRegistry()
 MAX_UI_EXCHANGE_BODY_BYTES = 16 * 1024
+MAX_ADMIN_SNAPSHOT_BYTES = 16 * 1024 * 1024
 
 
 class UiSessionExchangeRequest(BaseModel):
@@ -1928,8 +1985,31 @@ def _websocket_origin_is_allowed(websocket: WebSocket, *, require_exact_origin: 
     return not require_exact_origin or origin.netloc.casefold() == host_parts[1]
 
 
+async def _cancel_lifespan_task(task: asyncio.Task[None] | None, *, name: str) -> None:
+    """Cancel and observe one lifespan task without aborting sibling cleanup.
+
+    A background task can fail before shutdown starts.  Awaiting that failed
+    task directly from the lifespan ``finally`` block would skip cancellation
+    of later tasks and the infrastructure cleanup call.  Shutdown is a
+    best-effort boundary: preserve the primary lifecycle exception while
+    observing secondary task failures and continuing cleanup.
+    """
+
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        return
+    except Exception:
+        _LOGGER.exception("BHM lifespan task failed during shutdown: %s", name)
+
+
 @asynccontextmanager
 async def _app_lifespan(_app: FastAPI):
+    validate_loopback_listener_host(settings.host)
     _UI_SESSIONS.reset()
     caller_configuration_error = caller_auth_configuration_error()
     if caller_configuration_error:
@@ -1963,22 +2043,13 @@ async def _app_lifespan(_app: FastAPI):
             yield
     finally:
         _UI_SESSIONS.reset()
-        await _stop_hook_queue_workers()
-        if boot_report_task is not None:
-            boot_report_task.cancel()
-            try:
-                await boot_report_task
-            except asyncio.CancelledError:
-                pass
-        for task in (telemetry_task, warmup_task):
-            if task is None:
-                continue
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-        await _cleanup_registered_infra_processes(reason="api_shutdown")
+        try:
+            await _stop_hook_queue_workers()
+        finally:
+            await _cancel_lifespan_task(boot_report_task, name="boot_report")
+            await _cancel_lifespan_task(telemetry_task, name="telemetry")
+            await _cancel_lifespan_task(warmup_task, name="provider_warmup")
+            await _cleanup_registered_infra_processes(reason="api_shutdown")
 
 
 app = FastAPI(title=settings.app_name, redoc_url=None, lifespan=_app_lifespan)
@@ -2057,7 +2128,10 @@ async def caller_and_admin_capability_guard(request: Request, call_next):
         auth_kind = "caller_bearer" if principal is not None else ""
         if principal is None and ui_session_route_allowed(request.url.path, request.method):
             session_candidate = request.cookies.get(UI_SESSION_COOKIE)
-            session_principal = _UI_SESSIONS.resolve_session(session_candidate)
+            session_principal = _UI_SESSIONS.resolve_session(
+                session_candidate,
+                expected_principal=configured_principal,
+            )
             if session_principal is not None and _ui_browser_request_is_same_origin(
                 request,
                 require_origin=request.method.upper() not in {"GET", "HEAD"},
@@ -2065,6 +2139,18 @@ async def caller_and_admin_capability_guard(request: Request, call_next):
                 principal = session_principal
                 auth_kind = "ui_session"
         if principal is None:
+            if request.url.path == "/bhm/ui/session/bootstrap":
+                if not _ui_request_is_loopback(request) or not _ui_browser_request_is_same_origin(request):
+                    return JSONResponse(
+                        status_code=403,
+                        headers={"Cache-Control": "no-store"},
+                        content={"detail": {"code": "ui_direct_bootstrap_loopback_only"}},
+                    )
+                return JSONResponse(
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer", "Cache-Control": "no-store"},
+                    content={"detail": {"code": "ui_launcher_bootstrap_required"}},
+                )
             return JSONResponse(
                 status_code=401,
                 headers={"WWW-Authenticate": "Bearer"},
@@ -2072,10 +2158,14 @@ async def caller_and_admin_capability_guard(request: Request, call_next):
             )
 
         project_sources: list[Any] = [request.query_params]
+        explicit_project_scope = caller_project_scope_requires_explicit(
+            request.url.path,
+            request.method,
+        )
         if (
             policy is CallerRoutePolicy.PROJECT
-            and not principal.all_projects
             and request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}
+            and (not principal.all_projects or explicit_project_scope)
         ):
             raw_content_length = request.headers.get("content-length")
             transfer_encoding = str(request.headers.get("transfer-encoding") or "").casefold()
@@ -2116,10 +2206,18 @@ async def caller_and_admin_capability_guard(request: Request, call_next):
             except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
                 pass
         if policy is CallerRoutePolicy.PROJECT:
+            requested_projects = extract_request_projects(*project_sources)
+            if explicit_project_scope and not requested_projects:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": {"code": "caller_project_required"}},
+                )
             project_error = authorize_projects(
                 principal,
-                extract_request_projects(*project_sources),
-                require_explicit=not principal.all_projects,
+                requested_projects,
+                require_explicit=(
+                    explicit_project_scope or not principal.all_projects
+                ),
             )
             if project_error:
                 return JSONResponse(
@@ -2249,69 +2347,7 @@ def _json_store_lock(path: Path) -> threading.RLock:
         return lock
 
 
-class MemoryPulseBus:
-    def __init__(self) -> None:
-        self._clients: dict[WebSocket, frozenset[str] | None] = {}
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._lock = threading.RLock()
-
-    async def connect(self, websocket: WebSocket, projects: frozenset[str] | None = None) -> None:
-        await websocket.accept()
-        with self._lock:
-            self._loop = asyncio.get_running_loop()
-            self._clients[websocket] = projects
-
-    def disconnect(self, websocket: WebSocket) -> None:
-        with self._lock:
-            self._clients.pop(websocket, None)
-
-    @property
-    def client_count(self) -> int:
-        with self._lock:
-            return len(self._clients)
-
-    async def broadcast(self, payload: dict[str, Any]) -> None:
-        with self._lock:
-            clients = list(self._clients.items())
-        is_pulse = str(payload.get("event") or "") == "pulse"
-        pulse_project = ""
-        if is_pulse:
-            pulse_project = _canonical_project(str(payload.get("project") or "")) if payload.get("project") else ""
-        disconnected: list[WebSocket] = []
-        for client, subscribed_projects in clients:
-            if is_pulse and subscribed_projects is not None and (
-                not pulse_project or pulse_project not in subscribed_projects
-            ):
-                continue
-            try:
-                await client.send_json(payload)
-            except (RuntimeError, WebSocketDisconnect):
-                disconnected.append(client)
-        if disconnected:
-            with self._lock:
-                for client in disconnected:
-                    self._clients.pop(client, None)
-
-    def emit_pulse(self, node_id: str, project: str | None = None) -> None:
-        if not node_id:
-            return
-        with self._lock:
-            loop = self._loop
-            has_clients = bool(self._clients)
-        if loop is None or loop.is_closed() or not has_clients:
-            return
-        payload = {"event": "pulse", "node_id": node_id, "project": _canonical_project(project) if project else ""}
-        try:
-            running_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            running_loop = None
-        if running_loop is loop:
-            running_loop.create_task(self.broadcast(payload))
-        else:
-            asyncio.run_coroutine_threadsafe(self.broadcast(payload), loop)
-
-
-_MEMORY_PULSE_BUS = MemoryPulseBus()
+_MEMORY_PULSE_BUS = MemoryPulseBus(project_normalizer=lambda project: _canonical_project(project))
 
 
 def _emit_memory_pulse(node_id: Any, project: str | None = None) -> None:
@@ -2337,124 +2373,9 @@ def _emit_memory_pulses_from_mem0_items(items: list[dict]) -> None:
             _emit_memory_pulse(node_id, str(metadata.get("project") or item.get("project") or ""))
 
 
-class MetadataLifecycle(str, Enum):
-    DRAFT = "draft"
-    VALIDATED = "validated"
-    DEPRECATED = "deprecated"
-    ARCHIVED = "archived"
-
-
-class MetadataProvenance(str, Enum):
-    GITHUB = "github"
-    MCP = "mcp"
-    LLM = "llm"
-    HUMAN = "human"
-    SYNTHETIC = "synthetic"
-
-
-class MetadataPriority(str, Enum):
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    NORMAL = "normal"
-    TRIVIAL = "trivial"
-
-
-class MetadataDomain(str, Enum):
-    FRONTEND = "frontend"
-    BACKEND = "backend"
-    INFRA = "infra"
-    SECURITY = "security"
-    PRODUCT = "product"
-    GENERAL = "general"
-
-
-class MetadataSensitivity(str, Enum):
-    PUBLIC = "public"
-    INTERNAL = "internal"
-    RESTRICTED = "restricted"
-
-
-class MetadataScope(str, Enum):
-    GLOBAL = "global"
-    SERVICE = "service"
-    FEATURE = "feature"
-    LOCAL = "local"
-
-
-class MetadataRetention(str, Enum):
-    TRANSIENT = "transient"
-    SHORT_TERM = "short-term"
-    LONG_TERM = "long-term"
-    PERMANENT = "permanent"
-
-
-class MetadataVerification(str, Enum):
-    UNVERIFIED = "unverified"
-    PEER_REVIEWED = "peer-reviewed"
-    TRUSTED = "trusted"
-
-
-class MetadataActionability(str, Enum):
-    TASK = "task"
-    INFO = "info"
-    DECISION = "decision"
-    QUERY = "query"
-
-
-class MetadataStakeholder(str, Enum):
-    CORE_TEAM = "core-team"
-    DEVOPS = "devops"
-    FRONTEND_SQUAD = "frontend-squad"
-    PRODUCT_OWNER = "product-owner"
-
-
-class MetadataLanguage(str, Enum):
-    EN = "en"
-    RU = "ru"
-    CODE_PYTHON = "code-python"
-    CODE_TS = "code-ts"
-
-
-class MetadataSemanticType(str, Enum):
-    ARCHITECTURE = "architecture"
-    BUGFIX = "bugfix"
-    FEATURE = "feature"
-    REFACTOR = "refactor"
-    KNOWLEDGE = "knowledge"
-    FACT = "fact"
-    LOG = "log"
-    ERROR = "error"
-    DECISION_LOG = "decision-log"
-    REQUIREMENT = "requirement"
-
-
 FactCrystalDomain = Literal["frontend", "backend", "infra", "security", "product", "general"]
 FactCrystalPriority = Literal["low", "medium", "high", "critical"]
 FactCrystalSemanticType = Literal["architecture", "bugfix", "feature", "refactor", "knowledge"]
-
-
-class MemoryMetadata(BaseModel):
-    model_config = ConfigDict(extra="allow", use_enum_values=True)
-
-    lifecycle: MetadataLifecycle | None = Field(default=None, description="draft/validated/deprecated/archived")
-    provenance: MetadataProvenance | None = Field(default=None, description="github/mcp/llm/human/synthetic")
-    priority: MetadataPriority | None = Field(default=None, description="critical/high/medium/low; normal/trivial are legacy aliases")
-    domain: MetadataDomain | None = Field(default=None, description="frontend/backend/infra/security/product/general")
-    sensitivity: MetadataSensitivity | None = Field(default=None, description="public/internal/restricted")
-    scope: MetadataScope | None = Field(default=None, description="global/service/feature/local")
-    retention: MetadataRetention | None = Field(default=None, description="transient/short-term/long-term/permanent")
-    verification: MetadataVerification | None = Field(default=None, description="unverified/peer-reviewed/trusted")
-    actionability: MetadataActionability | None = Field(default=None, description="task/info/decision/query")
-    stakeholder: MetadataStakeholder | None = Field(default=None, description="core-team/devops/frontend-squad/product-owner")
-    language: MetadataLanguage | None = Field(default=None, description="en/ru/code-python/code-ts")
-    semantic_type: MetadataSemanticType | None = Field(
-        default=None,
-        description="architecture/bugfix/feature/refactor/knowledge; fact/log/error/decision-log/requirement are legacy values",
-    )
-    version: str | None = Field(default=None, description='Taxonomy version, for example "1.0".')
-    importance_score: int | None = Field(default=None, ge=1, le=10, description="Cognitive importance from 1 to 10.")
 
 
 class SearchRequest(BaseModel):
@@ -2618,12 +2539,18 @@ class GalaxyDataResponse(BaseModel):
 
 class MemoryUpsertRequest(BaseModel):
     upsert_key: str
-    project: str
+    project: str = "e-github-workspace"
     type: str = "workflow"
     content: str
     concepts: list[str] | None = None
     files: list[str] | None = None
     metadata: MemoryMetadata | None = None
+
+
+class BatchMemoryUpsertItem(MemoryUpsertRequest):
+    """Batch item with an optional project inherited from the batch scope."""
+
+    project: str | None = None
 
 
 class MemoryLinkRequest(BaseModel):
@@ -2632,6 +2559,10 @@ class MemoryLinkRequest(BaseModel):
     relation: str
     project: str
     metadata: MemoryMetadata | None = None
+
+
+class BatchMemoryLinkItem(MemoryLinkRequest):
+    project: str
 
 
 class MemoryLinkDeleteRequest(BaseModel):
@@ -3296,7 +3227,7 @@ class SessionRecordCreateRequest(BaseModel):
 
 
 class TaskOpenRequest(BaseModel):
-    project: str
+    project: str = "e-github-workspace"
     task_id: str = Field(min_length=1, max_length=256)
     intent: str = Field(min_length=1, max_length=8000)
     title: str = ""
@@ -3312,7 +3243,7 @@ class TaskOpenRequest(BaseModel):
 
 
 class TaskCloseRequest(BaseModel):
-    project: str
+    project: str = "e-github-workspace"
     task_id: str = Field(min_length=1, max_length=256)
     done: str = ""
     next: str = ""
@@ -3374,14 +3305,17 @@ class HardDeleteMemoryRequest(BaseModel):
 
 
 class BatchUpsertMemoriesRequest(BaseModel):
-    items: list[MemoryUpsertRequest]
+    project: str | None = None
+    items: list[BatchMemoryUpsertItem]
 
 
 class BatchLinkMemoriesRequest(BaseModel):
-    items: list[MemoryLinkRequest]
+    project: str | None = None
+    items: list[BatchMemoryLinkItem]
 
 
 class BatchAttachSourceRefsRequest(BaseModel):
+    project: str | None = None
     items: list[dict]
 
 
@@ -3403,10 +3337,13 @@ class RestoreMemoryRequest(BaseModel):
 
 
 class BatchMemoryIdsRequest(BaseModel):
+    project: str | None = None
     items: list[dict]
 
 
 class RepairLiveIndexesRequest(BaseModel):
+    project: str | None = None
+    aggregate: bool = False
     remove_orphan_links: bool = True
     remove_orphan_artifacts: bool = False
 
@@ -3417,6 +3354,7 @@ class RebuildProjectSummaryRequest(BaseModel):
 
 
 class ProjectSummaryListRequest(BaseModel):
+    project: str | None = None
     limit: int = 20
     offset: int = 0
 
@@ -3461,6 +3399,7 @@ class SearchByUpsertKeyRequest(BaseModel):
 
 
 class BatchRestoreRequest(BaseModel):
+    project: str | None = None
     items: list[dict]
 
 
@@ -3497,11 +3436,14 @@ class MemoryTriageQueueRequest(BaseModel):
 
 
 class ProjectSummaryRefreshAllRequest(BaseModel):
+    project: str | None = None
     projects: list[str] | None = None
+    aggregate: bool = False
 
 
 class RelationApplySuggestionsRequest(BaseModel):
     project: str | None = None
+    aggregate: bool = False
     min_score: float = 0.65
     limit: int = 20
     include_relates_to: bool = False
@@ -3515,6 +3457,7 @@ class MemoryMergePreviewRequest(BaseModel):
 
 class SchemaUpgradeAllRequest(BaseModel):
     project: str | None = None
+    aggregate: bool = False
 
 
 class MemoryRedactRequest(BaseModel):
@@ -3559,6 +3502,7 @@ class AliasResolveRequest(BaseModel):
 
 class EntityCatalogRequest(BaseModel):
     project: str | None = None
+    aggregate: bool = False
 
 
 class ProjectSummaryCompareRequest(BaseModel):
@@ -3573,6 +3517,11 @@ class RecentFailuresFeedRequest(BaseModel):
 
 class ProjectOnlyRequest(BaseModel):
     project: str | None = None
+
+
+class ScopedMaintenanceRequest(BaseModel):
+    project: str | None = None
+    aggregate: bool = False
 
 
 class ProjectRetirementRequest(BaseModel):
@@ -3647,6 +3596,7 @@ class EntityLinkMemoriesRequest(BaseModel):
 
 class RelationPruneLowQualityRequest(BaseModel):
     project: str | None = None
+    aggregate: bool = False
     max_confidence: float = 0.5
     max_quality_score: float = 2.5
     remove_unscored: bool = False
@@ -3710,6 +3660,7 @@ class StrictSchemaValidateRequest(BaseModel):
 
 class IntegrityRepairStrictRequest(BaseModel):
     project: str | None = None
+    aggregate: bool = False
     remove_orphan_links: bool = True
     remove_orphan_artifacts: bool = True
     normalize_metadata: bool = True
@@ -3724,11 +3675,13 @@ class AdminExportRequest(BaseModel):
 
 class AdminImportPreviewRequest(BaseModel):
     path: str
+    project: str | None = None
 
 
 class AdminImportApplyRequest(BaseModel):
     path: str
     merge_mode: str = "upsert"
+    project: str | None = None
 
 
 class PolicyProfileSetRequest(BaseModel):
@@ -3752,7 +3705,8 @@ class OverlapReportRequest(BaseModel):
 
 
 class OverlapCleanupApplyRequest(BaseModel):
-    project: str
+    project: str | None = None
+    aggregate: bool = False
     limit: int = 20
     archive_sources: bool = True
 
@@ -3792,29 +3746,29 @@ class ReflectRequest(BaseModel):
 
 class SlotRequest(BaseModel):
     label: str
-    content: str = ""
+    content: str
     sizeLimit: int = 2000
     description: str = ""
     pinned: bool = True
     scope: str = "project"
-    project: str | None = None
+    project: str = "e-github-workspace"
 
 
 class SlotAppendRequest(BaseModel):
     label: str
     text: str
-    project: str | None = None
+    project: str = "e-github-workspace"
 
 
 class SlotReplaceRequest(BaseModel):
     label: str
     content: str
-    project: str | None = None
+    project: str = "e-github-workspace"
 
 
 class SlotLabelRequest(BaseModel):
     label: str
-    project: str | None = None
+    project: str = "e-github-workspace"
 
 
 class LessonRequest(BaseModel):
@@ -4174,8 +4128,111 @@ def _project_aliases(project: str | None) -> set[str]:
     return _PROJECT_REGISTRY.accepted_values(project)
 
 
+def _project_matches(record_project: Any, requested_project: str | None) -> bool:
+    """Match a stored project against a canonical id or one of its aliases."""
+
+    if not requested_project:
+        return True
+    return str(record_project or "").strip() in _project_aliases(requested_project)
+
+
 def _canonical_project(project: str | None) -> str:
     return _PROJECT_REGISTRY.canonicalize(project)
+
+
+def _batch_project_scope(
+    items: Iterable[Mapping[str, Any]],
+    requested_project: str | None = None,
+    *,
+    require_project: bool = True,
+) -> str | None:
+    """Resolve one project contour for a batch request and reject mixed scopes.
+
+    Caller authorization intentionally permits multiple projects when the
+    principal has access to all of them.  Batch writes still need one explicit
+    contour so an otherwise-valid request cannot partially operate across
+    tenants.  Item-level project values may be omitted when the batch-level
+    project supplies the scope.
+    """
+
+    requested = str(requested_project or "").strip()
+    canonical_requested = _canonical_project(requested) if requested else None
+    nested: set[str] = set()
+    for item in items:
+        if not isinstance(item, Mapping):
+            raise HTTPException(status_code=422, detail={"code": "batch_item_invalid"})
+        raw_project = str(item.get("project") or "").strip()
+        if raw_project:
+            nested.add(_canonical_project(raw_project))
+
+    if len(nested) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "batch_project_mismatch", "projects": sorted(nested)},
+        )
+    nested_project = next(iter(nested), None)
+    if canonical_requested and nested_project and canonical_requested != nested_project:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "batch_project_mismatch",
+                "projects": sorted({canonical_requested, nested_project}),
+            },
+        )
+
+    effective = canonical_requested or nested_project
+    if require_project and not effective:
+        raise HTTPException(status_code=400, detail={"code": "batch_project_required"})
+    return effective
+
+
+def _batch_mapping_items(
+    items: list[dict],
+    requested_project: str | None = None,
+    *,
+    required_fields: tuple[str, ...] = (),
+    require_project: bool = True,
+) -> tuple[str | None, list[dict[str, Any]]]:
+    """Validate raw JSON batch items before any mutation is attempted."""
+
+    project = _batch_project_scope(items, requested_project, require_project=require_project)
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, Mapping):
+            raise HTTPException(status_code=422, detail={"code": "batch_item_invalid", "index": index})
+        candidate = dict(item)
+        for field in required_fields:
+            value = candidate.get(field)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                raise HTTPException(
+                    status_code=422,
+                    detail={"code": "batch_item_invalid", "index": index, "field": field},
+                )
+        if project:
+            candidate["project"] = project
+        normalized.append(candidate)
+    return project, normalized
+
+
+def _authorize_resource_project(request: Request, project: Any) -> None:
+    """Re-check ownership after loading a project-bearing global resource."""
+
+    principal = getattr(request.state, "bhm_caller_principal", None)
+    raw_project = str(project or "").strip()
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+    if not raw_project:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "caller_resource_project_missing"},
+        )
+    project_error = authorize_projects(
+        principal,
+        (_canonical_project(raw_project),),
+        require_explicit=True,
+    )
+    if project_error:
+        raise HTTPException(status_code=403, detail={"code": project_error})
 
 
 def _effective_search_project(project: str | None) -> str:
@@ -4239,7 +4296,8 @@ def _append_memory_changelog(record: dict, action: str, details: dict | None = N
 
 def _delete_live_memory(request: MemoryDeleteRequest) -> dict:
     try:
-        existing = _memory_service().get_record(request.id)
+        scoped_project = _canonical_project(request.project) if request.project else None
+        existing = _memory_service().get_record(request.id, project=scoped_project)
         accepted_projects = _project_aliases(request.project)
         if existing is None or (
             request.project and existing.get("project") not in accepted_projects
@@ -4247,6 +4305,7 @@ def _delete_live_memory(request: MemoryDeleteRequest) -> dict:
             raise HTTPException(status_code=404, detail="memory not found in SQLite store")
         deleted = _memory_service().tombstone(
             request.id,
+            project=scoped_project,
             reason="user_delete",
         )
     except MemoryServiceNotReady as exc:
@@ -4258,9 +4317,19 @@ def _delete_live_memory(request: MemoryDeleteRequest) -> dict:
 
 def _delete_live_memory_hard(request: HardDeleteMemoryRequest) -> dict:
     deleted = _delete_live_memory(MemoryDeleteRequest(id=request.id, project=request.project))
+    accepted_projects = _project_aliases(request.project) if request.project else None
+
+    def owns_item(item: dict) -> bool:
+        if not accepted_projects:
+            return True
+        return item.get("project") in accepted_projects
+
     links = [
         item for item in _load_memory_links()
-        if item.get("source_id") != request.id and item.get("target_id") != request.id
+        if not (
+            owns_item(item)
+            and (item.get("source_id") == request.id or item.get("target_id") == request.id)
+        )
     ]
     _save_memory_links(links)
     for loader, saver in (
@@ -4275,7 +4344,11 @@ def _delete_live_memory_hard(request: HardDeleteMemoryRequest) -> dict:
         (_load_validation_snapshots, _save_validation_snapshots),
     ):
         items = loader()
-        items = [item for item in items if item.get("memory_id") != request.id]
+        items = [
+            item
+            for item in items
+            if not (owns_item(item) and item.get("memory_id") == request.id)
+        ]
         saver(items)
     return deleted
 
@@ -4939,26 +5012,20 @@ def _save_lessons(items: list[dict]) -> Path:
 
 def _write_json_atomic(path: Path, payload: object) -> Path:
     with _json_store_lock(path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-        try:
-            temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            retry_delays = (*_JSON_REPLACE_RETRY_DELAYS, None)
-            for retry_delay in retry_delays:
-                try:
-                    temp_path.replace(path)
-                    break
-                except PermissionError:
-                    if retry_delay is None:
-                        raise
-                    time.sleep(retry_delay)
-                except OSError as exc:
-                    if retry_delay is None or getattr(exc, "winerror", None) not in {5, 32}:
-                        raise
-                    time.sleep(retry_delay)
-        finally:
-            if temp_path.exists():
-                temp_path.unlink(missing_ok=True)
+        encoded = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        retry_delays = (*_JSON_REPLACE_RETRY_DELAYS, None)
+        for retry_delay in retry_delays:
+            try:
+                replace_bytes_safely(path, encoded)
+                break
+            except PermissionError:
+                if retry_delay is None:
+                    raise
+                time.sleep(retry_delay)
+            except OSError as exc:
+                if retry_delay is None or getattr(exc, "winerror", None) not in {5, 32}:
+                    raise
+                time.sleep(retry_delay)
     return path
 
 
@@ -5090,7 +5157,7 @@ def _is_pid_running(pid: int) -> bool:
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
                 capture_output=True,
                 text=True,
-                timeout=5,
+                timeout=PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS,
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired):
@@ -5103,7 +5170,23 @@ def _is_pid_running(pid: int) -> bool:
         return False
 
 
-async def _terminate_process_tree(pid: int, *, grace_seconds: int = 3, dry_run: bool = False) -> dict[str, Any]:
+def _bounded_process_termination_grace_seconds(value: Any) -> int:
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("termination grace must be numeric") from exc
+    if not math.isfinite(requested):
+        raise ValueError("termination grace must be finite")
+    return max(min(int(requested), PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS), 1)
+
+
+async def _terminate_process_tree(
+    pid: int,
+    *,
+    grace_seconds: int = PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    grace_seconds = _bounded_process_termination_grace_seconds(grace_seconds)
     result: dict[str, Any] = {"pid": pid, "dry_run": dry_run, "terminated": False, "forced": False}
     if pid <= 0:
         result["error"] = "invalid_pid"
@@ -5159,7 +5242,11 @@ async def _cleanup_registered_infra_processes(reason: str = "cleanup", dry_run: 
         pids = sorted(_INFRA_SPAWNED_PIDS)
     items = []
     for pid in pids:
-        kill_result = await _terminate_process_tree(pid, grace_seconds=3, dry_run=dry_run)
+        kill_result = await _terminate_process_tree(
+            pid,
+            grace_seconds=PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS,
+            dry_run=dry_run,
+        )
         items.append({"reason": reason, **kill_result})
     if not dry_run:
         with _INFRA_SPAWNED_PIDS_LOCK:
@@ -5848,18 +5935,19 @@ async def _add_semantic_dependency_links(record: dict, project_name: str) -> dic
 
 
 def _create_memory_link(request: MemoryLinkRequest) -> dict:
+    project = _canonical_project(request.project)
     if request.source_id == request.target_id:
         raise HTTPException(status_code=400, detail="source_id and target_id must differ")
-    if _find_live_memory(request.source_id, request.project) is None:
+    if _find_live_memory(request.source_id, project) is None:
         raise HTTPException(status_code=404, detail="source memory not found")
-    if _find_live_memory(request.target_id, request.project) is None:
+    if _find_live_memory(request.target_id, project) is None:
         raise HTTPException(status_code=404, detail="target memory not found")
 
     links = _load_memory_links()
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     for item in links:
         if (
-            item.get("project") == request.project
+            item.get("project") == project
             and item.get("source_id") == request.source_id
             and item.get("target_id") == request.target_id
             and item.get("relation") == request.relation
@@ -5871,7 +5959,7 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
 
     link = {
         "id": f"link_bhm_{uuid.uuid4().hex[:16]}",
-        "project": request.project,
+        "project": project,
         "source_id": request.source_id,
         "target_id": request.target_id,
         "relation": request.relation,
@@ -5885,11 +5973,12 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
 
 
 def _delete_memory_link(request: MemoryLinkDeleteRequest) -> bool:
+    project = _canonical_project(request.project)
     links = _load_memory_links()
     remaining = [
         item for item in links
         if not (
-            item.get("project") == request.project
+            item.get("project") == project
             and item.get("source_id") == request.source_id
             and item.get("target_id") == request.target_id
             and item.get("relation") == request.relation
@@ -6502,8 +6591,9 @@ def _build_project_map_content(title: str, sections: dict[str, str]) -> str:
 
 
 def _get_project_map(project: str) -> dict:
+    accepted_projects = _project_aliases(project)
     for item in _load_project_maps():
-        if item.get("project") == project:
+        if item.get("project") in accepted_projects:
             return item
     raise HTTPException(status_code=404, detail="project map not found")
 
@@ -7668,9 +7758,10 @@ def _memory_timeline(request: MemoryTimelineRequest) -> list[dict]:
 
 
 def _list_lessons(project: str, min_confidence: float = 0.0, limit: int = 10) -> list[dict]:
+    accepted_projects = _project_aliases(project)
     lessons = [
         item for item in _load_lessons()
-        if item.get("project") == project and float(item.get("confidence") or 0) >= min_confidence
+        if item.get("project") in accepted_projects and float(item.get("confidence") or 0) >= min_confidence
     ]
     lessons.sort(
         key=lambda item: (
@@ -7763,22 +7854,48 @@ def _query_suggestions(project: str | None = None) -> list[str]:
 
 
 def _batch_upsert_memories(request: BatchUpsertMemoriesRequest) -> dict:
+    project = _batch_project_scope(
+        ({"project": item.project} for item in request.items),
+        request.project,
+        require_project=False,
+    )
+    project = project or _canonical_project(None)
     results = []
     upserted_ids: dict[str, str] = {}
     for item in request.items:
-        action, record = _upsert_live_memory(item)
+        action, record = _upsert_live_memory(
+            MemoryUpsertRequest(
+                upsert_key=item.upsert_key,
+                project=project,
+                type=item.type,
+                content=item.content,
+                concepts=item.concepts,
+                files=item.files,
+                metadata=item.metadata,
+            )
+        )
         upserted_ids[item.upsert_key] = record["source_id"]
         results.append({"action": action, "memory": _serialize_memory_record(record)})
     return {"items": results, "count": len(results), "upserted_ids": upserted_ids}
 
 
 def _batch_attach_source_refs(request: BatchAttachSourceRefsRequest) -> dict:
+    project, items = _batch_mapping_items(
+        request.items,
+        request.project,
+        required_fields=("id",),
+    )
+    for item in items:
+        if not isinstance(item.get("refs"), list):
+            raise HTTPException(status_code=422, detail={"code": "batch_item_invalid", "field": "refs"})
+        if _find_live_memory(str(item["id"]), project) is None:
+            raise HTTPException(status_code=404, detail="memory not found")
     results = []
-    for item in request.items:
+    for item in items:
         record = _attach_source_refs(
             MemorySourceRefsRequest(
                 id=item["id"],
-                project=item.get("project"),
+                project=project,
                 refs=item.get("refs") or [],
             )
         )
@@ -7787,14 +7904,15 @@ def _batch_attach_source_refs(request: BatchAttachSourceRefsRequest) -> dict:
 
 
 def _integrity_audit(project: str | None = None) -> dict:
+    canonical_project = _canonical_project(project) if project else None
     memories = [
         item for item in _load_live_memories()
-        if _memory_matches_filters(item, project=project, include_archived=True)
+        if _memory_matches_filters(item, project=canonical_project, include_archived=True)
     ]
     memory_ids = {item.get("source_id") for item in memories}
     orphan_links = [
         item for item in _load_memory_links()
-        if (not project or item.get("project") == project)
+        if (not canonical_project or _project_matches(item.get("project"), canonical_project))
         and (item.get("source_id") not in memory_ids or item.get("target_id") not in memory_ids)
     ]
     duplicate_upsert_keys = []
@@ -7803,7 +7921,7 @@ def _integrity_audit(project: str | None = None) -> dict:
         upsert_key = (item.get("metadata") or {}).get("upsert_key")
         if not upsert_key:
             continue
-        key = (item.get("project") or "", upsert_key)
+        key = (_canonical_project(item.get("project")) if item.get("project") else "", upsert_key)
         if key in seen:
             duplicate_upsert_keys.append({"project": key[0], "upsert_key": upsert_key, "ids": [seen[key], item.get("source_id")]})
         else:
@@ -7813,7 +7931,7 @@ def _integrity_audit(project: str | None = None) -> dict:
         if _is_archived_memory(item) and bool((item.get("metadata") or {}).get("pinned"))
     ]
     return {
-        "project": project,
+        "project": canonical_project,
         "orphan_links": [_serialize_memory_link(item) for item in orphan_links],
         "duplicate_upsert_keys": duplicate_upsert_keys,
         "archived_but_pinned": archived_but_pinned,
@@ -7822,21 +7940,38 @@ def _integrity_audit(project: str | None = None) -> dict:
 
 
 def _repair_live_indexes(request: RepairLiveIndexesRequest) -> dict:
-    report_before = _integrity_audit()
+    if not request.project and not request.aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "repair_scope_required", "message": "project or aggregate=true is required"},
+        )
+    project = _canonical_project(request.project) if request.project else None
+    report_before = _integrity_audit(project)
     removed_links = 0
     removed_artifacts = 0
     if request.remove_orphan_links:
         memories = _load_live_memories()
-        memory_ids = {item.get("source_id") for item in memories}
+        memory_ids = {
+            item.get("source_id")
+            for item in memories
+            if _project_matches(item.get("project"), project)
+        }
         links = _load_memory_links()
-        filtered = [
-            item for item in links
-            if item.get("source_id") in memory_ids and item.get("target_id") in memory_ids
-        ]
+        filtered = []
+        for item in links:
+            if project and not _project_matches(item.get("project"), project):
+                filtered.append(item)
+                continue
+            if item.get("source_id") in memory_ids and item.get("target_id") in memory_ids:
+                filtered.append(item)
         removed_links = len(links) - len(filtered)
         _save_memory_links(filtered)
     if request.remove_orphan_artifacts:
-        memory_ids = {item.get("source_id") for item in _load_live_memories()}
+        memory_ids = {
+            item.get("source_id")
+            for item in _load_live_memories()
+            if _project_matches(item.get("project"), project)
+        }
         for loader, saver in (
             (_load_checkpoints, _save_checkpoints),
             (_load_project_maps, _save_project_maps),
@@ -7848,11 +7983,24 @@ def _repair_live_indexes(request: RepairLiveIndexesRequest) -> dict:
             (_load_validation_snapshots, _save_validation_snapshots),
         ):
             items = loader()
-            filtered = [item for item in items if not item.get("memory_id") or item.get("memory_id") in memory_ids]
+            filtered = []
+            for item in items:
+                if project and not _project_matches(item.get("project"), project):
+                    filtered.append(item)
+                    continue
+                if not item.get("memory_id") or item.get("memory_id") in memory_ids:
+                    filtered.append(item)
             removed_artifacts += len(items) - len(filtered)
             saver(filtered)
-    report_after = _integrity_audit()
-    return {"before": report_before, "after": report_after, "removed_links": removed_links, "removed_artifacts": removed_artifacts}
+    report_after = _integrity_audit(project)
+    return {
+        "project": project,
+        "aggregate": bool(request.aggregate and not project),
+        "before": report_before,
+        "after": report_after,
+        "removed_links": removed_links,
+        "removed_artifacts": removed_artifacts,
+    }
 
 
 def _rebuild_project_summary(request: RebuildProjectSummaryRequest) -> dict:
@@ -7923,8 +8071,9 @@ def _entity_extract(request: EntityExtractRequest) -> dict:
 
 
 def _relation_suggest(request: RelationSuggestRequest) -> dict:
-    duplicates = _detect_duplicates(MemoryDetectRequest(project=request.project, limit=request.limit, include_archived=False))
-    conflicts = _detect_conflicts(MemoryDetectRequest(project=request.project, limit=request.limit, include_archived=False))
+    project = _canonical_project(request.project) if request.project else None
+    duplicates = _detect_duplicates(MemoryDetectRequest(project=project, limit=request.limit, include_archived=False))
+    conflicts = _detect_conflicts(MemoryDetectRequest(project=project, limit=request.limit, include_archived=False))
     suggestions = []
     for item in duplicates:
         suggestions.append({"relation": "duplicate_of", "score": item["score"], "source_id": item["left_id"], "target_id": item["right_id"], "reason": item["reason"]})
@@ -7932,16 +8081,21 @@ def _relation_suggest(request: RelationSuggestRequest) -> dict:
         suggestions.append({"relation": "conflicts_with", "score": item["score"], "source_id": item["left_id"], "target_id": item["right_id"], "reason": item["reason"]})
     records = [
         item for item in _load_live_memories()
-        if _memory_matches_filters(item, project=request.project, include_archived=False)
+        if _memory_matches_filters(item, project=project, include_archived=False)
     ]
     for left_index, left in enumerate(records):
         for right in records[left_index + 1:]:
+            # Aggregate suggestions are still tenant-safe: shared files or
+            # tags must never create a cross-project relation candidate.
+            if _canonical_project(left.get("project")) != _canonical_project(right.get("project")):
+                continue
             left_files = set((left.get("metadata") or {}).get("files") or [])
             right_files = set((right.get("metadata") or {}).get("files") or [])
             shared_files = sorted(left_files & right_files)
             left_tags = set(left.get("tags") or [])
             right_tags = set(right.get("tags") or [])
             shared_tags = sorted(left_tags & right_tags)
+            suggestion_project = _canonical_project(left.get("project"))
             if shared_files:
                 suggestions.append(
                     {
@@ -7949,6 +8103,7 @@ def _relation_suggest(request: RelationSuggestRequest) -> dict:
                         "score": 0.7,
                         "source_id": left.get("source_id"),
                         "target_id": right.get("source_id"),
+                        "project": suggestion_project,
                         "reason": f"shared_files:{', '.join(shared_files[:3])}",
                     }
                 )
@@ -7959,11 +8114,12 @@ def _relation_suggest(request: RelationSuggestRequest) -> dict:
                         "score": 0.6,
                         "source_id": left.get("source_id"),
                         "target_id": right.get("source_id"),
+                        "project": suggestion_project,
                         "reason": f"shared_concepts:{', '.join(shared_tags[:3])}",
                     }
                 )
     suggestions.sort(key=lambda item: item["score"], reverse=True)
-    return {"suggestions": suggestions[: max(min(request.limit, 200), 1)]}
+    return {"project": project, "suggestions": suggestions[: max(min(request.limit, 200), 1)]}
 
 
 def _compact_memory(request: MemoryCompactRequest) -> dict:
@@ -7997,39 +8153,67 @@ def _policy_guard(request: PolicyGuardRequest) -> dict:
 
 
 def _batch_archive_memories(request: BatchMemoryIdsRequest) -> dict:
+    project, normalized_items = _batch_mapping_items(request.items, request.project, required_fields=("id",))
+    for item in normalized_items:
+        if _find_live_memory(str(item["id"]), project) is None:
+            raise HTTPException(status_code=404, detail="memory not found in live store")
     items = []
-    for item in request.items:
-        archived = _archive_live_memory(MemoryArchiveRequest(id=item["id"], project=item.get("project"), reason=item.get("reason", "batch_archive")))
+    for item in normalized_items:
+        archived = _archive_live_memory(MemoryArchiveRequest(id=item["id"], project=project, reason=item.get("reason", "batch_archive")))
         items.append(_serialize_memory_record(archived))
     return {"memories": items, "count": len(items)}
 
 
 def _batch_delete_memories(request: BatchMemoryIdsRequest) -> dict:
+    project, normalized_items = _batch_mapping_items(request.items, request.project, required_fields=("id",))
+    for item in normalized_items:
+        if _find_live_memory(str(item["id"]), project) is None:
+            raise HTTPException(status_code=404, detail="memory not found in live store")
     items = []
-    for item in request.items:
-        deleted = _delete_live_memory(MemoryDeleteRequest(id=item["id"], project=item.get("project")))
+    for item in normalized_items:
+        deleted = _delete_live_memory(MemoryDeleteRequest(id=item["id"], project=project))
         items.append(_serialize_memory_record(deleted))
     return {"memories": items, "count": len(items)}
 
 
 def _batch_link_memories(request: BatchLinkMemoriesRequest) -> dict:
+    project = _batch_project_scope(
+        ({"project": item.project} for item in request.items),
+        request.project,
+    )
+    for item in request.items:
+        if _find_live_memory(item.source_id, project) is None or _find_live_memory(item.target_id, project) is None:
+            raise HTTPException(status_code=404, detail="source or target memory not found")
     links = []
     for item in request.items:
-        link = _create_memory_link(item)
+        link = _create_memory_link(
+            MemoryLinkRequest(
+                source_id=item.source_id,
+                target_id=item.target_id,
+                relation=item.relation,
+                project=project,
+                metadata=item.metadata,
+            )
+        )
         links.append(_serialize_memory_link(link))
     return {"links": links, "count": len(links)}
 
 
 def _batch_unlink_memories(request: BatchMemoryIdsRequest) -> dict:
+    project, items = _batch_mapping_items(
+        request.items,
+        request.project,
+        required_fields=("source_id", "target_id", "relation"),
+    )
     deleted = []
-    for item in request.items:
+    for item in items:
         deleted.append(
             _delete_memory_link(
                 MemoryLinkDeleteRequest(
                     source_id=item["source_id"],
                     target_id=item["target_id"],
                     relation=item["relation"],
-                    project=item["project"],
+                    project=project,
                 )
             )
         )
@@ -8053,14 +8237,16 @@ def _memory_diff(request: MemoryDiffRequest) -> dict:
 
 
 def _project_summary_get(project: str) -> dict:
-    record = _find_live_memory_by_upsert_key(project, f"project-summary:{project}")
+    canonical_project = _canonical_project(project)
+    record = _find_live_memory_by_upsert_key(canonical_project, f"project-summary:{canonical_project}")
     if record is None:
         raise HTTPException(status_code=404, detail="project summary not found")
     return _serialize_memory_record(record)
 
 
 def _project_summary_pin(project: str) -> dict:
-    record = _find_live_memory_by_upsert_key(project, f"project-summary:{project}")
+    canonical_project = _canonical_project(project)
+    record = _find_live_memory_by_upsert_key(canonical_project, f"project-summary:{canonical_project}")
     if record is None:
         raise HTTPException(status_code=404, detail="project summary not found")
     pinned = _set_memory_pin(MemoryPinRequest(id=record["source_id"], project=project, pinned=True))
@@ -8071,6 +8257,7 @@ def _project_summary_list(request: ProjectSummaryListRequest) -> tuple[list[dict
     items = [
         item for item in _load_live_memories()
         if str((item.get("metadata") or {}).get("upsert_key") or "").startswith("project-summary:")
+        and (not request.project or _canonical_project(item.get("project")) == _canonical_project(request.project))
     ]
     items.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
     total = len(items)
@@ -8080,17 +8267,18 @@ def _project_summary_list(request: ProjectSummaryListRequest) -> tuple[list[dict
 
 
 def _artifact_integrity_audit(project: str | None = None) -> dict:
-    memory_ids = {item.get("source_id") for item in _load_live_memories() if not project or item.get("project") == project}
+    project = _canonical_project(project) if project else None
+    memory_ids = {item.get("source_id") for item in _load_live_memories() if _project_matches(item.get("project"), project)}
     artifacts = {
-        "checkpoints": [item for item in _load_checkpoints() if not project or item.get("project") == project],
-        "project_maps": [item for item in _load_project_maps() if not project or item.get("project") == project],
-        "adrs": [item for item in _load_adrs() if not project or item.get("project") == project],
-        "handoffs": [item for item in _load_handoffs() if not project or item.get("project") == project],
-        "session_records": [item for item in _load_session_records() if not project or item.get("project") == project],
-        "tasks": [item for item in _load_tasks() if not project or item.get("project") == project],
-        "task_contexts": [item for item in _load_task_contexts() if not project or item.get("project") == project],
-        "risk_registers": [item for item in _load_risk_registers() if not project or item.get("project") == project],
-        "validation_snapshots": [item for item in _load_validation_snapshots() if not project or item.get("project") == project],
+        "checkpoints": [item for item in _load_checkpoints() if _project_matches(item.get("project"), project)],
+        "project_maps": [item for item in _load_project_maps() if _project_matches(item.get("project"), project)],
+        "adrs": [item for item in _load_adrs() if _project_matches(item.get("project"), project)],
+        "handoffs": [item for item in _load_handoffs() if _project_matches(item.get("project"), project)],
+        "session_records": [item for item in _load_session_records() if _project_matches(item.get("project"), project)],
+        "tasks": [item for item in _load_tasks() if _project_matches(item.get("project"), project)],
+        "task_contexts": [item for item in _load_task_contexts() if _project_matches(item.get("project"), project)],
+        "risk_registers": [item for item in _load_risk_registers() if _project_matches(item.get("project"), project)],
+        "validation_snapshots": [item for item in _load_validation_snapshots() if _project_matches(item.get("project"), project)],
     }
     orphans = {}
     for name, items in artifacts.items():
@@ -8101,7 +8289,8 @@ def _artifact_integrity_audit(project: str | None = None) -> dict:
 
 
 def _link_graph_stats(project: str | None = None) -> dict:
-    links = [item for item in _load_memory_links() if not project or item.get("project") == project]
+    project = _canonical_project(project) if project else None
+    links = [item for item in _load_memory_links() if _project_matches(item.get("project"), project)]
     relation_counts = {}
     node_ids = set()
     for item in links:
@@ -8112,11 +8301,17 @@ def _link_graph_stats(project: str | None = None) -> dict:
     return {"project": project, "link_count": len(links), "node_count": len(node_ids), "relation_counts": relation_counts}
 
 
-def _reindex_memory_metadata(project: str | None = None) -> dict:
+def _reindex_memory_metadata(project: str | None = None, *, aggregate: bool = False) -> dict:
+    if not project and not aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "reindex_scope_required", "message": "project or aggregate=true is required"},
+        )
+    project = _canonical_project(project) if project else None
     live_records = _load_live_memories()
     updated = 0
     for item in live_records:
-        if project and item.get("project") != project:
+        if not _project_matches(item.get("project"), project):
             continue
         metadata = item.setdefault("metadata", {})
         content = item.get("content") or ""
@@ -8225,8 +8420,11 @@ def _artifact_find(artifact_type: str, artifact_id: str, project: str | None = N
         raise HTTPException(status_code=400, detail="unsupported artifact type")
     loader, saver = pairs[artifact_type]
     items = loader()
+    canonical_project = _canonical_project(project) if project else None
     for item in items:
-        if item.get("id") == artifact_id and (not project or item.get("project") == project):
+        if item.get("id") == artifact_id and (
+            not canonical_project or _canonical_project(item.get("project")) == canonical_project
+        ):
             return items, saver, item
     raise HTTPException(status_code=404, detail="artifact not found")
 
@@ -8239,9 +8437,13 @@ def _record_age_days(record: dict) -> float:
 
 
 def _batch_restore_memories(request: BatchRestoreRequest) -> dict:
+    project, items = _batch_mapping_items(request.items, request.project, required_fields=("id",))
+    for item in items:
+        if _find_live_memory(str(item["id"]), project) is None:
+            raise HTTPException(status_code=404, detail="memory not found")
     restored = []
-    for item in request.items:
-        record = _restore_archived_memory(RestoreMemoryRequest(id=item["id"], project=item.get("project")))
+    for item in items:
+        record = _restore_archived_memory(RestoreMemoryRequest(id=item["id"], project=project))
         restored.append(_serialize_memory_record(record))
     return {"memories": restored, "count": len(restored)}
 
@@ -8249,13 +8451,16 @@ def _batch_restore_memories(request: BatchRestoreRequest) -> dict:
 def _artifact_restore(request: ArtifactRestoreRequest) -> dict:
     items, saver, artifact = _artifact_find(request.artifact_type, request.artifact_id, request.project)
     memory_id = artifact.get("memory_id")
+    artifact_project = _canonical_project(
+        artifact.get("project") or request.project or "e-github-workspace"
+    )
     action = "none"
     restored_memory = None
     if memory_id:
-        record = _find_live_memory(memory_id, request.project or artifact.get("project"))
+        record = _find_live_memory(memory_id, artifact_project)
         if record is not None and _is_archived_memory(record):
             restored_memory = _restore_archived_memory(
-                RestoreMemoryRequest(id=memory_id, project=request.project or artifact.get("project"))
+                RestoreMemoryRequest(id=memory_id, project=artifact_project)
             )
             action = "restored_memory"
     else:
@@ -8267,7 +8472,7 @@ def _artifact_restore(request: ArtifactRestoreRequest) -> dict:
         upsert_action, memory = _upsert_live_memory(
             MemoryUpsertRequest(
                 upsert_key=f"{request.artifact_type}:{artifact.get('project')}:{artifact.get('id')}",
-                project=artifact.get("project") or request.project or "e-github-workspace",
+                project=artifact_project,
                 type="workflow",
                 content="\n".join(content_parts),
                 concepts=[request.artifact_type, "artifact-restore", "bhm"],
@@ -8299,21 +8504,23 @@ def _orphan_artifact_relink(request: OrphanArtifactRelinkRequest) -> dict:
 
 
 def _memory_staleness_report(request: MemoryStalenessReportRequest) -> dict:
+    project = _canonical_project(request.project) if request.project else None
     stale = []
     for item in _load_live_memories():
-        if not _memory_matches_filters(item, project=request.project, include_archived=False):
+        if not _memory_matches_filters(item, project=project, include_archived=False):
             continue
         age_days = _record_age_days(item)
         if age_days >= request.days:
             stale.append({"age_days": round(age_days, 1), "memory": _serialize_memory_record(item)})
     stale.sort(key=lambda item: item["age_days"], reverse=True)
-    return {"project": request.project, "days": request.days, "items": stale[: max(min(request.limit, 200), 1)]}
+    return {"project": project, "days": request.days, "items": stale[: max(min(request.limit, 200), 1)]}
 
 
 def _memory_review_queue(request: MemoryReviewQueueRequest) -> dict:
+    project = _canonical_project(request.project) if request.project else None
     records = [
         item for item in _load_live_memories()
-        if _memory_matches_filters(item, project=request.project, include_archived=False)
+        if _memory_matches_filters(item, project=project, include_archived=False)
     ]
     by_id = {str(item.get("source_id")): item for item in records}
     queue: list[dict] = []
@@ -8344,7 +8551,7 @@ def _memory_review_queue(request: MemoryReviewQueueRequest) -> dict:
 
     if request.include_conflicts:
         conflicts = _detect_conflicts(
-            MemoryDetectRequest(project=request.project, limit=200, include_archived=False)
+            MemoryDetectRequest(project=project, limit=200, include_archived=False)
         )
         for conflict in conflicts:
             left = by_id.get(conflict["left_id"])
@@ -8366,21 +8573,22 @@ def _memory_review_queue(request: MemoryReviewQueueRequest) -> dict:
     queue.sort(key=lambda item: (item.get("score") or 0.0, item.get("queue_id") or ""), reverse=True)
     bounded_queue = queue[: max(min(request.limit, 200), 1)]
     return {
-        "project": request.project,
+        "project": project,
         "items": bounded_queue,
         "lifecycle_suggestions": build_lifecycle_suggestions(bounded_queue),
     }
 
 
 def _memory_triage_queue(request: MemoryTriageQueueRequest) -> dict:
+    project = _canonical_project(request.project) if request.project else None
     records = [
         item for item in _load_live_memories()
-        if _memory_matches_filters(item, project=request.project, include_archived=False)
+        if _memory_matches_filters(item, project=project, include_archived=False)
     ]
     by_id = {str(item.get("source_id")): item for item in records}
-    duplicates = _detect_duplicates(MemoryDetectRequest(project=request.project, limit=200, include_archived=False))
-    conflicts = _detect_conflicts(MemoryDetectRequest(project=request.project, limit=200, include_archived=False))
-    suggestions = _relation_suggest(RelationSuggestRequest(project=request.project, limit=200)).get("suggestions", [])
+    duplicates = _detect_duplicates(MemoryDetectRequest(project=project, limit=200, include_archived=False))
+    conflicts = _detect_conflicts(MemoryDetectRequest(project=project, limit=200, include_archived=False))
+    suggestions = _relation_suggest(RelationSuggestRequest(project=project, limit=200)).get("suggestions", [])
     queue: list[dict] = []
     seen_queue_ids: set[str] = set()
     for item in duplicates:
@@ -8407,7 +8615,7 @@ def _memory_triage_queue(request: MemoryTriageQueueRequest) -> dict:
         status = _combined_review_status([by_id.get(source_id), by_id.get(target_id)])
         if status in {"resolved", "dismissed"} and not request.include_closed:
             continue
-        queue_id = _review_queue_id(item["relation"], request.project, [source_id, target_id], f"{item['reason']}|{item['score']}")
+        queue_id = _review_queue_id(item["relation"], project, [source_id, target_id], f"{item['reason']}|{item['score']}")
         if queue_id in seen_queue_ids:
             continue
         seen_queue_ids.add(queue_id)
@@ -8415,22 +8623,45 @@ def _memory_triage_queue(request: MemoryTriageQueueRequest) -> dict:
     queue.sort(key=lambda item: (item.get("score") or 0.0, item.get("queue_id") or ""), reverse=True)
     bounded_queue = queue[: max(min(request.limit, 200), 1)]
     return {
-        "project": request.project,
+        "project": project,
         "items": bounded_queue,
         "lifecycle_suggestions": build_lifecycle_suggestions(bounded_queue),
     }
 
 
 def _project_summary_refresh_all(request: ProjectSummaryRefreshAllRequest) -> dict:
-    projects = request.projects or sorted({item.get("project") for item in _load_live_memories() if item.get("project")})
+    requested_projects = request.projects or ([request.project] if request.project else None)
+    if not requested_projects and not request.aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "refresh_scope_required", "message": "project(s) or aggregate=true is required"},
+        )
+    if requested_projects:
+        projects = list(dict.fromkeys(_canonical_project(project) for project in requested_projects if str(project).strip()))
+    else:
+        projects = sorted(
+            {
+                _canonical_project(item.get("project"))
+                for item in _load_live_memories()
+                if item.get("project")
+            }
+        )
     results = []
     for project in projects:
         results.append(_rebuild_project_summary(RebuildProjectSummaryRequest(project=project)))
-    return {"projects": projects, "count": len(results), "items": results}
+    return {"projects": projects, "count": len(results), "items": results, "aggregate": bool(request.aggregate and not requested_projects)}
 
 
 def _relation_apply_suggestions(request: RelationApplySuggestionsRequest) -> dict:
-    suggestions = _relation_suggest(RelationSuggestRequest(project=request.project, limit=request.limit)).get("suggestions", [])
+    if not request.project and not request.aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "relation_apply_scope_required", "message": "project or aggregate=true is required"},
+        )
+    canonical_project = _canonical_project(request.project) if request.project else None
+    suggestions = _relation_suggest(
+        RelationSuggestRequest(project=canonical_project, limit=request.limit)
+    ).get("suggestions", [])
     created = []
     for item in suggestions:
         if item["score"] < request.min_score:
@@ -8442,7 +8673,10 @@ def _relation_apply_suggestions(request: RelationApplySuggestionsRequest) -> dic
                 source_id=item["source_id"],
                 target_id=item["target_id"],
                 relation=item["relation"],
-                project=request.project or _find_live_memory(item["source_id"]).get("project"),
+                project=canonical_project
+                or _canonical_project(
+                    _find_live_memory(item["source_id"]).get("project")
+                ),
                 metadata={"suggested": True, "score": item["score"], "reason": item["reason"]},
             )
         )
@@ -8468,10 +8702,16 @@ def _memory_merge_preview(request: MemoryMergePreviewRequest) -> dict:
 
 
 def _schema_upgrade_all(request: SchemaUpgradeAllRequest) -> dict:
+    if not request.project and not request.aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "schema_upgrade_scope_required", "message": "project or aggregate=true is required"},
+        )
+    project = _canonical_project(request.project) if request.project else None
     live_records = _load_live_memories()
     upgraded = 0
     for item in live_records:
-        if request.project and item.get("project") != request.project:
+        if not _project_matches(item.get("project"), project):
             continue
         changed = False
         metadata = item.setdefault("metadata", {})
@@ -8490,7 +8730,7 @@ def _schema_upgrade_all(request: SchemaUpgradeAllRequest) -> dict:
         if changed:
             upgraded += 1
     _save_live_memories(live_records)
-    return {"project": request.project, "upgraded": upgraded}
+    return {"project": project, "upgraded": upgraded}
 
 
 def _memory_redact(request: MemoryRedactRequest) -> dict:
@@ -8549,9 +8789,10 @@ def _memory_redact(request: MemoryRedactRequest) -> dict:
 
 
 def _secret_scan_existing_memories(request: SecretScanRequest) -> dict:
+    project = _canonical_project(request.project) if request.project else None
     findings = []
     for item in _load_live_memories():
-        if not _memory_matches_filters(item, project=request.project, include_archived=True):
+        if not _memory_matches_filters(item, project=project, include_archived=True):
             continue
         redaction = redact_secret_text(item.get("content") or "")
         if redaction.replacements:
@@ -8563,16 +8804,17 @@ def _secret_scan_existing_memories(request: SecretScanRequest) -> dict:
                 }
             )
     findings.sort(key=lambda item: item["match_count"], reverse=True)
-    return {"project": request.project, "findings": findings[: max(min(request.limit, 500), 1)]}
+    return {"project": project, "findings": findings[: max(min(request.limit, 500), 1)]}
 
 
 def _agent_activity_rollup(project: str | None = None) -> dict:
+    project = _canonical_project(project) if project else None
     artifacts = {
-        "checkpoints": [item for item in _load_checkpoints() if not project or item.get("project") == project],
-        "handoffs": [item for item in _load_handoffs() if not project or item.get("project") == project],
-        "tasks": [item for item in _load_tasks() if not project or item.get("project") == project],
-        "session_records": [item for item in _load_session_records() if not project or item.get("project") == project],
-        "observations": [item for item in _load_observations() if not project or item.get("project") == project],
+        "checkpoints": [item for item in _load_checkpoints() if _project_matches(item.get("project"), project)],
+        "handoffs": [item for item in _load_handoffs() if _project_matches(item.get("project"), project)],
+        "tasks": [item for item in _load_tasks() if _project_matches(item.get("project"), project)],
+        "session_records": [item for item in _load_session_records() if _project_matches(item.get("project"), project)],
+        "observations": [item for item in _load_observations() if _project_matches(item.get("project"), project)],
     }
     return {
         "project": project,
@@ -8585,6 +8827,7 @@ def _agent_activity_rollup(project: str | None = None) -> dict:
 
 
 def _project_memory_heatmap(project: str | None = None) -> dict:
+    project = _canonical_project(project) if project else None
     records = [item for item in _load_live_memories() if _memory_matches_filters(item, project=project, include_archived=False)]
     type_counts = Counter(item.get("memory_type") or "unknown" for item in records)
     tag_counts = Counter(tag for item in records for tag in (item.get("tags") or []))
@@ -8603,9 +8846,10 @@ def _project_memory_heatmap(project: str | None = None) -> dict:
 
 
 def _relation_confidence_set(request: RelationConfidenceRequest) -> dict:
+    project = _canonical_project(request.project)
     links = _load_memory_links()
     for item in links:
-        if item.get("source_id") == request.source_id and item.get("target_id") == request.target_id and item.get("relation") == request.relation and item.get("project") == request.project:
+        if item.get("source_id") == request.source_id and item.get("target_id") == request.target_id and item.get("relation") == request.relation and _canonical_project(item.get("project")) == project:
             metadata = item.setdefault("metadata", {})
             metadata["confidence"] = request.confidence
             metadata["confidence_updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -8615,9 +8859,10 @@ def _relation_confidence_set(request: RelationConfidenceRequest) -> dict:
 
 
 def _relation_vote_quality(request: RelationVoteRequest) -> dict:
+    project = _canonical_project(request.project)
     links = _load_memory_links()
     for item in links:
-        if item.get("source_id") == request.source_id and item.get("target_id") == request.target_id and item.get("relation") == request.relation and item.get("project") == request.project:
+        if item.get("source_id") == request.source_id and item.get("target_id") == request.target_id and item.get("relation") == request.relation and _canonical_project(item.get("project")) == project:
             metadata = item.setdefault("metadata", {})
             votes = metadata.setdefault("quality_votes", [])
             votes.append({"vote": request.vote, "voter": request.voter, "at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")})
@@ -8664,8 +8909,18 @@ def _alias_resolve(request: AliasResolveRequest) -> dict:
     return {"alias": request.alias, "memories": matches}
 
 
-def _entity_catalog_rebuild(project: str | None = None) -> dict:
-    records = [item for item in _load_live_memories() if _memory_matches_filters(item, project=project, include_archived=False)]
+def _entity_catalog_rebuild(project: str | None = None, *, aggregate: bool = False) -> dict:
+    if not project and not aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "entity_catalog_scope_required", "message": "project or aggregate=true is required"},
+        )
+    canonical_project = _canonical_project(project) if project else None
+    records = [
+        item
+        for item in _load_live_memories()
+        if _memory_matches_filters(item, project=canonical_project, include_archived=False)
+    ]
     files = Counter()
     endpoints = Counter()
     env_vars = Counter()
@@ -8681,21 +8936,22 @@ def _entity_catalog_rebuild(project: str | None = None) -> dict:
         for concept in item.get("tags") or []:
             concepts[concept] += 1
     catalog = {
-        "id": f"entity_catalog_{project or 'all'}",
-        "project": project,
+        "id": f"entity_catalog_{canonical_project or 'all'}",
+        "project": canonical_project,
         "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "files": dict(files.most_common(50)),
         "endpoints": dict(endpoints.most_common(50)),
         "env_vars": dict(env_vars.most_common(50)),
         "concepts": dict(concepts.most_common(50)),
     }
-    catalogs = [item for item in _load_entity_catalogs() if item.get("project") != project]
+    catalogs = [item for item in _load_entity_catalogs() if item.get("project") != canonical_project]
     catalogs.append(catalog)
     _save_entity_catalogs(catalogs)
     return catalog
 
 
 def _entity_catalog_get(project: str | None = None) -> dict:
+    project = _canonical_project(project) if project else None
     for item in _load_entity_catalogs():
         if item.get("project") == project:
             return item
@@ -8703,13 +8959,15 @@ def _entity_catalog_get(project: str | None = None) -> dict:
 
 
 def _project_summary_compare(request: ProjectSummaryCompareRequest) -> dict:
-    left = _project_summary_get(request.left_project)
-    right = _project_summary_get(request.right_project)
+    left_project = _canonical_project(request.left_project)
+    right_project = _canonical_project(request.right_project)
+    left = _project_summary_get(left_project)
+    right = _project_summary_get(right_project)
     left_lines = set((left.get("content") or "").splitlines())
     right_lines = set((right.get("content") or "").splitlines())
     return {
-        "left_project": request.left_project,
-        "right_project": request.right_project,
+        "left_project": left_project,
+        "right_project": right_project,
         "left_only": sorted(left_lines - right_lines),
         "right_only": sorted(right_lines - left_lines),
         "shared": sorted(left_lines & right_lines),
@@ -8717,12 +8975,13 @@ def _project_summary_compare(request: ProjectSummaryCompareRequest) -> dict:
 
 
 def _memory_usage_stats(project: str | None = None) -> dict:
+    project = _canonical_project(project) if project else None
     records = [item for item in _load_live_memories() if _memory_matches_filters(item, project=project, include_archived=True)]
     archived = sum(1 for item in records if _is_archived_memory(item))
     pinned = sum(1 for item in records if (item.get("metadata") or {}).get("pinned"))
     content_chars = sum(len(item.get("content") or "") for item in records)
     refs = sum(len((item.get("metadata") or {}).get("source_refs") or []) for item in records)
-    links = len([item for item in _load_memory_links() if not project or item.get("project") == project])
+    links = len([item for item in _load_memory_links() if _project_matches(item.get("project"), project)])
     return {
         "project": project,
         "memory_count": len(records),
@@ -8824,7 +9083,8 @@ def _tombstone_live_memory(memory_id: str, project: str | None, reason: str) -> 
     if _memory_lifecycle(existing) == "tombstoned":
         return existing
     try:
-        deleted = _memory_service().tombstone(memory_id, reason=reason)
+        scoped_project = _canonical_project(project) if project else None
+        deleted = _memory_service().tombstone(memory_id, project=scoped_project, reason=reason)
     except MemoryServiceNotReady as exc:
         raise StorageNotReady(str(exc)) from exc
     if deleted is None:
@@ -8839,8 +9099,10 @@ def _restore_tombstoned_memory(memory_id: str, project: str | None, reason: str,
     if _memory_lifecycle(existing) != "tombstoned":
         return existing
     try:
+        scoped_project = _canonical_project(project) if project else None
         restored = _memory_service().restore_tombstone(
             memory_id,
+            project=scoped_project,
             reason=reason,
             undo_window_seconds=undo_window_seconds,
         )
@@ -8893,36 +9155,43 @@ def _forget_apply(request: ForgetApplyRequest) -> dict:
 
 
 def _recent_failures_feed(request: RecentFailuresFeedRequest) -> dict:
+    project = _canonical_project(request.project) if request.project else None
     failures = []
     for item in _load_validation_snapshots():
-        if request.project and item.get("project") != request.project:
+        if not _project_matches(item.get("project"), project):
             continue
         if (item.get("overall_status") or "").lower() in {"failed", "error", "red"}:
             failures.append({"kind": "validation_snapshot", "artifact": _serialize_validation_snapshot_record(item)})
     for item in _load_handoffs():
-        if request.project and item.get("project") != request.project:
+        if not _project_matches(item.get("project"), project):
             continue
         text = " ".join([item.get("current_state") or "", item.get("validation") or ""]).lower()
         if any(token in text for token in ("fail", "error", "blocked")):
             failures.append({"kind": "handoff", "artifact": _serialize_handoff_record(item)})
     failures.sort(key=lambda item: item["artifact"].get("updated_at") or item["artifact"].get("created_at") or "", reverse=True)
-    return {"project": request.project, "items": failures[: max(min(request.limit, 200), 1)]}
+    return {"project": project, "items": failures[: max(min(request.limit, 200), 1)]}
 
 
 def _memory_restore_hard_deleted_preview(request: HardDeleteRestorePreviewRequest) -> dict:
     record = _find_live_memory(request.id, request.project)
     if record is None:
         raise HTTPException(status_code=404, detail="memory not found")
-    project = request.project or record.get("project")
+    project = _canonical_project(request.project or record.get("project"))
     artifact_refs = []
     for artifact_type, (loader, _) in _artifact_store_pairs().items():
         for item in loader():
-            if item.get("project") != project:
+            if not _project_matches(item.get("project"), project):
                 continue
             if item.get("memory_id") == request.id:
                 artifact_refs.append({"artifact_type": artifact_type, "artifact_id": item.get("id"), "title": item.get("title")})
-    links = [item for item in _load_memory_links() if item.get("source_id") == request.id or item.get("target_id") == request.id]
+    links = [
+        item
+        for item in _load_memory_links()
+        if _project_matches(item.get("project"), project)
+        and (item.get("source_id") == request.id or item.get("target_id") == request.id)
+    ]
     preview = {
+        "project": project,
         "memory": _serialize_memory_record(record),
         "artifact_dependencies": artifact_refs,
         "link_count": len(links),
@@ -8958,7 +9227,7 @@ def _artifact_list_by_type(request: ArtifactListRequest) -> dict:
         raise HTTPException(status_code=400, detail="unsupported artifact type")
     items = loader()
     if request.project:
-        items = [item for item in items if item.get("project") == request.project]
+        items = [item for item in items if _project_matches(item.get("project"), request.project)]
     items.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
     total = len(items)
     start = max(request.offset, 0)
@@ -8967,12 +9236,13 @@ def _artifact_list_by_type(request: ArtifactListRequest) -> dict:
 
 
 def _artifact_usage_stats(project: str | None = None) -> dict:
-    memory_ids = {item.get("source_id") for item in _load_live_memories() if not project or item.get("project") == project}
+    project = _canonical_project(project) if project else None
+    memory_ids = {item.get("source_id") for item in _load_live_memories() if _project_matches(item.get("project"), project)}
     counts = {}
     referenced_memory_ids = set()
     orphan_counts = {}
     for artifact_type, (loader, _) in _artifact_store_pairs().items():
-        items = [item for item in loader() if not project or item.get("project") == project]
+        items = [item for item in loader() if _project_matches(item.get("project"), project)]
         counts[artifact_type] = len(items)
         orphan_counts[artifact_type] = sum(1 for item in items if item.get("memory_id") and item.get("memory_id") not in memory_ids)
         referenced_memory_ids.update(item.get("memory_id") for item in items if item.get("memory_id"))
@@ -8981,21 +9251,22 @@ def _artifact_usage_stats(project: str | None = None) -> dict:
         "artifact_counts": counts,
         "orphan_counts": orphan_counts,
         "backed_memory_count": len(referenced_memory_ids),
-        "unreferenced_memory_count": sum(1 for item in _load_live_memories() if (not project or item.get("project") == project) and item.get("source_id") not in referenced_memory_ids),
+        "unreferenced_memory_count": sum(1 for item in _load_live_memories() if _project_matches(item.get("project"), project) and item.get("source_id") not in referenced_memory_ids),
     }
 
 
 def _memory_gc_candidates(request: MemoryGcCandidatesRequest) -> dict:
+    project = _canonical_project(request.project) if request.project else None
     candidates = []
     referenced_memory_ids = set()
     for _, (loader, _) in _artifact_store_pairs().items():
         for item in loader():
-            if request.project and item.get("project") != request.project:
+            if not _project_matches(item.get("project"), project):
                 continue
             if item.get("memory_id"):
                 referenced_memory_ids.add(item["memory_id"])
     for item in _load_live_memories():
-        if not _memory_matches_filters(item, project=request.project, include_archived=True):
+        if not _memory_matches_filters(item, project=project, include_archived=True):
             continue
         reasons = []
         age_days = _record_age_days(item)
@@ -9011,13 +9282,14 @@ def _memory_gc_candidates(request: MemoryGcCandidatesRequest) -> dict:
         if reasons:
             candidates.append({"reasons": reasons, "age_days": round(age_days, 1), "memory": _serialize_memory_record(item)})
     candidates.sort(key=lambda item: (len(item["reasons"]), item["age_days"]), reverse=True)
-    return {"project": request.project, "items": candidates[: max(min(request.limit, 200), 1)]}
+    return {"project": project, "items": candidates[: max(min(request.limit, 200), 1)]}
 
 
 def _memory_compaction_report(request: MemoryCompactionReportRequest) -> dict:
+    project = _canonical_project(request.project) if request.project else None
     items = []
     for item in _load_live_memories():
-        if not _memory_matches_filters(item, project=request.project, include_archived=False):
+        if not _memory_matches_filters(item, project=project, include_archived=False):
             continue
         content = item.get("content") or ""
         line_count = len(content.splitlines())
@@ -9026,11 +9298,12 @@ def _memory_compaction_report(request: MemoryCompactionReportRequest) -> dict:
         if looks_loggy:
             items.append({"char_count": char_count, "line_count": line_count, "memory": _serialize_memory_record(item)})
     items.sort(key=lambda item: (item["char_count"], item["line_count"]), reverse=True)
-    return {"project": request.project, "items": items[: max(min(request.limit, 200), 1)]}
+    return {"project": project, "items": items[: max(min(request.limit, 200), 1)]}
 
 
 def _link_cycle_detect(request: LinkCycleDetectRequest) -> dict:
-    links = [item for item in _load_memory_links() if not request.project or item.get("project") == request.project]
+    project = _canonical_project(request.project) if request.project else None
+    links = [item for item in _load_memory_links() if _project_matches(item.get("project"), project)]
     graph: dict[str, list[str]] = {}
     for item in links:
         graph.setdefault(item.get("source_id"), []).append(item.get("target_id"))
@@ -9051,14 +9324,15 @@ def _link_cycle_detect(request: LinkCycleDetectRequest) -> dict:
     for node in list(graph):
         if node not in visited:
             dfs(node, [node], {node})
-    return {"project": request.project, "cycles": cycles[: max(min(request.limit, 200), 1)], "count": len(cycles)}
+    return {"project": project, "cycles": cycles[: max(min(request.limit, 200), 1)], "count": len(cycles)}
 
 
 def _link_orphan_scan(project: str | None = None) -> dict:
-    memory_ids = {item.get("source_id") for item in _load_live_memories() if not project or item.get("project") == project}
+    project = _canonical_project(project) if project else None
+    memory_ids = {item.get("source_id") for item in _load_live_memories() if _project_matches(item.get("project"), project)}
     orphans = []
     for item in _load_memory_links():
-        if project and item.get("project") != project:
+        if not _project_matches(item.get("project"), project):
             continue
         if item.get("source_id") not in memory_ids or item.get("target_id") not in memory_ids:
             orphans.append(_serialize_memory_link(item))
@@ -9066,8 +9340,10 @@ def _link_orphan_scan(project: str | None = None) -> dict:
 
 
 def _project_map_compare(request: ProjectMapCompareRequest) -> dict:
-    left = _get_project_map(request.left_project)
-    right = _get_project_map(request.right_project)
+    left_project = _canonical_project(request.left_project)
+    right_project = _canonical_project(request.right_project)
+    left = _get_project_map(left_project)
+    right = _get_project_map(right_project)
     left_sections = left.get("sections") or {}
     right_sections = right.get("sections") or {}
     keys = sorted(set(left_sections) | set(right_sections))
@@ -9076,19 +9352,21 @@ def _project_map_compare(request: ProjectMapCompareRequest) -> dict:
         left_value = left_sections.get(key, "")
         right_value = right_sections.get(key, "")
         comparison.append({"section": key, "same": left_value == right_value, "left": left_value, "right": right_value})
-    return {"left_project": request.left_project, "right_project": request.right_project, "sections": comparison}
+    return {"left_project": left_project, "right_project": right_project, "sections": comparison}
 
 
 def _validation_trend_report(request: ValidationTrendReportRequest) -> dict:
-    items = [item for item in _load_validation_snapshots() if item.get("project") == request.project]
+    project = _canonical_project(request.project)
+    items = [item for item in _load_validation_snapshots() if _project_matches(item.get("project"), project)]
     items.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "")
     trend = [{"at": item.get("updated_at") or item.get("created_at"), "overall_status": item.get("overall_status"), "lint": item.get("lint"), "tests": item.get("tests"), "smoke": item.get("smoke")} for item in items[-max(min(request.limit, 200), 1):]]
     status_counts = Counter((item.get("overall_status") or "unknown").lower() for item in items)
-    return {"project": request.project, "trend": trend, "status_counts": dict(status_counts)}
+    return {"project": project, "trend": trend, "status_counts": dict(status_counts)}
 
 
 def _entity_search(request: EntitySearchRequest) -> dict:
-    catalog = _entity_catalog_get(request.project)
+    project = _effective_search_project(request.project)
+    catalog = _entity_catalog_get(project)
     query = request.query.lower()
     matches = []
     for kind in ("files", "endpoints", "env_vars", "concepts"):
@@ -9096,14 +9374,15 @@ def _entity_search(request: EntitySearchRequest) -> dict:
             if query in value.lower():
                 matches.append({"kind": kind, "value": value, "count": count})
     matches.sort(key=lambda item: item["count"], reverse=True)
-    return {"project": request.project, "query": request.query, "matches": matches[: max(min(request.limit, 200), 1)]}
+    return {"project": project, "query": request.query, "matches": matches[: max(min(request.limit, 200), 1)]}
 
 
 def _entity_link_memories(request: EntityLinkMemoriesRequest) -> dict:
+    project = _canonical_project(request.project)
     candidates = []
     needle = request.entity.lower()
     for item in _load_live_memories():
-        if not _memory_matches_filters(item, project=request.project, include_archived=False):
+        if not _memory_matches_filters(item, project=project, include_archived=False):
             continue
         haystack = " ".join([item.get("content") or "", " ".join(item.get("tags") or []), " ".join((item.get("metadata") or {}).get("files") or []), " ".join((item.get("metadata") or {}).get("source_refs") or [])]).lower()
         if needle in haystack:
@@ -9112,16 +9391,17 @@ def _entity_link_memories(request: EntityLinkMemoriesRequest) -> dict:
     links = []
     for idx, left in enumerate(candidates):
         for right in candidates[idx + 1:]:
-            link = _create_memory_link(MemoryLinkRequest(source_id=left["source_id"], target_id=right["source_id"], relation=request.relation, project=request.project, metadata={"entity": request.entity}))
+            link = _create_memory_link(MemoryLinkRequest(source_id=left["source_id"], target_id=right["source_id"], relation=request.relation, project=project, metadata={"entity": request.entity}))
             links.append(_serialize_memory_link(link))
-    return {"project": request.project, "entity": request.entity, "matched_memory_ids": [item["source_id"] for item in candidates], "links": links, "count": len(links)}
+    return {"project": project, "entity": request.entity, "matched_memory_ids": [item["source_id"] for item in candidates], "links": links, "count": len(links)}
 
 
 def _alias_stats(project: str | None = None) -> dict:
+    project = _canonical_project(project) if project else None
     alias_counter = Counter()
     alias_projects = {}
     for item in _load_live_memories():
-        if project and item.get("project") != project:
+        if not _project_matches(item.get("project"), project):
             continue
         for alias in (item.get("metadata") or {}).get("aliases") or []:
             alias_counter[alias] += 1
@@ -9131,11 +9411,17 @@ def _alias_stats(project: str | None = None) -> dict:
 
 
 def _relation_prune_low_quality(request: RelationPruneLowQualityRequest) -> dict:
+    if not request.project and not request.aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "relation_prune_scope_required", "message": "project or aggregate=true is required"},
+        )
+    project = _canonical_project(request.project) if request.project else None
     links = _load_memory_links()
     kept = []
     removed = []
     for item in links:
-        if request.project and item.get("project") != request.project:
+        if project and not _project_matches(item.get("project"), project):
             kept.append(item)
             continue
         metadata = item.get("metadata") or {}
@@ -9153,17 +9439,26 @@ def _relation_prune_low_quality(request: RelationPruneLowQualityRequest) -> dict
         else:
             kept.append(item)
     _save_memory_links(kept)
-    return {"project": request.project, "removed": removed, "count": len(removed)}
+    return {"project": project, "removed": removed, "count": len(removed)}
 
 
 def _project_similarity_report(request: ProjectSimilarityReportRequest) -> dict:
-    projects = sorted({item.get("project") for item in _load_live_memories() if item.get("project") and item.get("project") != request.project})
-    base_records = [item for item in _load_live_memories() if item.get("project") == request.project]
+    canonical_project = _canonical_project(request.project)
+    live_records = _load_live_memories()
+    project_records: dict[str, list[dict]] = {}
+    for item in live_records:
+        raw_project = str(item.get("project") or "").strip()
+        if not raw_project:
+            continue
+        project_records.setdefault(_canonical_project(raw_project), []).append(item)
+    base_records = project_records.get(canonical_project, [])
     base_tags = set(tag for item in base_records for tag in (item.get("tags") or []))
     base_files = set(file for item in base_records for file in ((item.get("metadata") or {}).get("files") or []))
     scores = []
-    for project in projects:
-        records = [item for item in _load_live_memories() if item.get("project") == project]
+    for project in sorted(project_records):
+        if project == canonical_project:
+            continue
+        records = project_records[project]
         tags = set(tag for item in records for tag in (item.get("tags") or []))
         files = set(file for item in records for file in ((item.get("metadata") or {}).get("files") or []))
         shared_tags = base_tags & tags
@@ -9171,7 +9466,7 @@ def _project_similarity_report(request: ProjectSimilarityReportRequest) -> dict:
         score = len(shared_tags) * 1.0 + len(shared_files) * 1.5
         scores.append({"project": project, "score": round(score, 3), "shared_tags": sorted(list(shared_tags))[:10], "shared_files": sorted(list(shared_files))[:10]})
     scores.sort(key=lambda item: item["score"], reverse=True)
-    return {"project": request.project, "similar_projects": scores[: max(min(request.limit, 200), 1)]}
+    return {"project": canonical_project, "similar_projects": scores[: max(min(request.limit, 200), 1)]}
 
 
 def _memory_changelog(request: MemoryChangelogRequest) -> dict:
@@ -9295,6 +9590,9 @@ def _triage_queue_apply(request: TriageQueueApplyRequest) -> dict:
 
 
 def _artifact_batch_delete(request: ArtifactBatchDeleteRequest) -> dict:
+    project = _batch_project_scope((), request.project)
+    for artifact_id in request.artifact_ids:
+        _artifact_find(request.artifact_type, artifact_id, project)
     results = []
     for artifact_id in request.artifact_ids:
         results.append(
@@ -9302,7 +9600,7 @@ def _artifact_batch_delete(request: ArtifactBatchDeleteRequest) -> dict:
                 ArtifactDeleteRequest(
                     artifact_type=request.artifact_type,
                     artifact_id=artifact_id,
-                    project=request.project,
+                    project=project,
                     delete_backing_memory=request.delete_backing_memory,
                 )
             )
@@ -9311,15 +9609,24 @@ def _artifact_batch_delete(request: ArtifactBatchDeleteRequest) -> dict:
 
 
 def _artifact_batch_relink(request: ArtifactBatchRelinkRequest) -> dict:
+    project, items = _batch_mapping_items(
+        request.items,
+        request.project,
+        required_fields=("artifact_id", "target_memory_id"),
+    )
+    for item in items:
+        _artifact_find(request.artifact_type, str(item["artifact_id"]), project)
+        if _find_live_memory(str(item["target_memory_id"]), project) is None:
+            raise HTTPException(status_code=404, detail="target memory not found")
     results = []
-    for item in request.items:
+    for item in items:
         results.append(
             _orphan_artifact_relink(
                 OrphanArtifactRelinkRequest(
                     artifact_type=request.artifact_type,
                     artifact_id=item["artifact_id"],
                     target_memory_id=item["target_memory_id"],
-                    project=request.project or item.get("project"),
+                    project=project,
                 )
             )
         )
@@ -9327,6 +9634,9 @@ def _artifact_batch_relink(request: ArtifactBatchRelinkRequest) -> dict:
 
 
 def _artifact_batch_restore(request: ArtifactBatchRestoreRequest) -> dict:
+    project = _batch_project_scope((), request.project)
+    for artifact_id in request.artifact_ids:
+        _artifact_find(request.artifact_type, artifact_id, project)
     results = []
     for artifact_id in request.artifact_ids:
         results.append(
@@ -9334,7 +9644,7 @@ def _artifact_batch_restore(request: ArtifactBatchRestoreRequest) -> dict:
                 ArtifactRestoreRequest(
                     artifact_type=request.artifact_type,
                     artifact_id=artifact_id,
-                    project=request.project,
+                    project=project,
                 )
             )
         )
@@ -9342,9 +9652,10 @@ def _artifact_batch_restore(request: ArtifactBatchRestoreRequest) -> dict:
 
 
 def _schema_validate_strict(request: StrictSchemaValidateRequest) -> dict:
+    project = _canonical_project(request.project) if request.project else None
     memory_items = []
     for item in _load_live_memories():
-        if not _memory_matches_filters(item, project=request.project, include_archived=request.include_archived):
+        if not _memory_matches_filters(item, project=project, include_archived=request.include_archived):
             continue
         serialized = _serialize_memory_record(item)
         missing = []
@@ -9360,15 +9671,16 @@ def _schema_validate_strict(request: StrictSchemaValidateRequest) -> dict:
             missing.append("metadata.source_refs")
         if missing:
             memory_items.append({"memory": serialized, "missing_fields": missing})
-    artifact_items = _artifact_integrity_audit(request.project).get("orphans", {})
-    return {"project": request.project, "memory_issues": memory_items, "artifact_orphans": artifact_items, "ok": not memory_items and not artifact_items}
+    artifact_items = _artifact_integrity_audit(project).get("orphans", {})
+    return {"project": project, "memory_issues": memory_items, "artifact_orphans": artifact_items, "ok": not memory_items and not artifact_items}
 
 
 def _normalize_memory_metadata(project: str | None = None) -> dict:
+    project = _canonical_project(project) if project else None
     live_records = _load_live_memories()
     updated = 0
     for item in live_records:
-        if project and item.get("project") != project:
+        if not _project_matches(item.get("project"), project):
             continue
         metadata = item.setdefault("metadata", {})
         changed = False
@@ -9394,20 +9706,28 @@ def _normalize_memory_metadata(project: str | None = None) -> dict:
 
 
 def _integrity_repair_strict(request: IntegrityRepairStrictRequest) -> dict:
+    if not request.project and not request.aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "repair_scope_required", "message": "project or aggregate=true is required"},
+        )
+    project = _canonical_project(request.project) if request.project else None
     repairs = []
     if request.normalize_metadata:
-        repairs.append({"normalize_metadata": _normalize_memory_metadata(request.project)})
+        repairs.append({"normalize_metadata": _normalize_memory_metadata(project)})
     repairs.append(
         {
             "repair_live_indexes": _repair_live_indexes(
                 RepairLiveIndexesRequest(
+                    project=project,
+                    aggregate=request.aggregate,
                     remove_orphan_links=request.remove_orphan_links,
                     remove_orphan_artifacts=request.remove_orphan_artifacts,
                 )
             )
         }
     )
-    return {"project": request.project, "repairs": repairs, "strict_validation": _schema_validate_strict(StrictSchemaValidateRequest(project=request.project))}
+    return {"project": project, "repairs": repairs, "strict_validation": _schema_validate_strict(StrictSchemaValidateRequest(project=project))}
 
 
 def _admin_snapshot_path(value: str | Path, *, require_leaf: bool = False) -> Path:
@@ -9418,57 +9738,176 @@ def _admin_snapshot_path(value: str | Path, *, require_leaf: bool = False) -> Pa
         raise HTTPException(status_code=400, detail="admin snapshot path must remain under admin-exports") from exc
 
 
+def _load_admin_snapshot_payload(path: Path) -> dict[str, Any]:
+    """Read one bounded, object-shaped admin snapshot and fail closed."""
+
+    try:
+        if path.stat().st_size > MAX_ADMIN_SNAPSHOT_BYTES:
+            raise HTTPException(status_code=413, detail={"code": "admin_snapshot_too_large"})
+        raw = path.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+    except HTTPException:
+        raise
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=422, detail={"code": "admin_snapshot_invalid"}) from exc
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail={"code": "admin_snapshot_invalid"})
+    return payload
+
+
+def _authorize_admin_snapshot_project(
+    http_request: Request,
+    requested_project: str | None,
+    payload: Mapping[str, Any],
+) -> None:
+    """Fail closed when an admin snapshot crosses a caller project boundary."""
+
+    payload_project = str(payload.get("project") or "").strip()
+    scope_project = str(requested_project or payload_project).strip()
+    principal = getattr(http_request.state, "bhm_caller_principal", None)
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+
+    if scope_project:
+        _authorize_resource_project(http_request, scope_project)
+        canonical_scope = _canonical_project(scope_project)
+        if payload_project and _canonical_project(payload_project) != canonical_scope:
+            raise HTTPException(status_code=403, detail={"code": "caller_project_forbidden"})
+    elif not principal.all_projects:
+        raise HTTPException(status_code=403, detail={"code": "caller_project_required"})
+    else:
+        canonical_scope = ""
+
+    # A scoped snapshot must not hide a second project inside nested records.
+    if canonical_scope:
+        nested_items: list[Mapping[str, Any]] = []
+        nested_items.extend(item for item in payload.get("memories") or [] if isinstance(item, Mapping))
+        nested_items.extend(item for item in payload.get("links") or [] if isinstance(item, Mapping))
+        for values in (payload.get("artifacts") or {}).values():
+            if isinstance(values, list):
+                nested_items.extend(item for item in values if isinstance(item, Mapping))
+        for item in nested_items:
+            item_project = str(item.get("project") or "").strip()
+            if not item_project or _canonical_project(item_project) != canonical_scope:
+                raise HTTPException(status_code=403, detail={"code": "caller_project_forbidden"})
+
+
+def _canonicalize_admin_snapshot_payload(payload: dict[str, Any], requested_project: str | None) -> str | None:
+    """Canonicalize an already-authorized snapshot before any import writes."""
+
+    raw_scope = str(requested_project or payload.get("project") or "").strip()
+    scope = _canonical_project(raw_scope) if raw_scope else None
+    nested_items: list[dict[str, Any]] = []
+    memories = payload.get("memories") or []
+    links = payload.get("links") or []
+    artifacts = payload.get("artifacts") or {}
+    if not isinstance(memories, list) or not isinstance(links, list) or not isinstance(artifacts, Mapping):
+        raise HTTPException(status_code=422, detail={"code": "admin_snapshot_invalid"})
+    unknown_artifacts = sorted(set(str(key) for key in artifacts) - set(_artifact_store_pairs()))
+    if unknown_artifacts:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "admin_snapshot_unknown_artifact_type", "artifact_types": unknown_artifacts},
+        )
+    if any(not isinstance(item, dict) for item in memories) or any(not isinstance(item, dict) for item in links):
+        raise HTTPException(status_code=422, detail={"code": "admin_snapshot_invalid"})
+    nested_items.extend(memories)
+    nested_items.extend(links)
+    for values in artifacts.values():
+        if not isinstance(values, list):
+            raise HTTPException(status_code=422, detail={"code": "admin_snapshot_invalid"})
+        if any(not isinstance(item, dict) for item in values):
+            raise HTTPException(status_code=422, detail={"code": "admin_snapshot_invalid"})
+        nested_items.extend(values)
+
+    discovered = {
+        _canonical_project(item.get("project"))
+        for item in nested_items
+        if str(item.get("project") or "").strip()
+    }
+    if scope:
+        if discovered and discovered != {scope}:
+            raise HTTPException(status_code=403, detail={"code": "caller_project_forbidden"})
+    elif any(not str(item.get("project") or "").strip() for item in nested_items):
+        raise HTTPException(status_code=422, detail={"code": "admin_snapshot_project_required"})
+
+    for item in nested_items:
+        item["project"] = scope or _canonical_project(item.get("project"))
+    payload["project"] = scope
+    return scope
+
+
 def _admin_export(request: AdminExportRequest) -> dict:
     export_dir = settings.runtime_dir / "admin-exports"
     export_dir.mkdir(parents=True, exist_ok=True)
+    project = _canonical_project(request.project) if request.project else None
     export_name = request.export_name or f"bhm-admin-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
     target = _admin_snapshot_path(export_name, require_leaf=True)
     payload = {
         "exported_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "project": request.project,
+        "project": project,
         "include_archived": request.include_archived,
         "memories": [
             item for item in _load_live_memories()
-            if _memory_matches_filters(item, project=request.project, include_archived=request.include_archived)
+            if _memory_matches_filters(item, project=project, include_archived=request.include_archived)
         ],
-        "links": [item for item in _load_memory_links() if not request.project or item.get("project") == request.project],
+        "links": [
+            item
+            for item in _load_memory_links()
+            if not project or _canonical_project(item.get("project")) == project
+        ],
         "artifacts": {},
     }
     if request.include_artifacts:
         for artifact_type, (loader, _) in _artifact_store_pairs().items():
-            payload["artifacts"][artifact_type] = [item for item in loader() if not request.project or item.get("project") == request.project]
-    # lgtm [py/path-injection]
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            payload["artifacts"][artifact_type] = [
+                item
+                for item in loader()
+                if not project or _canonical_project(item.get("project")) == project
+            ]
+    _write_json_atomic(target, payload)
     return {"path": str(target), "memory_count": len(payload["memories"]), "link_count": len(payload["links"]), "artifact_counts": {key: len(value) for key, value in payload["artifacts"].items()}}
 
 
-def _admin_import_preview(request: AdminImportPreviewRequest) -> dict:
+def _admin_import_preview(request: AdminImportPreviewRequest, *, http_request: Request) -> dict:
     path = _admin_snapshot_path(request.path)
     # lgtm [py/path-injection]
     if not path.is_file():
         raise HTTPException(status_code=404, detail="import path not found")
     # lgtm [py/path-injection]
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _load_admin_snapshot_payload(path)
+    _authorize_admin_snapshot_project(http_request, request.project, payload)
+    scope = _canonicalize_admin_snapshot_payload(payload, request.project)
     return {
         "path": str(path),
-        "project": payload.get("project"),
+        "project": scope,
         "memory_count": len(payload.get("memories") or []),
         "link_count": len(payload.get("links") or []),
         "artifact_counts": {key: len(value) for key, value in (payload.get("artifacts") or {}).items()},
     }
 
 
-def _admin_import_apply(request: AdminImportApplyRequest) -> dict:
+def _admin_import_apply(request: AdminImportApplyRequest, *, http_request: Request) -> dict:
+    if request.merge_mode not in {"upsert", "replace"}:
+        raise HTTPException(status_code=422, detail={"code": "admin_snapshot_merge_mode_invalid"})
     path = _admin_snapshot_path(request.path)
     # lgtm [py/path-injection]
     if not path.is_file():
         raise HTTPException(status_code=404, detail="import path not found")
     # lgtm [py/path-injection]
-    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload = _load_admin_snapshot_payload(path)
+    _authorize_admin_snapshot_project(http_request, request.project, payload)
+    scope = _canonicalize_admin_snapshot_payload(payload, request.project)
     imported = {"memories": 0, "links": 0, "artifacts": 0}
     live_records = _load_live_memories()
     by_id = {item.get("source_id"): item for item in live_records}
     for item in payload.get("memories") or []:
+        existing = by_id.get(item.get("source_id"))
+        if request.merge_mode == "replace" and existing is not None:
+            existing_project = _canonical_project(existing.get("project"))
+            incoming_project = _canonical_project(item.get("project"))
+            if existing_project != incoming_project:
+                raise HTTPException(status_code=403, detail={"code": "caller_project_forbidden"})
         if request.merge_mode == "replace" or item.get("source_id") not in by_id:
             by_id[item.get("source_id")] = item
             imported["memories"] += 1
@@ -9494,7 +9933,7 @@ def _admin_import_apply(request: AdminImportApplyRequest) -> dict:
                 indexed[item.get("id")] = item
                 imported["artifacts"] += 1
         saver(list(indexed.values()))
-    return {"path": str(path), "merge_mode": request.merge_mode, "imported": imported}
+    return {"path": str(path), "project": scope, "merge_mode": request.merge_mode, "imported": imported}
 
 
 def _policy_profile_set(request: PolicyProfileSetRequest) -> dict:
@@ -9532,11 +9971,12 @@ def _policy_enforce_memory(request: PolicyEnforceMemoryRequest) -> dict:
 
 
 def _overlap_report(request: OverlapReportRequest) -> dict:
-    duplicates = _detect_duplicates(MemoryDetectRequest(project=request.project, limit=request.limit, include_archived=False))
+    project = _canonical_project(request.project) if request.project else None
+    duplicates = _detect_duplicates(MemoryDetectRequest(project=project, limit=request.limit, include_archived=False))
     same_upsert = []
     by_key = {}
     for item in _load_live_memories():
-        if not _memory_matches_filters(item, project=request.project, include_archived=True):
+        if not _memory_matches_filters(item, project=project, include_archived=True):
             continue
         key = ((item.get("metadata") or {}).get("upsert_key") or "")
         if not key:
@@ -9545,11 +9985,17 @@ def _overlap_report(request: OverlapReportRequest) -> dict:
     for key, ids in by_key.items():
         if len(ids) > 1:
             same_upsert.append({"upsert_key": key, "ids": ids})
-    return {"project": request.project, "duplicate_candidates": duplicates[: max(min(request.limit, 200), 1)], "same_upsert_key": same_upsert}
+    return {"project": project, "duplicate_candidates": duplicates[: max(min(request.limit, 200), 1)], "same_upsert_key": same_upsert}
 
 
 def _overlap_cleanup_apply(request: OverlapCleanupApplyRequest) -> dict:
-    duplicates = _detect_duplicates(MemoryDetectRequest(project=request.project, limit=request.limit, include_archived=False))
+    if not request.project and not request.aggregate:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "overlap_cleanup_scope_required", "message": "project or aggregate=true is required"},
+        )
+    project = _canonical_project(request.project) if request.project else None
+    duplicates = _detect_duplicates(MemoryDetectRequest(project=project, limit=request.limit, include_archived=False))
     merged = []
     seen_sources = set()
     for item in duplicates:
@@ -9557,10 +10003,10 @@ def _overlap_cleanup_apply(request: OverlapCleanupApplyRequest) -> dict:
         target_id = item["left_id"]
         if source_id in seen_sources or target_id in seen_sources:
             continue
-        result = _merge_memories(MemoryMergeRequest(project=request.project, source_id=source_id, target_id=target_id, archive_source=request.archive_sources))
+        result = _merge_memories(MemoryMergeRequest(project=project, source_id=source_id, target_id=target_id, archive_source=request.archive_sources))
         merged.append(result)
         seen_sources.add(source_id)
-    return {"project": request.project, "count": len(merged), "items": merged}
+    return {"project": project, "count": len(merged), "items": merged}
 
 
 def _resolve_slot(project: str, label: str) -> dict | None:
@@ -11114,16 +11560,11 @@ async def _call_fact_synthesis_llm(request: FactSynthesisRequest) -> tuple[dict[
         json_required_keys=("core_insight", "root_cause_resolved", "reusable_patterns", "tags"),
         timeout_seconds=_FACT_SYNTHESIS_TIMEOUT_SECONDS,
     )
-    async with httpx.AsyncClient(timeout=_FACT_SYNTHESIS_TIMEOUT_SECONDS) as client:
-        async def transport(url, payload, headers, timeout):
-            response = await client.post(url, json=payload, headers=headers)
-            response.raise_for_status()
-            value = response.json()
-            if not isinstance(value, dict):
-                raise ValueError("local LLM gateway expected JSON object")
-            return value
-
-        result = await gateway.acomplete_with_transport(gateway_request, transport)
+    # The gateway's synchronous adapter already enforces the shared
+    # loopback/private endpoint, proxy-free, redirect-free and bounded-response
+    # policy. Run it off the event loop instead of creating an unbounded ad-hoc
+    # AsyncClient for this one route.
+    result = await asyncio.to_thread(gateway.complete, gateway_request)
     if not result.ok:
         failure = result.failure or {"code": "gateway_failure", "message": "unknown gateway failure"}
         raise ValueError(f"local LLM gateway {failure.get('code')}: {failure.get('message')}")
@@ -11968,11 +12409,20 @@ def _public_code_projects(database_path: Path) -> dict[str, Any]:
     }
 
 
+def _public_code_request_scope(
+    request: PublicCodeToolRequest,
+) -> tuple[Path, str]:
+    root = _resolve_public_code_root(request.root)
+    project = _canonical_project(request.project)
+    return root, project
+
+
 def _public_code_request_context(
     request: PublicCodeToolRequest,
 ) -> tuple[Path, str, str]:
-    root = _resolve_public_code_root(request.root)
-    project = _canonical_project(request.project)
+    """Resolve a public code request and its root id for trusted callers/tests."""
+
+    root, project = _public_code_request_scope(request)
     return root, project, _public_code_root_id(project, root)
 
 
@@ -11997,11 +12447,15 @@ def _read_git_head(root: Path) -> str:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS,
     ).stdout.strip()
 
 
 @app.post("/bhm/code-tools", include_in_schema=False)
-async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any]:
+async def bhm_public_code_tools(
+    request: PublicCodeToolRequest,
+    http_request: Request = None,  # type: ignore[assignment]
+) -> dict[str, Any]:
     """Unified public MCP code-tools contract with bounded provenance.
 
     This route is intentionally not an arbitrary graph language endpoint.  It
@@ -12042,10 +12496,29 @@ async def bhm_public_code_tools(request: PublicCodeToolRequest) -> dict[str, Any
             }
         except (CodeGraphError, OSError, sqlite3.Error) as exc:
             raise HTTPException(status_code=503, detail={"error": "cross_repo_preview_unavailable", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
-    root, project, root_id = await _run_bounded_read(
-        "code.request_context",
-        _public_code_request_context,
+    root, project = await _run_bounded_read(
+        "code.request_scope",
+        _public_code_request_scope,
         request,
+    )
+    principal = getattr(getattr(http_request, "state", None), "bhm_caller_principal", None)
+    if principal is not None:
+        root_error = authorize_project_root(
+            principal,
+            project,
+            root,
+            default_root=settings.repo_root,
+        )
+        if root_error:
+            raise HTTPException(status_code=403, detail={"error": root_error})
+    # Do not probe, index or inspect the requested repository until the
+    # caller's project-to-root binding has passed. The root/scope resolution
+    # above is intentionally the only pre-authorization boundary work.
+    root_id = await _run_bounded_read(
+        "code.request_root_id",
+        _public_code_root_id,
+        project,
+        root,
     )
     if operation == "package_resolution":
         package_snapshot: Mapping[str, Any] = {}
@@ -13175,7 +13648,10 @@ def bhm_conventions_preview(request: ConventionMemoryPreviewRequest) -> dict[str
 
 
 @app.post("/bhm/ui/code-tools", include_in_schema=False)
-async def bhm_ui_code_tools(request: PublicCodeToolRequest) -> dict[str, Any]:
+async def bhm_ui_code_tools(
+    request: PublicCodeToolRequest,
+    http_request: Request,
+) -> dict[str, Any]:
     """Read-only UI proxy for the canonical code-tools contract.
 
     The browser session must not gain the mutating index/watch/artifact-export
@@ -13189,7 +13665,7 @@ async def bhm_ui_code_tools(request: PublicCodeToolRequest) -> dict[str, Any]:
     if operation == "code_search" and request.search_mode not in {"metadata", "symbol", "path"}:
         raise HTTPException(status_code=403, detail={"error": "ui_code_search_mode_rejected"})
     safe_request = request.model_copy(update={"include_snippets": False, "semantic_fusion": False, "apply": False})
-    return await bhm_public_code_tools(safe_request)
+    return await bhm_public_code_tools(safe_request, http_request)
 
 
 @app.post("/bhm/change-impact/preview", include_in_schema=False)
@@ -13835,7 +14311,7 @@ def bhm_llm_submit_job(request: LLMJobSubmitRequest) -> dict[str, Any]:
 
 
 @app.get("/bhm/llm/jobs/{job_id}")
-def bhm_llm_job_status(job_id: str) -> dict[str, Any]:
+def bhm_llm_job_status(job_id: str, request: Request) -> dict[str, Any]:
     try:
         job = _LLM_JOB_QUEUE.get(job_id)
     except LLMJobQueueError as exc:
@@ -13846,11 +14322,12 @@ def bhm_llm_job_status(job_id: str) -> dict[str, Any]:
         ) from exc
     if job is None:
         raise HTTPException(status_code=404, detail={"error": "llm_job_not_found", "job_id": job_id})
+    _authorize_resource_project(request, job.get("project"))
     return {"job": _llm_public_job(job), "execution_enabled": False}
 
 
 @app.get("/bhm/llm/jobs/{job_id}/result")
-def bhm_llm_job_result(job_id: str) -> Any:
+def bhm_llm_job_result(job_id: str, request: Request) -> Any:
     try:
         job = _LLM_JOB_QUEUE.get(job_id)
     except LLMJobQueueError as exc:
@@ -13861,6 +14338,7 @@ def bhm_llm_job_result(job_id: str) -> Any:
         ) from exc
     if job is None:
         raise HTTPException(status_code=404, detail={"error": "llm_job_not_found", "job_id": job_id})
+    _authorize_resource_project(request, job.get("project"))
     status = str(job.get("status") or "")
     if status in {"queued", "processing"}:
         return JSONResponse(
@@ -13918,7 +14396,18 @@ def bhm_llm_job_result(job_id: str) -> Any:
 
 
 @app.post("/bhm/llm/jobs/{job_id}/cancel")
-def bhm_llm_cancel_job(job_id: str) -> dict[str, Any]:
+def bhm_llm_cancel_job(job_id: str, request: Request) -> dict[str, Any]:
+    try:
+        existing_job = _LLM_JOB_QUEUE.get(job_id)
+    except LLMJobQueueError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "llm_job_queue_unavailable", "detail": redact_secret_text(str(exc)).value[:500]},
+            headers={"Retry-After": "5"},
+        ) from exc
+    if existing_job is None:
+        raise HTTPException(status_code=404, detail={"error": "llm_job_not_found", "job_id": job_id})
+    _authorize_resource_project(request, existing_job.get("project"))
     try:
         job = _LLM_JOB_QUEUE.cancel(job_id)
     except LLMJobQueueError as exc:
@@ -14020,7 +14509,13 @@ def bhm_mcp_repair_preview() -> dict[str, Any]:
     try:
         return build_repair_preview(repo_root=_canonical_runtime_repo_root(), panel=bhm_mcp_panel())
     except McpRepairError as exc:
-        raise HTTPException(status_code=422, detail={"code": "mcp_repair_preview_failed", "reason": str(exc)}) from exc
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "mcp_repair_preview_failed",
+                "reason": redact_secret_text(str(exc)).value[:500],
+            },
+        ) from exc
 
 
 @app.get("/bhm/mcp/repair/reprobe")
@@ -14030,7 +14525,13 @@ def bhm_mcp_repair_reprobe() -> dict[str, Any]:
     try:
         return build_reprobe(repo_root=_canonical_runtime_repo_root(), panel=bhm_mcp_panel())
     except McpRepairError as exc:
-        raise HTTPException(status_code=422, detail={"code": "mcp_repair_reprobe_failed", "reason": str(exc)}) from exc
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "mcp_repair_reprobe_failed",
+                "reason": redact_secret_text(str(exc)).value[:500],
+            },
+        ) from exc
 
 
 @app.post("/bhm/mcp/repair/reconnect")
@@ -14048,7 +14549,13 @@ def bhm_mcp_repair_reconnect(request: McpRepairRequest) -> dict[str, Any]:
             apply_adapters=request.apply_adapters,
         )
     except McpRepairError as exc:
-        raise HTTPException(status_code=422, detail={"code": "mcp_repair_reconnect_failed", "reason": str(exc)}) from exc
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "mcp_repair_reconnect_failed",
+                "reason": redact_secret_text(str(exc)).value[:500],
+            },
+        ) from exc
 
 
 @app.post("/bhm/mcp/repair/rollback")
@@ -14065,7 +14572,13 @@ def bhm_mcp_repair_rollback(request: McpRepairRequest) -> dict[str, Any]:
             confirm=request.confirm,
         )
     except McpRepairError as exc:
-        raise HTTPException(status_code=422, detail={"code": "mcp_repair_rollback_failed", "reason": str(exc)}) from exc
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "mcp_repair_rollback_failed",
+                "reason": redact_secret_text(str(exc)).value[:500],
+            },
+        ) from exc
 
 
 @app.get("/bhm/telemetry/surface-report")
@@ -14177,20 +14690,21 @@ def bhm_ui_session_mint(request: Request) -> JSONResponse:
 
 @app.get("/bhm/ui/session/bootstrap")
 def bhm_ui_session_bootstrap(request: Request) -> JSONResponse:
-    """Bootstrap a local browser UI without requiring the desktop launcher.
+    """Return a launcher-issued bootstrap token or confirm an existing session."""
 
-    This route is anonymous only at the HTTP auth layer; it is still restricted
-    to same-origin loopback browser requests and exchanges a one-time token for
-    the normal HttpOnly UI session cookie. Remote callers remain fail-closed.
-    """
-
-    if not _ui_request_is_loopback(request) or not _ui_browser_request_is_same_origin(request):
+    principal = getattr(request.state, "bhm_caller_principal", None)
+    if (principal is None and not _ui_request_is_loopback(request)) or not _ui_browser_request_is_same_origin(request):
         return JSONResponse(
             status_code=403,
             headers={"Cache-Control": "no-store"},
             content={"detail": {"code": "ui_direct_bootstrap_loopback_only"}},
         )
-    existing = _UI_SESSIONS.resolve_session(request.cookies.get(UI_SESSION_COOKIE))
+    existing = None
+    if principal is not None:
+        existing = _UI_SESSIONS.resolve_session(
+            request.cookies.get(UI_SESSION_COOKIE),
+            expected_principal=principal,
+        )
     if existing is not None:
         return JSONResponse(
             content={
@@ -14201,12 +14715,11 @@ def bhm_ui_session_bootstrap(request: Request) -> JSONResponse:
             },
             headers={"Cache-Control": "no-store"},
         )
-    principal = configured_caller_principal()
     if principal is None:
         return JSONResponse(
-            status_code=503,
+            status_code=401,
             headers={"Cache-Control": "no-store"},
-            content={"detail": {"code": "caller_auth_not_configured"}},
+            content={"detail": {"code": "ui_launcher_bootstrap_required"}},
         )
     bootstrap_token = _UI_SESSIONS.mint_bootstrap(principal)
     return JSONResponse(
@@ -14228,7 +14741,17 @@ def bhm_ui_session_exchange(request: Request, payload: UiSessionExchangeRequest)
             status_code=403,
             content={"detail": {"code": "ui_session_origin_rejected"}},
         )
-    exchanged = _UI_SESSIONS.exchange_bootstrap(payload.bootstrap_token)
+    configured_principal = configured_caller_principal()
+    if configured_principal is None:
+        return JSONResponse(
+            status_code=503,
+            headers={"Cache-Control": "no-store"},
+            content={"detail": {"code": "caller_auth_not_configured"}},
+        )
+    exchanged = _UI_SESSIONS.exchange_bootstrap(
+        payload.bootstrap_token,
+        expected_principal=configured_principal,
+    )
     if exchanged is None:
         return JSONResponse(
             status_code=401,
@@ -14265,7 +14788,10 @@ def bhm_ui_session_renew(request: Request) -> JSONResponse:
             content={"detail": {"code": "ui_session_origin_rejected"}},
         )
     session_token = str(request.cookies.get(UI_SESSION_COOKIE) or "")
-    renewed = _UI_SESSIONS.renew_session(session_token)
+    renewed = _UI_SESSIONS.renew_session(
+        session_token,
+        expected_principal=getattr(request.state, "bhm_caller_principal", None),
+    )
     if renewed is None:
         return JSONResponse(
             status_code=401,
@@ -14514,6 +15040,7 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 "semantic_type": request.semantic_type,
                 "priority": request.priority,
             },
+            "side_effects": read_only_side_effects(),
         }
     except Exception as exc:
         if _is_fallback_grace_error(exc):
@@ -14534,91 +15061,28 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 offset=request.offset,
             )
             response["query"] = request.query
+            response.setdefault("side_effects", read_only_side_effects())
             return response
         raise
 
 
 @app.post("/bhm/search")
 async def bhm_search(request: MemoryAdvancedSearchRequest) -> dict:
-    if not request.query.strip():
-        return await bhm_search_advanced(request)
-    project_name = _effective_search_project(request.project)
-    try:
-        await _ensure_provider_warmup_ready()
-        hits, total = await federated_search(
-            request.query,
-            project_name,
-            limit=request.limit,
-            offset=request.offset,
-            memory_type=request.memory_type,
-            concepts=request.concepts,
-            files=request.files,
-            domain=request.domain,
-            semantic_type=request.semantic_type,
-            priority=request.priority,
-            include_archived=request.include_archived,
-            include_logs=request.include_logs,
+    service = MemorySearchService(
+        MemorySearchDependencies(
+            ensure_provider_warmup_ready=_ensure_provider_warmup_ready,
+            effective_search_project=_effective_search_project,
+            federated_search=federated_search,
+            advanced_search=bhm_search_advanced,
+            serialize_vector_hit=_serialize_vector_hit,
+            emit_memory_pulses=_emit_memory_pulses_from_mem0_items,
+            is_fallback_grace_error=_is_fallback_grace_error,
+            fallback_grace_memories_response=_fallback_grace_memories_response,
+            local_collection_name=local_collection_name,
+            global_collection_name=global_collection_name,
         )
-        memories = [_serialize_vector_hit(item) for item in hits]
-        _emit_memory_pulses_from_mem0_items(memories)
-        if total == 0:
-            response = await bhm_search_advanced(request)
-            response["retrieval"] = {
-                "mode": "federated-empty-live-fallback",
-                "local_collection": local_collection_name(project_name),
-                "global_collection": global_collection_name(),
-            }
-            return response
-        return {
-            "memories": memories,
-            "total": total,
-            "limit": max(min(request.limit, 200), 1),
-            "offset": max(request.offset, 0),
-            "query": request.query,
-            "filters": {
-                "project": request.project,
-                "memory_type": request.memory_type,
-                "concepts": request.concepts or [],
-                "files": request.files or [],
-                "include_archived": request.include_archived,
-                "include_logs": request.include_logs,
-                "domain": request.domain,
-                "semantic_type": request.semantic_type,
-                "priority": request.priority,
-            },
-            "retrieval": {
-                "mode": "federated",
-                "ranking": "rrf-hybrid",
-                "local_collection": local_collection_name(project_name),
-                "global_collection": global_collection_name(),
-            },
-        }
-    except Exception as exc:
-        if _is_fallback_grace_error(exc):
-            response = _fallback_grace_memories_response(
-                "bhm.search.federated",
-                exc,
-                project=project_name,
-                memory_type=request.memory_type,
-                concepts=request.concepts,
-                files=request.files,
-                query=request.query,
-                include_logs=request.include_logs,
-                domain=request.domain,
-                semantic_type=request.semantic_type,
-                priority=request.priority,
-                include_archived=request.include_archived,
-                limit=request.limit,
-                offset=request.offset,
-            )
-            response["query"] = request.query
-            response["retrieval"] = {
-                "mode": "federated-fallback-grace",
-                "local_collection": local_collection_name(project_name),
-                "global_collection": global_collection_name(),
-            }
-            return response
-        raise
+    )
+    return await service.execute(request)
 
 
 @app.post("/bhm/context/compile")
@@ -14741,6 +15205,7 @@ async def bhm_context_compile(
             "estimated_tokens": compiled["estimated_tokens"],
             "truncated": compiled["truncated"],
         },
+        "side_effects": read_only_side_effects(),
     }
 
 
@@ -14800,6 +15265,7 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
             "semantic_type": request.semantic_type,
             "priority": request.priority,
         },
+        "side_effects": read_only_side_effects(),
     }
 
 
@@ -14855,6 +15321,13 @@ async def bhm_memory_used(
         "accessed_at": accessed_at,
         "reason": request.reason,
         "funnel_matched_count": funnel_matched_count,
+        "side_effects": {
+            "read_only": False,
+            "sqlite_mutation": False,
+            "qdrant_mutation": bool(updates),
+            "projection_mutation": bool(updates),
+            "projection_update": "explicit-access-feedback",
+        },
     }
 
 
@@ -14930,10 +15403,11 @@ def bhm_hook_queue_status(integrity: bool = False) -> dict:
 
 
 @app.get("/bhm/hooks/jobs/{job_id}")
-def bhm_hook_job_status(job_id: str) -> dict:
+def bhm_hook_job_status(job_id: str, request: Request) -> dict:
     job = _hook_queue().get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail={"error": "hook_job_not_found", "jobId": job_id})
+    _authorize_resource_project(request, job.get("project"))
     return {"job": job}
 
 
@@ -15477,8 +15951,8 @@ def bhm_link_graph_stats(request: ProjectOnlyRequest) -> dict:
 
 
 @app.post("/bhm/reindex-memory-metadata")
-def bhm_reindex_memory_metadata(request: ProjectOnlyRequest) -> dict:
-    return _reindex_memory_metadata(request.project)
+def bhm_reindex_memory_metadata(request: ScopedMaintenanceRequest) -> dict:
+    return _reindex_memory_metadata(request.project, aggregate=request.aggregate)
 
 
 @app.post("/bhm/memory/schema-validate")
@@ -15613,7 +16087,7 @@ def bhm_entity_catalog_get(request: EntityCatalogRequest) -> dict:
 
 @app.post("/bhm/entity-catalog/rebuild")
 def bhm_entity_catalog_rebuild(request: EntityCatalogRequest) -> dict:
-    return _entity_catalog_rebuild(request.project)
+    return _entity_catalog_rebuild(request.project, aggregate=request.aggregate)
 
 
 @app.post("/bhm/project-summary/compare")
@@ -15702,7 +16176,15 @@ def bhm_relation_prune_low_quality(request: RelationPruneLowQualityRequest) -> d
 
 
 @app.post("/bhm/project-similarity-report")
-def bhm_project_similarity_report(request: ProjectSimilarityReportRequest) -> dict:
+def bhm_project_similarity_report(request: ProjectSimilarityReportRequest, http_request: Request) -> dict:
+    principal = getattr(http_request.state, "bhm_caller_principal", None)
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+    if not principal.all_projects:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "all_projects_capability_required", "message": "cross-project similarity requires an all-projects caller"},
+        )
     return _project_similarity_report(request)
 
 
@@ -15757,13 +16239,13 @@ def bhm_admin_export(request: AdminExportRequest) -> dict:
 
 
 @app.post("/bhm/admin/import-preview")
-def bhm_admin_import_preview(request: AdminImportPreviewRequest) -> dict:
-    return _admin_import_preview(request)
+def bhm_admin_import_preview(request: AdminImportPreviewRequest, http_request: Request) -> dict:
+    return _admin_import_preview(request, http_request=http_request)
 
 
 @app.post("/bhm/admin/import-apply")
-def bhm_admin_import_apply(request: AdminImportApplyRequest) -> dict:
-    return _admin_import_apply(request)
+def bhm_admin_import_apply(request: AdminImportApplyRequest, http_request: Request) -> dict:
+    return _admin_import_apply(request, http_request=http_request)
 
 
 @app.get("/bhm/policy/profile")
@@ -16033,7 +16515,9 @@ async def bhm_lessons_create(request: LessonRequest) -> dict:
 
 @app.post("/bhm/lessons/search")
 def bhm_lessons_search(request: BhmMatchSearchRequest) -> dict:
-    lessons = [item for item in _load_lessons() if not request.project or item.get("project") == request.project]
+    project = _effective_search_project(request.project)
+    accepted_projects = _project_aliases(project)
+    lessons = [item for item in _load_lessons() if item.get("project") in accepted_projects]
     query = request.query.lower()
     ranked = []
     for item in lessons:
@@ -16042,7 +16526,7 @@ def bhm_lessons_search(request: BhmMatchSearchRequest) -> dict:
         if score > 0:
             ranked.append((score, item))
     ranked.sort(key=lambda pair: pair[0], reverse=True)
-    return {"lessons": [item for _, item in ranked[: request.limit]]}
+    return {"project": project, "lessons": [item for _, item in ranked[: request.limit]]}
 
 
 @app.post("/bhm/observe")
@@ -16105,7 +16589,7 @@ def bhm_slots(project: str = "e-github-workspace") -> dict:
 
 
 @app.get("/bhm/slot")
-def bhm_slot(project: str = "e-github-workspace", label: str = "") -> dict:
+def bhm_slot(label: str, project: str = "e-github-workspace") -> dict:
     item = _resolve_slot(project, label)
     return {"slot": item}
 
@@ -16184,7 +16668,7 @@ def bhm_slot_replace(request: SlotReplaceRequest, project: str = "e-github-works
 
 
 @app.delete("/bhm/slot")
-def bhm_slot_delete(project: str = "e-github-workspace", label: str = "") -> dict:
+def bhm_slot_delete(label: str, project: str = "e-github-workspace") -> dict:
     slots = _load_slots()
     remaining = [
         item for item in slots

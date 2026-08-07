@@ -58,7 +58,29 @@ def test_missing_configuration_fails_closed_without_lifespan(monkeypatch) -> Non
     response = _client(authorization="").get("/bhm/memory", params={"id": "missing"})
 
     assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "caller_auth_not_configured"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/bhm/project-similarity-report",
+        "/bhm/project-summary/compare",
+        "/bhm/link-graph-stats",
+    ],
+)
+def test_all_project_caller_must_scope_project_diagnostic(path: str) -> None:
+    response = _client().post(path, json={})
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "caller_project_required"
+
+
+@pytest.mark.parametrize("path", sorted(caller_auth._EXPLICIT_PROJECT_SCOPE_PATHS))
+def test_all_project_caller_requires_scope_for_every_explicit_project_route(path: str) -> None:
+    response = _client().post(path, json={})
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "caller_project_required"
 
 
 def test_missing_or_wrong_bearer_is_rejected() -> None:
@@ -148,6 +170,16 @@ def test_scoped_caller_cannot_turn_omitted_project_into_all_projects(monkeypatch
     assert galaxy.json()["detail"]["code"] == "caller_project_required"
 
 
+def test_scoped_ui_boot_report_is_auth_only(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.delenv("BHM_CALLER_DEFAULT_PROJECT", raising=False)
+
+    response = _client().get("/bhm/ui/boot-report")
+
+    assert response.status_code == 200
+    assert set(response.json()).issubset({"status", "elapsed_seconds", "qdrant", "lm_studio", "timestamp"})
+
+
 def test_scoped_project_registry_is_filtered_to_allowed_projects(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
@@ -172,6 +204,264 @@ def test_scoped_feedback_telemetry_enforces_project_query(monkeypatch) -> None:
     assert foreign.json()["detail"]["code"] == "caller_project_forbidden"
     assert missing.status_code == 403
     assert missing.json()["detail"]["code"] == "caller_project_required"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/bhm/llm/capabilities",
+        "/bhm/llm/model-router",
+        "/bhm/llm/cache",
+        "/bhm/hooks/queue/status",
+    ],
+)
+def test_bounded_aggregate_routes_are_explicit_auth_only(path: str, monkeypatch) -> None:
+    """Aggregates without tenant payload are callable by a scoped operator."""
+
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+
+    response = _client().get(path)
+
+    assert response.status_code not in {401, 403}
+    assert caller_auth.caller_route_policy(path, "GET") is caller_auth.CallerRoutePolicy.AUTH_ONLY
+
+
+def test_project_summary_list_honors_scoped_project(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: [
+            {"source_id": "summary-a", "project": "blackholememory", "metadata": {"upsert_key": "project-summary:a"}},
+            {"source_id": "summary-b", "project": "e-github-workspace", "metadata": {"upsert_key": "project-summary:b"}},
+        ],
+    )
+
+    scoped = _client().post("/bhm/project-summary/list", json={"project": "blackholememory"})
+    missing = _client().post("/bhm/project-summary/list", json={})
+
+    assert scoped.status_code == 200
+    assert [item["id"] for item in scoped.json()["memories"]] == ["summary-a"]
+    assert missing.status_code == 403
+    assert missing.json()["detail"]["code"] == "caller_project_required"
+
+
+def test_project_summary_refresh_all_does_not_ignore_project_field(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
+    captured = {}
+
+    def fake_refresh(request):
+        captured["project"] = request.project
+        captured["projects"] = request.projects
+        return {"projects": [request.project], "count": 0, "items": []}
+
+    monkeypatch.setattr(bhm_app, "_project_summary_refresh_all", fake_refresh)
+    response = _client().post(
+        "/bhm/project-summary/refresh-all",
+        json={"project": "blackholememory"},
+        headers={"X-BHM-Admin-Capability": "admin-test-token"},
+    )
+
+    assert response.status_code == 200
+    assert captured == {"project": "blackholememory", "projects": None}
+
+
+def test_project_similarity_report_is_operator_only(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    denied = _client().post(
+        "/bhm/project-similarity-report",
+        json={"project": "blackholememory"},
+    )
+
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "admin_capability_required"
+
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
+    scoped_denied = _client().post(
+        "/bhm/project-similarity-report",
+        json={"project": "blackholememory"},
+        headers={"X-BHM-Admin-Capability": "admin-test-token"},
+    )
+    assert scoped_denied.status_code == 403
+    assert scoped_denied.json()["detail"]["code"] == "all_projects_capability_required"
+
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "*")
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: [
+            {"source_id": "a", "project": "blackholememory", "tags": ["shared"]},
+            {"source_id": "b", "project": "e-github-workspace", "tags": ["shared"]},
+        ],
+    )
+    allowed = _client().post(
+        "/bhm/project-similarity-report",
+        json={"project": "blackholememory"},
+        headers={"X-BHM-Admin-Capability": "admin-test-token"},
+    )
+
+    assert allowed.status_code == 200
+    assert allowed.json()["similar_projects"][0]["project"] == "e-github-workspace"
+
+
+def test_all_projects_caller_cannot_use_audit_default_scope(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "*")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setattr(bhm_app, "_integrity_audit", lambda project: {"project": project, "ok": True})
+
+    response = _client().get("/bhm/audit")
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "caller_project_required"
+
+
+def test_project_summary_compare_returns_canonical_project_labels(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory,e-github-workspace")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setattr(
+        bhm_app,
+        "_project_summary_get",
+        lambda project: {"project": project, "content": f"summary:{project}"},
+    )
+
+    response = _client().post(
+        "/bhm/project-summary/compare",
+        json={"left_project": "BlackHoleMemory", "right_project": "E-GitHub-Workspace"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["left_project"] == "blackholememory"
+    assert payload["right_project"] == "e-github-workspace"
+
+
+def test_overlap_report_is_project_isolated_and_canonical(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: [
+            {
+                "source_id": "a1",
+                "project": "BlackHoleMemory",
+                "memory_type": "fact",
+                "content": "same",
+                "metadata": {"raw_title": "same", "upsert_key": "same-a", "files": ["a.py"]},
+                "tags": [],
+            },
+            {
+                "source_id": "a2",
+                "project": "blackholememory",
+                "memory_type": "fact",
+                "content": "same",
+                "metadata": {"raw_title": "same", "upsert_key": "same-a", "files": ["a.py"]},
+                "tags": [],
+            },
+            {
+                "source_id": "b1",
+                "project": "e-github-workspace",
+                "memory_type": "fact",
+                "content": "foreign",
+                "metadata": {"raw_title": "foreign", "upsert_key": "same-b", "files": ["b.py"]},
+                "tags": [],
+            },
+            {
+                "source_id": "b2",
+                "project": "e-github-workspace",
+                "memory_type": "fact",
+                "content": "foreign",
+                "metadata": {"raw_title": "foreign", "upsert_key": "same-b", "files": ["b.py"]},
+                "tags": [],
+            },
+        ],
+    )
+
+    response = _client().post("/bhm/overlap/report", json={"project": "BlackHoleMemory"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["project"] == "blackholememory"
+    assert all(item["project"] in {"BlackHoleMemory", "blackholememory"} for item in payload["duplicate_candidates"])
+    assert all(item["upsert_key"] == "same-a" for item in payload["same_upsert_key"])
+
+
+def test_scoped_report_rejects_foreign_project_after_route_scope_gate(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+
+    response = _client().post("/bhm/overlap/report", json={"project": "e-github-workspace"})
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "caller_project_forbidden"
+
+
+def test_project_labelled_reports_canonicalize_alias_filters(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_memory_links",
+        lambda: [
+            {"source_id": "a", "target_id": "b", "relation": "relates_to", "project": "BlackHoleMemory"},
+            {"source_id": "x", "target_id": "y", "relation": "relates_to", "project": "e-github-workspace"},
+        ],
+    )
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_validation_snapshots",
+        lambda: [
+            {"id": "v-a", "project": "BlackHoleMemory", "overall_status": "failed"},
+            {"id": "v-b", "project": "e-github-workspace", "overall_status": "failed"},
+        ],
+    )
+
+    links = _client().post("/bhm/link-graph-stats", json={"project": "BlackHoleMemory"})
+    trend = _client().post(
+        "/bhm/validation/trend-report",
+        json={"project": "BlackHoleMemory"},
+        headers={"X-BHM-Admin-Capability": "admin-test-token"},
+    )
+
+    assert links.status_code == 200
+    assert links.json()["link_count"] == 1
+    assert trend.status_code == 200
+    assert trend.json()["status_counts"] == {"failed": 1}
+
+
+def test_admin_import_snapshot_cannot_cross_scoped_project(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
+    export_dir = tmp_path / "admin-exports"
+    export_dir.mkdir()
+    (export_dir / "foreign.json").write_text(
+        json.dumps(
+            {
+                "project": "e-github-workspace",
+                "memories": [{"source_id": "foreign", "project": "e-github-workspace"}],
+                "links": [],
+                "artifacts": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", tmp_path)
+
+    response = _client().post(
+        "/bhm/admin/import-preview",
+        json={"path": "foreign.json", "project": "blackholememory"},
+        headers={"X-BHM-Admin-Capability": "admin-test-token"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "caller_project_forbidden"
 
 
 def test_json_body_is_replayed_after_project_authorization(monkeypatch) -> None:
@@ -246,11 +536,19 @@ def test_admin_route_requires_caller_then_admin_capability(monkeypatch) -> None:
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
     no_caller = _client(authorization="").delete("/bhm/memory")
     caller_only = _client().delete("/bhm/memory")
-    both = _client().delete("/bhm/memory", headers={"X-BHM-Admin-Capability": "admin-test-token"})
+    both = _client().request(
+        "DELETE",
+        "/bhm/memory",
+        json={"id": "missing", "project": "blackholememory"},
+        headers={
+            "Content-Type": "application/json",
+            "X-BHM-Admin-Capability": "admin-test-token",
+        },
+    )
 
     assert no_caller.status_code == 401
     assert caller_only.status_code == 403
-    assert both.status_code == 422
+    assert both.status_code == 404
 
 
 def _ui_headers(*, origin: str = "http://127.0.0.1:8000") -> dict[str, str]:
@@ -304,6 +602,13 @@ def test_ui_bootstrap_exchange_is_one_time_origin_bound_and_httponly() -> None:
     assert status.json()["auth_kind"] == "ui_session"
     assert "bootstrap_token" not in status.text
 
+    session_bootstrap = browser.get(
+        "/bhm/ui/session/bootstrap",
+        headers=_ui_headers(),
+    )
+    assert session_bootstrap.status_code == 200
+    assert session_bootstrap.json()["session"] is True
+
     forbidden = browser.post("/bhm/infra/restart", headers=_ui_headers())
     assert forbidden.status_code == 401
 
@@ -345,6 +650,31 @@ def test_ui_bootstrap_exchange_is_one_time_origin_bound_and_httponly() -> None:
     assert rejected_renew.status_code == 403
 
 
+def test_ui_session_is_invalidated_when_caller_credential_rotates(monkeypatch) -> None:
+    bhm_app._UI_SESSIONS.reset()
+    minted = _client().post("/bhm/ui/session/mint")
+    assert minted.status_code == 200
+    browser = _client(authorization="")
+    exchanged = browser.post(
+        "/bhm/ui/session/exchange",
+        headers=_ui_headers(),
+        json={"bootstrap_token": minted.json()["bootstrap_token"]},
+    )
+    assert exchanged.status_code == 200
+    assert browser.get(
+        "/bhm/ui/session/status",
+        headers={"Host": "127.0.0.1:8000", "Sec-Fetch-Site": "same-origin"},
+    ).status_code == 200
+
+    monkeypatch.setenv(caller_auth.CALLER_TOKEN_ENV, "rotated-caller-token-0000000000000001")
+    stale = browser.get(
+        "/bhm/ui/session/status",
+        headers={"Host": "127.0.0.1:8000", "Sec-Fetch-Site": "same-origin"},
+    )
+    assert stale.status_code == 401
+    assert stale.json()["detail"]["code"] == "caller_auth_required"
+
+
 def test_ui_bootstrap_rejects_noncanonical_port_and_scheme() -> None:
     browser = _client(authorization="")
 
@@ -367,6 +697,21 @@ def test_ui_bootstrap_rejects_noncanonical_port_and_scheme() -> None:
         },
     )
     assert wrong_scheme.status_code == 403
+
+
+def test_ui_bootstrap_requires_launcher_for_canonical_anonymous_loopback() -> None:
+    browser = TestClient(
+        bhm_app.app,
+        base_url="http://127.0.0.1:8000",
+        client=("127.0.0.1", 54321),
+        headers={"Authorization": ""},
+    )
+    response = browser.get(
+        "/bhm/ui/session/bootstrap",
+        headers=_ui_headers(),
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "ui_launcher_bootstrap_required"
 
 
 def test_direct_browser_mcp_status_requires_ui_session_and_denies_post() -> None:
@@ -444,6 +789,122 @@ def test_ui_code_tools_proxy_is_read_only_and_session_bound() -> None:
         json={"operation": "index", "project": "blackholememory", "root": "blackholememory"},
     )
     assert denied_mutation.status_code == 403
+
+
+def test_scoped_code_tools_cannot_cross_project_root(monkeypatch, tmp_path) -> None:
+    canonical = tmp_path / "blackholememory"
+    sibling = tmp_path / "project-b"
+    canonical.mkdir()
+    sibling.mkdir()
+    monkeypatch.setattr(bhm_app.settings, "repo_root", canonical)
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    response = _client().post(
+        "/bhm/code-tools",
+        json={"operation": "status", "project": "blackholememory", "root": sibling.name},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"] == "caller_project_root_forbidden"
+
+
+def test_scoped_code_tools_authorize_root_before_repository_probe(monkeypatch, tmp_path) -> None:
+    canonical = tmp_path / "blackholememory"
+    sibling = tmp_path / "project-b"
+    canonical.mkdir()
+    sibling.mkdir()
+    monkeypatch.setattr(bhm_app.settings, "repo_root", canonical)
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    probes: list[tuple[str, str]] = []
+
+    def record_probe(project: str, root) -> str:
+        probes.append((project, str(root)))
+        return "unexpected-root-id"
+
+    monkeypatch.setattr(bhm_app, "_public_code_root_id", record_probe)
+    response = _client().post(
+        "/bhm/code-tools",
+        json={"operation": "status", "project": "blackholememory", "root": sibling.name},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"] == "caller_project_root_forbidden"
+    assert probes == []
+
+
+def test_scoped_code_tools_root_matrix_denies_every_root_taking_operation_before_probe(monkeypatch, tmp_path) -> None:
+    canonical = tmp_path / "blackholememory"
+    sibling = tmp_path / "project-b"
+    canonical.mkdir()
+    sibling.mkdir()
+    monkeypatch.setattr(bhm_app.settings, "repo_root", canonical)
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    probes: list[tuple[str, str]] = []
+
+    def record_probe(project: str, root) -> str:
+        probes.append((project, str(root)))
+        return "unexpected-root-id"
+
+    monkeypatch.setattr(bhm_app, "_public_code_root_id", record_probe)
+    root_operations = sorted(bhm_app._PUBLIC_CODE_TOOL_OPERATIONS - {"projects", "cross_repo"})
+
+    for operation in root_operations:
+        response = _client().post(
+            "/bhm/code-tools",
+            json={"operation": operation, "project": "blackholememory", "root": sibling.name},
+        )
+        assert response.status_code == 403, operation
+        assert response.json()["detail"]["error"] == "caller_project_root_forbidden", operation
+
+    assert len(root_operations) == 22
+    assert probes == []
+
+
+def test_scoped_repository_intelligence_rejects_foreign_project_before_filesystem_probe(monkeypatch, tmp_path) -> None:
+    """Non-code-tools project scope is enforced before repository collection."""
+
+    canonical = tmp_path / "blackholememory"
+    canonical.mkdir()
+    monkeypatch.setattr(bhm_app.settings, "repo_root", canonical)
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    probes: list[str] = []
+
+    def record_collect(root, paths):
+        probes.append(str(root))
+        return []
+
+    monkeypatch.setattr(bhm_app, "collect_repository_files", record_collect)
+    response = _client().post(
+        "/bhm/llm/repository-intelligence/preview",
+        json={"project": "project-b", "root": "."},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "caller_project_forbidden"
+    assert probes == []
+
+
+def test_repository_intelligence_root_escape_is_rejected_before_collection(monkeypatch, tmp_path) -> None:
+    """The bounded analysis root cannot escape the configured BHM repository."""
+
+    canonical = tmp_path / "blackholememory"
+    outside = tmp_path / "outside"
+    canonical.mkdir()
+    outside.mkdir()
+    monkeypatch.setattr(bhm_app.settings, "repo_root", canonical)
+    probes: list[str] = []
+
+    def record_collect(root, paths):
+        probes.append(str(root))
+        return []
+
+    monkeypatch.setattr(bhm_app, "collect_repository_files", record_collect)
+    response = _client().post(
+        "/bhm/llm/repository-intelligence/preview",
+        json={"project": "blackholememory", "root": str(outside)},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "repository_root_outside_allowlist"
+    assert probes == []
 
 
 def test_ui_session_websocket_requires_exact_loopback_origin() -> None:

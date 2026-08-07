@@ -18,6 +18,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 import bhm_launcher as launcher
+import bhm_launcher_readiness as launcher_readiness
 
 
 BOOTSTRAP_TOKEN = "bootstrap-token-00000000000000000000+/="
@@ -68,6 +69,105 @@ def test_launcher_local_state_stays_under_dot_runtime() -> None:
     )
 
 
+def test_launcher_merge_json_rejects_hardlink_target(tmp_path: Path) -> None:
+    target = tmp_path / "mcp.json"
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"mcpServers": {}}\n', encoding="utf-8")
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        launcher.merge_json_file(target, launcher.mcp_config_payload())
+    assert outside.read_text(encoding="utf-8") == '{"mcpServers": {}}\n'
+
+
+def test_plugin_target_guard_rejects_paths_outside_owner_root(tmp_path) -> None:
+    owner_root = tmp_path / "owner"
+    target = tmp_path / "outside" / "plugin"
+
+    with pytest.raises(RuntimeError, match="outside owner root"):
+        launcher._assert_owned_plugin_target(target, owner_root)
+
+
+def test_plugin_target_guard_rejects_existing_file_target(tmp_path) -> None:
+    owner_root = tmp_path / "owner"
+    owner_root.mkdir()
+    target = owner_root / "plugin"
+    target.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="not a directory"):
+        launcher._assert_owned_plugin_target(target, owner_root)
+
+
+def test_owned_file_guard_allows_regular_file_and_rejects_hardlink(tmp_path) -> None:
+    owner_root = tmp_path / "owner"
+    owner_root.mkdir()
+    target = owner_root / "settings.json"
+    target.write_text("{}", encoding="utf-8")
+
+    launcher._assert_owned_path(target, owner_root, require_directory=False)
+
+    hardlink = owner_root / "settings-copy.json"
+    try:
+        hardlink.hardlink_to(target)
+    except OSError:
+        pytest.skip("hardlink creation is unavailable on this Windows host")
+    with pytest.raises(RuntimeError, match="hardlink"):
+        launcher._assert_owned_path(hardlink, owner_root, require_directory=False)
+
+
+def test_plugin_target_guard_rejects_symlinked_parent(tmp_path) -> None:
+    owner_root = tmp_path / "owner"
+    owner_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = owner_root / "plugins"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    with pytest.raises(RuntimeError, match="symlink/junction/reparse"):
+        launcher._assert_owned_plugin_target(link / "plugin", owner_root)
+
+
+def test_launchable_source_guard_rejects_symlink_and_hardlink(tmp_path) -> None:
+    owner_root = tmp_path / "owner"
+    owner_root.mkdir()
+    source = owner_root / "run-service.ps1"
+    source.write_text("Write-Output ok", encoding="utf-8")
+
+    assert launcher._assert_launchable_source(source, owner_root) == source
+
+    symlink = owner_root / "linked.ps1"
+    try:
+        symlink.symlink_to(source)
+    except OSError:
+        pytest.skip("file symlinks unavailable on this Windows host")
+    with pytest.raises(RuntimeError, match="symlink/junction/reparse"):
+        launcher._assert_launchable_source(symlink, owner_root)
+
+    hardlink = owner_root / "hardlinked.ps1"
+    try:
+        hardlink.hardlink_to(source)
+    except OSError:
+        pytest.skip("hardlinks unavailable on this Windows host")
+    with pytest.raises(RuntimeError, match="hardlink"):
+        launcher._assert_launchable_source(hardlink, owner_root)
+
+
+def test_launchable_source_guard_rejects_path_outside_owner_root(tmp_path) -> None:
+    owner_root = tmp_path / "owner"
+    owner_root.mkdir()
+    outside = tmp_path / "outside.ps1"
+    outside.write_text("Write-Output outside", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="outside owner root"):
+        launcher._assert_launchable_source(outside, owner_root)
+
+
 def test_mcp_integration_status_uses_current_http_contract(tmp_path, monkeypatch) -> None:
     appdata = tmp_path / "AppData"
     target = appdata / "Claude" / "claude_desktop_config.json"
@@ -82,6 +182,41 @@ def test_mcp_integration_status_uses_current_http_contract(tmp_path, monkeypatch
     assert str(target) in detail
 
 
+def test_process_control_commands_use_a_bounded_timeout(monkeypatch) -> None:
+    calls: list[tuple[list[str], dict]] = []
+
+    def fake_run(args, **kwargs):
+        calls.append((list(args), dict(kwargs)))
+        return object()
+
+    monkeypatch.setattr(launcher.subprocess, "run", fake_run)
+
+    result = launcher.run_bounded_control_command(
+        ["docker", "compose", "stop"],
+        cwd=Path("C:/fixture"),
+    )
+
+    assert result is not None
+    assert calls[0][0] == ["docker", "compose", "stop"]
+    assert Path(calls[0][1]["cwd"]) == Path("C:/fixture")
+    assert calls[0][1]["timeout"] == launcher.PROCESS_CONTROL_TIMEOUT_SECONDS
+
+
+def test_process_control_timeout_is_logged_and_returns_none(monkeypatch) -> None:
+    messages: list[str] = []
+
+    def fake_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(["taskkill"], launcher.PROCESS_CONTROL_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr(launcher.subprocess, "run", fake_run)
+    monkeypatch.setattr(launcher, "append_launcher_log", messages.append)
+
+    result = launcher.run_bounded_control_command(["taskkill", "/PID", "123"])
+
+    assert result is None
+    assert messages and "CONTROL COMMAND FAILED" in messages[0]
+
+
 class _JsonResponse:
     status = 200
 
@@ -94,7 +229,7 @@ class _JsonResponse:
     def __exit__(self, *_args) -> None:
         return None
 
-    def read(self) -> bytes:
+    def read(self, _size: int | None = None) -> bytes:
         return self._body
 
 
@@ -213,13 +348,37 @@ def test_post_json_keeps_caller_credential_in_authorization_header(monkeypatch) 
         captured.extend([request, timeout])
         return _JsonResponse(b'{"ok": true}')
 
-    monkeypatch.setattr(launcher.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(launcher, "open_local_url", fake_urlopen)
 
     assert launcher.post_json(f"{launcher.BHM_BASE_URL}/bhm/ui/session/mint", {}) == {"ok": True}
     request = captured[0]
     assert request.get_header("Authorization") == f"Bearer {CALLER_TOKEN}"
     assert CALLER_TOKEN not in request.full_url
     assert CALLER_TOKEN.encode() not in request.data
+
+
+def test_post_json_rejects_non_local_endpoint(monkeypatch) -> None:
+    monkeypatch.setattr(launcher, "_required_bhm_caller_token", lambda: CALLER_TOKEN)
+
+    with pytest.raises(launcher_readiness.LocalEndpointError, match="loopback/private"):
+        launcher.post_json("https://example.com/bhm/telemetry", {})
+
+
+def test_post_json_rejects_oversized_response(monkeypatch) -> None:
+    monkeypatch.setattr(launcher, "_required_bhm_caller_token", lambda: CALLER_TOKEN)
+
+    class OversizedResponse(_JsonResponse):
+        def read(self, _size: int | None = None) -> bytes:
+            return b"x" * (128 * 1024 + 1)
+
+    monkeypatch.setattr(
+        launcher,
+        "open_local_url",
+        lambda *_args, **_kwargs: OversizedResponse(b""),
+    )
+
+    with pytest.raises(launcher_readiness.LocalEndpointError, match="bounded limit"):
+        launcher.post_json(f"{launcher.BHM_BASE_URL}/bhm/telemetry", {})
 
 
 def test_health_probe_remains_anonymous(monkeypatch) -> None:
@@ -229,7 +388,7 @@ def test_health_probe_remains_anonymous(monkeypatch) -> None:
         captured.extend([request, timeout])
         return _JsonResponse(b"")
 
-    monkeypatch.setattr(launcher.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(launcher_readiness, "open_local_url", fake_urlopen)
 
     status = launcher.http_status(launcher.BHM_API_HEALTH_URL)
 

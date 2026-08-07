@@ -15,6 +15,7 @@ from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
 
 TASK_GRAPH_SCHEMA_VERSION = "bhm.task-graph.v1"
@@ -354,15 +355,15 @@ def _initialize_schema(connection: sqlite3.Connection) -> None:
 
 
 def _connect_rw(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(str(path), timeout=5.0)
+    connection = sqlite3.connect(str(path), timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA busy_timeout=5000")
+    connection.execute(f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}")
     return connection
 
 
 def _connect_ro(path: Path) -> sqlite3.Connection:
     try:
-        connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=5.0)
+        connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     except sqlite3.Error as exc:
         raise TaskGraphError(f"task graph database unavailable: {exc}") from exc
     connection.row_factory = sqlite3.Row

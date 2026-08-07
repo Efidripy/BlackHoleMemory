@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blackholememory"
-version = "1.8.0"
+version = "1.8.1"
 license = "0BSD"
 license-files = ["LICENSE"]
 description = "Local self-hosted memory contour built with LangGraph, Mem0, and Qdrant."

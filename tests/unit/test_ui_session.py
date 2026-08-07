@@ -70,6 +70,26 @@ def test_renew_session_extends_a_valid_lease(monkeypatch) -> None:
     assert registry.renew_session(renewed_token) is None
 
 
+def test_session_lease_rejects_rotated_caller_binding() -> None:
+    registry = ui_session.UiSessionRegistry()
+    principal = CallerPrincipal(
+        caller_id="pytest-ui",
+        allowed_projects=frozenset({"blackholememory"}),
+        default_project="blackholememory",
+        binding_fingerprint="binding-a",
+    )
+    rotated = CallerPrincipal(
+        caller_id=principal.caller_id,
+        allowed_projects=principal.allowed_projects,
+        default_project=principal.default_project,
+        binding_fingerprint="binding-b",
+    )
+    session_token, _ = registry.exchange_bootstrap(registry.mint_bootstrap(principal)) or ("", None)
+
+    assert registry.resolve_session(session_token, expected_principal=rotated) is None
+    assert registry.renew_session(session_token, expected_principal=rotated) is None
+
+
 def test_registry_is_bounded_and_snapshot_is_redacted(monkeypatch) -> None:
     monkeypatch.setattr(ui_session, "MAX_BOOTSTRAPS", 2)
     registry = ui_session.UiSessionRegistry()

@@ -14,8 +14,70 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
 $credential = Initialize-BhmCallerCredential
 $headers = @{ Authorization = "Bearer $env:BHM_CALLER_TOKEN" }
 
+$StreamableHttpTimeoutSec = 10
+$StreamableHttpMaxResponseBytes = 262144
+
+function Assert-StreamableValidatorUri {
+  param([Parameter(Mandatory = $true)][string]$Candidate)
+
+  $parsed = $null
+  if (-not [Uri]::TryCreate($Candidate, [UriKind]::Absolute, [ref]$parsed)) {
+    throw 'streamable HTTP validator URL is not an absolute URI'
+  }
+  $allowedHosts = @('127.0.0.1', 'localhost', '::1')
+  if ($parsed.Scheme -ne 'http' -or $allowedHosts -notcontains $parsed.Host.ToLowerInvariant()) {
+    throw 'streamable HTTP validator requires an HTTP loopback endpoint'
+  }
+  if (-not [string]::IsNullOrWhiteSpace($parsed.UserInfo)) {
+    throw 'streamable HTTP validator URL must not contain userinfo'
+  }
+  if (-not [string]::IsNullOrWhiteSpace($parsed.Fragment)) {
+    throw 'streamable HTTP validator URL must not contain a fragment'
+  }
+  return $parsed
+}
+
+function Invoke-StreamableValidatorJson {
+  param(
+    [Parameter(Mandatory = $true)][string]$Uri,
+    [hashtable]$RequestHeaders = @{}
+  )
+
+  $parsed = Assert-StreamableValidatorUri -Candidate $Uri
+  $handler = [System.Net.Http.HttpClientHandler]::new()
+  $handler.AllowAutoRedirect = $false
+  $handler.UseProxy = $false
+  $client = [System.Net.Http.HttpClient]::new($handler)
+  $client.Timeout = [TimeSpan]::FromSeconds($StreamableHttpTimeoutSec)
+  $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $parsed)
+  $response = $null
+  try {
+    foreach ($key in $RequestHeaders.Keys) {
+      $request.Headers.TryAddWithoutValidation([string]$key, [string]$RequestHeaders[$key]) | Out-Null
+    }
+    $response = $client.SendAsync(
+      $request,
+      [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+    ).GetAwaiter().GetResult()
+    if (-not $response.IsSuccessStatusCode) {
+      throw "streamable HTTP validator returned HTTP $([int]$response.StatusCode)"
+    }
+    $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+    if ($bytes.Length -gt $StreamableHttpMaxResponseBytes) {
+      throw "streamable HTTP validator response exceeded bounded limit $StreamableHttpMaxResponseBytes bytes"
+    }
+    return ([Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json)
+  }
+  finally {
+    if ($null -ne $response) { $response.Dispose() }
+    $request.Dispose()
+    $client.Dispose()
+    $handler.Dispose()
+  }
+}
+
 function Get-Json([string]$Path, [hashtable]$RequestHeaders = @{}) {
-  Invoke-RestMethod -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))$Path" -Headers $RequestHeaders -TimeoutSec 10
+  Invoke-StreamableValidatorJson -Uri "$($BaseUrl.TrimEnd('/'))$Path" -RequestHeaders $RequestHeaders
 }
 
 $health = Get-Json '/bhm/health'

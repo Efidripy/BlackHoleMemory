@@ -18,6 +18,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.config import settings
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.mem0_adapter import global_collection_name
 from blackholememory.mem0_adapter import local_collection_name
@@ -31,6 +32,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--report", type=Path)
     parser.add_argument("--summary-only", action="store_true")
     return parser.parse_args()
+
+
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    replace_bytes_safely(path, (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
 def _scopes() -> list[dict[str, str]]:
@@ -82,8 +87,7 @@ def main() -> int:
         )
         summary = _summary(plan)
         if args.report:
-            args.report.parent.mkdir(parents=True, exist_ok=True)
-            args.report.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            _write_report(args.report, plan)
         output = summary if args.summary_only else plan
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0 if summary["success"] else 1

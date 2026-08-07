@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
-from scripts.validate_public_tree import is_local, load_manifest
+from scripts.validate_public_tree import GIT_PROBE_TIMEOUT_SECONDS, _run_git, is_local, load_manifest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,3 +34,15 @@ def test_required_identity_helper_is_public() -> None:
     manifest = load_manifest(ROOT)
     assert "control/scripts/shared/BhmObservationIdentity.ps1" in manifest["required_files"]
     assert (ROOT / "control/scripts/shared/BhmObservationIdentity.ps1").is_file()
+
+
+def test_public_tree_git_probe_is_bounded_and_fails_closed(monkeypatch, tmp_path: Path) -> None:
+    calls: dict[str, object] = {}
+
+    def timeout(*_args, **kwargs):
+        calls.update(kwargs)
+        raise subprocess.TimeoutExpired(kwargs.get("args", "git"), GIT_PROBE_TIMEOUT_SECONDS)
+
+    monkeypatch.setattr(subprocess, "run", timeout)
+    assert _run_git(tmp_path, "status") is None
+    assert calls["timeout"] == GIT_PROBE_TIMEOUT_SECONDS

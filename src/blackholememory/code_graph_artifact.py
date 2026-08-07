@@ -17,6 +17,9 @@ from typing import Any, Mapping
 
 from .artifact_signature import ArtifactSignatureError
 from .artifact_signature import verify_detached_ed25519
+from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import replace_bytes_safely
+from .filesystem_boundaries import write_bytes_exclusive
 
 
 CODE_GRAPH_ARTIFACT_SCHEMA_VERSION = "bhm.code-graph.artifact.v1"
@@ -49,7 +52,8 @@ def _material_digest(items: Any, *, key: str) -> str:
 
 
 def artifact_root(runtime_dir: Path) -> Path:
-    return (Path(runtime_dir).expanduser().resolve() / "code-graph-artifacts").resolve()
+    runtime = assert_safe_path(Path(runtime_dir).expanduser())
+    return assert_safe_path(runtime / "code-graph-artifacts", reject_hardlink_target=False)
 
 
 def _safe_payload(value: Any) -> Any:
@@ -117,8 +121,8 @@ def export_graph_artifact(material: Mapping[str, Any], *, runtime_dir: Path, pro
     artifact_id = f"graph_artifact_{digest[:24]}"
     root = artifact_root(runtime_dir)
     root.mkdir(parents=True, exist_ok=True)
-    path = (root / f"{artifact_id}.json.gz").resolve()
-    path.write_bytes(compressed)
+    assert_safe_path(root, reject_hardlink_target=False)
+    path = write_bytes_exclusive(root / f"{artifact_id}.json.gz", compressed)
     manifest = {
         "schema_version": CODE_GRAPH_ARTIFACT_SCHEMA_VERSION,
         "artifact_id": artifact_id,
@@ -140,8 +144,7 @@ def export_graph_artifact(material: Mapping[str, Any], *, runtime_dir: Path, pro
         "source_persisted": False,
         "release_boundary": "runtime-only; excluded from .src/package/SBOM/release by policy",
     }
-    manifest_path = (root / f"{artifact_id}.manifest.json").resolve()
-    manifest_path.write_bytes(_canonical_json(manifest) + b"\n")
+    manifest_path = replace_bytes_safely(root / f"{artifact_id}.manifest.json", _canonical_json(manifest) + b"\n")
     return {"artifact": manifest, "path": str(path), "manifest_path": str(manifest_path)}
 
 

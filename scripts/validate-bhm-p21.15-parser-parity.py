@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from blackholememory.code_graph import PARSER_REGISTRY, PARSER_REGISTRY_DIGEST, extract_code_graph
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.repository_index import _language_for_path
 
 
@@ -21,6 +22,10 @@ FIXTURES = {
     "powershell": "function Invoke-Route { Invoke-Helper }\nfunction Invoke-Helper { return $true }\n",
     "markdown": "# Architecture\n\n## Routes\n\n- `GET /health`\n",
 }
+
+
+def _write_report(path: Path, report: dict[str, Any]) -> None:
+    replace_bytes_safely(path, (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def _sha256(payload: bytes) -> str:
@@ -86,8 +91,7 @@ def main() -> int:
     parser.add_argument("--report", type=Path, required=True)
     args = parser.parse_args()
     report = validate(args.repo_root.resolve())
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps({"ok": report["ok"], "languages": report["fixture_languages"], "errors": report["fixture_errors"], "stable": report["stable_graph_digest"]}, indent=2))
     return 0 if report["ok"] else 1
 

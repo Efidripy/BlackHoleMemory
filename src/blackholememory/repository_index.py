@@ -19,7 +19,10 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
+from .filesystem_boundaries import FilesystemBoundaryError
+from .filesystem_boundaries import assert_safe_path
 from .observation_security import contains_secret_like
+from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 
 
 REPOSITORY_INDEX_SCHEMA_VERSION = "bhm.repository-index.v1"
@@ -595,7 +598,7 @@ def _run_git(root: Path, args: Sequence[str], *, allow_failure: bool = False) ->
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=30,
+        timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0 and not allow_failure:
         detail = completed.stderr.strip() or completed.stdout.strip()
@@ -619,7 +622,15 @@ def _normalize_relative_path(raw: str) -> str:
 
 
 def _resolved_candidate(root: Path, relative: str) -> Path:
-    candidate = (root / Path(relative)).resolve()
+    lexical = root / Path(relative)
+    try:
+        # Inspect the lexical path before resolve(); resolving first erases
+        # symlink/junction provenance and can turn a hardlink into an ordinary
+        # file from the indexer's point of view.
+        assert_safe_path(lexical)
+    except FilesystemBoundaryError as exc:
+        raise RepositoryRootError(f"filesystem boundary candidate: {relative}") from exc
+    candidate = lexical.resolve()
     if candidate == root or root not in candidate.parents:
         raise RepositoryRootError(f"candidate escapes repository root: {relative}")
     return candidate
@@ -728,6 +739,10 @@ def probe_repository_state(
 
     active_limits = limits or RepositoryIndexLimits()
     # lgtm [py/path-injection]
+    try:
+        assert_safe_path(Path(root).expanduser())
+    except FilesystemBoundaryError as exc:
+        raise RepositoryRootError(f"repository root crosses a filesystem boundary: {root}") from exc
     base = Path(root).expanduser().resolve()
     if not base.is_dir():
         raise RepositoryRootError(f"repository root is not a directory: {root}")
@@ -753,7 +768,11 @@ def probe_repository_state(
                 skips.append(RepositorySkip(path=relative, reason="symlink"))
                 continue
             stat_result = path.stat()
-        except (OSError, RepositoryRootError):
+        except RepositoryRootError as exc:
+            reason = "filesystem-boundary" if "filesystem boundary" in str(exc) else "unreadable"
+            skips.append(RepositorySkip(path=relative, reason=reason))
+            continue
+        except OSError:
             skips.append(RepositorySkip(path=relative, reason="unreadable"))
             continue
         size = int(stat_result.st_size)

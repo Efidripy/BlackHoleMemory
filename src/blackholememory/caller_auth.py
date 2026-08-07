@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import hashlib
 import hmac
+import json
 import os
 from typing import Any, Iterable, Mapping
 
@@ -16,6 +18,7 @@ CALLER_TOKEN_ENV = "BHM_CALLER_TOKEN"
 CALLER_ID_ENV = "BHM_CALLER_ID"
 CALLER_PROJECTS_ENV = "BHM_CALLER_PROJECTS"
 CALLER_DEFAULT_PROJECT_ENV = "BHM_CALLER_DEFAULT_PROJECT"
+CALLER_PROJECT_ROOTS_ENV = "BHM_CALLER_PROJECT_ROOTS"
 CALLER_AUTH_SCHEME = "Bearer"
 MAX_PROJECT_INSPECTION_BYTES = 1_048_576
 
@@ -32,7 +35,6 @@ _ANONYMOUS_EXACT_PATHS = frozenset(
         "/health/live",
         "/health/ready",
         "/bhm/galaxy",
-        "/bhm/ui/session/bootstrap",
         "/bhm/ui/session/exchange",
     }
 )
@@ -48,14 +50,108 @@ _AUTH_ONLY_EXACT_PATHS = frozenset(
         "/bhm/health",
         "/bhm/health/slo",
         "/bhm/infra/boot-report",
+        "/bhm/ui/boot-report",
         "/bhm/ui/session/mint",
+        "/bhm/ui/session/bootstrap",
         "/bhm/ui/session/status",
         "/bhm/ui/session/renew",
         "/graph/status",
+        # These endpoints expose bounded process/capability aggregates only;
+        # they do not return project-bearing memory or artifact records.
+        "/bhm/llm/capabilities",
+        "/bhm/llm/model-router",
+        "/bhm/llm/cache",
+        "/bhm/hooks/queue/status",
     }
 )
 _AUTH_ONLY_PREFIXES = ("/bhm/mcp/", "/bhm/telemetry/")
 _PROJECT_EXACT_PATHS = frozenset({"/mem0/search", "/bhm/telemetry/feedback-tuning"})
+_EXPLICIT_PROJECT_SCOPE_PATHS = frozenset(
+    {
+        # Per-resource reads/writes must carry their project even for an
+        # all-projects principal; aggregate maintenance uses its own explicit
+        # `aggregate=true` contract instead.
+        "/bhm/memory",
+        "/bhm/memory/update",
+        "/bhm/memory/archive",
+        "/bhm/memory/confidence",
+        "/bhm/memory/pin",
+        "/bhm/memory/vote-quality",
+        "/bhm/memory/lint",
+        "/bhm/memory/source-refs",
+        "/bhm/memory/source-refs/replace",
+        "/bhm/memory/source-refs/detach",
+        "/bhm/memory/source-refs/batch",
+        "/bhm/memory/restore",
+        "/bhm/memory/restore-batch",
+        "/bhm/memory/compact",
+        "/bhm/memory/type-migrate",
+        "/bhm/memory/redact",
+        "/bhm/memory/alias/add",
+        "/bhm/memory/alias/remove",
+        "/bhm/memory/alias/resolve",
+        "/bhm/memory/schema-validate",
+        "/bhm/memory/changelog",
+        "/bhm/memory/used",
+        "/bhm/memory/restore-hard-deleted-preview",
+        "/bhm/memory/timeline",
+        "/bhm/recent-activity",
+        "/bhm/memories/pinned",
+        "/bhm/memories/archived",
+        "/bhm/memories/by-concept",
+        "/bhm/memories/by-type",
+        "/bhm/query-suggestions",
+        "/bhm/memory/diff",
+        "/bhm/memory/merge",
+        "/bhm/memory/merge-preview",
+        "/bhm/memory/hard",
+        "/bhm/memories/batch-archive",
+        "/bhm/memories/batch-delete",
+        "/bhm/memories/batch-link",
+        "/bhm/memories/batch-unlink",
+        "/bhm/artifact/delete",
+        "/bhm/artifact/restore",
+        "/bhm/artifact/relink",
+        "/bhm/artifact/batch-delete",
+        "/bhm/artifact/batch-relink",
+        "/bhm/artifact/batch-restore",
+        "/bhm/policy/enforce-memory",
+        "/bhm/integrity-audit",
+        "/bhm/audit",
+        "/bhm/artifact-integrity-audit",
+        "/bhm/project-summary/list",
+        "/bhm/link-graph-stats",
+        "/bhm/memory/staleness-report",
+        "/bhm/memory/review-queue",
+        "/bhm/memory/triage-queue",
+        "/bhm/project-memory-heatmap",
+        "/bhm/project-summary/compare",
+        "/bhm/memory/usage-stats",
+        "/bhm/artifact/usage-stats",
+        "/bhm/link/orphan-scan",
+        "/bhm/project-map/compare",
+        "/bhm/validation/trend-report",
+        "/bhm/alias/stats",
+        "/bhm/project-similarity-report",
+        "/bhm/relation-suggest",
+        "/bhm/recent-failures-feed",
+        "/bhm/overlap/report",
+        "/bhm/entity-catalog/get",
+        "/bhm/artifact/list-by-type",
+        "/bhm/artifact/usage-stats",
+        "/bhm/memory/gc-candidates",
+        "/bhm/memory/compaction-report",
+        "/bhm/link/cycle-detect",
+        "/bhm/agent-activity-rollup",
+        "/bhm/project-memory-heatmap",
+        "/bhm/alias/stats",
+        "/bhm/memory/secret-scan",
+        "/bhm/review-queue/apply",
+        "/bhm/triage-queue/apply",
+        "/bhm/schema/validate-strict",
+        "/bhm/memory/normalize-metadata",
+    }
+)
 _PROJECT_KEYS = frozenset(
     {
         "project",
@@ -78,6 +174,9 @@ class CallerPrincipal:
     allowed_projects: frozenset[str]
     default_project: str
     all_projects: bool = False
+    # Non-secret binding of the current caller credential/configuration. This
+    # digest lets in-memory UI leases fail closed when that contract rotates.
+    binding_fingerprint: str = ""
 
 
 class CallerRoutePolicy(StrEnum):
@@ -146,11 +245,23 @@ def configured_caller_principal() -> CallerPrincipal | None:
     )
     if not all_projects and not allowed:
         return None
+    binding_payload = {
+        "schema_version": "bhm.caller.binding.v1",
+        "token_sha256": hashlib.sha256(configured_caller_token().encode("utf-8")).hexdigest(),
+        "caller_id": caller_id,
+        "raw_projects": raw_projects,
+        "default_project": default_project,
+        "project_roots": _configured_env_value(CALLER_PROJECT_ROOTS_ENV),
+    }
+    binding_fingerprint = hashlib.sha256(
+        json.dumps(binding_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     return CallerPrincipal(
         caller_id=caller_id,
         allowed_projects=allowed,
         default_project=default_project,
         all_projects=all_projects,
+        binding_fingerprint=binding_fingerprint,
     )
 
 
@@ -183,6 +294,13 @@ def caller_route_policy_is_explicit(path: str, method: str) -> bool:
 
 def caller_route_requires_auth(path: str, method: str) -> bool:
     return caller_route_policy(path, method) is not CallerRoutePolicy.EXEMPT
+
+
+def caller_project_scope_requires_explicit(path: str, method: str) -> bool:
+    """Require an explicit project for project-bearing diagnostics/reports."""
+
+    del method
+    return "/" + str(path or "").lstrip("/") in _EXPLICIT_PROJECT_SCOPE_PATHS
 
 
 def _project_values(value: Any) -> Iterable[str]:
@@ -236,6 +354,52 @@ def authorize_projects(
     return None
 
 
+def configured_project_roots() -> dict[str, str]:
+    """Parse optional JSON project-to-canonical-root bindings."""
+
+    raw = _configured_env_value(CALLER_PROJECT_ROOTS_ENV)
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        canonical_project_id(str(project)): str(root).strip()
+        for project, root in payload.items()
+        if str(project).strip() and str(root).strip()
+    }
+
+
+def authorize_project_root(
+    principal: CallerPrincipal,
+    project: str,
+    root: str | os.PathLike[str],
+    *,
+    default_root: str | os.PathLike[str] | None = None,
+) -> str | None:
+    """Bind a scoped caller's project to its canonical repository root."""
+
+    if principal.all_projects:
+        return None
+    canonical = canonical_project_id(project)
+    expected = configured_project_roots().get(canonical)
+    if expected is None and canonical == get_default_project_registry().default_project and default_root is not None:
+        expected = os.fspath(default_root)
+    if not expected:
+        return "caller_project_root_not_configured"
+    try:
+        expected_real = os.path.realpath(os.path.expanduser(expected))
+        supplied_real = os.path.realpath(os.path.expanduser(os.fspath(root)))
+    except (TypeError, ValueError):
+        return "caller_project_root_forbidden"
+    if not expected_real or not supplied_real or expected_real != supplied_real:
+        return "caller_project_root_forbidden"
+    return None
+
+
 def caller_authorization_error(
     authorization: str | None,
     *project_sources: Any,
@@ -254,13 +418,17 @@ __all__ = [
     "CALLER_DEFAULT_PROJECT_ENV",
     "CALLER_ID_ENV",
     "CALLER_PROJECTS_ENV",
+    "CALLER_PROJECT_ROOTS_ENV",
     "CALLER_TOKEN_ENV",
     "CallerPrincipal",
     "authorize_projects",
+    "authorize_project_root",
     "caller_authorization_error",
     "caller_route_requires_auth",
+    "caller_project_scope_requires_explicit",
     "caller_route_policy_is_explicit",
     "configured_caller_principal",
+    "configured_project_roots",
     "configured_caller_token",
     "extract_request_projects",
     "is_caller_token_valid",

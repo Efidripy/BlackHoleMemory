@@ -36,6 +36,7 @@ from blackholememory.hook_queue import HookJobCollision
 from blackholememory.hook_queue import HookJobQueue
 from blackholememory.hook_queue import HookQueueFull
 from blackholememory.infra.mcp_broker import McpIpcBroker
+from blackholememory.llm_gateway import GatewayResult
 from blackholememory.mem0_adapter import BHMGraphManager
 from blackholememory.mem0_adapter import StorageNotReady
 from blackholememory.mem0_adapter import lexical_score
@@ -580,17 +581,18 @@ def test_admin_rest_route_requires_capability(monkeypatch):
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "unit-admin-capability")
     client = TestClient(bhm_app.app)
 
-    denied = client.request("DELETE", "/bhm/memory/hard", json={})
+    payload = {"id": "missing", "project": "blackholememory"}
+    denied = client.request("DELETE", "/bhm/memory/hard", json=payload)
     allowed = client.request(
         "DELETE",
         "/bhm/memory/hard",
-        json={},
+        json=payload,
         headers={"X-BHM-Admin-Capability": "unit-admin-capability"},
     )
 
     assert denied.status_code == 403
     assert denied.json()["detail"]["code"] == "admin_capability_required"
-    assert allowed.status_code == 422
+    assert allowed.status_code == 404
 
 
 def test_mcp_gateway_core_surface_rejects_admin_tool_before_dispatch(monkeypatch):
@@ -737,6 +739,86 @@ def test_pure_cutover_modern_route_methods_registered():
     assert "POST" in route_methods["/bhm/memory/timeline"]
     assert "GET" in route_methods["/bhm/profile"]
     assert "GET" in route_methods["/bhm/retention/status"]
+
+
+def test_fact_synthesis_uses_shared_sync_gateway_transport(monkeypatch):
+    """Fact synthesis must use the gateway's bounded sync adapter path."""
+
+    calls: dict[str, object] = {}
+
+    class SyncOnlyAdapter:
+        def complete(self, request, *, prompt, model):
+            calls["adapter_request"] = request
+            calls["prompt"] = prompt
+            calls["model"] = model
+            return GatewayResult(
+                request_id=request.request_id,
+                model_id=model.model_id,
+                ok=True,
+                content=json.dumps(
+                    {
+                        "core_insight": "shared transport is enforced",
+                        "root_cause_resolved": "ad-hoc async transport bypass removed",
+                        "reusable_patterns": ["reuse gateway policy"],
+                        "tags": ["transport"],
+                        "importance_score": 7,
+                        "domain": "backend",
+                        "priority": "high",
+                        "semantic_type": "bugfix",
+                    }
+                ),
+                usage={"prompt_tokens": 11, "completion_tokens": 13, "total_tokens": 24},
+            )
+
+    async def fake_to_thread(func, *args, **kwargs):
+        calls["thread_target"] = func
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(bhm_app, "LocalOpenAICompatibleAdapter", SyncOnlyAdapter)
+    monkeypatch.setattr(bhm_app.asyncio, "to_thread", fake_to_thread)
+
+    request = bhm_app.FactSynthesisRequest(
+        project_name="BlackHoleMemory",
+        session_id="fact-synthesis-regression",
+        three_zone_context=bhm_app.FactSynthesisThreeZoneContext(
+            Active=["active evidence"],
+            Compress=["compressed evidence"],
+            Frozen=["frozen evidence"],
+        ),
+    )
+
+    fact, tokens = asyncio.run(bhm_app._call_fact_synthesis_llm(request))
+
+    assert fact["core_insight"] == "shared transport is enforced"
+    assert tokens == {"prompt": 11, "completion": 13, "total": 24}
+    assert callable(calls["thread_target"])
+    assert calls["thread_target"].__name__ == "complete"
+    assert calls["adapter_request"].prompt_id == "fact-synthesis"
+    assert calls["prompt"].output_mode == "json"
+    assert calls["model"].local_only is True
+
+
+def test_fact_synthesis_provider_failure_uses_explicit_safe_fallback(monkeypatch):
+    async def fail_provider(_request):
+        raise TimeoutError("provider timeout")
+
+    monkeypatch.setattr(bhm_app, "_call_fact_synthesis_llm", fail_provider)
+    monkeypatch.setenv("BHM_FALLBACK_MODE", "explicit")
+
+    request = bhm_app.FactSynthesisRequest(
+        project_name="BlackHoleMemory",
+        session_id="fact-synthesis-fallback-regression",
+        three_zone_context=bhm_app.FactSynthesisThreeZoneContext(Active=["safe fallback evidence"]),
+    )
+
+    response = asyncio.run(bhm_app.bhm_synthesis_fact_crystal(request))
+
+    assert response["ok"] is True
+    assert response["synthesis"]["mode"] == "fallback"
+    assert response["synthesis"]["degraded"] is True
+    assert response["synthesis"]["fallback_reason"] == "provider_unavailable"
+    assert response["synthesis"]["tokens"] == {"prompt": 0, "completion": 0, "total": 0}
+    assert response["fact_crystal"]["core_insight"]
 
 
 def test_hook_compact_triggers_crystallization(monkeypatch):
@@ -987,6 +1069,22 @@ def test_hook_queue_status_tolerates_sidecar_checkpoint_race(tmp_path, monkeypat
 
     monkeypatch.setattr(Path, "stat", race_stat)
     assert queue.status()["walBytes"] == 0
+
+
+def test_hook_job_status_rechecks_stored_project_scope(monkeypatch, tmp_path):
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    queue = HookJobQueue(tmp_path / "hook-jobs-scoped.sqlite3", capacity=4)
+    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    payload = {**_hook_queue_payload("obs_hook_queue_scoped"), "project": "other-project"}
+    created = queue.enqueue("compact", payload, priority=10)
+
+    response = TestClient(bhm_app.app).get(
+        f"/bhm/hooks/jobs/{created.job_id}",
+        params={"project": "blackholememory"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "caller_project_forbidden"
 
 
 def test_observation_status_tolerates_sidecar_checkpoint_race(tmp_path, monkeypatch):
@@ -1562,6 +1660,22 @@ def test_observation_security_enforces_input_and_sanitized_limits():
             max_sanitized_bytes=1024,
         )
     assert output_error.value.stage == "sanitized"
+
+
+def test_observation_security_redacts_before_long_key_truncation():
+    key = "password" + ("A" * 300)
+    secured = secure_observation_payload(
+        {
+            "hookType": "codex_post_tool_use",
+            "sessionId": "security-long-key",
+            "project": "blackholememory",
+            "cwd": str(WORKSPACE_ROOT),
+            "data": {key: "plain-secret-value"},
+        }
+    )
+
+    assert "plain-secret-value" not in json.dumps(secured, ensure_ascii=False)
+    assert secured["metadata"]["security"]["redactionCount"] >= 1
 
 
 def test_p1_9_secret_ingress_matrix_redacts_before_persistence(monkeypatch, tmp_path):
@@ -2641,6 +2755,12 @@ def test_search_does_not_mutate_access_feedback_on_simple_display(monkeypatch):
     assert response.status_code == 200
     assert response.json()["memories"][0]["id"] == "mem-display-only"
     assert scheduled == []
+    assert response.json()["side_effects"] == {
+        "read_only": True,
+        "sqlite_mutation": False,
+        "qdrant_mutation": False,
+        "projection_mutation": False,
+    }
 
 
 def test_context_compile_is_bounded_and_fails_closed_on_project_archive_and_log_leakage(monkeypatch):
@@ -2721,6 +2841,12 @@ def test_context_compile_is_bounded_and_fails_closed_on_project_archive_and_log_
     assert "cross project" not in payload["context"]
     assert "archived data" not in payload["context"]
     assert "raw log" not in payload["context"]
+    assert payload["side_effects"] == {
+        "read_only": True,
+        "sqlite_mutation": False,
+        "qdrant_mutation": False,
+        "projection_mutation": False,
+    }
 
 
 def test_mcp_context_compile_wrapper_posts_bounded_contract(monkeypatch):
@@ -2831,6 +2957,8 @@ def test_explain_retrieval_returns_rank_and_routing_diagnostics_without_raw_meta
     assert "semantic_match" in payload["results"][0]["reason_codes"]
     assert "secret_like" not in payload["results"][0]
     assert "wrong project" not in payload["results"][0]["content_preview"]
+    assert payload["side_effects"]["read_only"] is True
+    assert payload["side_effects"]["qdrant_mutation"] is False
 
 
 def test_mcp_explain_retrieval_wrapper_posts_filters(monkeypatch):
@@ -2949,6 +3077,13 @@ def test_memory_used_records_only_explicit_live_project_access(monkeypatch):
     assert payload["missing_ids"] == ["other-source", "archived-source", "log-source"]
     assert payload["reason"] == "context accepted"
     assert len(scheduled) == 1
+    assert payload["side_effects"] == {
+        "read_only": False,
+        "sqlite_mutation": False,
+        "qdrant_mutation": True,
+        "projection_mutation": True,
+        "projection_update": "explicit-access-feedback",
+    }
     assert scheduled[0][0]["metadata"]["source_id"] == "used-source"
 
 

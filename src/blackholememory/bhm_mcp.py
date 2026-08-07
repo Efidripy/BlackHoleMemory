@@ -2,17 +2,36 @@ from __future__ import annotations
 
 import json
 import os
-from enum import Enum
 from pathlib import Path
+from typing import Annotated
 from typing import Any
+from typing import Literal
 
 import httpx
 from fastmcp import FastMCP
 from pydantic import BaseModel
-from pydantic import ConfigDict
 from pydantic import Field
 
 from .config import settings
+from . import memory_contracts as _memory_contracts
+from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
+from .local_endpoint_policy import MAX_RESPONSE_BYTES
+from .local_endpoint_policy import validate_local_endpoint
+from .resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+
+MemoryMetadata = _memory_contracts.MemoryMetadata
+MetadataActionability = _memory_contracts.MetadataActionability
+MetadataDomain = _memory_contracts.MetadataDomain
+MetadataLanguage = _memory_contracts.MetadataLanguage
+MetadataLifecycle = _memory_contracts.MetadataLifecycle
+MetadataPriority = _memory_contracts.MetadataPriority
+MetadataProvenance = _memory_contracts.MetadataProvenance
+MetadataRetention = _memory_contracts.MetadataRetention
+MetadataScope = _memory_contracts.MetadataScope
+MetadataSemanticType = _memory_contracts.MetadataSemanticType
+MetadataSensitivity = _memory_contracts.MetadataSensitivity
+MetadataStakeholder = _memory_contracts.MetadataStakeholder
+MetadataVerification = _memory_contracts.MetadataVerification
 
 DEFAULT_PROJECT = "e-github-workspace"
 DEFAULT_BASE_URL = os.getenv("BHM_MCP_BASE_URL", f"http://{settings.host}:{settings.port}")
@@ -23,7 +42,8 @@ TAXONOMY_METADATA_HINT = (
     "scope=global|service|feature|local; retention=transient|short-term|long-term|permanent; "
     "verification=unverified|peer-reviewed|trusted; actionability=task|info|decision|query; "
     "stakeholder=core-team|devops|frontend-squad|product-owner; language=en|ru|code-python|code-ts; "
-    "semantic_type=architecture|bugfix|feature|refactor|knowledge|fact|log|error|decision-log|requirement; version=string."
+    "semantic_type=architecture|bugfix|feature|refactor|knowledge|fact|log|error|decision-log|requirement; "
+    "version=string; importance_score=1..10."
 )
 
 mcp = FastMCP(
@@ -38,124 +58,10 @@ mcp = FastMCP(
 )
 
 
-class MetadataLifecycle(str, Enum):
-    DRAFT = "draft"
-    VALIDATED = "validated"
-    DEPRECATED = "deprecated"
-    ARCHIVED = "archived"
-
-
-class MetadataProvenance(str, Enum):
-    GITHUB = "github"
-    MCP = "mcp"
-    LLM = "llm"
-    HUMAN = "human"
-    SYNTHETIC = "synthetic"
-
-
-class MetadataPriority(str, Enum):
-    CRITICAL = "critical"
-    HIGH = "high"
-    MEDIUM = "medium"
-    LOW = "low"
-    NORMAL = "normal"
-    TRIVIAL = "trivial"
-
-
-class MetadataDomain(str, Enum):
-    FRONTEND = "frontend"
-    BACKEND = "backend"
-    INFRA = "infra"
-    SECURITY = "security"
-    PRODUCT = "product"
-    GENERAL = "general"
-
-
-class MetadataSensitivity(str, Enum):
-    PUBLIC = "public"
-    INTERNAL = "internal"
-    RESTRICTED = "restricted"
-
-
-class MetadataScope(str, Enum):
-    GLOBAL = "global"
-    SERVICE = "service"
-    FEATURE = "feature"
-    LOCAL = "local"
-
-
-class MetadataRetention(str, Enum):
-    TRANSIENT = "transient"
-    SHORT_TERM = "short-term"
-    LONG_TERM = "long-term"
-    PERMANENT = "permanent"
-
-
-class MetadataVerification(str, Enum):
-    UNVERIFIED = "unverified"
-    PEER_REVIEWED = "peer-reviewed"
-    TRUSTED = "trusted"
-
-
-class MetadataActionability(str, Enum):
-    TASK = "task"
-    INFO = "info"
-    DECISION = "decision"
-    QUERY = "query"
-
-
-class MetadataStakeholder(str, Enum):
-    CORE_TEAM = "core-team"
-    DEVOPS = "devops"
-    FRONTEND_SQUAD = "frontend-squad"
-    PRODUCT_OWNER = "product-owner"
-
-
-class MetadataLanguage(str, Enum):
-    EN = "en"
-    RU = "ru"
-    CODE_PYTHON = "code-python"
-    CODE_TS = "code-ts"
-
-
-class MetadataSemanticType(str, Enum):
-    ARCHITECTURE = "architecture"
-    BUGFIX = "bugfix"
-    FEATURE = "feature"
-    REFACTOR = "refactor"
-    KNOWLEDGE = "knowledge"
-    FACT = "fact"
-    LOG = "log"
-    ERROR = "error"
-    DECISION_LOG = "decision-log"
-    REQUIREMENT = "requirement"
-
-
-class MemoryMetadata(BaseModel):
-    model_config = ConfigDict(extra="allow", use_enum_values=True)
-
-    lifecycle: MetadataLifecycle | None = Field(default=None, description="draft/validated/deprecated/archived")
-    provenance: MetadataProvenance | None = Field(default=None, description="github/mcp/llm/human/synthetic")
-    priority: MetadataPriority | None = Field(default=None, description="critical/high/medium/low; normal/trivial are legacy aliases")
-    domain: MetadataDomain | None = Field(default=None, description="frontend/backend/infra/security/product/general")
-    sensitivity: MetadataSensitivity | None = Field(default=None, description="public/internal/restricted")
-    scope: MetadataScope | None = Field(default=None, description="global/service/feature/local")
-    retention: MetadataRetention | None = Field(default=None, description="transient/short-term/long-term/permanent")
-    verification: MetadataVerification | None = Field(default=None, description="unverified/peer-reviewed/trusted")
-    actionability: MetadataActionability | None = Field(default=None, description="task/info/decision/query")
-    stakeholder: MetadataStakeholder | None = Field(default=None, description="core-team/devops/frontend-squad/product-owner")
-    language: MetadataLanguage | None = Field(default=None, description="en/ru/code-python/code-ts")
-    semantic_type: MetadataSemanticType | None = Field(
-        default=None,
-        description="architecture/bugfix/feature/refactor/knowledge; fact/log/error/decision-log/requirement are legacy values",
-    )
-    version: str | None = Field(default=None, description='Taxonomy version, for example "1.0".')
-
-
 class BhmBatchUpsertItem(BaseModel):
     upsert_key: str
     content: str
-    project: str = DEFAULT_PROJECT
+    project: str | None = None
     memory_type: str = "workflow"
     concepts: list[str] | None = None
     files: list[str] | None = None
@@ -187,6 +93,10 @@ def _read_process_or_user_env_value(key: str) -> str | None:
 
 
 def _client() -> httpx.Client:
+    # The MCP compatibility bridge is local-only. Validate the configured
+    # origin before constructing an authenticated client so a malformed or
+    # remote BHM_MCP_BASE_URL can never receive the caller bearer token.
+    base_url = validate_local_endpoint(DEFAULT_BASE_URL)
     caller_token = _read_process_or_user_env_value("BHM_CALLER_TOKEN")
     if not caller_token:
         raise RuntimeError("BHM caller credential is unavailable; initialize BHM_CALLER_TOKEN before using MCP")
@@ -203,10 +113,28 @@ def _client() -> httpx.Client:
     if admin_capability:
         headers["x-bhm-admin-capability"] = admin_capability
     return httpx.Client(
-        base_url=DEFAULT_BASE_URL,
-        timeout=15.0,
+        base_url=base_url,
+        timeout=float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS),
         headers=headers,
+        follow_redirects=False,
+        trust_env=False,
     )
+
+
+def _bounded_json_response(response: httpx.Response) -> Any:
+    """Reject oversized MCP→REST responses before JSON parsing."""
+
+    content_length = response.headers.get("content-length")
+    if content_length:
+        try:
+            declared_length = int(content_length)
+        except ValueError as exc:
+            raise ValueError("MCP REST response has invalid content-length") from exc
+        if declared_length < 0 or declared_length > MAX_RESPONSE_BYTES:
+            raise ValueError("MCP REST response exceeded bounded limit")
+    if len(response.content) > MAX_RESPONSE_BYTES:
+        raise ValueError("MCP REST response exceeded bounded limit")
+    return response.json()
 
 
 def _read_native_env_value(key: str) -> str | None:
@@ -289,27 +217,27 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     with _client() as client:
         response = client.get(path, params=params)
         response.raise_for_status()
-        return response.json()
+        return _bounded_json_response(response)
 
 
 def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
     with _client() as client:
         response = client.post(path, json=body)
         response.raise_for_status()
-        return response.json()
+        return _bounded_json_response(response)
 
 
 def _delete(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     with _client() as client:
         response = client.delete(path, params=params)
         response.raise_for_status()
-        return response.json()
+        return _bounded_json_response(response)
 
 
 @mcp.tool(name="bhm_health", description="Check BHM readiness, cutover state, and native BHM health.")
 def bhm_health() -> dict[str, Any]:
     return {
-        "base_url": DEFAULT_BASE_URL,
+        "base_url": validate_local_endpoint(DEFAULT_BASE_URL),
         "ready": _get("/health/ready"),
         "cutover": _get("/health/cutover"),
         "bhm": _get("/bhm/health"),
@@ -360,9 +288,9 @@ def bhm_preflight(project: str = DEFAULT_PROJECT, query: str | None = None, limi
 
 @mcp.tool(name="bhm_search", description="Native BHM search with default taxonomy routing: archived/log/error records are excluded unless explicitly requested.")
 def bhm_search(
-    query: str,
+    query: str = "",
     project: str | None = None,
-    limit: int = 5,
+    limit: int = 10,
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
@@ -391,8 +319,8 @@ def bhm_context_compile(
     query: str,
     project: str | None = None,
     profile: str | None = None,
-    token_budget: int | None = None,
-    limit: int | None = None,
+    token_budget: Annotated[int | None, Field(ge=64, le=MAX_CONTEXT_TOKEN_BUDGET)] = None,
+    limit: Annotated[int | None, Field(ge=1, le=50)] = None,
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
@@ -426,7 +354,7 @@ def bhm_context_compile(
 def bhm_explain_retrieval(
     query: str,
     project: str | None = None,
-    limit: int = 10,
+    limit: Annotated[int, Field(ge=1, le=50)] = 10,
     memory_type: str | None = None,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
@@ -463,7 +391,7 @@ def bhm_explain_retrieval(
 def bhm_memory_used(
     ids_csv: str,
     project: str | None = None,
-    reason: str = "",
+    reason: Annotated[str, Field(max_length=200)] = "",
 ) -> dict[str, Any]:
     body: dict[str, Any] = {"ids": _parse_csv(ids_csv) or [], "reason": reason}
     if project:
@@ -534,10 +462,10 @@ def bhm_forget_preview(
     memory_ids_csv: str | None = None,
     upsert_keys_csv: str | None = None,
     project: str | None = None,
-    operation: str = "tombstone",
-    reason: str = "forget",
-    undo_window_seconds: int = 900,
-    limit: int = 50,
+    operation: Literal["tombstone", "undo"] = "tombstone",
+    reason: Annotated[str, Field(max_length=200)] = "forget",
+    undo_window_seconds: Annotated[int, Field(ge=1, le=604800)] = 900,
+    limit: Annotated[int, Field(ge=1, le=200)] = 50,
 ) -> dict[str, Any]:
     return _post(
         "/bhm/forget/preview",
@@ -555,14 +483,14 @@ def bhm_forget_preview(
 
 @mcp.tool(name="bhm_forget_apply", description="Apply a previously previewed reversible BHM forget plan; requires admin capability.")
 def bhm_forget_apply(
-    preview_digest: str,
+    preview_digest: Annotated[str, Field(min_length=64, max_length=64)],
     memory_ids_csv: str | None = None,
     upsert_keys_csv: str | None = None,
     project: str | None = None,
-    operation: str = "tombstone",
-    reason: str = "forget",
-    undo_window_seconds: int = 900,
-    limit: int = 50,
+    operation: Literal["tombstone", "undo"] = "tombstone",
+    reason: Annotated[str, Field(max_length=200)] = "forget",
+    undo_window_seconds: Annotated[int, Field(ge=1, le=604800)] = 900,
+    limit: Annotated[int, Field(ge=1, le=200)] = 50,
     confirm: bool = False,
 ) -> dict[str, Any]:
     return _post(
@@ -1070,8 +998,8 @@ def bhm_session_record_list(project: str | None = None, limit: int = 20, offset:
 
 @mcp.tool(name="bhm_task_open", description="Open or resume an idempotent BHM task and its canonical session record.")
 def bhm_task_open(
-    task_id: str,
-    intent: str,
+    task_id: Annotated[str, Field(min_length=1, max_length=256)],
+    intent: Annotated[str, Field(min_length=1, max_length=8000)],
     project: str = DEFAULT_PROJECT,
     title: str = "",
     scope_in_csv: str | None = None,
@@ -1106,7 +1034,7 @@ def bhm_task_open(
 
 @mcp.tool(name="bhm_task_close", description="Close an idempotent BHM task and update its canonical session record once.")
 def bhm_task_close(
-    task_id: str,
+    task_id: Annotated[str, Field(min_length=1, max_length=256)],
     project: str = DEFAULT_PROJECT,
     done: str = "",
     next_step: str = "",
@@ -1318,54 +1246,54 @@ def bhm_memory_restore_from_archive(id: str, project: str | None = None) -> dict
 
 
 @mcp.tool(name="bhm_batch_upsert", description=f"Batch upsert multiple live BHM memories with typed item objects. {TAXONOMY_METADATA_HINT}")
-def bhm_batch_upsert(items: list[BhmBatchUpsertItem]) -> dict[str, Any]:
+def bhm_batch_upsert(items: list[BhmBatchUpsertItem], project: str | None = None) -> dict[str, Any]:
     return _post(
         "/bhm/memories/batch-upsert",
-        {"items": [_batch_upsert_item_payload(item) for item in items]},
+        {"project": project, "items": [_batch_upsert_item_payload(item) for item in items]},
     )
 
 
 @mcp.tool(name="bhm_batch_link", description=f"Batch create explicit memory links with typed item objects. {TAXONOMY_METADATA_HINT}")
-def bhm_batch_link(items: list[BhmBatchLinkItem]) -> dict[str, Any]:
+def bhm_batch_link(items: list[BhmBatchLinkItem], project: str | None = None) -> dict[str, Any]:
     return _post(
         "/bhm/memories/batch-link",
-        {"items": [_batch_link_item_payload(item) for item in items]},
+        {"project": project, "items": [_batch_link_item_payload(item) for item in items]},
     )
 
 
 @mcp.tool(name="bhm_batch_upsert_memories", description="Compatibility JSON wrapper for bhm_batch_upsert.")
-def bhm_batch_upsert_memories(items_json: str) -> dict[str, Any]:
-    return _post("/bhm/memories/batch-upsert", {"items": _jsonable_or_text(items_json) or []})
+def bhm_batch_upsert_memories(items_json: str, project: str | None = None) -> dict[str, Any]:
+    return _post("/bhm/memories/batch-upsert", {"project": project, "items": _jsonable_or_text(items_json) or []})
 
 
 @mcp.tool(name="bhm_batch_attach_source_refs", description="Batch attach canonical source references to multiple live BHM memories.")
-def bhm_batch_attach_source_refs(items_json: str) -> dict[str, Any]:
-    return _post("/bhm/memory/source-refs/batch", {"items": _jsonable_or_text(items_json) or []})
+def bhm_batch_attach_source_refs(items_json: str, project: str | None = None) -> dict[str, Any]:
+    return _post("/bhm/memory/source-refs/batch", {"project": project, "items": _jsonable_or_text(items_json) or []})
 
 
 @mcp.tool(name="bhm_batch_archive_memories", description="Batch archive multiple live BHM memories.")
-def bhm_batch_archive_memories(items_json: str) -> dict[str, Any]:
-    return _post("/bhm/memories/batch-archive", {"items": _jsonable_or_text(items_json) or []})
+def bhm_batch_archive_memories(items_json: str, project: str | None = None) -> dict[str, Any]:
+    return _post("/bhm/memories/batch-archive", {"project": project, "items": _jsonable_or_text(items_json) or []})
 
 
 @mcp.tool(name="bhm_batch_delete_memories", description="Batch delete multiple live BHM memories from the live store.")
-def bhm_batch_delete_memories(items_json: str) -> dict[str, Any]:
-    return _post("/bhm/memories/batch-delete", {"items": _jsonable_or_text(items_json) or []})
+def bhm_batch_delete_memories(items_json: str, project: str | None = None) -> dict[str, Any]:
+    return _post("/bhm/memories/batch-delete", {"project": project, "items": _jsonable_or_text(items_json) or []})
 
 
 @mcp.tool(name="bhm_batch_link_memories", description="Compatibility JSON wrapper for bhm_batch_link.")
-def bhm_batch_link_memories(items_json: str) -> dict[str, Any]:
-    return _post("/bhm/memories/batch-link", {"items": _jsonable_or_text(items_json) or []})
+def bhm_batch_link_memories(items_json: str, project: str | None = None) -> dict[str, Any]:
+    return _post("/bhm/memories/batch-link", {"project": project, "items": _jsonable_or_text(items_json) or []})
 
 
 @mcp.tool(name="bhm_batch_unlink_memories", description="Batch remove explicit memory links.")
-def bhm_batch_unlink_memories(items_json: str) -> dict[str, Any]:
-    return _post("/bhm/memories/batch-unlink", {"items": _jsonable_or_text(items_json) or []})
+def bhm_batch_unlink_memories(items_json: str, project: str | None = None) -> dict[str, Any]:
+    return _post("/bhm/memories/batch-unlink", {"project": project, "items": _jsonable_or_text(items_json) or []})
 
 
-@mcp.tool(name="bhm_repair_live_indexes", description="Repair canonical live-memory links and optional orphan artifacts.")
-def bhm_repair_live_indexes(remove_orphan_links: bool = True, remove_orphan_artifacts: bool = False) -> dict[str, Any]:
-    return _post("/bhm/repair-live-indexes", {"remove_orphan_links": remove_orphan_links, "remove_orphan_artifacts": remove_orphan_artifacts})
+@mcp.tool(name="bhm_repair_live_indexes", description="Repair scoped canonical live-memory links and optional orphan artifacts.")
+def bhm_repair_live_indexes(project: str | None = None, aggregate: bool = False, remove_orphan_links: bool = True, remove_orphan_artifacts: bool = False) -> dict[str, Any]:
+    return _post("/bhm/repair-live-indexes", {"project": project, "aggregate": aggregate, "remove_orphan_links": remove_orphan_links, "remove_orphan_artifacts": remove_orphan_artifacts})
 
 
 @mcp.tool(name="bhm_integrity_audit", description="Read-only integrity audit helper. Prefer bhm_integrity_repair_strict for operator repair passes and gate-level maintenance.")
@@ -1394,8 +1322,8 @@ def bhm_project_summary_pin(project: str) -> dict[str, Any]:
 
 
 @mcp.tool(name="bhm_project_summary_list", description="List canonical project summary memories.")
-def bhm_project_summary_list(limit: int = 20, offset: int = 0) -> dict[str, Any]:
-    return _post("/bhm/project-summary/list", {"limit": limit, "offset": offset})
+def bhm_project_summary_list(project: str | None = None, limit: int = 20, offset: int = 0) -> dict[str, Any]:
+    return _post("/bhm/project-summary/list", {"project": project, "limit": limit, "offset": offset})
 
 
 @mcp.tool(name="bhm_artifact_integrity_audit", description="Audit artifact stores for orphaned memory references.")
@@ -1424,8 +1352,8 @@ def bhm_link_graph_stats(project: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool(name="bhm_reindex_memory_metadata", description="Rebuild derived metadata such as raw titles for live memories.")
-def bhm_reindex_memory_metadata(project: str | None = None) -> dict[str, Any]:
-    return _post("/bhm/reindex-memory-metadata", {"project": project})
+def bhm_reindex_memory_metadata(project: str | None = None, aggregate: bool = False) -> dict[str, Any]:
+    return _post("/bhm/reindex-memory-metadata", {"project": project, "aggregate": aggregate})
 
 
 @mcp.tool(name="bhm_memory_schema_validate", description="Lightweight single-record schema validation helper. Prefer bhm_schema_validate_strict for operator gates and broader audits.")
@@ -1518,13 +1446,13 @@ def bhm_memory_triage_queue(project: str | None = None, limit: int = 20, include
 
 
 @mcp.tool(name="bhm_project_summary_refresh_all", description="Bulk operator helper for refreshing many project summaries. Prefer bhm_rebuild_project_summary for normal single-project flows.")
-def bhm_project_summary_refresh_all(projects_csv: str | None = None) -> dict[str, Any]:
-    return _post("/bhm/project-summary/refresh-all", {"projects": _parse_csv(projects_csv)})
+def bhm_project_summary_refresh_all(projects_csv: str | None = None, project: str | None = None, aggregate: bool = False) -> dict[str, Any]:
+    return _post("/bhm/project-summary/refresh-all", {"projects": _parse_csv(projects_csv), "project": project, "aggregate": aggregate})
 
 
 @mcp.tool(name="bhm_relation_apply_suggestions", description="Apply suggested relations above a confidence threshold.")
-def bhm_relation_apply_suggestions(project: str | None = None, min_score: float = 0.65, limit: int = 20, include_relates_to: bool = False) -> dict[str, Any]:
-    return _post("/bhm/relation/apply-suggestions", {"project": project, "min_score": min_score, "limit": limit, "include_relates_to": include_relates_to})
+def bhm_relation_apply_suggestions(project: str | None = None, aggregate: bool = False, min_score: float = 0.65, limit: int = 20, include_relates_to: bool = False) -> dict[str, Any]:
+    return _post("/bhm/relation/apply-suggestions", {"project": project, "aggregate": aggregate, "min_score": min_score, "limit": limit, "include_relates_to": include_relates_to})
 
 
 @mcp.tool(name="bhm_memory_merge_preview", description="Preview a merge of two live memories without modifying either record.")
@@ -1533,12 +1461,17 @@ def bhm_memory_merge_preview(project: str, source_id: str, target_id: str) -> di
 
 
 @mcp.tool(name="bhm_schema_upgrade_all", description="Apply a lightweight schema upgrade pass to all live memories.")
-def bhm_schema_upgrade_all(project: str | None = None) -> dict[str, Any]:
-    return _post("/bhm/schema/upgrade-all", {"project": project})
+def bhm_schema_upgrade_all(project: str | None = None, aggregate: bool = False) -> dict[str, Any]:
+    return _post("/bhm/schema/upgrade-all", {"project": project, "aggregate": aggregate})
 
 
 @mcp.tool(name="bhm_memory_redact", description="Redact secret-like substrings from a live memory body.")
-def bhm_memory_redact(id: str, project: str | None = None, patterns_csv: str | None = None, replacement: str = "[REDACTED]") -> dict[str, Any]:
+def bhm_memory_redact(
+    id: str,
+    project: str | None = None,
+    patterns_csv: str | None = None,
+    replacement: Annotated[str, Field(max_length=120)] = "[REDACTED]",
+) -> dict[str, Any]:
     return _post("/bhm/memory/redact", {"id": id, "project": project, "patterns": _parse_csv(patterns_csv), "replacement": replacement})
 
 
@@ -1588,8 +1521,8 @@ def bhm_entity_catalog_get(project: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool(name="bhm_entity_catalog_rebuild", description="Rebuild the derived entity catalog for a project.")
-def bhm_entity_catalog_rebuild(project: str | None = None) -> dict[str, Any]:
-    return _post("/bhm/entity-catalog/rebuild", {"project": project})
+def bhm_entity_catalog_rebuild(project: str | None = None, aggregate: bool = False) -> dict[str, Any]:
+    return _post("/bhm/entity-catalog/rebuild", {"project": project, "aggregate": aggregate})
 
 
 @mcp.tool(name="bhm_project_summary_compare", description="Compare canonical project summaries between two projects.")
@@ -1673,8 +1606,8 @@ def bhm_alias_stats(project: str | None = None) -> dict[str, Any]:
 
 
 @mcp.tool(name="bhm_relation_prune_low_quality", description="Prune low-confidence or low-quality explicit relations.")
-def bhm_relation_prune_low_quality(project: str | None = None, max_confidence: float = 0.5, max_quality_score: float = 2.5, remove_unscored: bool = False) -> dict[str, Any]:
-    return _post("/bhm/relation/prune-low-quality", {"project": project, "max_confidence": max_confidence, "max_quality_score": max_quality_score, "remove_unscored": remove_unscored})
+def bhm_relation_prune_low_quality(project: str | None = None, aggregate: bool = False, max_confidence: float = 0.5, max_quality_score: float = 2.5, remove_unscored: bool = False) -> dict[str, Any]:
+    return _post("/bhm/relation/prune-low-quality", {"project": project, "aggregate": aggregate, "max_confidence": max_confidence, "max_quality_score": max_quality_score, "remove_unscored": remove_unscored})
 
 
 @mcp.tool(name="bhm_project_similarity_report", description="Find projects with the most overlap in concepts and files.")
@@ -1694,7 +1627,7 @@ def bhm_review_queue_apply(
     mark_needs_review: bool = True,
     auto_redact_secrets: bool = True,
     queue_ids_csv: str | None = None,
-    status: str = "needs_review",
+    status: Literal["needs_review", "resolved", "dismissed"] = "needs_review",
 ) -> dict[str, Any]:
     return _post(
         "/bhm/review-queue/apply",
@@ -1750,13 +1683,13 @@ def bhm_admin_export(project: str | None = None, include_archived: bool = True, 
 
 
 @mcp.tool(name="bhm_admin_import_preview", description="Preview a JSON admin snapshot before import.")
-def bhm_admin_import_preview(path: str) -> dict[str, Any]:
-    return _post("/bhm/admin/import-preview", {"path": path})
+def bhm_admin_import_preview(path: str, project: str | None = None) -> dict[str, Any]:
+    return _post("/bhm/admin/import-preview", {"path": path, "project": project})
 
 
 @mcp.tool(name="bhm_admin_import_apply", description="Apply a JSON admin snapshot import in upsert or replace mode.")
-def bhm_admin_import_apply(path: str, merge_mode: str = "upsert") -> dict[str, Any]:
-    return _post("/bhm/admin/import-apply", {"path": path, "merge_mode": merge_mode})
+def bhm_admin_import_apply(path: str, merge_mode: str = "upsert", project: str | None = None) -> dict[str, Any]:
+    return _post("/bhm/admin/import-apply", {"path": path, "merge_mode": merge_mode, "project": project})
 
 
 @mcp.tool(name="bhm_policy_profile_get", description="Get the current canonical BHM policy profile.")
@@ -1780,8 +1713,8 @@ def bhm_overlap_report(project: str | None = None, limit: int = 20) -> dict[str,
 
 
 @mcp.tool(name="bhm_overlap_cleanup_apply", description="Apply deterministic overlap cleanup by merging duplicate candidates.")
-def bhm_overlap_cleanup_apply(project: str, limit: int = 20, archive_sources: bool = True) -> dict[str, Any]:
-    return _post("/bhm/overlap/cleanup-apply", {"project": project, "limit": limit, "archive_sources": archive_sources})
+def bhm_overlap_cleanup_apply(project: str | None = None, aggregate: bool = False, limit: int = 20, archive_sources: bool = True) -> dict[str, Any]:
+    return _post("/bhm/overlap/cleanup-apply", {"project": project, "aggregate": aggregate, "limit": limit, "archive_sources": archive_sources})
 
 
 @mcp.tool(name="bhm_policy_guard", description="Guard a candidate memory payload for secrets, raw logs, oversize content, and missing scope.")
@@ -1850,9 +1783,9 @@ def bhm_lessons_search(query: str, project: str = DEFAULT_PROJECT, limit: int = 
 
 @mcp.tool(name="bhm_observe", description="Send a compact observe event into BHM.")
 def bhm_observe(
-    hook_type: str,
-    session_id: str,
-    cwd: str,
+    hook_type: Annotated[str, Field(min_length=1)],
+    session_id: Annotated[str, Field(min_length=1)],
+    cwd: str = "",
     project: str = DEFAULT_PROJECT,
     data_json: str | None = None,
     timestamp: str | None = None,

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "product": "BlackHoleMemory",
+  "policy": {
+    "require_pinned_public_key": true,
+    "reject_adjacent_untrusted_keys": true,
+    "require_validity_window": true,
+    "allow_empty_registry": true
+  },
+  "signers": []
+}

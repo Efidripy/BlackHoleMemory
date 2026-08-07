@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -10,10 +12,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from blackholememory.source_registry import SourceRegistryError, load_registry, verify_registry
 
 
 ROOT = Path(__file__).resolve().parents[1]
+GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,6 +38,7 @@ def _git_lines(*args: str) -> list[str]:
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=GIT_PROBE_TIMEOUT_SECONDS,
     )
     if completed.returncode != 0:
         return [f"<git-error:{completed.stderr.strip()}>"]
@@ -110,8 +115,7 @@ def main() -> int:
         report = {"schema_version": "bhm.wi00.source-passport.v1", "ok": False, "failures": [str(exc)], "writes_live_state": False}
     rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(rendered, encoding="utf-8", newline="\n")
+        replace_bytes_safely(args.report, rendered.encode("utf-8"))
     print(rendered, end="")
     return 0 if report["ok"] else 1
 

@@ -19,6 +19,9 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.runtime_endpoints import endpoint_url
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
+from blackholememory.local_endpoint_policy import validate_local_endpoint
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
 
 def _read_process_or_user_env_value(key: str) -> str | None:
@@ -44,11 +47,29 @@ def _required_bhm_caller_token() -> str:
     return token
 
 
-def _bhm_client() -> httpx.Client:
+def _bhm_client(base_url: str) -> httpx.Client:
+    normalized = validate_local_endpoint(base_url)
     return httpx.Client(
-        timeout=60.0,
+        base_url=normalized,
+        timeout=float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS),
         headers={"Authorization": f"Bearer {_required_bhm_caller_token()}"},
+        follow_redirects=False,
+        trust_env=False,
     )
+
+
+def _bounded_json_response(response: httpx.Response) -> Any:
+    content_length = response.headers.get("content-length")
+    if content_length:
+        try:
+            declared_length = int(content_length)
+        except ValueError as exc:
+            raise ValueError("BHM response has invalid content-length") from exc
+        if declared_length < 0 or declared_length > MAX_RESPONSE_BYTES:
+            raise ValueError("BHM response exceeded bounded limit")
+    if len(response.content) > MAX_RESPONSE_BYTES:
+        raise ValueError("BHM response exceeded bounded limit")
+    return response.json()
 
 
 def extract_worker_stdout(worker_log: Path) -> dict[str, Any]:
@@ -73,19 +94,20 @@ def read_text_flexible(path: Path) -> str:
     raise RuntimeError(f"cannot decode {path}: {last_error}") from last_error
 
 
-def get_memory(client: httpx.Client, base_url: str, memory_id: str, project: str) -> dict[str, Any]:
-    response = client.get(f"{base_url}/bhm/memory", params={"id": memory_id, "project": project})
+def get_memory(client: httpx.Client, memory_id: str, project: str) -> dict[str, Any]:
+    response = client.get("/bhm/memory", params={"id": memory_id, "project": project})
     response.raise_for_status()
-    return response.json()["memory"]
+    return _bounded_json_response(response)["memory"]
 
 
-def get_links(client: httpx.Client, base_url: str, memory_id: str, project: str) -> list[dict[str, Any]]:
-    response = client.get(f"{base_url}/bhm/memory/links", params={"id": memory_id, "project": project})
+def get_links(client: httpx.Client, memory_id: str, project: str) -> list[dict[str, Any]]:
+    response = client.get("/bhm/memory/links", params={"id": memory_id, "project": project})
     response.raise_for_status()
-    return list(response.json().get("links") or [])
+    return list(_bounded_json_response(response).get("links") or [])
 
 
 def verify_run(run_dir: Path, base_url: str) -> dict[str, Any]:
+    normalized_base_url = validate_local_endpoint(base_url)
     worker_data = extract_worker_stdout(run_dir / "worker.log")
     harvest = worker_data["harvest"]
     crystal = worker_data["crystal"]
@@ -117,8 +139,8 @@ def verify_run(run_dir: Path, base_url: str) -> dict[str, Any]:
     if is_dry_run:
         return report
 
-    with _bhm_client() as client:
-        crystal_record = get_memory(client, base_url, crystal_id, project)
+    with _bhm_client(normalized_base_url) as client:
+        crystal_record = get_memory(client, crystal_id, project)
         crystal_metadata = crystal_record.get("metadata") or {}
         check("crystal_exists", crystal_record.get("id") == crystal_id, crystal_record.get("id"))
         check("crystal_is_validated_fact", crystal_metadata.get("lifecycle") == "validated" and crystal_metadata.get("semantic_type") == "fact", crystal_metadata)
@@ -126,7 +148,7 @@ def verify_run(run_dir: Path, base_url: str) -> dict[str, Any]:
         archived = []
         not_archived = []
         for source_id in source_ids:
-            memory = get_memory(client, base_url, source_id, project)
+            memory = get_memory(client, source_id, project)
             metadata = memory.get("metadata") or {}
             if metadata.get("lifecycle") == "archived" and memory.get("archived_at"):
                 archived.append(source_id)
@@ -134,7 +156,7 @@ def verify_run(run_dir: Path, base_url: str) -> dict[str, Any]:
                 not_archived.append({"id": source_id, "metadata": metadata, "archived_at": memory.get("archived_at")})
         check("sources_archived", len(archived) == len(source_ids), {"archived": len(archived), "not_archived": not_archived})
 
-        actual_links = get_links(client, base_url, crystal_id, project)
+        actual_links = get_links(client, crystal_id, project)
         condenses_targets = {str(link.get("target_id")) for link in actual_links if link.get("relation") == "condenses"}
         check("condenses_links_cover_sources", set(source_ids).issubset(condenses_targets), {"expected": len(source_ids), "actual": len(condenses_targets)})
 

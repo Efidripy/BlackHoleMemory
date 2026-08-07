@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from blackholememory import bhm_mcp
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 from blackholememory.mcp_surfaces import GOVERNANCE_PUBLIC_TOOL_NAMES
 from blackholememory.mcp_surfaces import McpSurface
@@ -20,6 +21,13 @@ from blackholememory.mcp_surfaces import requires_admin_capability
 def _sha256(value: object) -> str:
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def _risk(name: str) -> str:
@@ -102,8 +110,7 @@ def main() -> int:
         },
     }
     output = args.report.expanduser().resolve()
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_report(output, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["ok"] else 1
 

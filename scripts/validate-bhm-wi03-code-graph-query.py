@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -11,6 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.code_graph import SQLiteCodeGraphStore
 from blackholememory.code_graph import build_code_graph
@@ -31,6 +34,21 @@ CONFIG_PATH = REPO_ROOT / "config" / "cbm-integration.json"
 REGISTRY_PATH = REPO_ROOT / "config" / "source-registry.json"
 CLI_PATH = REPO_ROOT / "scripts" / "bhm-code-graph-query.py"
 BENCHMARK_PATH = REPO_ROOT / "scripts" / "benchmark-bhm-wi03-code-graph-query.py"
+WI03_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+WI03_EXPECTED_CORE_TOOL_COUNT = 35
+WI03_OPERATION_QUERIES = {
+    "symbol": "get_items",
+    "resolve": "Service",
+    "callers": "get_items",
+    "callees": "get_items",
+    "imports": "service.py",
+    "importers": "service.py",
+    "routes": "/items",
+    "tests": "get_items",
+    "impact": "service.py",
+    "neighborhood": "get_items",
+    "degree": "get_items",
+}
 
 
 def _digest(path: Path) -> str:
@@ -105,6 +123,26 @@ def _api_surface() -> bool:
     return expected.issubset(routes) and all(getattr(routes[path], "include_in_schema", False) is False for path in expected)
 
 
+def _run_bounded_child(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run disposable WI-03 children with a finite wait."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=WI03_PROCESS_TIMEOUT_SECONDS,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report")
@@ -137,7 +175,7 @@ def main() -> int:
         ]
         checks["live_flags_remain_off"] = _flags_off()
         checks["source_registry_clean_room"] = _clean_room_registry()
-        checks["canonical_mcp_core_unchanged"] = len(CORE_TOOL_NAMES) == 31 and "bhm_change_impact_preview" in CORE_TOOL_NAMES
+        checks["canonical_mcp_core_unchanged"] = len(CORE_TOOL_NAMES) == WI03_EXPECTED_CORE_TOOL_COUNT and "bhm_change_impact_preview" in CORE_TOOL_NAMES
         checks["internal_api_routes_hidden"] = _api_surface()
         checks["graph_schema_ready"] = store.inspect_schema().get("ready") is True
         checks["no_raw_source_in_snapshot"] = all("content" not in node and "raw_source" not in node for node in material["nodes"])
@@ -151,18 +189,6 @@ def main() -> int:
             for node in material["nodes"]
         )
 
-        queries = {
-            "symbol": "get_items",
-            "resolve": "Service",
-            "callers": "get_items",
-            "callees": "get_items",
-            "imports": "service.py",
-            "importers": "service.py",
-            "routes": "/items",
-            "tests": "get_items",
-            "impact": "service.py",
-            "neighborhood": "get_items",
-        }
         responses: dict[str, dict] = {}
         for operation in sorted(ALLOWED_OPERATIONS):
             responses[operation] = query_code_graph(
@@ -170,7 +196,7 @@ def main() -> int:
                 project="fixture",
                 root_id=state.root_id,
                 operation=operation,
-                query=queries[operation],
+                query=WI03_OPERATION_QUERIES[operation],
                 depth=2,
                 limit=32,
                 max_tokens=4_096,
@@ -212,12 +238,52 @@ def main() -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(REPO_ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
         cli_report = temp / "cli-query.json"
-        cli = subprocess.run([sys.executable, str(CLI_PATH), "--action", "explain", "--operation", "symbol", "--query", "get_items", "--root", str(root), "--database", str(database), "--project", "fixture", "--root-id", state.root_id, "--time-budget-ms", "2000", "--report", str(cli_report)], cwd=REPO_ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        cli = _run_bounded_child(
+            [
+                sys.executable,
+                str(CLI_PATH),
+                "--action",
+                "explain",
+                "--operation",
+                "symbol",
+                "--query",
+                "get_items",
+                "--root",
+                str(root),
+                "--database",
+                str(database),
+                "--project",
+                "fixture",
+                "--root-id",
+                state.root_id,
+                "--time-budget-ms",
+                "2000",
+                "--report",
+                str(cli_report),
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+        )
         cli_payload = json.loads(cli_report.read_text(encoding="utf-8")) if cli_report.exists() else {}
         checks["cli_read_only_smoke"] = cli.returncode == 0 and cli_payload.get("schema_version") == CODE_GRAPH_EXPLAIN_SCHEMA_VERSION and cli_payload.get("execution", {}).get("writes_sqlite_state") is False
 
         benchmark_report = temp / "benchmark.json"
-        benchmark = subprocess.run([sys.executable, str(BENCHMARK_PATH), "--files", "24", "--iterations", "3", "--p95-budget-ms", "2000", "--report", str(benchmark_report)], cwd=REPO_ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        benchmark = _run_bounded_child(
+            [
+                sys.executable,
+                str(BENCHMARK_PATH),
+                "--files",
+                "24",
+                "--iterations",
+                "3",
+                "--p95-budget-ms",
+                "2000",
+                "--report",
+                str(benchmark_report),
+            ],
+            cwd=REPO_ROOT,
+            env=env,
+        )
         benchmark_payload = json.loads(benchmark_report.read_text(encoding="utf-8")) if benchmark_report.exists() else {}
         checks["latency_benchmark_green"] = benchmark.returncode == 0 and benchmark_payload.get("ok") is True and benchmark_payload.get("checks", {}).get("no_writes") is True
         details = {
@@ -237,8 +303,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         output = Path(args.report).expanduser().resolve()
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(output, (rendered + "\n").encode("utf-8"))
     return 0 if not failed else 1
 
 

@@ -1,7 +1,7 @@
 {
   "name": "bhm-codex-connector",
   "type": "plugin",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Windows-focused Codex connector for the workspace BHM ritual and canonical BHM MCP workflow",
   "repository": "https://github.com/xman/BlackHoleMemory",
   "author": {

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import subprocess
@@ -13,6 +15,9 @@ from pathlib import Path
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import RepositoryWatcher
 from blackholememory.repository_index import index_repository
+
+
+WI01_PROCESS_TIMEOUT_SECONDS = 60
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,13 +33,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def _git(root: Path, *args: str) -> None:
-    subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=True,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
+    try:
+        subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=WI01_PROCESS_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("WI-01 Git fixture process unavailable") from exc
 
 
 def _content(index: int, lines: int, *, revision: int = 1) -> str:
@@ -172,8 +181,7 @@ def main() -> int:
         }
     rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(rendered, encoding="utf-8", newline="\n")
+        replace_bytes_safely(args.report, rendered.encode("utf-8"))
     print(rendered, end="")
     return 0 if result["ok"] else 1
 

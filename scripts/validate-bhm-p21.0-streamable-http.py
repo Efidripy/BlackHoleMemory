@@ -15,11 +15,29 @@ from typing import Any
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
+from blackholememory.local_endpoint_policy import validate_local_endpoint
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 
 SCHEMA_VERSION = "bhm.mcp.streamable-http-validation.v1"
 PROTOCOL_VERSION = "2025-06-18"
 EXPECTED_TOOL_COUNT = len(CORE_TOOL_NAMES)
+
+
+def _bounded_json(response: httpx.Response) -> Any:
+    """Reject oversized responses before parsing validator JSON."""
+
+    content_length = response.headers.get("content-length")
+    if content_length:
+        try:
+            declared_length = int(content_length)
+        except ValueError as exc:
+            raise ValueError("MCP validator response has invalid content-length") from exc
+        if declared_length < 0 or declared_length > MAX_RESPONSE_BYTES:
+            raise ValueError("MCP validator response exceeded bounded limit")
+    if len(response.content) > MAX_RESPONSE_BYTES:
+        raise ValueError("MCP validator response exceeded bounded limit")
+    return response.json()
 
 
 def _caller_token() -> str:
@@ -51,9 +69,9 @@ def _percentile(values: list[float], fraction: float) -> float:
 
 class Probe:
     def __init__(self, base_url: str, timeout_seconds: float) -> None:
-        self.base_url = base_url.rstrip("/")
+        self.base_url = validate_local_endpoint(base_url)
         self.endpoint = f"{self.base_url}/mcp"
-        self.client = httpx.Client(timeout=timeout_seconds, follow_redirects=True)
+        self.client = httpx.Client(timeout=timeout_seconds, follow_redirects=False, trust_env=False)
         self.caller_token = _caller_token()
         if len(self.caller_token) < 32:
             raise RuntimeError("BHM_CALLER_TOKEN is unavailable; initialize the caller credential before validation")
@@ -95,7 +113,7 @@ class Probe:
         )
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         response.raise_for_status()
-        payload = response.json()
+        payload = _bounded_json(response)
         session_id = response.headers.get("mcp-session-id", "")
         if not session_id or payload.get("result", {}).get("protocolVersion") != PROTOCOL_VERSION:
             raise RuntimeError("initialize contract mismatch")
@@ -109,7 +127,7 @@ class Probe:
         response = self.post("tools/list", {}, session_id=session_id)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         response.raise_for_status()
-        tools = response.json().get("result", {}).get("tools")
+        tools = _bounded_json(response).get("result", {}).get("tools")
         if not isinstance(tools, list) or len(tools) != EXPECTED_TOOL_COUNT:
             raise RuntimeError("tools/list did not return the exact core catalog")
         return tools, elapsed_ms
@@ -121,7 +139,7 @@ class Probe:
             session_id=session_id,
         )
         response.raise_for_status()
-        payload = response.json()
+        payload = _bounded_json(response)
         if payload.get("error") or payload.get("result", {}).get("isError") is True:
             raise RuntimeError("bhm_health MCP call failed")
         return payload
@@ -145,7 +163,7 @@ def run(base_url: str, *, cold: int, recovery: int, timeout_seconds: float) -> d
         headers={"authorization": f"Bearer {probe.caller_token}"},
     )
     baseline_response.raise_for_status()
-    baseline_status = baseline_response.json().get("sessions", {})
+    baseline_status = _bounded_json(baseline_response).get("sessions", {})
     baseline_session_count = int(baseline_status.get("session_count") or 0)
     initialize_ms: list[float] = []
     catalog_ms: list[float] = []
@@ -225,7 +243,7 @@ def run(base_url: str, *, cold: int, recovery: int, timeout_seconds: float) -> d
             headers={"authorization": f"Bearer {probe.caller_token}"},
         )
         status_response.raise_for_status()
-        session_status = status_response.json().get("sessions", {})
+        session_status = _bounded_json(status_response).get("sessions", {})
     finally:
         probe.close()
 

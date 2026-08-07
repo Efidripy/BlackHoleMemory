@@ -13,6 +13,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from blackholememory.change_impact import build_cross_repo_history_preview  # noqa: E402
+from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
 
 
 def run() -> dict:
@@ -42,7 +43,7 @@ def main() -> int:
     result = run()
     payload = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
     if args.output:
-        args.output.write_text(payload, encoding="utf-8")
+        replace_bytes_safely(args.output, payload.encode("utf-8"))
     print(payload, end="")
     return 0 if result["ok"] else 1
 

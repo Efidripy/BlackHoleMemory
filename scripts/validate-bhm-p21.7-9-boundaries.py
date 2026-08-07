@@ -9,11 +9,20 @@ import json
 import re
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
 
 
 def main() -> int:
@@ -67,8 +76,7 @@ def main() -> int:
     }
     report["digest"] = _digest(report)
     report["ok"] = all(bool(value) for value in report["checks"].values())
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["ok"] else 1
 

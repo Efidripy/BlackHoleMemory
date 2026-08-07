@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import re
 import sys
 import uuid
@@ -43,9 +44,12 @@ from blackholememory.llm_gateway import ModelDefinition  # noqa: E402
 from blackholememory.llm_gateway import ModelRegistry  # noqa: E402
 from blackholememory.llm_gateway import PromptDefinition  # noqa: E402
 from blackholememory.llm_gateway import PromptRegistry  # noqa: E402
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES  # noqa: E402
+from blackholememory.local_endpoint_policy import validate_local_endpoint  # noqa: E402
 from blackholememory.mem0_adapter import get_global_core_memory  # noqa: E402
 from blackholememory.mem0_adapter import get_qdrant_client  # noqa: E402
 from blackholememory.mem0_adapter import global_collection_name  # noqa: E402
+from blackholememory.resource_limits import LLM_REFLECTION_TIMEOUT_SECONDS  # noqa: E402
 
 
 JsonDict = dict[str, Any]
@@ -53,11 +57,24 @@ JsonDict = dict[str, Any]
 DEFAULT_LIMIT = 10
 DEFAULT_SCAN_LIMIT = 100
 DEFAULT_INTERVAL_SECONDS = 300.0
-DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
+# Compatibility name retained for existing callers; the registry is canonical.
+DEFAULT_LLM_TIMEOUT_SECONDS = float(LLM_REFLECTION_TIMEOUT_SECONDS)
 DEFAULT_MAX_CONTENT_CHARS = 1200
 DEFAULT_MAX_TOKENS = 900
 MIN_CONSOLIDATION_TARGETS = 2
 WORKER_NAME = "bhm_reflection_daemon"
+
+
+def bounded_reflection_timeout(value: float) -> float:
+    """Clamp reflection LLM waits to the registry-backed finite bound."""
+
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("reflection LLM timeout must be numeric") from exc
+    if not math.isfinite(requested):
+        raise ValueError("reflection LLM timeout must be finite")
+    return max(min(requested, float(LLM_REFLECTION_TIMEOUT_SECONDS)), 0.1)
 
 REFLECTION_SYSTEM_PROMPT = """Вы — Автономный Демон Рефлексии Памяти (Memory Reflection Daemon).
 Перед вами массив локальных кристаллов знаний, собранных за прошлые сессии.
@@ -131,6 +148,21 @@ def trim_text(value: Any, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(limit - 20, 1)].rstrip() + "... [truncated]"
+
+
+def decode_bounded_json(payload: bytes, *, limit: int = MAX_RESPONSE_BYTES) -> JsonDict:
+    """Decode a bounded local-provider JSON response fail-closed."""
+
+    bounded_limit = max(int(limit), 1)
+    if len(payload) > bounded_limit:
+        raise RuntimeError("reflection gateway response exceeded bounded limit")
+    try:
+        value = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("reflection gateway returned invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise RuntimeError("reflection gateway expected JSON object")
+    return value
 
 
 def normalize_string_list(value: Any) -> list[str]:
@@ -316,6 +348,7 @@ async def call_llm_reflection_audit(
     max_content_chars: int = DEFAULT_MAX_CONTENT_CHARS,
     max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> JsonDict:
+    bounded_timeout = bounded_reflection_timeout(timeout)
     user_payload = {
         "collection": global_collection_name(),
         "candidate_count": len(records),
@@ -350,16 +383,18 @@ async def call_llm_reflection_audit(
             max_tokens=max_tokens,
             temperature=0.0,
             json_required_keys=("action", "target_ids_to_delete", "super_crystal"),
-            timeout_seconds=timeout,
+            timeout_seconds=bounded_timeout,
         )
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=bounded_timeout,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             async def transport(url, payload, headers, request_timeout):
-                response = await client.post(url, json=payload, headers=headers)
+                validate_local_endpoint(url)
+                response = await client.post(url, json=payload, headers=headers, timeout=request_timeout)
                 response.raise_for_status()
-                value = response.json()
-                if not isinstance(value, dict):
-                    raise RuntimeError("reflection gateway expected JSON object")
-                return value
+                return decode_bounded_json(await response.aread())
 
             gateway_result = await gateway.acomplete_with_transport(gateway_request, transport)
         if not gateway_result.ok:
@@ -503,6 +538,7 @@ async def run_reflection_cycle(
     scan_limit: int = DEFAULT_SCAN_LIMIT,
     llm_timeout: float = DEFAULT_LLM_TIMEOUT_SECONDS,
 ) -> JsonDict:
+    llm_timeout = bounded_reflection_timeout(llm_timeout)
     print("[INFO] Starting reflection loop for global core...", flush=True)
     records = await fetch_reflection_candidates(limit=limit, scan_limit=scan_limit)
     if len(records) < MIN_CONSOLIDATION_TARGETS:
@@ -551,6 +587,7 @@ async def run_reflection_daemon(
     scan_limit: int,
     llm_timeout: float,
 ) -> JsonDict:
+    llm_timeout = bounded_reflection_timeout(llm_timeout)
     last_result: JsonDict = {}
     while True:
         last_result = await run_reflection_cycle(
@@ -590,7 +627,7 @@ def main() -> None:
             interval=args.interval,
             limit=max(args.limit, 1),
             scan_limit=max(args.scan_limit, args.limit),
-            llm_timeout=max(args.llm_timeout, 0.1),
+            llm_timeout=bounded_reflection_timeout(args.llm_timeout),
         )
     )
     print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)

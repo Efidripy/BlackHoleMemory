@@ -2,7 +2,8 @@ param(
     [switch]$Apply,
     [string]$BhmBaseUrl = '',
     [string]$LogRoot = "E:\GitHub\workspace\runtime\logs\projects\blackholememory\crystallizer",
-    [int]$TimeoutSeconds = 180
+    [ValidateRange(1, 600)][int]$TimeoutSeconds = 180,
+    [ValidateRange(1, 60)][int]$CleanupTimeoutSeconds = 5
 )
 
 Set-StrictMode -Version Latest
@@ -48,14 +49,19 @@ function Invoke-LoggedNative {
         -RedirectStandardError $stderrPath
 
     if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        $process.Kill()
-        $process.WaitForExit()
+        try {
+            $process.Kill()
+        } catch {
+        }
+        if (-not $process.WaitForExit($CleanupTimeoutSeconds * 1000)) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            $process.WaitForExit($CleanupTimeoutSeconds * 1000) | Out-Null
+        }
         $exitCode = 124
         "TIMEOUT after $TimeoutSeconds seconds" | Tee-Object -FilePath $LogPath -Append | Out-Null
     }
     else {
         $process.Refresh()
-        $process.WaitForExit()
         $exitCode = [int]$process.ExitCode
     }
 

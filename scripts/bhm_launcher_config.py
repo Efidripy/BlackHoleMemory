@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import tempfile
+import stat
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from bhm_runtime_endpoints import endpoint_port
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 @dataclass(frozen=True)
@@ -52,17 +53,27 @@ def validate_settings(payload: Any) -> dict[str, Any]:
 
 
 def _backup_existing(path: Path, backup_dir: Path) -> Path | None:
+    _assert_safe_path(path)
     if not path.exists():
         return None
+    if not path.is_file():
+        raise OSError(f"launcher settings target is not a regular file: {path}")
+    _assert_safe_path(backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
+    _assert_safe_path(backup_dir)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%fZ")
     backup_path = backup_dir / f"{path.name}.{stamp}.bak"
+    _assert_safe_path(backup_path)
     shutil.copy2(path, backup_path)
     return backup_path
 
 
 def load_settings(path: Path, *, backup_dir: Path) -> ConfigResult:
     path = Path(path)
+    try:
+        _assert_safe_path(path)
+    except OSError as exc:
+        return ConfigResult(ok=False, settings={}, error=str(exc)[:400])
     if not path.exists():
         return ConfigResult(ok=True, settings={})
     try:
@@ -89,23 +100,43 @@ def save_settings(path: Path, payload: Any, *, backup_dir: Path) -> ConfigResult
     settings = validate_settings(payload)
     backup_path = ""
     try:
+        _assert_safe_path(path)
+        _assert_safe_path(path.parent)
         backup = _backup_existing(path, Path(backup_dir))
         backup_path = str(backup) if backup else ""
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
-                json.dump(settings, stream, ensure_ascii=False, indent=2)
-                stream.write("\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temp_name, path)
-        finally:
-            if os.path.exists(temp_name):
-                os.unlink(temp_name)
+        _assert_safe_path(path.parent)
+        content = (json.dumps(settings, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+        replace_bytes_safely(path, content)
     except OSError as exc:
         raise OSError(f"launcher settings save failed; backup={backup_path or 'none'}: {exc}") from exc
     return ConfigResult(ok=True, settings=settings, backup_path=backup_path)
+
+
+def _assert_safe_path(path: Path) -> None:
+    """Reject reparse/symlink components and hardlinked file targets."""
+
+    candidate = Path(os.path.abspath(os.fspath(path)))
+    current = candidate
+    while True:
+        try:
+            info = current.lstat()
+        except FileNotFoundError:
+            info = None
+        except OSError as exc:
+            raise OSError(f"unable to inspect launcher settings path: {current}") from exc
+        if info is not None:
+            attributes = int(getattr(info, "st_file_attributes", 0))
+            if stat.S_ISLNK(info.st_mode) or attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0):
+                raise OSError(f"launcher settings path contains a symlink/junction/reparse point: {current}")
+            if current == candidate:
+                if stat.S_ISREG(info.st_mode) and int(getattr(info, "st_nlink", 1)) > 1:
+                    raise OSError(f"launcher settings target is a hardlink: {current}")
+            elif not stat.S_ISDIR(info.st_mode):
+                raise OSError(f"launcher settings path component is not a directory: {current}")
+        if current.parent == current:
+            return
+        current = current.parent
 
 
 __all__ = ["ConfigResult", "load_settings", "save_settings", "validate_settings"]

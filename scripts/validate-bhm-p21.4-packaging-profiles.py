@@ -11,15 +11,31 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = ROOT.parent.parent / "workspace" / "local" / "tmp" / "bhm-releases" / "wi16-release-20260716-r2" / "BHM-Release-v1.7.1.zip"
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
 
 
 def _probe(url: str, timeout: float = 8.0) -> tuple[bool, float, str]:
     started = time.perf_counter()
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            response.read(512)
+        request = urllib.request.Request(url, method="GET")
+        with open_local_url(request, timeout=timeout) as response:
+            read_bounded_response(response, limit=512)
+            status_value = getattr(response, "status", None)
+            status = int(status_value if status_value is not None else response.getcode())
+            if status != 200:
+                raise RuntimeError(f"unexpected HTTP status {status}")
         return True, round((time.perf_counter() - started) * 1000.0, 3), "ok"
     except Exception as exc:  # pragma: no cover - host-specific
         return False, round((time.perf_counter() - started) * 1000.0, 3), str(exc)[:160]
@@ -90,8 +106,7 @@ def main() -> int:
         "rollback": "select previous profile and restore release/runtime manifest; no data migration",
         "final_integrator": "codex:/root",
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["ok"] else 1
 

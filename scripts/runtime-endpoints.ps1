@@ -50,3 +50,14 @@ function Get-BhmRuntimeEndpointParts {
     $uri = [Uri](Get-BhmRuntimeEndpoint -Name $Name -RepoRoot $RepoRoot)
     return [pscustomobject]@{ Host = $uri.Host; Port = $uri.Port }
 }
+
+function Assert-BhmApiLoopbackHost {
+    param([Parameter(Mandatory)][string]$HostName)
+    $normalized = $HostName.Trim().TrimEnd('.').ToLowerInvariant()
+    if ($normalized -in @('localhost', 'localhost.localdomain')) { return }
+    $address = $null
+    if ([System.Net.IPAddress]::TryParse($normalized, [ref]$address) -and [System.Net.IPAddress]::IsLoopback($address)) {
+        return
+    }
+    throw 'BHM API listener host must be loopback-only (localhost, 127.0.0.1, or ::1)'
+}

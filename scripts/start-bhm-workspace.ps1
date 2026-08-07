@@ -1,5 +1,6 @@
 param(
-  [switch]$NoWait
+  [switch]$NoWait,
+  [ValidateRange(1, 60)][int]$ShutdownTimeoutSec = 5
 )
 
 Set-StrictMode -Version Latest
@@ -39,10 +40,14 @@ function Test-Url {
 }
 
 function Get-BhmProcesses {
-  Get-CimInstance Win32_Process | Where-Object {
-    $_.Name -eq 'python.exe' -and
-    $_.CommandLine -match 'uvicorn' -and
-    $_.CommandLine -match 'blackholememm?ory\.app:app'
+  try {
+    @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+      $_.Name -eq 'python.exe' -and
+      $_.CommandLine -match 'uvicorn' -and
+      $_.CommandLine -match 'blackholememm?ory\.app:app'
+    })
+  } catch {
+    @()
   }
 }
 
@@ -83,10 +88,36 @@ function Stop-BhmPortOwners {
 
 function Stop-BhmProcesses {
   $processes = @(Get-BhmProcesses)
+  $targetIds = @($processes | ForEach-Object { [int]$_.ProcessId })
   foreach ($proc in $processes) {
     Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
   }
-  Stop-BhmPortOwners
+  $portOwners = @(Get-BhmListeningProcessIds)
+  $targetIds += $portOwners
+  foreach ($listenerId in $portOwners) {
+    Stop-Process -Id $listenerId -Force -ErrorAction SilentlyContinue
+  }
+  $targetIds = @($targetIds | Where-Object { $_ -gt 0 } | Sort-Object -Unique)
+  $deadline = [DateTime]::UtcNow.AddSeconds($ShutdownTimeoutSec)
+  do {
+    $remaining = @($targetIds | Where-Object {
+        try { $null -ne (Get-Process -Id $_ -ErrorAction Stop) } catch { $false }
+      })
+    if ($remaining.Count -eq 0) { return }
+    Start-Sleep -Milliseconds 250
+  } while ([DateTime]::UtcNow -lt $deadline)
+  foreach ($processId in $remaining) {
+    Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+  }
+  $retryDeadline = [DateTime]::UtcNow.AddSeconds($ShutdownTimeoutSec)
+  do {
+    $remaining = @($remaining | Where-Object {
+        try { $null -ne (Get-Process -Id $_ -ErrorAction Stop) } catch { $false }
+      })
+    if ($remaining.Count -eq 0) { return }
+    Start-Sleep -Milliseconds 250
+  } while ([DateTime]::UtcNow -lt $retryDeadline)
+  throw "BHM workspace process cleanup exceeded bounded shutdown deadline of $ShutdownTimeoutSec seconds. Remaining PIDs: $($remaining -join ', ')"
 }
 
 function Start-DetachedPowerShell {

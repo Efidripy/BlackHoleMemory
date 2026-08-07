@@ -20,6 +20,7 @@ from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import RepositoryWatcher
 from blackholememory.repository_index import SQLiteRepositoryIndexStore
 from blackholememory.repository_index import probe_repository_state
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 def _fixture(root: Path) -> None:
@@ -135,8 +136,7 @@ def main() -> int:
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)
     if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(args.report, (rendered + "\n").encode("utf-8"))
     return 0 if report["ok"] else 1
 
 

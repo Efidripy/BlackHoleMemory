@@ -20,9 +20,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,6 +29,10 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.code_search import fuse_code_search_matches  # noqa: E402
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES  # noqa: E402
+from blackholememory.local_endpoint_policy import open_local_url  # noqa: E402
+from blackholememory.local_endpoint_policy import read_bounded_response  # noqa: E402
+from blackholememory.local_endpoint_policy import validate_local_endpoint  # noqa: E402
 
 
 SCHEMA_VERSION = "bhm.p28.wi82.semantic-quality.v1"
@@ -67,11 +69,10 @@ def _bounded_text(value: Any, limit: int = 240) -> str:
 
 
 def _safe_base_url(value: str) -> str:
-    base = str(value or "").strip().rstrip("/")
-    parsed = urlparse(base)
-    if parsed.scheme not in {"http", "https"} or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise ValueError("base URL must target the local BHM runtime")
-    return base
+    try:
+        return validate_local_endpoint(value)
+    except Exception as exc:
+        raise ValueError("base URL must target the local BHM runtime") from exc
 
 
 def _safe_error(exc: BaseException) -> str:
@@ -173,7 +174,7 @@ def run_semantic_benchmark(cases: int = 16) -> dict[str, Any]:
 
 
 def _response_json(response: Any) -> dict[str, Any]:
-    payload = json.loads(response.read().decode("utf-8"))
+    payload = json.loads(read_bounded_response(response, limit=MAX_RESPONSE_BYTES).decode("utf-8"))
     return payload if isinstance(payload, dict) else {"value": payload}
 
 
@@ -194,9 +195,9 @@ class _LocalRuntimeClient:
             headers["Content-Type"] = "application/json"
         request = Request(url, data=body, method=method.upper(), headers=headers)
         try:
-            with urlopen(request, timeout=self.timeout) as response:
+            with open_local_url(request, timeout=self.timeout) as response:
                 return _response_json(response)
-        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
+        except (TimeoutError, OSError, ValueError) as exc:
             raise RuntimeError(f"{method.upper()} {path}: {_safe_error(exc)}") from exc
 
     def get(self, path: str) -> dict[str, Any]:

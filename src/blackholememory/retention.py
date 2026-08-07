@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from .hook_queue import HookJobQueue
+from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import replace_bytes_safely
 from .observation_store import ObservationStore
 
 
@@ -525,10 +527,11 @@ def create_retention_backup(
     *,
     plan_summary: dict[str, Any],
 ) -> Path:
-    target_dir = Path(backup_dir).resolve()
+    target_dir = assert_safe_path(backup_dir, reject_hardlink_target=False).resolve()
     if target_dir.exists() and any(target_dir.iterdir()):
         raise FileExistsError(f"retention backup directory is not empty: {target_dir}")
     target_dir.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(target_dir, reject_hardlink_target=False)
     entries: list[dict[str, Any]] = []
     for kind, source_path, backup_name, backup_func in (
         ("observations", observation_store.path, "observations.sqlite3", observation_store.backup_to),
@@ -555,28 +558,32 @@ def create_retention_backup(
         "plan": plan_summary,
         "entries": entries,
     }
-    manifest_path = target_dir / "retention-backup-manifest.json"
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest_path = assert_safe_path(target_dir / "retention-backup-manifest.json")
+    replace_bytes_safely(
+        manifest_path,
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
     return manifest_path
 
 
 def restore_retention_backup(manifest_path: Path | str, restore_dir: Path | str) -> dict[str, Any]:
-    source_manifest = Path(manifest_path).resolve()
+    source_manifest = assert_safe_path(manifest_path).resolve()
     payload = json.loads(source_manifest.read_text(encoding="utf-8"))
     if str(payload.get("schemaVersion") or "") != RETENTION_BACKUP_SCHEMA_VERSION:
         raise RetentionPolicyError("unsupported retention backup manifest schema")
-    target_dir = Path(restore_dir).resolve()
+    target_dir = assert_safe_path(restore_dir, reject_hardlink_target=False).resolve()
     if target_dir.exists() and any(target_dir.iterdir()):
         raise FileExistsError(f"retention restore directory is not empty: {target_dir}")
     target_dir.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(target_dir, reject_hardlink_target=False)
     restored: list[dict[str, Any]] = []
     for entry in payload.get("entries") or []:
-        backup_path = Path(str(entry.get("backupPath") or "")).resolve()
+        backup_path = assert_safe_path(str(entry.get("backupPath") or "")).resolve()
         expected_hash = str(entry.get("sha256") or "")
         actual_hash = sha256_file(backup_path)
         if actual_hash != expected_hash:
             raise RuntimeError(f"retention backup hash mismatch: {backup_path}")
-        target_path = target_dir / backup_path.name
+        target_path = assert_safe_path(target_dir / backup_path.name)
         shutil.copy2(backup_path, target_path)
         restored_hash = sha256_file(target_path)
         quick_check = sqlite_quick_check(target_path)

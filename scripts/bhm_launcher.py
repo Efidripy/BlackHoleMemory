@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import os
 import json
+import queue
 import re
 import shutil
+import stat
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -25,13 +28,23 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from bhm_launcher_readiness import MAX_HTTP_BYTES
+from bhm_launcher_readiness import LocalEndpointError
+from bhm_launcher_readiness import open_local_url
 from bhm_launcher_readiness import probe_http
+from bhm_launcher_readiness import read_bounded_response
 from bhm_launcher_readiness import start_when_ready
 from bhm_launcher_config import load_settings as load_validated_launcher_settings
 from bhm_launcher_config import save_settings as save_validated_launcher_settings
 from bhm_runtime_endpoints import endpoint_parts
 from bhm_runtime_endpoints import endpoint_port
 from bhm_runtime_endpoints import endpoint_url
+from blackholememory.filesystem_boundaries import append_bytes_safely
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.resource_limits import PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS
 
 
 class PyQt6UnavailableError(RuntimeError):
@@ -211,6 +224,8 @@ TELEMETRY_TIMEOUT = 15.0
 SERVICE_READINESS_TIMEOUT_SECONDS = 45.0
 SERVICE_READINESS_POLL_SECONDS = 1.0
 UI_SESSION_MINT_TIMEOUT_SECONDS = 4.0
+PROCESS_CONTROL_TIMEOUT_SECONDS = float(PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS)
+LAUNCHER_INSTALL_TIMEOUT_SECONDS = PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS
 QDRANT_HEALTH_URL = endpoint_url("qdrant_http", "/healthz")
 QDRANT_IMAGE = "qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c"
 BHM_API_HEALTH_URL = endpoint_url("bhm_api", "/health/ready")
@@ -335,7 +350,7 @@ def load_ui_version() -> str:
                 return value
         except (OSError, json.JSONDecodeError, AttributeError):
             continue
-    return "Runtime v1.8.0-PURE"
+    return "Runtime v1.8.1-PURE"
 
 
 UI_VERSION = load_ui_version()
@@ -381,9 +396,85 @@ def ensure_persistent_file(relative_path: str) -> Path:
     if not bundled_resource_root():
         return source
     destination = PERSISTENT_RESOURCE_ROOT / relative_path
+    _assert_owned_path(destination, PERSISTENT_RESOURCE_ROOT, require_directory=False)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    _assert_owned_path(destination, PERSISTENT_RESOURCE_ROOT, require_directory=False)
     shutil.copy2(source, destination)
     return destination
+
+
+def _assert_owned_path(
+    destination: Path,
+    owner_root: Path,
+    *,
+    require_directory: bool,
+) -> None:
+    """Fail closed before mutating a path under its owner root.
+
+    The launcher may remove and recreate these directories during setup.  A
+    path that escaped the owner root, points through a symlink/junction, or is
+    replaced with an unexpected file/hardlink must never be handed to a
+    destructive copy/remove operation.
+    ``lstat`` is used deliberately so Windows reparse-point provenance is not
+    lost by following the path first.
+    """
+
+    owner = Path(os.path.abspath(os.fspath(owner_root)))
+    target = Path(os.path.abspath(os.fspath(destination)))
+    try:
+        relative_parts = target.relative_to(owner).parts
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Refusing to mutate plugin target outside owner root: {target}"
+        ) from exc
+
+    paths = [owner]
+    for part in relative_parts:
+        paths.append(paths[-1] / part)
+
+    for current in paths:
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise RuntimeError(f"Unable to inspect plugin target: {current}") from exc
+
+        attributes = int(getattr(metadata, "st_file_attributes", 0))
+        if current.is_symlink() or attributes & 0x400:
+            raise RuntimeError(
+                f"Refusing to mutate owned path through symlink/junction/reparse path: {current}"
+            )
+        if not stat.S_ISDIR(metadata.st_mode):
+            if current == target:
+                if require_directory:
+                    raise RuntimeError(f"Owned target is not a directory: {current}")
+                if getattr(metadata, "st_nlink", 1) > 1:
+                    raise RuntimeError(f"Owned target is a hardlink: {current}")
+                continue
+            raise RuntimeError(f"Owned path component is not a directory: {current}")
+
+
+def _assert_owned_plugin_target(destination: Path, owner_root: Path) -> None:
+    """Fail closed before mutating a plugin directory under its owner root."""
+
+    _assert_owned_path(destination, owner_root, require_directory=True)
+
+
+def _assert_launchable_source(source: Path, owner_root: Path) -> Path:
+    """Reject redirected or non-regular process sources before execution.
+
+    Launcher service operations execute checked-in PowerShell/Compose sources.
+    Validate the source while preserving ``lstat`` provenance so a linked or
+    hardlinked replacement cannot be handed to a child process after the
+    existence check.
+    """
+
+    target = Path(source)
+    if not target.is_file():
+        raise FileNotFoundError(target)
+    _assert_owned_path(target, owner_root, require_directory=False)
+    return target
 
 
 def ensure_persistent_plugin_source() -> Path:
@@ -397,9 +488,11 @@ def ensure_persistent_plugin_source() -> Path:
     if not bundled_resource_root():
         return source.resolve()
     destination = PERSISTENT_RESOURCE_ROOT / "plugins" / CODEX_PLUGIN_ID
+    _assert_owned_plugin_target(destination, PERSISTENT_RESOURCE_ROOT)
     if destination.exists():
         shutil.rmtree(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    _assert_owned_plugin_target(destination, PERSISTENT_RESOURCE_ROOT)
     shutil.copytree(source, destination)
     return destination.resolve()
 
@@ -440,7 +533,7 @@ def append_launcher_log(line: str) -> None:
     try:
         LAUNCHER_LOG_DIR.mkdir(parents=True, exist_ok=True)
         path = LAUNCHER_LOG_DIR / "unified-launcher.log"
-        path.open("a", encoding="utf-8").write(f"[{now_text()}] {line}\n")
+        append_bytes_safely(path, f"[{now_text()}] {line}\n".encode("utf-8"))
     except OSError:
         pass
 
@@ -470,17 +563,40 @@ def save_launcher_settings(settings: dict) -> None:
 
 
 def http_status(url: str, timeout: float = 2.0) -> ServiceStatus:
+    ok, detail = probe_http(url, timeout=timeout)
+    if ok:
+        return ServiceStatus("Running", detail)
+    if detail.startswith("HTTP "):
+        return ServiceStatus("Error", detail)
+    return ServiceStatus("Stopped", detail)
+
+
+def run_bounded_control_command(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess | None:
+    """Run an operator process-control command without an unbounded wait."""
+
     try:
-        request = urllib.request.Request(url, headers={"User-Agent": "BHM-Control-Deck"})
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            code = int(response.status)
-        if code == 200:
-            return ServiceStatus("Running", f"HTTP {code}")
-        return ServiceStatus("Error", f"HTTP {code}")
-    except urllib.error.HTTPError as exc:
-        return ServiceStatus("Error", f"HTTP {exc.code}")
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
-        return ServiceStatus("Stopped", compact_error(exc))
+        return subprocess.run(
+            args,
+            cwd=str(cwd) if cwd is not None else None,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+            creationflags=creation_flags(),
+            startupinfo=hidden_startupinfo(),
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        append_launcher_log(
+            "CONTROL COMMAND FAILED: "
+            + " ".join(args)
+            + f"; error={compact_error(exc)}"
+        )
+        return None
 
 
 def terminate_process_tree(process: subprocess.Popen | None) -> None:
@@ -489,19 +605,13 @@ def terminate_process_tree(process: subprocess.Popen | None) -> None:
     if process is None or process.poll() is not None:
         return
     if os.name == "nt":
-        subprocess.run(
+        run_bounded_control_command(
             ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-            creationflags=creation_flags(),
-            startupinfo=hidden_startupinfo(),
         )
         return
     try:
         process.terminate()
-        process.wait(timeout=5)
+        process.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
     except Exception:
         try:
             process.kill()
@@ -555,8 +665,12 @@ def post_json(url: str, payload: dict | None = None, timeout: float = TELEMETRY_
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with open_local_url(request, timeout=timeout) as response:
+            raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
+    except LocalEndpointError:
+        raise
+    return json.loads(raw.decode("utf-8"))
 
 
 def _is_bhm_human_ui_url(url: str) -> bool:
@@ -701,7 +815,7 @@ def terminate_detached_processes() -> None:
             continue
         try:
             proc.terminate()
-            proc.wait(timeout=5)
+            proc.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
         except Exception:
             try:
                 proc.kill()
@@ -727,6 +841,7 @@ def release_operator_path() -> Path:
 
 def run_release_doctor() -> dict[str, Any]:
     script = release_operator_path()
+    _assert_launchable_source(script, PROJECT_ROOT)
     args = [
         "powershell",
         "-NoProfile",
@@ -746,7 +861,7 @@ def run_release_doctor() -> dict[str, Any]:
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=20,
+        timeout=PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS,
         creationflags=CREATE_NO_WINDOW,
         startupinfo=hidden_startupinfo(),
         check=False,
@@ -793,7 +908,7 @@ def merge_json_file(path: Path, payload: dict) -> None:
     if not isinstance(current["mcpServers"], dict):
         current["mcpServers"] = {}
     current["mcpServers"].update(payload["mcpServers"])
-    path.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
+    replace_bytes_safely(path, (json.dumps(current, indent=2) + "\n").encode("utf-8"))
 
 
 def inject_mcp_config() -> list[Path]:
@@ -865,7 +980,10 @@ def find_codex_plugin_source() -> Path:
 def install_codex_plugin() -> Path:
     source = find_codex_plugin_source()
     destination = Path.home() / ".codex" / "plugins" / "local" / CODEX_PLUGIN_ID
+    owner_root = destination.parent
+    _assert_owned_plugin_target(destination, owner_root)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    _assert_owned_plugin_target(destination, owner_root)
     if destination.exists():
         shutil.rmtree(destination)
     shutil.copytree(source, destination)
@@ -968,9 +1086,40 @@ class InstallWorker(QThread):
             startupinfo=hidden_startupinfo(),
         )
         assert proc.stdout is not None
-        for line in proc.stdout:
-            self.log_signal.emit(line.rstrip())
-        return_code = proc.wait()
+        output_queue: queue.Queue[str | None] = queue.Queue()
+
+        def pump_stdout() -> None:
+            try:
+                for line in proc.stdout:
+                    output_queue.put(line.rstrip())
+            finally:
+                output_queue.put(None)
+
+        reader = threading.Thread(target=pump_stdout, name="bhm-install-output", daemon=True)
+        reader.start()
+        deadline = time.monotonic() + LAUNCHER_INSTALL_TIMEOUT_SECONDS
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                terminate_process_tree(proc)
+                reader.join(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
+                raise RuntimeError(
+                    f"timed out after {LAUNCHER_INSTALL_TIMEOUT_SECONDS}s: {' '.join(command)}"
+                )
+            try:
+                line = output_queue.get(timeout=min(remaining, 0.2))
+            except queue.Empty:
+                continue
+            if line is None:
+                break
+            self.log_signal.emit(line)
+        try:
+            return_code = proc.wait(timeout=LAUNCHER_INSTALL_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            terminate_process_tree(proc)
+            raise RuntimeError(
+                f"timed out after {LAUNCHER_INSTALL_TIMEOUT_SECONDS}s: {' '.join(command)}"
+            ) from exc
         if return_code != 0:
             raise RuntimeError(f"exit {return_code}: {' '.join(command)}")
 
@@ -2031,6 +2180,7 @@ class DashboardScreen(QWidget):
                 compose = QDRANT_COMPOSE if QDRANT_COMPOSE.exists() else project_root / "infra" / "qdrant" / "docker-compose.yml"
                 if not compose.exists():
                     raise FileNotFoundError(compose)
+                _assert_launchable_source(compose, compose.parents[2])
 
                 def start() -> Any:
                     return run_detached(["docker", "compose", "-f", str(compose), "up", "-d"], cwd=project_root)
@@ -2040,15 +2190,9 @@ class DashboardScreen(QWidget):
 
                 def rollback(token: Any) -> None:
                     terminate_process_tree(token if isinstance(token, subprocess.Popen) else None)
-                    subprocess.run(
+                    run_bounded_control_command(
                         ["docker", "compose", "-f", str(compose), "stop"],
-                        cwd=str(project_root),
-                        stdin=subprocess.DEVNULL,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        creationflags=creation_flags(),
-                        startupinfo=hidden_startupinfo(),
-                        check=False,
+                        cwd=project_root,
                     )
             elif key == "api":
                 # A one-file PyInstaller build extracts bundled scripts under
@@ -2062,6 +2206,7 @@ class DashboardScreen(QWidget):
                 script = canonical_script if canonical_script.exists() else SCRIPTS_DIR / "run-service.ps1"
                 if not script.exists():
                     raise FileNotFoundError(script)
+                _assert_launchable_source(script, project_root)
 
                 def start() -> Any:
                     return run_detached(
@@ -2128,15 +2273,10 @@ class DashboardScreen(QWidget):
             project_root = find_project_root()
             compose = QDRANT_COMPOSE if QDRANT_COMPOSE.exists() else project_root / "infra" / "qdrant" / "docker-compose.yml"
             if key == "qdrant" and compose.exists():
-                subprocess.run(
+                _assert_launchable_source(compose, compose.parents[2])
+                run_bounded_control_command(
                     ["docker", "compose", "-f", str(compose), "stop"],
-                    cwd=str(project_root),
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=creation_flags(),
-                    startupinfo=hidden_startupinfo(),
-                    check=False,
+                    cwd=project_root,
                 )
             elif key == "api":
                 terminate_detached_processes()
@@ -2161,15 +2301,10 @@ class DashboardScreen(QWidget):
             project_root = find_project_root()
             compose = QDRANT_COMPOSE if QDRANT_COMPOSE.exists() else project_root / "infra" / "qdrant" / "docker-compose.yml"
             if compose.exists():
-                subprocess.run(
+                _assert_launchable_source(compose, compose.parents[2])
+                run_bounded_control_command(
                     ["docker", "compose", "-f", str(compose), "stop"],
-                    cwd=str(project_root),
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    creationflags=creation_flags(),
-                    startupinfo=hidden_startupinfo(),
-                    check=False,
+                    cwd=project_root,
                 )
             terminate_detached_processes()
         except Exception as exc:

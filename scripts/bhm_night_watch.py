@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -29,12 +30,19 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.runtime_endpoints import endpoint_url
+from blackholememory.local_endpoint_policy import LocalEndpointError
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.local_endpoint_policy import validate_local_endpoint
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
 DEFAULT_BHM_BASE_URL = endpoint_url("bhm_api")
 DEFAULT_PROJECT = "BlackHoleMemory"
-DEFAULT_TIMEOUT_SECONDS = 30
+# Compatibility name retained; the registry-backed internal BHM bound is canonical.
+DEFAULT_TIMEOUT_SECONDS = float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS)
 DEFAULT_QUERY_LIMIT = 5
 DEFAULT_TARGET_LIMIT = 2
+MAX_HTTP_RESPONSE_BYTES = 256 * 1024
 MAX_CONTEXT_CHARS = 1400
 RUNTIME_RELEASE = "v0.8.0-PURE-NIGHT-WATCH"
 
@@ -95,6 +103,18 @@ CODE_MARKERS = (
 
 
 JsonDict = dict[str, Any]
+
+
+def bounded_night_watch_timeout(value: float) -> float:
+    """Clamp Night Watch internal BHM REST waits to the shared finite bound."""
+
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Night Watch timeout must be numeric") from exc
+    if not math.isfinite(requested):
+        raise ValueError("Night Watch timeout must be finite")
+    return max(min(requested, float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS)), 1.0)
 
 
 @dataclass(frozen=True)
@@ -210,6 +230,11 @@ def _required_bhm_caller_token() -> str:
 
 
 def post_json(base_url: str, path: str, payload: JsonDict, timeout: int) -> JsonDict:
+    bounded_timeout = bounded_night_watch_timeout(timeout)
+    try:
+        validated_base_url = validate_local_endpoint(base_url)
+    except LocalEndpointError as exc:
+        raise RuntimeError(f"BHM endpoint rejected by local transport policy: {exc}") from exc
     url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(
@@ -223,11 +248,16 @@ def post_json(base_url: str, path: str, payload: JsonDict, timeout: int) -> Json
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
+        with open_local_url(request, timeout=bounded_timeout, endpoint=validated_base_url) as response:
+            raw = read_bounded_response(response, limit=MAX_HTTP_RESPONSE_BYTES).decode("utf-8")
     except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:800]
+        try:
+            detail = read_bounded_response(exc, limit=4096).decode("utf-8", errors="replace")[:800]
+        except LocalEndpointError:
+            detail = "[response body exceeded bounded error limit]"
         raise RuntimeError(f"BHM POST {path} failed with HTTP {exc.code}: {detail}") from exc
+    except LocalEndpointError as exc:
+        raise RuntimeError(f"BHM POST {path} rejected by local transport policy: {exc}") from exc
     except urllib.error.URLError as exc:
         raise RuntimeError(f"BHM POST {path} unavailable: {exc}") from exc
 
@@ -397,7 +427,7 @@ def main() -> int:
     args = parse_args()
     args.query_limit = max(1, args.query_limit)
     args.targets = max(1, min(args.targets, 2))
-    args.timeout = max(1, args.timeout)
+    args.timeout = bounded_night_watch_timeout(args.timeout)
 
     mode = "apply" if args.apply else "dry-run"
     print(f"[night-watch] runtime={RUNTIME_RELEASE} mode={mode} project={args.project}")

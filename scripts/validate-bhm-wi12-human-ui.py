@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import os
@@ -10,6 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.human_ui_bridge import build_human_ui_bridge_preview
 from blackholememory.human_ui_bridge import verify_human_ui_bridge_digest
@@ -18,6 +21,7 @@ from blackholememory.human_ui_bridge import verify_human_ui_bridge_digest
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-human-ui.py"
 BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi12-human-ui.py"
+WI12_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 
 def _fixture() -> dict:
@@ -34,6 +38,26 @@ def _hidden_api() -> bool:
     routes = {str(route.path): route for route in bhm_app.app.routes if hasattr(route, "path")}
     route = routes.get("/bhm/human-ui/preview")
     return route is not None and route.include_in_schema is False
+
+
+def _run_bounded_child(
+    args: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run disposable WI-12 children with a finite wait."""
+
+    return subprocess.run(
+        args,
+        cwd=str(cwd),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=WI12_PROCESS_TIMEOUT_SECONDS,
+    )
 
 
 def main() -> int:
@@ -68,11 +92,11 @@ def main() -> int:
         env = os.environ.copy()
         env["PYTHONPATH"] = str(ROOT / "src") + os.pathsep + env.get("PYTHONPATH", "")
         cli_report = temp / "cli.json"
-        cli = subprocess.run([sys.executable, str(CLI), "--fixture", str(fixture_path), "--report", str(cli_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        cli = _run_bounded_child([sys.executable, str(CLI), "--fixture", str(fixture_path), "--report", str(cli_report)], cwd=ROOT, env=env)
         cli_payload = json.loads(cli_report.read_text(encoding="utf-8")) if cli_report.exists() else {}
         checks["cli_smoke"] = cli.returncode == 0 and cli_payload.get("ui_digest") == preview.get("ui_digest")
         benchmark_report = temp / "benchmark.json"
-        benchmark = subprocess.run([sys.executable, str(BENCHMARK), "--iterations", "16", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env, capture_output=True, text=True, encoding="utf-8")
+        benchmark = _run_bounded_child([sys.executable, str(BENCHMARK), "--iterations", "16", "--p95-budget-ms", "250", "--report", str(benchmark_report)], cwd=ROOT, env=env)
         benchmark_payload = json.loads(benchmark_report.read_text(encoding="utf-8")) if benchmark_report.exists() else {}
         checks["benchmark"] = benchmark.returncode == 0 and benchmark_payload.get("ok") is True
         details = {"ui_digest": preview["ui_digest"], "obsidian_export_digest": preview["obsidian_export"]["digest"], "benchmark": benchmark_payload.get("latency", {})}
@@ -82,8 +106,7 @@ def main() -> int:
     print(rendered)
     if args.report:
         target = Path(args.report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
     return 0 if report["ok"] else 1
 
 

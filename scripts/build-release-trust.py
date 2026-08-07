@@ -15,6 +15,11 @@ import tomllib
 import urllib.parse
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
+
+
+RELEASE_TRUST_GIT_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
+
 
 TRUST_METADATA_FILES = {
     "release-manifest.json",
@@ -50,6 +55,23 @@ def generated_at() -> str:
 def source_revision(root: Path) -> str:
     configured = os.environ.get("BHM_SOURCE_REVISION", "").strip()
     if configured:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", configured):
+            raise SystemExit("BHM_SOURCE_REVISION must be a 40-hex Git revision")
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                capture_output=True,
+                check=True,
+                text=True,
+                timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            if (root / ".git").exists():
+                raise SystemExit("unable to verify BHM_SOURCE_REVISION against Git HEAD")
+            return configured
+        actual = result.stdout.strip()
+        if re.fullmatch(r"[0-9a-fA-F]{40}", actual) and actual.lower() != configured.lower():
+            raise SystemExit("BHM_SOURCE_REVISION does not match the source Git HEAD")
         return configured
     try:
         result = subprocess.run(
@@ -57,7 +79,7 @@ def source_revision(root: Path) -> str:
             capture_output=True,
             check=True,
             text=True,
-            timeout=5,
+            timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.SubprocessError):
         return "unknown"
@@ -67,18 +89,68 @@ def source_revision(root: Path) -> str:
 def source_dirty(root: Path) -> bool:
     configured = os.environ.get("BHM_SOURCE_DIRTY", "").strip().lower()
     if configured in {"true", "false"}:
-        return configured == "true"
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
+                capture_output=True,
+                check=True,
+                text=True,
+            timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            if (root / ".git").exists():
+                raise SystemExit("unable to verify BHM_SOURCE_DIRTY against Git status")
+            return configured == "true"
+        actual_dirty = bool(result.stdout.strip())
+        if actual_dirty != (configured == "true"):
+            raise SystemExit("BHM_SOURCE_DIRTY does not match the source Git status")
+        return actual_dirty
     try:
         result = subprocess.run(
             ["git", "-C", str(root), "status", "--porcelain"],
             capture_output=True,
             check=True,
             text=True,
-            timeout=5,
+            timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.SubprocessError):
         return True
     return bool(result.stdout.strip())
+
+
+def source_tree(root: Path) -> str:
+    configured = os.environ.get("BHM_SOURCE_TREE", "").strip()
+    if configured:
+        if not re.fullmatch(r"[0-9a-fA-F]{40}", configured):
+            raise SystemExit("BHM_SOURCE_TREE must be a 40-hex Git tree")
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD^{tree}"],
+                capture_output=True,
+                check=True,
+                text=True,
+            timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            if (root / ".git").exists():
+                raise SystemExit("unable to verify BHM_SOURCE_TREE against Git HEAD")
+            return configured
+        actual = result.stdout.strip()
+        if re.fullmatch(r"[0-9a-fA-F]{40}", actual) and actual.lower() != configured.lower():
+            raise SystemExit("BHM_SOURCE_TREE does not match the source Git tree")
+        return configured
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD^{tree}"],
+            capture_output=True,
+            check=True,
+            text=True,
+            timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        revision = source_revision(root)
+        return revision if re.fullmatch(r"[0-9a-fA-F]{40}", revision) else "unknown"
+    return result.stdout.strip() or "unknown"
 
 
 def load_version(root: Path, expected_version: str) -> str:
@@ -155,6 +227,8 @@ def load_build_inputs(root: Path) -> dict[str, dict[str, object]]:
         raise SystemExit("unsupported build-inputs.json schema")
     if payload.get("evidence_class") != "installed_file_set":
         raise SystemExit("build-inputs.json evidence class is not explicit")
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", str(payload.get("source_snapshot_sha256") or "")):
+        raise SystemExit("build-inputs.json source snapshot digest is missing or invalid")
     if str(payload.get("lock_sha256") or "") != sha256_file(root / "uv.lock"):
         raise SystemExit("build-inputs.json lock digest mismatch")
     rows = payload.get("packages")
@@ -169,6 +243,8 @@ def load_build_inputs(root: Path) -> dict[str, dict[str, object]]:
         digest = str(row.get("installed_file_set_sha256") or "")
         if not name or not version or not re.fullmatch(r"[0-9a-fA-F]{64}", digest):
             raise SystemExit("build-inputs.json contains incomplete package evidence")
+        if name in result:
+            raise SystemExit(f"build-inputs.json contains duplicate package evidence: {name}")
         result[name] = row
     return result
 
@@ -276,6 +352,9 @@ def build_provenance(root: Path, version: str, created: str, sbom_digest: str) -
     version_manifest_digest = sha256_file(root / "config" / "version-manifest.json")
     lock_digest = sha256_file(root / "uv.lock")
     build_inputs = json.loads((root / BUILD_INPUTS_FILE).read_text(encoding="utf-8"))
+    source_snapshot = str(build_inputs.get("source_snapshot_sha256") or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", source_snapshot):
+        raise SystemExit("build-inputs.json source snapshot digest is missing or invalid")
     launcher_digest = validate_launcher_evidence(root, build_inputs)
     return {
         "schema_version": 1,
@@ -307,6 +386,8 @@ def build_provenance(root: Path, version: str, created: str, sbom_digest: str) -
                 "buildStartedOn": created,
                 "buildFinishedOn": created,
                 "source_revision": str(build_inputs.get("source_revision") or source_revision(root)),
+                "source_tree": source_tree(root),
+                "source_snapshot_sha256": source_snapshot,
                 "source_dirty": source_dirty(root),
                 "python_version": str(build_inputs.get("python_version") or platform.python_version()),
                 "platform": str(build_inputs.get("platform") or platform.platform()),

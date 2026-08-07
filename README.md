@@ -64,13 +64,14 @@ SQLite WAL  ----->  Mem0 semantic layer
 
 [Методика и полный receipt benchmark](docs/benchmarks/bhm-value-benchmark.md)
 
-Для отдельной проверки реального model call доступен `local-model-replay`: 1000
-уникальных кейсов × 10 повторов для `file-only` и `bhm-full` (20 000 вызовов), с
+Для отдельной проверки реального model call доступен `local-model-replay`: 111
+уникальных кейсов × 3 повтора для `file-only` и `bhm-full` (666 вызовов), с
 фиксированными prompt, `temperature=0`, `max_tokens=96` и `tool_budget=0`. Модель
 получает frozen context и не вызывает BHM tools; это не real-user telemetry.
-В этом release receipt local-model replay не включён: прогон не завершён, поэтому
-его нельзя выдавать за measurement. Контракт и воспроизводимая команда сохранены
-в [методике benchmark](docs/benchmarks/bhm-value-benchmark.md).
+Полный receipt завершён: `666/666`, `failed_calls=0`; результаты находятся в
+`.runtime/local-model-replay-666-20260804/` и зафиксированы в
+`.docs/ops/wl-028-local-model-replay-666-2026-08-04.md` и ADR-0357. Это
+model/prompt/frozen-fixture evidence, а не real-user telemetry.
 
 Канонический локальный MCP endpoint:
 

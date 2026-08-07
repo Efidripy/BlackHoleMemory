@@ -10,10 +10,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GENERATOR = REPO_ROOT / "scripts" / "generate-bhm-mcp-adapters.py"
 MANIFEST = REPO_ROOT / "config" / "mcp-registration.json"
+P18_12_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 
 def _hash(path: Path) -> str | None:
@@ -21,19 +23,23 @@ def _hash(path: Path) -> str | None:
 
 
 def _run(*args: str) -> dict[str, Any]:
-    completed = subprocess.run(
-        [sys.executable, str(GENERATOR), *args, "--json"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(GENERATOR), *args, "--json"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            timeout=P18_12_PROCESS_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"ok": False, "returncode": None, "error": f"adapter generator failed: {type(exc).__name__}: {exc}"}
     try:
         payload = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"adapter generator returned invalid JSON: {completed.stdout[-500:]}") from exc
+    except json.JSONDecodeError:
+        return {"ok": False, "returncode": completed.returncode, "error": f"adapter generator returned invalid JSON: {completed.stdout[-500:]}"}
     if not isinstance(payload, dict):
         raise RuntimeError("adapter generator returned a non-object payload")
     payload["returncode"] = completed.returncode

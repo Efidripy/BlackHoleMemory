@@ -10,8 +10,10 @@ from blackholememory.source_registry import (
     MANIFEST_SCHEMA,
     PERMISSION_FIELDS,
     SourceRegistryError,
+    _json_write_atomic,
     git_tree_sha256,
     load_registry,
+    _assert_owned_tree_target,
     sync_source,
     verify_registry,
 )
@@ -49,6 +51,41 @@ def _source_definition(url: str, revision: str) -> dict[str, object]:
         "recheck_date": "2026-08-15",
         "code_copy_allowed": False,
     }
+
+
+def test_source_cleanup_guard_rejects_escape_and_reparse_paths(tmp_path: Path) -> None:
+    owner_root = tmp_path / "quarantine"
+    owner_root.mkdir()
+
+    with pytest.raises(SourceRegistryError, match="outside source quarantine"):
+        _assert_owned_tree_target(tmp_path / "outside", owner_root)
+
+    outside = tmp_path / "outside-dir"
+    outside.mkdir()
+    link = owner_root / "source"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    with pytest.raises(SourceRegistryError, match="symlink/junction/reparse"):
+        _assert_owned_tree_target(link, owner_root)
+
+
+def test_source_registry_manifest_write_rejects_hardlink_target(tmp_path: Path) -> None:
+    owner_root = tmp_path / "quarantine"
+    owner_root.mkdir()
+    target = owner_root / "SOURCE-MANIFEST.json"
+    outside = tmp_path / "outside.json"
+    outside.write_text("sentinel", encoding="utf-8")
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        _json_write_atomic(target, {"status": "replace-me"})
+    assert outside.read_text(encoding="utf-8") == "sentinel"
 
 
 def test_source_registry_syncs_exact_git_revision_and_verifies_manifest(tmp_path: Path) -> None:

@@ -4,6 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
+from urllib.error import URLError
+from urllib.request import Request
+from urllib.request import urlopen
 from typing import Any
 
 from blackholememory.config import settings
@@ -12,6 +17,37 @@ from blackholememory.mem0_adapter import get_global_core_memory
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.mem0_adapter import global_collection_name
 from blackholememory.mem0_adapter import local_collection_name
+from blackholememory.resource_limits import LLM_INVENTORY_HTTP_TIMEOUT_SECONDS
+from blackholememory.runtime_endpoints import endpoint_url
+
+
+def _provider_is_live(base_url: str) -> bool:
+    try:
+        request = Request(f"{base_url.rstrip('/')}/models", method="GET")
+        with urlopen(request, timeout=LLM_INVENTORY_HTTP_TIMEOUT_SECONDS) as response:
+            return int(getattr(response, "status", 0) or 0) == 200
+    except (OSError, URLError, ValueError):
+        return False
+
+
+def _resolve_authoritative_provider_endpoint() -> None:
+    """Keep the standalone acceptance probe aligned with the local launcher.
+
+    A historical Docker-host value may remain in ``~/.bhm/.env`` while the
+    authoritative Windows runtime and LM Studio are loopback services.  The
+    probe is read-only, so it may redirect only this process when that exact
+    stale value is present and the canonical loopback provider is live.
+    """
+
+    configured = str(settings.mem0_openai_base_url or "").strip().rstrip("/")
+    loopback = endpoint_url("lm_studio").rstrip("/")
+    if not re.fullmatch(r"https?://172\.18\.0\.1:\d+/v1", configured):
+        return
+    if not _provider_is_live(loopback):
+        return
+    settings.mem0_openai_base_url = loopback
+    os.environ["OPENAI_BASE_URL"] = loopback
+    os.environ["BHM_MEM0_OPENAI_BASE_URL"] = loopback
 
 
 def _find_native_point(collection_name: str) -> Any | None:
@@ -30,6 +66,7 @@ def _find_native_point(collection_name: str) -> Any | None:
 
 
 def validate(project: str = "blackholememory") -> dict[str, Any]:
+    _resolve_authoritative_provider_endpoint()
     contours = []
     for origin, collection_name, memory in (
         ("LOCAL", local_collection_name(project), get_project_mem0_memory(project)),

@@ -27,7 +27,7 @@ def test_embedding_warmup_probe_is_bounded_and_does_not_retain_vector(monkeypatc
         captured["payload"] = json.loads(request.data.decode("utf-8"))
         return _Response()
 
-    monkeypatch.setattr(bhm_app.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(bhm_app, "open_local_url", fake_urlopen)
     monkeypatch.setattr(
         bhm_app,
         "settings",
@@ -47,7 +47,7 @@ def test_embedding_warmup_probe_is_bounded_and_does_not_retain_vector(monkeypatc
         "encoding_format": "float",
     }
     assert captured["timeout"] == bhm_app._PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS
-    assert captured["read_limit"] == 128
+    assert captured["read_limit"] == 129
 
 
 def test_qwen_provider_warmup_disables_thinking(monkeypatch) -> None:
@@ -68,7 +68,7 @@ def test_qwen_provider_warmup_disables_thinking(monkeypatch) -> None:
         captured["timeout"] = timeout
         return _Response()
 
-    monkeypatch.setattr(bhm_app.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(bhm_app, "open_local_url", fake_urlopen)
     monkeypatch.setattr(
         bhm_app,
         "settings",

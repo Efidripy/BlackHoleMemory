@@ -46,6 +46,34 @@ def test_invalid_settings_are_preserved_and_reported_with_backup(tmp_path):
     assert list(backup_dir.glob("*.bak"))
 
 
+def test_settings_reject_reparse_target_without_following_it(tmp_path):
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"llm": {"mode": "local", "port": 1234}}', encoding="utf-8")
+    path = tmp_path / "settings.json"
+    try:
+        path.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="symlink|reparse"):
+        save_settings(path, {"llm": {"mode": "local", "port": 4321}}, backup_dir=tmp_path / "backups")
+    assert '"port": 1234' in outside.read_text(encoding="utf-8")
+
+
+def test_settings_reject_hardlinked_target(tmp_path):
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"llm": {"mode": "local", "port": 1234}}', encoding="utf-8")
+    path = tmp_path / "settings.json"
+    try:
+        path.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        save_settings(path, {"llm": {"mode": "local", "port": 4321}}, backup_dir=tmp_path / "backups")
+    assert '"port": 1234' in outside.read_text(encoding="utf-8")
+
+
 def test_validation_rejects_unsafe_port_and_mode():
     with pytest.raises(ValueError, match="port"):
         validate_settings({"llm": {"mode": "local", "port": 0}})

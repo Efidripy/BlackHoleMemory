@@ -14,18 +14,34 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from blackholememory.code_graph import PARSER_REGISTRY  # noqa: E402
+from blackholememory.local_endpoint_policy import open_local_url  # noqa: E402
+from blackholememory.local_endpoint_policy import read_bounded_response  # noqa: E402
 from blackholememory.product_value import build_product_value_benchmark  # noqa: E402
 from blackholememory.product_value import verify_product_value_digest  # noqa: E402
+from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS  # noqa: E402
 
 
 def _digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
+
+
 def _live_canary() -> dict[str, object]:
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8000/health/ready", timeout=8) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        request = urllib.request.Request("http://127.0.0.1:8000/health/ready", method="GET")
+        with open_local_url(request, timeout=BHM_INTERNAL_HTTP_TIMEOUT_SECONDS) as response:
+            status_value = getattr(response, "status", None)
+            status = int(status_value if status_value is not None else response.getcode())
+            payload = json.loads(read_bounded_response(response, limit=512).decode("utf-8"))
+        if status != 200:
+            raise RuntimeError(f"unexpected HTTP status {status}")
         return {"ok": bool(payload.get("ok")), "surface": "health/ready", "authority_write": False}
     except Exception as exc:  # pragma: no cover - host-specific
         return {"ok": False, "surface": "health/ready", "error": str(exc)[:180], "authority_write": False}
@@ -66,8 +82,7 @@ def main() -> int:
         "rollback": "remove the versioned corpus/benchmark receipt; no runtime or authority state was changed",
         "final_integrator": "codex:/root",
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if report["ok"] else 1
 

@@ -12,6 +12,7 @@ if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
 from bhm_launcher_readiness import start_when_ready
+from bhm_launcher_readiness import probe_http
 from bhm_launcher_readiness import wait_for_readiness
 
 
@@ -68,3 +69,31 @@ def test_start_when_ready_rolls_back_after_readiness_timeout(monkeypatch):
     assert result.rolled_back is True
     assert started == ["start"]
     assert rolled_back == ["token"]
+
+
+def test_probe_http_rejects_non_local_endpoint() -> None:
+    ok, detail = probe_http("https://example.com/health/ready")
+
+    assert ok is False
+    assert "loopback/private" in detail
+
+
+def test_probe_http_reports_oversized_health_payload(monkeypatch) -> None:
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _size):
+            return b"x" * (128 * 1024 + 1)
+
+    monkeypatch.setattr("bhm_launcher_readiness.open_local_url", lambda *_args, **_kwargs: Response())
+
+    ok, detail = probe_http("http://127.0.0.1:8000/health/ready", require_json_ok=True)
+
+    assert ok is False
+    assert "bounded limit" in detail

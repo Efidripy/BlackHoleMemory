@@ -8,6 +8,7 @@ their code and never writes to the BHM runtime stores.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -20,6 +21,16 @@ import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
+
+from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import replace_bytes_safely
+from .resource_limits import (
+    PROCESS_EXECUTION_SOURCE_REGISTRY_CLONE_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_SOURCE_REGISTRY_FETCH_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_SOURCE_REGISTRY_GIT_TIMEOUT_SECONDS,
+    SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS,
+)
 
 
 REGISTRY_SCHEMA_V1 = "bhm.source-registry.v1"
@@ -107,6 +118,8 @@ CREDENTIAL_PATTERNS = {
     "openai-style-token": re.compile(rb"sk-[A-Za-z0-9]{20,}"),
 }
 MAX_SECRET_SCAN_BYTES = 4 * 1024 * 1024
+MAX_WEB_REDIRECTS = 3
+MAX_WEB_RESPONSE_BYTES = 16 * 1024 * 1024
 LICENSE_SIGNATURES = {
     "Apache-2.0": "Apache License\n                           Version 2.0",
     "AGPL-3.0": "GNU AFFERO GENERAL PUBLIC LICENSE",
@@ -117,6 +130,67 @@ LICENSE_SIGNATURES = {
 
 class SourceRegistryError(RuntimeError):
     """Raised when a source definition or quarantine state is invalid."""
+
+
+def _validate_web_source_url(value: str) -> str:
+    """Validate an operator-reviewed public HTTPS source URL."""
+
+    raw = str(value or "").strip()
+    parsed = urlsplit(raw)
+    if parsed.scheme.casefold() != "https":
+        raise SourceRegistryError("web source URL must use HTTPS")
+    if not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise SourceRegistryError("web source URL must have a public host without credentials or fragment")
+    try:
+        address = ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        address = None
+    if address is not None and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved):
+        raise SourceRegistryError("web source URL must not target a private or local address")
+    return raw
+
+
+class _ExternalRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Permit a small, explicitly validated redirect chain for web sources."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._redirect_count = 0
+
+    def redirect_request(self, req, fp, code, msg, headers, new):  # type: ignore[override]
+        if self._redirect_count >= MAX_WEB_REDIRECTS:
+            raise SourceRegistryError("web source redirect limit exceeded")
+        target = super().redirect_request(req, fp, code, msg, headers, new)
+        if target is None:
+            return None
+        _validate_web_source_url(target.full_url)
+        self._redirect_count += 1
+        return target
+
+
+def _open_web_source(url: str, *, timeout: float):
+    bounded_timeout = bounded_source_registry_web_timeout(timeout)
+    validated_url = _validate_web_source_url(url)
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _ExternalRedirectHandler(),
+    )
+    return opener.open(
+        urllib.request.Request(validated_url, headers={"User-Agent": "BlackHoleMemory-source-passport/1.0"}),
+        timeout=bounded_timeout,
+    )
+
+
+def bounded_source_registry_web_timeout(value: float) -> float:
+    """Clamp public source-registry fetch waits to the finite registry bound."""
+
+    try:
+        requested = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("source registry web timeout must be numeric") from exc
+    if not math.isfinite(requested):
+        raise ValueError("source registry web timeout must be finite")
+    return max(min(requested, float(SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS)), 1.0)
 
 
 def _utc_now() -> str:
@@ -131,16 +205,12 @@ def _json_load(path: Path) -> dict[str, Any]:
 
 
 def _json_write_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
     safe_payload = _redact_persisted_payload(payload)
     # lgtm [py/clear-text-storage-sensitive-data]
-    temporary.write_text(
-        json.dumps(safe_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
-        newline="\n",
+    replace_bytes_safely(
+        path,
+        (json.dumps(safe_payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
     )
-    os.replace(temporary, path)
 
 
 _SENSITIVE_KEY_RE = re.compile(r"(?i)(?:token|secret|password|credential|authorization|private[_-]?key|api[_-]?key)")
@@ -269,7 +339,12 @@ def _expected_license_kind(source: dict[str, Any]) -> str | None:
     return None
 
 
-def _run_git(args: list[str], *, cwd: Path | None = None, timeout: int = 300) -> str:
+def _run_git(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    timeout: int = PROCESS_EXECUTION_SOURCE_REGISTRY_GIT_TIMEOUT_SECONDS,
+) -> str:
     completed = subprocess.run(
         ["git", *args],
         cwd=str(cwd) if cwd else None,
@@ -426,7 +501,40 @@ def _is_synthetic_secret_fixture(relative: str, payload: bytes, start: int, end:
     )
 
 
-def _remove_tree(path: Path) -> None:
+def _assert_owned_tree_target(path: Path, owner_root: Path) -> None:
+    """Reject cleanup targets that escape or traverse reparse components."""
+
+    owner = Path(os.path.abspath(os.fspath(owner_root)))
+    target = Path(os.path.abspath(os.fspath(path)))
+    try:
+        relative_parts = target.relative_to(owner).parts
+    except ValueError as exc:
+        raise SourceRegistryError(
+            f"refusing cleanup outside source quarantine: {target}"
+        ) from exc
+
+    paths = [owner]
+    for part in relative_parts:
+        paths.append(paths[-1] / part)
+    for current in paths:
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise SourceRegistryError(f"unable to inspect cleanup target: {current}") from exc
+        attributes = int(getattr(metadata, "st_file_attributes", 0))
+        if current.is_symlink() or attributes & 0x400:
+            raise SourceRegistryError(
+                f"refusing cleanup through symlink/junction/reparse path: {current}"
+            )
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise SourceRegistryError(f"cleanup path component is not a directory: {current}")
+
+
+def _remove_tree(path: Path, *, owner_root: Path) -> None:
+    _assert_owned_tree_target(path, owner_root)
+
     def remove_readonly(function: Any, target: str, _exc_info: Any) -> None:
         os.chmod(target, stat.S_IWRITE)
         function(target)
@@ -503,7 +611,7 @@ def _write_rejected_git_manifest(
         "upstream_tree_sha256": tree_hash,
         "source_payload_retained": False,
     }
-    _remove_tree(checkout)
+    _remove_tree(checkout, owner_root=quarantine)
     evidence_path = quarantine / "RISK-REJECTED.json"
     _json_write_atomic(evidence_path, rejection)
     manifest = _manifest_base(source, acquired_at=_utc_now())
@@ -606,6 +714,7 @@ def sync_git_source(source: dict[str, Any], source_root: Path, *, refresh: bool 
     quarantine = _source_root(source_root, str(source["slug"]))
     checkout = quarantine / "source"
     quarantine.mkdir(parents=True, exist_ok=True)
+    _assert_owned_tree_target(quarantine, source_root)
     if not refresh and not checkout.exists():
         reused = _reuse_rejected_git_evidence(source, quarantine)
         if reused is not None:
@@ -624,12 +733,16 @@ def sync_git_source(source: dict[str, Any], source_root: Path, *, refresh: bool 
                 source["source_url"],
                 str(checkout),
             ],
-            timeout=600,
+            timeout=PROCESS_EXECUTION_SOURCE_REGISTRY_CLONE_TIMEOUT_SECONDS,
         )
     revision = str(source["revision"])
     head = _run_git(["rev-parse", "HEAD"], cwd=checkout).strip()
     if refresh or head != revision:
-        _run_git(["fetch", "--depth", "1", "origin", revision], cwd=checkout, timeout=600)
+        _run_git(
+            ["fetch", "--depth", "1", "origin", revision],
+            cwd=checkout,
+            timeout=PROCESS_EXECUTION_SOURCE_REGISTRY_FETCH_TIMEOUT_SECONDS,
+        )
         _run_git(["checkout", "--detach", revision], cwd=checkout)
         head = _run_git(["rev-parse", "HEAD"], cwd=checkout).strip()
     if head != revision:
@@ -683,36 +796,40 @@ def sync_git_source(source: dict[str, Any], source_root: Path, *, refresh: bool 
 def sync_web_source(source: dict[str, Any], source_root: Path, *, refresh: bool = False) -> dict[str, Any]:
     quarantine = _source_root(source_root, str(source["slug"]))
     quarantine.mkdir(parents=True, exist_ok=True)
+    _assert_owned_tree_target(quarantine, source_root)
     snapshot = quarantine / "reference.bin"
     error_path = quarantine / "FETCH-ERROR.txt"
+    assert_safe_path(snapshot)
+    assert_safe_path(error_path)
     status = "acquired"
     response_meta: dict[str, Any] = {}
     if refresh or not snapshot.exists():
-        temporary = snapshot.with_suffix(".tmp")
-        request = urllib.request.Request(
-            str(source["source_url"]),
-            headers={"User-Agent": "BlackHoleMemory-source-passport/1.0"},
-        )
         try:
-            with urllib.request.urlopen(request, timeout=45) as response:  # noqa: S310 - registry URL is operator-reviewed
-                payload = response.read(16 * 1024 * 1024 + 1)
-                if len(payload) > 16 * 1024 * 1024:
+            with _open_web_source(str(source["source_url"]), timeout=SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS) as response:
+                declared_length = response.headers.get("Content-Length")
+                if declared_length:
+                    try:
+                        declared_bytes = int(declared_length)
+                    except (TypeError, ValueError) as exc:
+                        raise SourceRegistryError("reference response has invalid Content-Length") from exc
+                    if declared_bytes < 0 or declared_bytes > MAX_WEB_RESPONSE_BYTES:
+                        raise SourceRegistryError("reference response exceeds 16 MiB quarantine cap")
+                payload = response.read(MAX_WEB_RESPONSE_BYTES + 1)
+                if len(payload) > MAX_WEB_RESPONSE_BYTES:
                     raise SourceRegistryError("reference response exceeds 16 MiB quarantine cap")
-                temporary.write_bytes(payload)
-                os.replace(temporary, snapshot)
+                replace_bytes_safely(snapshot, payload)
                 response_meta = {
-                    "final_url": response.geturl(),
+                    "final_url": _validate_web_source_url(response.geturl()),
                     "content_type": response.headers.get("Content-Type", ""),
                     "content_length": len(payload),
                 }
                 if error_path.exists():
+                    assert_safe_path(error_path)
                     error_path.unlink()
         except (OSError, urllib.error.URLError, SourceRegistryError) as exc:
-            if temporary.exists():
-                temporary.unlink()
             status = "failed"
             safe_error = f"fetch failed for {source['source_url']}: {type(exc).__name__}: {exc}\n"
-            error_path.write_text(safe_error, encoding="utf-8", newline="\n")
+            replace_bytes_safely(error_path, safe_error.encode("utf-8"))
     if snapshot.exists() and status != "failed":
         material = snapshot
     else:

@@ -10,15 +10,51 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.resource_limits import PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+
 ROOT = Path(__file__).resolve().parents[1]
+MIGRATION_TIMEOUT_SECONDS = PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+    )
 
 
 def _probe(url: str) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=8) as response:
-            return response.status == 200
+        request = urllib.request.Request(url, method="GET")
+        with open_local_url(request, timeout=BHM_INTERNAL_HTTP_TIMEOUT_SECONDS) as response:
+            read_bounded_response(response, limit=512)
+            status_value = getattr(response, "status", None)
+            status = int(status_value if status_value is not None else response.getcode())
+            return status == 200
     except Exception:
         return False
+
+
+def _run_migration_rehearsal() -> tuple[bool, int | None, bool]:
+    """Run the isolated migration rehearsal with a fail-closed timeout."""
+
+    try:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "validate-bhm-wi14-migration.py")],
+            cwd=ROOT,
+            env={**__import__("os").environ, "PYTHONPATH": str(ROOT / "src")},
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=MIGRATION_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return False, None, True
+    return result.returncode == 0, result.returncode, False
 
 
 def main() -> int:
@@ -28,15 +64,7 @@ def main() -> int:
     config = json.loads((ROOT / "config" / "cbm-integration.json").read_text(encoding="utf-8"))
     flags = config.get("feature_flags", {})
     all_disabled = all(value is False for value in flags.values())
-    migration = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "validate-bhm-wi14-migration.py")],
-        cwd=ROOT,
-        env={**__import__("os").environ, "PYTHONPATH": str(ROOT / "src")},
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-    )
-    migration_ok = migration.returncode == 0
+    migration_ok, migration_exit, migration_timed_out = _run_migration_rehearsal()
     report = {
         "schema_version": "bhm.p21.10-12.activation-dispositions.v1",
         "p21_10_live_activation": {
@@ -50,7 +78,8 @@ def main() -> int:
         "p21_11_migration": {
             "disposition": "rehearsed-not-applied",
             "status": "dry-run-green" if migration_ok else "dry-run-failed",
-            "validator_exit": migration.returncode,
+            "validator_exit": migration_exit,
+            "timed_out": migration_timed_out,
             "reason": "WI-14 migration compatibility is exercised as an isolated dry-run; live apply requires operator approval",
             "risk": "live migration remains unproven and is intentionally not performed",
             "decision": "retain append-only staging, backup/rollback passport and no authority mutation",
@@ -72,8 +101,7 @@ def main() -> int:
     }
     report["checks"] = {"flags_truthful": all_disabled, "migration_rehearsal": migration_ok, "runtime_core_healthy": all(report["runtime_canary"].values()), "dispositions_explicit": True}
     report["ok"] = all(bool(value) for value in report["checks"].values())
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps(report, ensure_ascii=True, indent=2, sort_keys=True))
     return 0 if report["ok"] else 1
 

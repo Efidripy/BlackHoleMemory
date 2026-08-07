@@ -7,10 +7,18 @@ import json
 from pathlib import Path
 
 from blackholememory import app as bhm_app
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.unified_context import build_unified_context_from_graph
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def _assert(condition: bool, message: str) -> None:
@@ -111,7 +119,7 @@ def main() -> int:
         },
     }
     path = ROOT / "docs" / "ops" / "bhm-p22.4-wi43-continuity-2026-07-21.json"
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_report(path, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 

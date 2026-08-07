@@ -10,6 +10,8 @@ from fastapi.openapi.utils import get_openapi
 from .capability import ADMIN_CAPABILITY_HEADER
 from .capability import admin_route_requires_capability
 from .caller_auth import caller_route_requires_auth
+from .error_taxonomy import ERROR_TAXONOMY_SCHEMA_VERSION
+from .error_taxonomy import error_contract_snapshot
 from .version_manifest import RUNTIME_VERSION
 
 OpenApiSurface = Literal["public", "admin"]
@@ -101,6 +103,8 @@ def build_openapi_schema(app: Any, surface: OpenApiSurface = "public") -> dict[s
     schema["security"] = []
     schema["x-bhm-surface"] = surface
     schema["x-bhm-schema-version"] = "p3.9"
+    schema["x-bhm-error-taxonomy-version"] = ERROR_TAXONOMY_SCHEMA_VERSION
+    schema["x-bhm-error-taxonomy"] = error_contract_snapshot()
     schema["x-bhm-omitted-admin-operations"] = sorted(omitted_admin_paths)
     components = schema.setdefault("components", {})
     security_schemes = components.setdefault("securitySchemes", {})
@@ -119,5 +123,22 @@ def build_openapi_schema(app: Any, surface: OpenApiSurface = "public") -> dict[s
             f"wire name is {ADMIN_CAPABILITY_HEADER}; never place it in query "
             "parameters or request bodies."
         ),
+    }
+    schemas = components.setdefault("schemas", {})
+    schemas["BhmRestErrorDetail"] = {
+        "oneOf": [
+            {"type": "string"},
+            {
+                "type": "object",
+                "description": "Structured BHM error detail; code/error is the canonical semantic value.",
+                "properties": {
+                    "code": {"type": "string"},
+                    "error": {"type": "string"},
+                    "message": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+                "additionalProperties": True,
+            },
+        ]
     }
     return schema

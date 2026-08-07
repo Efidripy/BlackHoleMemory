@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
+import blackholememory.mcp_doctor as doctor
+from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.mcp_doctor import choose_next_action
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 
@@ -73,3 +77,83 @@ def test_doctor_ownership_probe_is_never_promoted_to_broad_kill():
     action = choose_next_action(**state)
 
     assert "kill" not in action["action"].casefold()
+
+
+def test_doctor_config_rejects_external_base_url():
+    with pytest.raises(LocalEndpointError, match="local-only"):
+        doctor.DoctorConfig(base_url="https://api.example.com")
+
+
+def test_doctor_health_headers_match_runtime_auth_boundary(monkeypatch):
+    monkeypatch.setattr(doctor, "_required_bhm_caller_token", lambda: "t" * 43)
+
+    anonymous = doctor._bhm_request_headers("/health/ready", accept="application/json")
+    protected = doctor._bhm_request_headers("/health/cutover", accept="application/json")
+
+    assert "Authorization" not in anonymous
+    assert protected["Authorization"] == "Bearer " + ("t" * 43)
+
+
+class _Response:
+    status = 200
+
+    def __init__(self, body: bytes):
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def read(self, limit: int) -> bytes:
+        return self._body[:limit]
+
+
+def test_doctor_get_json_uses_bounded_local_transport(monkeypatch):
+    captured = {}
+
+    def fake_open(request, *, timeout):
+        captured["url"] = request.full_url
+        captured["timeout"] = timeout
+        return _Response(b'{"ok":true}')
+
+    monkeypatch.setattr(doctor, "open_local_url", fake_open)
+
+    payload, error = doctor._get_json(
+        "http://127.0.0.1:8000",
+        "/health/ready",
+        timeout_seconds=20,
+    )
+
+    assert payload == {"ok": True}
+    assert error is None
+    assert captured == {
+        "url": "http://127.0.0.1:8000/health/ready",
+        "timeout": 15.0,
+    }
+
+
+def test_doctor_get_json_fails_closed_on_oversized_response(monkeypatch):
+    monkeypatch.setattr(doctor, "open_local_url", lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)))
+
+    payload, error = doctor._get_json(
+        "http://127.0.0.1:8000",
+        "/health/ready",
+        timeout_seconds=2,
+    )
+
+    assert payload is None
+    assert error == "response_too_large"
+
+
+def test_doctor_mcp_request_fails_closed_on_oversized_response(monkeypatch):
+    monkeypatch.setattr(doctor, "open_local_url", lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)))
+
+    with pytest.raises(ValueError, match="response_too_large"):
+        doctor._http_mcp_request(
+            "http://127.0.0.1:8000/mcp",
+            None,
+            timeout_seconds=2,
+            method="DELETE",
+        )

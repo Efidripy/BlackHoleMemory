@@ -16,12 +16,24 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.code_graph import SQLiteCodeGraphStore, build_code_graph
 from blackholememory.code_graph_query import explain_code_graph, query_code_graph
 from blackholememory.convention_memory import preview_convention_memory
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import RepositoryWatcher, index_repository, probe_repository_state
 from blackholememory.unified_context import build_unified_context_from_graph
+
+
+GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def _sha256(path: Path) -> str:
@@ -39,6 +51,7 @@ def _git(root: Path, *args: str) -> str:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        timeout=GIT_PROBE_TIMEOUT_SECONDS,
     )
     return result.stdout.strip()
 
@@ -214,8 +227,7 @@ def main() -> int:
         "model_started": False,
         "disposition": "pass" if not failed else "blocked",
     }
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_report(report_path, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if not failed else 1
 

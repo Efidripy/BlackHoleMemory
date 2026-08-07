@@ -6,12 +6,15 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
+
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from typing import Any, Iterable
 
 
 ALLOWED_STATUSES = {"implemented", "equivalent", "partial", "deferred", "rejected", "not-applicable"}
 CLOSING_STATUSES = {"implemented", "equivalent", "rejected", "not-applicable"}
 _BLOCKED_EVIDENCE_PARTS = {".env", "credentials", "private-keys", "private_keys", "secrets"}
+GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 
 
 def _sha256(path: Path) -> str:
@@ -68,6 +71,23 @@ def _validate_crosswalk_shape(root: Path, capabilities: Iterable[dict[str, Any]]
     return {"checked": checked, "safe": safe, "failures": failures}
 
 
+def _tracked_source_files(root: Path) -> tuple[list[str], str | None]:
+    """Read the tracked .src boundary with a finite, fail-closed Git probe."""
+
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "ls-files", ".src"],
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=GIT_PROBE_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ["git-check-unavailable"], "git source-boundary check unavailable"
+    return completed.stdout.splitlines(), None
+
+
 def build_report(repo_root: Path) -> dict[str, Any]:
     root = repo_root.resolve()
     crosswalk_path = root / ".docs" / "config" / "cbm-bhm-capability-crosswalk.json"
@@ -105,17 +125,9 @@ def build_report(repo_root: Path) -> dict[str, Any]:
             failures.append(f"acceptance: missing evidence {evidence}")
     shape = _validate_crosswalk_shape(root, active_capabilities)
     failures.extend(shape["failures"])
-    try:
-        tracked_src = subprocess.run(
-            ["git", "-C", str(root), "ls-files", ".src"],
-            check=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-        ).stdout.splitlines()
-    except (OSError, subprocess.CalledProcessError):
-        tracked_src = ["git-check-unavailable"]
-        failures.append("git source-boundary check unavailable")
+    tracked_src, tracked_src_failure = _tracked_source_files(root)
+    if tracked_src_failure:
+        failures.append(tracked_src_failure)
     bounded_scope_closed = all(
         str(bounded_disposition.get(str(capability.get("id") or "")) or "").strip()
         for capability in active_capabilities

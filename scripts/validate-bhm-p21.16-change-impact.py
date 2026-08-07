@@ -9,6 +9,11 @@ import time
 from pathlib import Path
 
 from blackholememory.change_impact import ChangeImpactError, build_change_impact_preview, collect_git_change_paths, collect_git_history_stats
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
+
+def _write_report(path: Path, report: dict) -> None:
+    replace_bytes_safely(path, (json.dumps(report, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
 def _snapshot() -> dict:
@@ -87,8 +92,7 @@ def main() -> int:
         "writes_live_state": False,
         "ok": bool(ready["ready"] and not stale["ready"] and not stale_freshness["ready"] and drift_rejected and ready["execution"]["auto_apply"] is False),
     }
-    args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_report(args.report, report)
     print(json.dumps({"ok": report["ok"], "ready": ready["ready"], "stale_ready": stale["ready"], "digest_drift_rejected": drift_rejected}, indent=2))
     return 0 if report["ok"] else 1
 

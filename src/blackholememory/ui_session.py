@@ -31,6 +31,7 @@ _HTTP_ALLOWLIST = frozenset(
         ("POST", "/bhm/ui/code-tools"),
         ("POST", "/bhm/retrieval/explain"),
         ("GET", "/bhm/ui/session/status"),
+        ("GET", "/bhm/ui/session/bootstrap"),
         ("POST", "/bhm/ui/session/renew"),
     }
 )
@@ -76,6 +77,19 @@ class UiSessionRegistry:
             self._bootstraps.clear()
             self._sessions.clear()
 
+    @staticmethod
+    def _matches_expected_principal(
+        principal: CallerPrincipal,
+        expected_principal: CallerPrincipal | None,
+    ) -> bool:
+        if expected_principal is None:
+            return True
+        expected_binding = expected_principal.binding_fingerprint
+        actual_binding = principal.binding_fingerprint
+        # Runtime-configured principals always carry a binding. Legacy direct
+        # callers may omit it, but cannot satisfy a configured expectation.
+        return bool(expected_binding) and actual_binding == expected_binding
+
     def mint_bootstrap(self, principal: CallerPrincipal) -> str:
         token = _token()
         now = time.monotonic()
@@ -88,12 +102,17 @@ class UiSessionRegistry:
             )
         return token
 
-    def exchange_bootstrap(self, bootstrap_token: str) -> tuple[str, CallerPrincipal] | None:
+    def exchange_bootstrap(
+        self,
+        bootstrap_token: str,
+        *,
+        expected_principal: CallerPrincipal | None = None,
+    ) -> tuple[str, CallerPrincipal] | None:
         now = time.monotonic()
         with self._lock:
             self._purge(self._bootstraps, now)
             record = self._bootstraps.pop(_digest(bootstrap_token), None)
-            if record is None:
+            if record is None or not self._matches_expected_principal(record.principal, expected_principal):
                 return None
             session_token = _token()
             self._purge(self._sessions, now)
@@ -104,11 +123,21 @@ class UiSessionRegistry:
             )
             return session_token, record.principal
 
-    def resolve_session(self, session_token: str | None) -> CallerPrincipal | None:
-        lease = self.resolve_session_lease(session_token)
+    def resolve_session(
+        self,
+        session_token: str | None,
+        *,
+        expected_principal: CallerPrincipal | None = None,
+    ) -> CallerPrincipal | None:
+        lease = self.resolve_session_lease(session_token, expected_principal=expected_principal)
         return lease[0] if lease is not None else None
 
-    def renew_session(self, session_token: str | None) -> tuple[CallerPrincipal, float, str] | None:
+    def renew_session(
+        self,
+        session_token: str | None,
+        *,
+        expected_principal: CallerPrincipal | None = None,
+    ) -> tuple[CallerPrincipal, float, str] | None:
         """Rotate and extend a valid UI lease, returning a server-generated token."""
 
         if not session_token:
@@ -118,7 +147,7 @@ class UiSessionRegistry:
             self._purge(self._sessions, now)
             digest = _digest(session_token)
             record = self._sessions.get(digest)
-            if record is None:
+            if record is None or not self._matches_expected_principal(record.principal, expected_principal):
                 return None
             renewed_token = _token()
             renewed = _SessionRecord(
@@ -129,14 +158,19 @@ class UiSessionRegistry:
             self._sessions[_digest(renewed_token)] = renewed
             return renewed.principal, SESSION_TTL_SECONDS, renewed_token
 
-    def resolve_session_lease(self, session_token: str | None) -> tuple[CallerPrincipal, float] | None:
+    def resolve_session_lease(
+        self,
+        session_token: str | None,
+        *,
+        expected_principal: CallerPrincipal | None = None,
+    ) -> tuple[CallerPrincipal, float] | None:
         if not session_token:
             return None
         now = time.monotonic()
         with self._lock:
             self._purge(self._sessions, now)
             record = self._sessions.get(_digest(session_token))
-            if record is None:
+            if record is None or not self._matches_expected_principal(record.principal, expected_principal):
                 return None
             return record.principal, max(record.expires_at - now, 0.0)
 

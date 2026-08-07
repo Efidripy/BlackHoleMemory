@@ -23,8 +23,10 @@ from .code_graph import PARSER_REGISTRY_DIGEST
 from .code_graph import SQLiteCodeGraphStore
 from .code_graph import build_code_graph
 from .code_graph import verify_code_graph_snapshot
+from .filesystem_boundaries import replace_bytes_safely
 from .repository_index import SQLiteRepositoryIndexStore
 from .repository_index import probe_repository_state
+from .resource_limits import SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS
 
 
 PARSER_ACTIVATION_SCHEMA_VERSION = "bhm.code-graph-parser-v2.activation.v1"
@@ -53,15 +55,15 @@ def online_backup(source: str | Path, target: str | Path) -> dict[str, Any]:
     if target_path.exists():
         raise ParserActivationError(f"backup already exists: {target_path}")
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    source_connection = sqlite3.connect(str(source_path), timeout=30.0)
-    target_connection = sqlite3.connect(str(target_path), timeout=30.0)
+    source_connection = sqlite3.connect(str(source_path), timeout=SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS)
+    target_connection = sqlite3.connect(str(target_path), timeout=SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS)
     try:
         source_connection.backup(target_connection)
         target_connection.commit()
     finally:
         target_connection.close()
         source_connection.close()
-    with sqlite3.connect(str(target_path), uri=False) as connection:
+    with sqlite3.connect(str(target_path), uri=False, timeout=SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS) as connection:
         quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
     if quick_check != "ok":
         raise ParserActivationError(f"backup quick_check failed: {quick_check}")
@@ -145,9 +147,9 @@ def activate_parser_v2(
 def write_report(payload: dict[str, Any], report: str | Path | None) -> None:
     if report is None:
         return
-    target = Path(report).expanduser().resolve()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
+    target = Path(report).expanduser()
+    content = json.dumps(payload, ensure_ascii=False, indent=2, default=str) + "\n"
+    replace_bytes_safely(target, content.encode("utf-8"))
 
 
 __all__ = [

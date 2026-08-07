@@ -3,7 +3,12 @@ from __future__ import annotations
 import sys
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 from blackholememory.agents import developer_agent
+from blackholememory.resource_limits import PROCESS_EXECUTION_CONTAINER_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
 
 
 class _ImageNotFound(Exception):
@@ -23,12 +28,14 @@ class _FakeContainer:
         self.started = False
         self.killed = False
         self.removed = False
+        self.wait_timeout = None
 
     def start(self) -> None:
         self.started = True
 
     def wait(self, timeout: int) -> dict[str, int]:
-        assert timeout > 0
+        self.wait_timeout = timeout
+        assert timeout == PROCESS_EXECUTION_CONTAINER_TIMEOUT_SECONDS
         return {"StatusCode": 0}
 
     def logs(self, *, stdout: bool, stderr: bool) -> bytes:
@@ -101,6 +108,7 @@ def test_sandbox_uses_pinned_image_and_hardened_container(monkeypatch) -> None:
     assert "volumes" not in kwargs
     assert "devices" not in kwargs
     assert container.started is True
+    assert container.wait_timeout == PROCESS_EXECUTION_CONTAINER_TIMEOUT_SECONDS
     assert container.removed is True
 
 
@@ -114,3 +122,42 @@ def test_missing_pinned_image_fails_closed_without_runtime_pull(monkeypatch) -> 
     assert "Pinned sandbox image is not installed" in result["stderr"]
     assert calls["pull"] == []
     assert calls["create"] == []
+
+
+def test_pid_inspection_uses_registry_process_bound(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(*_args, **kwargs):
+        captured["timeout"] = kwargs["timeout"]
+        return SimpleNamespace(stdout='"123"', returncode=0)
+
+    monkeypatch.setattr(developer_agent.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(developer_agent.subprocess, "run", fake_run)
+
+    assert developer_agent._is_pid_running(123) is True
+    assert captured["timeout"] == PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
+
+
+def test_pid_termination_clamps_grace_and_taskkill_timeouts(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+    running = iter([True, False])
+
+    def fake_run(*_args, **kwargs):
+        calls.append({"timeout": kwargs["timeout"], "args": _args[0]})
+        return SimpleNamespace(stdout="", returncode=0)
+
+    monkeypatch.setattr(developer_agent.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(developer_agent.subprocess, "run", fake_run)
+    monkeypatch.setattr(developer_agent, "_is_pid_running", lambda _pid: next(running))
+    monkeypatch.setattr(developer_agent, "_grace_wait", lambda seconds: calls.append({"grace": seconds}))
+
+    result = developer_agent._terminate_spawned_pid_tree(123, grace_seconds=999)
+
+    assert result["terminated"] is True
+    assert calls[0]["timeout"] == PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
+    assert calls[1]["grace"] == PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
+
+
+def test_pid_termination_rejects_non_finite_grace() -> None:
+    with pytest.raises(ValueError, match="finite"):
+        developer_agent._bounded_termination_grace_seconds(float("inf"))

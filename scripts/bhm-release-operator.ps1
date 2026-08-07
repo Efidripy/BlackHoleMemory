@@ -7,6 +7,7 @@ param(
     [string]$BackupRoot = "",
     [string]$BaseUrl = '',
     [string]$PythonPath = "",
+    [string]$ExpectedSourceRevision = "",
     [switch]$Confirm,
     [switch]$DryRun,
     [switch]$AsJson
@@ -14,6 +15,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.Net.Http
+
+$OperatorHttpTimeoutSec = 10
+$OperatorHttpMaxResponseBytes = 262144
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptRoot
@@ -30,6 +35,61 @@ function Get-BhmCallerHeaders {
         throw 'BHM_CALLER_TOKEN is unavailable'
     }
     return @{ Authorization = "Bearer $token" }
+}
+
+function Assert-ReadOnlyOperatorUri {
+    param([Parameter(Mandatory = $true)][string]$Candidate)
+
+    $parsed = $null
+    if (-not [Uri]::TryCreate($Candidate, [UriKind]::Absolute, [ref]$parsed)) {
+        throw 'operator probe URL is not an absolute URI'
+    }
+    $allowedHosts = @('127.0.0.1', 'localhost', '::1')
+    if ($parsed.Scheme -ne 'http' -or $allowedHosts -notcontains $parsed.Host.ToLowerInvariant()) {
+        throw 'operator read-only probes require an HTTP loopback endpoint'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($parsed.UserInfo)) {
+        throw 'operator probe URL must not contain userinfo'
+    }
+    return $parsed
+}
+
+function Invoke-ReadOnlyOperatorJson {
+    param(
+        [Parameter(Mandatory = $true)][string]$Uri,
+        [hashtable]$Headers = @{}
+    )
+
+    $parsed = Assert-ReadOnlyOperatorUri -Candidate $Uri
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.UseProxy = $false
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds($OperatorHttpTimeoutSec)
+    $request = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::Get, $parsed)
+    try {
+        foreach ($key in $Headers.Keys) {
+            $request.Headers.TryAddWithoutValidation([string]$key, [string]$Headers[$key]) | Out-Null
+        }
+        $response = $client.SendAsync(
+            $request,
+            [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead
+        ).GetAwaiter().GetResult()
+        if (-not $response.IsSuccessStatusCode) {
+            throw "operator probe returned HTTP $([int]$response.StatusCode)"
+        }
+        $bytes = $response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult()
+        if ($bytes.Length -gt $OperatorHttpMaxResponseBytes) {
+            throw "operator probe response exceeded bounded limit $OperatorHttpMaxResponseBytes bytes"
+        }
+        return ([Text.Encoding]::UTF8.GetString($bytes) | ConvertFrom-Json)
+    }
+    finally {
+        if ($null -ne $response) { $response.Dispose() }
+        $request.Dispose()
+        $client.Dispose()
+        $handler.Dispose()
+    }
 }
 
 function Emit-Result {
@@ -63,6 +123,34 @@ function Resolve-InstallRoot {
     return [IO.Path]::GetFullPath($repoRoot)
 }
 
+function Find-ReparsePathComponent {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $current = [IO.DirectoryInfo]::new([IO.Path]::GetFullPath($Path))
+    while ($null -ne $current) {
+        $item = $null
+        try {
+            $item = Get-Item -LiteralPath $current.FullName -Force -ErrorAction Stop
+        }
+        catch {
+            # A not-yet-created leaf is allowed for install. An existing
+            # component that cannot be inspected is fail-closed.
+            if ([IO.Directory]::Exists($current.FullName) -or [IO.File]::Exists($current.FullName)) {
+                throw "Unable to inspect target path component: $($current.FullName)"
+            }
+        }
+        if ($null -ne $item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            return $current.FullName
+        }
+        $parent = $current.Parent
+        if ($null -eq $parent -or $parent.FullName -eq $current.FullName) {
+            break
+        }
+        $current = $parent
+    }
+    return $null
+}
+
 function Assert-TargetSafe {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
@@ -73,8 +161,35 @@ function Assert-TargetSafe {
     if ($RequireExisting -and -not (Test-Path -LiteralPath $resolved)) {
         throw "Target root does not exist: $resolved"
     }
+    $reparsePath = Find-ReparsePathComponent -Path $resolved
+    if (-not [string]::IsNullOrWhiteSpace($reparsePath)) {
+        throw "Refusing to mutate a symlink/junction/reparse target path: $reparsePath"
+    }
     if ((Test-Path -LiteralPath (Join-Path $resolved ".git")) -or $resolved -eq $source -or $resolved.StartsWith("$source\", [StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to mutate a repository checkout: $resolved"
+    }
+    return $resolved
+}
+
+function Assert-TreeSafe {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [switch]$RequireExisting
+    )
+    $resolved = Assert-TargetSafe -Root $Root -RequireExisting:$RequireExisting
+    if (-not (Test-Path -LiteralPath $resolved)) {
+        return $resolved
+    }
+    try {
+        $items = @(Get-ChildItem -LiteralPath $resolved -Recurse -Force -ErrorAction Stop)
+    }
+    catch {
+        throw "Unable to inspect existing target tree before mutation: $resolved"
+    }
+    foreach ($item in $items) {
+        if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+            throw "Refusing to copy a tree containing a symlink/junction/reparse entry: $($item.FullName)"
+        }
     }
     return $resolved
 }
@@ -115,7 +230,8 @@ function Get-ArchiveManifest {
 function Verify-Archive {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$Python
+        [Parameter(Mandatory = $true)][string]$Python,
+        [string]$ExpectedSourceRevision = ""
     )
     $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).Path
     $sidecar = "$resolved.sha256"
@@ -134,7 +250,9 @@ function Verify-Archive {
     }
     $verifyScript = Join-Path $repoRoot "scripts\verify-release-build.py"
     $trustVerifyScript = Join-Path $repoRoot "scripts\verify-release-trust.py"
-    if ($version -eq "1.8.0" -and (Test-Path -LiteralPath $verifyScript)) {
+    $signatureVerifyScript = Join-Path $repoRoot "scripts\verify-release-signature.py"
+    $signerTrustRegistry = Join-Path $repoRoot "config\release-signer-trust.json"
+    if (Test-Path -LiteralPath $verifyScript) {
         $output = @(& $Python $verifyScript --archive $resolved --expected-version ("v" + $version) 2>&1)
         if ($LASTEXITCODE -ne 0) {
             throw "Release verifier rejected archive: $($output -join [Environment]::NewLine)"
@@ -142,9 +260,48 @@ function Verify-Archive {
         if (-not (Test-Path -LiteralPath $trustVerifyScript)) {
             throw "Release trust verifier is missing: $trustVerifyScript"
         }
-        $trustOutput = @(& $Python $trustVerifyScript --archive $resolved --expected-version ("v" + $version) 2>&1)
+        $trustArgs = @(
+            "--archive", $resolved,
+            "--expected-version", ("v" + $version)
+        )
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedSourceRevision)) {
+            $trustArgs += @("--expected-source-revision", $ExpectedSourceRevision)
+        }
+        $trustOutput = @(& $Python $trustVerifyScript @trustArgs 2>&1)
         if ($LASTEXITCODE -ne 0) {
             throw "Release trust verifier rejected archive: $($trustOutput -join [Environment]::NewLine)"
+        }
+        $signaturePaths = @(
+            "$resolved.sig",
+            "$resolved.pub",
+            "$resolved.trust.json"
+        )
+        $signaturePresent = @($signaturePaths | Where-Object { Test-Path -LiteralPath $_ }).Count
+        if ($signaturePresent -gt 0) {
+            if ($signaturePresent -ne $signaturePaths.Count) {
+                throw "Detached signature sidecars must be supplied as .sig, .pub and .trust.json together."
+            }
+            if (-not (Test-Path -LiteralPath $signatureVerifyScript)) {
+                throw "Detached signature verifier is missing: $signatureVerifyScript"
+            }
+            if (-not (Test-Path -LiteralPath $signerTrustRegistry)) {
+                throw "Pinned signer trust registry is missing: $signerTrustRegistry"
+            }
+            $signatureArgs = @(
+                "--archive", $resolved,
+                "--signature", "$resolved.sig",
+                "--public-key", "$resolved.pub",
+                "--receipt", "$resolved.trust.json",
+                "--expected-version", ("v" + $version),
+                "--trust-registry", $signerTrustRegistry
+            )
+            if (-not [string]::IsNullOrWhiteSpace($ExpectedSourceRevision)) {
+                $signatureArgs += @("--expected-source-revision", $ExpectedSourceRevision)
+            }
+            $signatureOutput = @(& $Python $signatureVerifyScript @signatureArgs 2>&1)
+            if ($LASTEXITCODE -ne 0) {
+                throw "Detached signature verifier rejected archive: $($signatureOutput -join [Environment]::NewLine)"
+            }
         }
     }
     return [pscustomobject]@{
@@ -159,9 +316,9 @@ function Get-RuntimeSnapshot {
     param([Parameter(Mandatory = $true)][string]$Url)
     try {
         $headers = Get-BhmCallerHeaders
-        $health = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health" -Headers $headers -TimeoutSec 8
-        $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$Url/health/cutover" -Headers $headers -TimeoutSec 8
-        $slo = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/health/slo" -Headers $headers -TimeoutSec 8
+        $health = Invoke-ReadOnlyOperatorJson -Uri "$Url/bhm/health" -Headers $headers
+        $cutover = Invoke-ReadOnlyOperatorJson -Uri "$Url/health/cutover" -Headers $headers
+        $slo = Invoke-ReadOnlyOperatorJson -Uri "$Url/bhm/health/slo" -Headers $headers
         return [pscustomobject]@{
             reachable = $true
             ok = ($health.status -eq "healthy" -and $health.memory_store.backend -eq "sqlite-authoritative" -and [bool]$cutover.ok -and $slo.status -eq "healthy")
@@ -195,7 +352,7 @@ function Get-AttachSnapshot {
     param([Parameter(Mandatory = $true)][string]$Url)
     try {
         $callerHeaders = Get-BhmCallerHeaders
-        $contract = Invoke-RestMethod -UseBasicParsing -Uri "$Url/bhm/mcp/http/status" -Headers $callerHeaders -TimeoutSec 8
+        $contract = Invoke-ReadOnlyOperatorJson -Uri "$Url/bhm/mcp/http/status" -Headers $callerHeaders
         $attach = $contract.sessions
         return [pscustomobject]@{
             status = [string]$attach.status
@@ -239,6 +396,7 @@ function Copy-ExistingRuntime {
     )
     $runtime = Join-Path $SourceRoot ".runtime"
     if (Test-Path -LiteralPath $runtime) {
+        Assert-TreeSafe -Root $SourceRoot -RequireExisting | Out-Null
         Copy-Item -LiteralPath $runtime -Destination $StageRoot -Recurse -Force
     }
 }
@@ -254,7 +412,7 @@ function Invoke-Mutation {
     if (-not $Confirm -and -not $DryRun) {
         throw "$Mode requires explicit -Confirm; use -DryRun for a non-mutating plan"
     }
-    $archiveInfo = Verify-Archive -Path $Archive -Python $Python
+    $archiveInfo = Verify-Archive -Path $Archive -Python $Python -ExpectedSourceRevision $ExpectedSourceRevision
     $targetInfo = Get-InstallSnapshot -Root $Target
     if ($Mode -eq "update" -and -not $targetInfo.exists) {
         throw "Update target does not exist: $Target"
@@ -280,6 +438,7 @@ function Invoke-Mutation {
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
     $stageRoot = Join-Path $parent (".bhm-stage-{0}" -f ([guid]::NewGuid().ToString("N")))
     $extractRoot = Join-Path $parent (".bhm-extract-{0}" -f ([guid]::NewGuid().ToString("N")))
+    $targetDisplaced = $false
     try {
         New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
         [IO.Compression.ZipFile]::ExtractToDirectory($archiveInfo.path, $extractRoot)
@@ -295,6 +454,7 @@ function Invoke-Mutation {
             Copy-Item -LiteralPath $Target -Destination $Backup -Recurse -Force
             Copy-ExistingRuntime -SourceRoot $Target -StageRoot $stageRoot
             Remove-Item -LiteralPath $Target -Recurse -Force
+            $targetDisplaced = $true
         }
         Move-Item -LiteralPath $stageRoot -Destination $Target -Force
         $initializer = Join-Path $Target "scripts\initialize-bhm-runtime.py"
@@ -313,9 +473,22 @@ function Invoke-Mutation {
         }
     }
     catch {
+        $failure = $_
         if (Test-Path -LiteralPath $stageRoot) { Remove-Item -LiteralPath $stageRoot -Recurse -Force -ErrorAction SilentlyContinue }
         if (Test-Path -LiteralPath $extractRoot) { Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue }
-        throw
+        if ($targetDisplaced -and -not [string]::IsNullOrWhiteSpace($Backup) -and (Test-Path -LiteralPath $Backup)) {
+            try {
+                Assert-TreeSafe -Root $Backup -RequireExisting | Out-Null
+                if (Test-Path -LiteralPath $Target) {
+                    Remove-Item -LiteralPath $Target -Recurse -Force -ErrorAction Stop
+                }
+                Copy-Item -LiteralPath $Backup -Destination $Target -Recurse -Force -ErrorAction Stop
+            }
+            catch {
+                throw "Release mutation failed and automatic target restoration failed: $($failure.Exception.Message); restore error: $($_.Exception.Message)"
+            }
+        }
+        throw $failure.Exception
     }
 }
 
@@ -331,9 +504,13 @@ switch ($Action) {
         $install = Get-InstallSnapshot -Root $target
         $runtime = Get-RuntimeSnapshot -Url $BaseUrl
         $attach = Get-AttachSnapshot -Url $BaseUrl
+        $manifestPath = Join-Path $target "config\version-manifest.json"
+        $expectedInstallVersion = if (Test-Path -LiteralPath $manifestPath) {
+            [string]((Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json).release_version)
+        } else { "" }
         $installContractOk = ($install.checkout_present -eq $false -and (
             $install.version -eq "" -or
-            ($install.version -eq "1.8.0" -and $install.authoritative_initializer -and $install.runtime_source)
+            ($install.version -eq $expectedInstallVersion -and $install.authoritative_initializer -and $install.runtime_source)
         ))
         $ok = ($runtime.ok -and $installContractOk)
         Emit-Result ([pscustomobject]@{ ok = $ok; action = $Action; mutation = $false; install = $install; runtime = $runtime; attach = $attach; note = "Doctor is read-only; Streamable HTTP session state is reported from the canonical runtime status." })
@@ -348,25 +525,38 @@ switch ($Action) {
     }
     "install" {
         $target = Assert-TargetSafe -Root $target
-        Emit-Result (Invoke-Mutation -Mode install -Archive $ReleaseArchive -Target $target -Backup $BackupRoot -Python $python)
+        $safeBackup = if ([string]::IsNullOrWhiteSpace($BackupRoot)) { "" } else { Assert-TreeSafe -Root $BackupRoot }
+        Emit-Result (Invoke-Mutation -Mode install -Archive $ReleaseArchive -Target $target -Backup $safeBackup -Python $python)
         exit 0
     }
     "update" {
         $target = Assert-TargetSafe -Root $target -RequireExisting
-        Emit-Result (Invoke-Mutation -Mode update -Archive $ReleaseArchive -Target $target -Backup $BackupRoot -Python $python)
+        $safeBackup = if ([string]::IsNullOrWhiteSpace($BackupRoot)) { "" } else { Assert-TreeSafe -Root $BackupRoot }
+        Emit-Result (Invoke-Mutation -Mode update -Archive $ReleaseArchive -Target $target -Backup $safeBackup -Python $python)
         exit 0
     }
     "rollback" {
         if (-not $Confirm -and -not $DryRun) { throw "rollback requires explicit -Confirm; use -DryRun for a non-mutating plan" }
         if ([string]::IsNullOrWhiteSpace($BackupRoot)) { throw "rollback requires -BackupRoot" }
         $target = Assert-TargetSafe -Root $target
-        if (-not (Test-Path -LiteralPath $BackupRoot)) { throw "Backup root does not exist: $BackupRoot" }
-        $plan = [pscustomobject]@{ ok = $true; action = $Action; mutation = $false; target = Get-InstallSnapshot -Root $target; backup = Get-InstallSnapshot -Root $BackupRoot; requires_confirmation = -not $DryRun }
+        $safeBackupRoot = Assert-TreeSafe -Root $BackupRoot -RequireExisting
+        $plan = [pscustomobject]@{ ok = $true; action = $Action; mutation = $false; target = Get-InstallSnapshot -Root $target; backup = Get-InstallSnapshot -Root $safeBackupRoot; requires_confirmation = -not $DryRun }
         if ($DryRun) { Emit-Result $plan; exit 0 }
         if (@(Test-TargetProcesses -Root $target).Count -gt 0) { throw "Target has running processes; stop the runtime before rollback" }
         $failedCurrent = "$target.rollback-current-$([guid]::NewGuid().ToString('N'))"
         if (Test-Path -LiteralPath $target) { Move-Item -LiteralPath $target -Destination $failedCurrent -Force }
-        Copy-Item -LiteralPath $BackupRoot -Destination $target -Recurse -Force
+        try {
+            Copy-Item -LiteralPath $safeBackupRoot -Destination $target -Recurse -Force
+        }
+        catch {
+            if (Test-Path -LiteralPath $target) {
+                Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            if (Test-Path -LiteralPath $failedCurrent) {
+                Move-Item -LiteralPath $failedCurrent -Destination $target -Force
+            }
+            throw
+        }
         Emit-Result ([pscustomobject]@{ ok = $true; action = $Action; mutation = $true; target = Get-InstallSnapshot -Root $target; retained_current = $failedCurrent; note = "Rollback restored the explicit backup; the pre-rollback target was retained for operator cleanup." })
         exit 0
     }
