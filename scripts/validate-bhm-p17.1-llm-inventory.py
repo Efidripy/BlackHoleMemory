@@ -32,6 +32,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.local_endpoint_policy import LocalEndpointError
+from blackholememory.local_endpoint_policy import is_local_host
 from blackholememory.local_endpoint_policy import open_local_url
 from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.local_endpoint_policy import validate_local_endpoint
@@ -331,17 +332,7 @@ def _secret_digest(value: str) -> str:
 
 
 def _is_local_host(host: Any) -> bool:
-    value = str(host or "").casefold()
-    if value in {"127.0.0.1", "localhost", "::1"}:
-        return True
-    if value.startswith("10.") or value.startswith("192.168."):
-        return True
-    if value.startswith("172."):
-        try:
-            return 16 <= int(value.split(".")[1]) <= 31
-        except (IndexError, ValueError):
-            return False
-    return False
+    return is_local_host(str(host or ""))
 
 
 def _percentile(values: list[float], percentile: float) -> float:

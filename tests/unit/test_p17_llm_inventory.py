@@ -42,6 +42,9 @@ def test_public_host_is_not_local_only():
     inventory = load_inventory()
     assert inventory._is_local_host("8.8.8.8") is False
     assert inventory._is_local_host("172.18.0.1") is True
+    assert inventory._is_local_host("::1") is True
+    assert inventory._is_local_host("fd00::8") is True
+    assert inventory._is_local_host("2001:4860:4860::8888") is False
 
 
 def test_llm_inventory_timeout_is_registry_bounded():
