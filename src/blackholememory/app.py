@@ -14673,6 +14673,12 @@ async def bhm_galaxy_data(
 
 @app.post("/bhm/ui/session/mint")
 def bhm_ui_session_mint(request: Request) -> JSONResponse:
+    if not _ui_request_is_loopback(request):
+        return JSONResponse(
+            status_code=403,
+            headers={"Cache-Control": "no-store"},
+            content={"detail": {"code": "ui_session_mint_loopback_only"}},
+        )
     principal = getattr(request.state, "bhm_caller_principal", None)
     if principal is None:
         raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
