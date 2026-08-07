@@ -42,6 +42,12 @@ def _is_local_host(host: str) -> bool:
     return bool(address.is_loopback or address.is_link_local or address in ipaddress.ip_network("fc00::/7"))
 
 
+def is_local_host(host: str) -> bool:
+    """Return whether a hostname or IP is inside the local-only boundary."""
+
+    return _is_local_host(str(host or ""))
+
+
 def validate_local_endpoint(value: str) -> str:
     """Validate and normalize an HTTP(S) endpoint that must stay local."""
 
@@ -122,5 +128,6 @@ __all__ = [
     "LocalEndpointError",
     "open_local_url",
     "read_bounded_response",
+    "is_local_host",
     "validate_local_endpoint",
 ]
