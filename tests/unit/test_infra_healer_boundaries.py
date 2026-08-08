@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 
 from blackholememory.tools import infra_healer
+from blackholememory.resource_limits import PROCESS_EXECUTION_DOCKER_CHECK_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_DOCKER_RECOVERY_TIMEOUT_SECONDS
 
 
 def _make_hardlink(target: Path, source: Path) -> None:
@@ -13,6 +15,22 @@ def _make_hardlink(target: Path, source: Path) -> None:
         target.hardlink_to(source)
     except (OSError, NotImplementedError) as exc:
         pytest.skip(f"hardlinks unavailable: {exc}")
+
+
+def test_docker_process_timeouts_are_registry_backed(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[tuple[str, ...], int]] = []
+
+    def fake_run(args, timeout_seconds):
+        calls.append((tuple(str(part) for part in args), timeout_seconds))
+        return infra_healer.InfraCommandResult(args=tuple(str(part) for part in args), returncode=0)
+
+    monkeypatch.setattr(infra_healer, "_run_command", fake_run)
+
+    infra_healer._docker_health_probe()
+    infra_healer._reset_mcp_wrapper_processes()
+
+    assert calls[0][1] == PROCESS_EXECUTION_DOCKER_CHECK_TIMEOUT_SECONDS
+    assert calls[1][1] == PROCESS_EXECUTION_DOCKER_RECOVERY_TIMEOUT_SECONDS
 
 
 def test_mcp_reset_marker_rejects_hardlink_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
