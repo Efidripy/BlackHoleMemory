@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 from typing import Iterable
 
+from .agent_boundary import read_agent_text
 from .agent_boundary import resolve_agent_path
 
 
@@ -65,7 +66,7 @@ class ASTCodeManager:
             include_default_roots=not self.restrict_to_allowed_roots,
             max_bytes=self.max_file_bytes,
         )
-        return path, path.read_text(encoding="utf-8", errors="replace")
+        return path, read_agent_text(path, max_bytes=self.max_file_bytes)
 
     def _get_python_outline(self, source: str) -> str:
         tree = ast.parse(source)

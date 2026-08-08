@@ -29,6 +29,7 @@ from blackholememory.tools.agent_boundary import AGENT_INPUT_ROOT
 from blackholememory.tools.agent_boundary import REPO_ROOT
 from blackholememory.tools.agent_boundary import image_magic_matches
 from blackholememory.tools.agent_boundary import resolve_agent_path
+from blackholememory.tools.agent_boundary import read_agent_bytes
 from blackholememory.tools.agent_boundary import vision_endpoint_allowed
 from blackholememory.tools.scratchpad import (
     SCRATCHPAD_ERROR_PREFIX,
@@ -2879,7 +2880,7 @@ class LocalLLMClient:
                 include_default_roots=False,
                 max_bytes=VISION_IMAGE_MAX_BYTES,
             )
-            image_bytes = await asyncio.to_thread(path.read_bytes)
+            image_bytes = await asyncio.to_thread(read_agent_bytes, path, max_bytes=VISION_IMAGE_MAX_BYTES)
             if not image_bytes:
                 return f"{VISION_ANALYSIS_ERROR_PREFIX} image file is empty: {path_text}"
             if len(image_bytes) > VISION_IMAGE_MAX_BYTES:
