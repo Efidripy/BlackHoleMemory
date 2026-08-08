@@ -23,6 +23,7 @@ from .repository_index import _SPECIAL_TEXT_NAMES
 from .repository_index import SQLiteRepositoryIndexStore
 from .bicep_parser import BICEP_PARSER_VERSION
 from .bicep_parser import parse_bicep
+from .code_graph_capabilities import build_parser_capability_matrix
 
 
 CODE_GRAPH_SCHEMA_VERSION = "bhm.code-graph.v1"
@@ -183,61 +184,17 @@ LANGUAGE_INVENTORY_DIGEST = hashlib.sha256(
 
 
 def parser_capability_matrix() -> dict[str, Any]:
-    """Return the truthful parser-vs-inventory capability matrix.
+    """Return the truthful parser-vs-inventory capability matrix."""
 
-    Inventory support is intentionally separated from structural parser
-    support.  This prevents a metadata-only file from being advertised as a
-    language with call/import/type understanding.
-    """
-
-    extensions_by_language: dict[str, list[str]] = defaultdict(list)
-    for suffix, language in sorted(_LANGUAGE_BY_SUFFIX.items()):
-        extensions_by_language[str(language)].append(str(suffix))
-    for name in sorted(_SPECIAL_TEXT_NAMES):
-        # Infrastructure build files have bounded structural parsers; other
-        # special names remain in the conservative config inventory.
-        inventory_language = {
-            "dockerfile": "dockerfile",
-            "makefile": "makefile",
-            "cmakelists.txt": "cmake",
-            "justfile": "justfile",
-            "meson.build": "meson",
-            "go.mod": "gomod",
-            "go.sum": "gomod",
-            "kconfig": "kconfig",
-            "kconfigfile": "kconfig",
-            "docker-bake.hcl": "hcl",
-            "build": "starlark",
-            "build.bazel": "starlark",
-            "workspace": "starlark",
-        }.get(str(name).casefold(), "config")
-        extensions_by_language.setdefault(inventory_language, []).append(str(name))
-    extensions_by_language.setdefault("github-actions", []).extend([".github/workflows/*.yml", ".github/workflows/*.yaml"])
-    extensions_by_language.setdefault("hcl", []).append("*.hcl")
-    extensions_by_language.setdefault("starlark", []).extend([".bzl", ".star", "BUILD", "BUILD.bazel", "WORKSPACE"])
-    extensions_by_language.setdefault("kconfig", []).append("Kconfig.*")
-    languages: list[dict[str, Any]] = []
-    for language, extensions in sorted(extensions_by_language.items()):
-        parser = PARSER_REGISTRY.get(language)
-        languages.append(
-            {
-                "language": language,
-                "extensions": sorted(extensions),
-                "status": "parsed" if parser else "metadata-only",
-                "parser_id": parser.get("parser_id", "") if parser else "",
-                "parser_version": parser.get("version", "") if parser else "",
-                "structural_edges": bool(parser),
-            }
-        )
-    return {
-        "schema_version": PARSER_CAPABILITY_SCHEMA_VERSION,
-        "parser_registry_digest": PARSER_REGISTRY_DIGEST,
-        "language_inventory_digest": LANGUAGE_INVENTORY_DIGEST,
-        "parser_backed_count": sum(item["status"] == "parsed" for item in languages),
-        "inventory_language_count": len(languages),
-        "languages": languages,
-        "claim": "parser-backed languages are structural; metadata-only languages are inventory-only",
-    }
+    matrix = build_parser_capability_matrix(
+        schema_version=PARSER_CAPABILITY_SCHEMA_VERSION,
+        parser_registry=PARSER_REGISTRY,
+        language_by_suffix=_LANGUAGE_BY_SUFFIX,
+        special_text_names=_SPECIAL_TEXT_NAMES,
+    )
+    matrix["parser_registry_digest"] = PARSER_REGISTRY_DIGEST
+    matrix["language_inventory_digest"] = LANGUAGE_INVENTORY_DIGEST
+    return matrix
 
 _IGNORED_CALLS = {
     "bool",

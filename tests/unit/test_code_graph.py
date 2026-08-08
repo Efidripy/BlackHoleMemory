@@ -6,10 +6,16 @@ from pathlib import Path
 import pytest
 
 from blackholememory.code_graph import CodeGraphInputChangedError
+from blackholememory.code_graph import LANGUAGE_INVENTORY_DIGEST
+from blackholememory.code_graph import PARSER_CAPABILITY_SCHEMA_VERSION
 from blackholememory.code_graph import PARSER_REGISTRY
+from blackholememory.code_graph import PARSER_REGISTRY_DIGEST
 from blackholememory.code_graph import SQLiteCodeGraphStore
 from blackholememory.code_graph import build_code_graph
 from blackholememory.code_graph import parser_capability_matrix
+from blackholememory.code_graph import _LANGUAGE_BY_SUFFIX
+from blackholememory.code_graph import _SPECIAL_TEXT_NAMES
+from blackholememory.code_graph_capabilities import build_parser_capability_matrix
 from blackholememory.code_graph import verify_code_graph_snapshot
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import index_repository
@@ -102,6 +108,19 @@ def test_parser_capability_matrix_separates_structural_and_metadata_languages() 
     assert statuses["cmake"] == "parsed"
     assert statuses["justfile"] == "parsed"
     assert statuses["gomod"] == "parsed"
+
+
+def test_parser_capability_builder_preserves_canonical_wrapper_contract() -> None:
+    expected = parser_capability_matrix()
+    built = build_parser_capability_matrix(
+        schema_version=PARSER_CAPABILITY_SCHEMA_VERSION,
+        parser_registry=PARSER_REGISTRY,
+        language_by_suffix=_LANGUAGE_BY_SUFFIX,
+        special_text_names=_SPECIAL_TEXT_NAMES,
+    )
+    built["parser_registry_digest"] = PARSER_REGISTRY_DIGEST
+    built["language_inventory_digest"] = LANGUAGE_INVENTORY_DIGEST
+    assert built == expected
 
 
 def test_cbm_inventory_extensions_remain_explicitly_metadata_only() -> None:
