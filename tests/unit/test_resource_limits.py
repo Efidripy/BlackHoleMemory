@@ -25,6 +25,7 @@ from blackholememory.resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIM
 from blackholememory.resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
+from blackholememory.resource_limits import SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS
@@ -65,6 +66,7 @@ def test_resource_limit_registry_is_unique_and_bounded() -> None:
     assert PROCESS_EXECUTION_DOCKER_RECOVERY_TIMEOUT_SECONDS == 20
     assert PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS == 2.0
     assert SQLITE_READINESS_PROBE_TIMEOUT_SECONDS == 1.0
+    assert SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS == 5.0
 
 
 def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
