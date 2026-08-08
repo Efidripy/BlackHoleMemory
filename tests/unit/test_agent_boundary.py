@@ -64,6 +64,15 @@ def test_ast_manager_restricts_reads_to_explicit_roots(tmp_path: Path) -> None:
     assert "def sample():" in manager.get_file_outline(str(source))
 
 
+def test_stable_reader_returns_bytes_and_enforces_size(tmp_path: Path) -> None:
+    source = tmp_path / "sample.py"
+    source.write_bytes(b"print('safe')\n")
+
+    assert agent_boundary.read_agent_bytes(source, max_bytes=64) == b"print('safe')\n"
+    with pytest.raises(ValueError, match="too large"):
+        agent_boundary.read_agent_bytes(source, max_bytes=4)
+
+
 def test_image_magic_and_vision_endpoint_are_fail_closed(monkeypatch, tmp_path: Path) -> None:
     fake_png = tmp_path / "fake.png"
     fake_png.write_bytes(b"not a png")

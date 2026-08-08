@@ -121,6 +121,55 @@ def resolve_agent_path(
     return resolved
 
 
+def read_agent_bytes(path: Path, *, max_bytes: int | None = None) -> bytes:
+    """Read a previously resolved model-tool path with identity revalidation.
+
+    Resolution and opening are separate filesystem operations.  Re-check the
+    path around the opened descriptor so a symlink/hardlink/rename swap cannot
+    turn the validated path into an unrelated file between those operations.
+    """
+
+    candidate = Path(path)
+    if _has_symlink_component(candidate):
+        raise PermissionError("symlink paths are not available to model tools")
+    try:
+        before = candidate.stat()
+    except OSError as exc:
+        raise PermissionError(f"path inspection failed: {exc}") from exc
+    if not candidate.is_file():
+        raise ValueError("path is not a regular file")
+    if max_bytes is not None and before.st_size > max(1, int(max_bytes)):
+        raise ValueError(f"file is too large: {before.st_size} bytes > {int(max_bytes)} bytes")
+
+    limit = max(1, int(max_bytes)) if max_bytes is not None else None
+    try:
+        with candidate.open("rb") as handle:
+            opened = os.fstat(handle.fileno())
+            if (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino):
+                raise PermissionError("validated model-tool path changed before read")
+            payload = handle.read(limit + 1 if limit is not None else -1)
+    except PermissionError:
+        raise
+    except OSError as exc:
+        raise PermissionError(f"path read failed: {exc}") from exc
+
+    if limit is not None and len(payload) > limit:
+        raise ValueError(f"file is too large: {len(payload)} bytes > {limit} bytes")
+    if _has_symlink_component(candidate):
+        raise PermissionError("symlink paths are not available to model tools")
+    try:
+        after = candidate.stat()
+    except OSError as exc:
+        raise PermissionError(f"path revalidation failed: {exc}") from exc
+    if (after.st_dev, after.st_ino) != (opened.st_dev, opened.st_ino) or after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns:
+        raise PermissionError("validated model-tool path changed during read")
+    return payload
+
+
+def read_agent_text(path: Path, *, max_bytes: int | None = None) -> str:
+    return read_agent_bytes(path, max_bytes=max_bytes).decode("utf-8", errors="replace")
+
+
 def vision_endpoint_allowed(base_url: str) -> bool:
     from urllib.parse import urlsplit
 
@@ -154,6 +203,8 @@ __all__ = [
     "AGENT_INPUT_ROOT",
     "REPO_ROOT",
     "image_magic_matches",
+    "read_agent_bytes",
+    "read_agent_text",
     "resolve_agent_path",
     "vision_endpoint_allowed",
 ]
