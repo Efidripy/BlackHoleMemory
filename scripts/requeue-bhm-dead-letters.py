@@ -58,6 +58,12 @@ def _online_backup(database: Path, backup: Path) -> None:
 
 
 def _apply(database: Path, backup_root: Path, event_digest: str) -> dict[str, Any]:
+    current_ids, error = _read_dead_letters(database)
+    if error:
+        raise RuntimeError(f"cannot revalidate dead-letter preview: {error}")
+    current_digest = _event_digest(current_ids)
+    if current_digest != event_digest:
+        raise RuntimeError("dead-letter preview is stale; re-run the read-only preview")
     backup_root.mkdir(parents=True, exist_ok=True)
     backup = backup_root / database.name
     _online_backup(database, backup)
@@ -87,6 +93,7 @@ def _apply(database: Path, backup_root: Path, event_digest: str) -> dict[str, An
         "backup": str(backup),
         "backup_sha256": hashlib.sha256(backup.read_bytes()).hexdigest(),
         "event_digest": event_digest,
+        "revalidated_event_digest": current_digest,
         "changed": changed,
         "timestamp": now,
     }

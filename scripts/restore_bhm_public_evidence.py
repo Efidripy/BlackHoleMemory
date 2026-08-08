@@ -1,11 +1,23 @@
 """Restore crosswalk evidence from a verified snapshot into public/local zones."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
+from pathlib import PurePosixPath
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.filesystem_boundaries import write_bytes_exclusive
 
 
 WINDOWS_USER = re.compile(r"(?i)[A-Z]:\\Users\\[^\\\s`\"'<>]+")
@@ -14,12 +26,35 @@ UNIX_USER = re.compile(r"(?i)/(?:Users|home)/[^/\s`\"'<>]+")
 BEARER_VALUE = re.compile(r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]{12,}")
 
 
+def _safe_evidence_relative(value: str) -> str:
+    """Return a traversal-free evidence path or fail closed."""
+
+    candidate = str(value or "").strip().replace("\\", "/")
+    path = PurePosixPath(candidate)
+    if path.is_absolute() or candidate != path.as_posix() or ".." in path.parts:
+        raise ValueError(f"unsafe evidence path: {value!r}")
+    if not candidate.startswith(".docs/ops/") or len(path.parts) < 3:
+        raise ValueError(f"evidence path is outside .docs/ops: {value!r}")
+    return candidate
+
+
+def _contained_path(root: Path, relative: str) -> Path:
+    root = assert_safe_path(root, reject_hardlink_target=False)
+    target = root / relative
+    target = assert_safe_path(target)
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"path escapes approved root: {target}") from exc
+    return target
+
+
 def evidence_paths(crosswalk: dict) -> list[str]:
     paths: set[str] = set()
 
     def visit(value: object) -> None:
         if isinstance(value, str) and value.strip().startswith(".docs/ops/"):
-            paths.add(value.strip())
+            paths.add(_safe_evidence_relative(value))
         elif isinstance(value, dict):
             for child in value.values():
                 visit(child)
@@ -39,23 +74,28 @@ def sanitize(text: str) -> str:
 
 
 def restore(repo: Path, source: Path, *, raw_root: Path, missing_only: bool) -> dict[str, int]:
+    repo = assert_safe_path(repo, reject_hardlink_target=False)
+    source = assert_safe_path(source, reject_hardlink_target=False)
+    raw_root = _contained_path(repo / ".local" / "evidence", raw_root.relative_to(repo / ".local" / "evidence").as_posix()) if raw_root.is_relative_to(repo / ".local" / "evidence") else None
+    if raw_root is None:
+        raise ValueError("raw_root must be under repository .local/evidence")
     paths = evidence_paths(json.loads((repo / ".docs/config/cbm-bhm-capability-crosswalk.json").read_text(encoding="utf-8")))
     restored = 0
     skipped = 0
     for relative in paths:
-        source_path = source / relative
-        public_path = repo / relative
-        raw_path = raw_root / relative
+        source_path = _contained_path(source, relative)
+        public_path = _contained_path(repo / ".docs" / "ops", relative.removeprefix(".docs/ops/"))
+        raw_path = _contained_path(raw_root, relative)
         if not source_path.is_file():
             raise FileNotFoundError(f"recovery source missing: {relative}")
         raw_path.parent.mkdir(parents=True, exist_ok=True)
         if not raw_path.exists():
-            raw_path.write_bytes(source_path.read_bytes())
+            write_bytes_exclusive(raw_path, source_path.read_bytes())
         if missing_only and public_path.exists():
             skipped += 1
             continue
         public_path.parent.mkdir(parents=True, exist_ok=True)
-        public_path.write_text(sanitize(source_path.read_text(encoding="utf-8")), encoding="utf-8", newline="\n")
+        replace_bytes_safely(public_path, sanitize(source_path.read_text(encoding="utf-8")).encode("utf-8"))
         restored += 1
     return {"referenced": len(paths), "restored": restored, "skipped_existing": skipped}
 

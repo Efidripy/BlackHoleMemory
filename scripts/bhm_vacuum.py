@@ -10,6 +10,7 @@ import math
 import sys
 import urllib.parse
 import urllib.request
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -100,6 +101,10 @@ def is_cleanup_candidate(name: str) -> bool:
     return any(marker in lowered for marker in CLEANUP_MARKERS)
 
 
+def candidate_digest(names: list[str]) -> str:
+    return hashlib.sha256("\n".join(sorted(names)).encode("utf-8")).hexdigest()
+
+
 def delete_collection(base_url: str, name: str, *, timeout: float) -> None:
     encoded = urllib.parse.quote(name, safe="")
     request_json(base_url, "DELETE", f"/collections/{encoded}", timeout=timeout)
@@ -110,6 +115,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Qdrant HTTP base URL.")
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS, help="HTTP timeout in seconds.")
     parser.add_argument("--apply", action="store_true", help="Delete candidate collections. Default is dry-run.")
+    parser.add_argument("--allow-collection", action="append", default=[], help="Explicitly authorize one reviewed collection for deletion.")
+    parser.add_argument("--confirm-digest", help="Candidate digest from the preceding dry-run.")
     parser.add_argument(
         "--json",
         action="store_true",
@@ -123,6 +130,7 @@ def main() -> int:
     args.timeout = bounded_qdrant_operator_timeout(args.timeout)
     names = collection_names(args.base_url, timeout=args.timeout)
     candidates = [name for name in names if is_cleanup_candidate(name)]
+    digest = candidate_digest(candidates)
     protected_present = [name for name in names if name in PROTECTED_COLLECTIONS]
 
     infos: list[CollectionInfo] = []
@@ -135,7 +143,17 @@ def main() -> int:
     failures: list[dict[str, str]] = []
     deleted: list[str] = []
     if args.apply:
+        allowed = set(args.allow_collection)
+        if not allowed:
+            raise SystemExit("--apply requires at least one --allow-collection from the reviewed dry-run")
+        if args.confirm_digest != digest:
+            raise SystemExit("--apply requires --confirm-digest matching the current candidate set")
+        unauthorized = sorted(allowed - set(candidates))
+        if unauthorized:
+            raise SystemExit(f"--allow-collection contains non-candidates: {unauthorized}")
         for info in infos:
+            if info.name not in allowed:
+                continue
             try:
                 delete_collection(args.base_url, info.name, timeout=args.timeout)
             except Exception as exc:  # keep deleting the rest, then fail loudly.
@@ -149,6 +167,8 @@ def main() -> int:
         "total_collections": len(names),
         "protected_present": protected_present,
         "candidate_count": len(candidates),
+        "candidate_digest": digest,
+        "authorized_candidates": sorted(set(args.allow_collection) & set(candidates)),
         "candidate_points": sum(info.points_count or 0 for info in infos),
         "candidates": [info.__dict__ for info in infos],
         "deleted_count": len(deleted),
