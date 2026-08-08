@@ -59,6 +59,7 @@ from .resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
 from .resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
 from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
 from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
+from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .capability import ADMIN_CAPABILITY_HEADER
 from .capability import admin_route_requires_capability
 from .capability import configured_admin_capability
@@ -10756,7 +10757,13 @@ def _load_galaxy_code_project_nodes_sync(project: str | None, limit: int) -> lis
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
     accepted = _project_aliases(project) if project else set()
     nodes: list[dict[str, Any]] = []
-    with sqlite3.connect(database_path) as db:
+    with sqlite3.connect(
+        database_path,
+        timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
+    ) as db:
+        db.execute(
+            f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}"
+        )
         db.row_factory = sqlite3.Row
         rows = db.execute(
             """
