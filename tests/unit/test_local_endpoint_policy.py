@@ -46,6 +46,24 @@ def test_validate_local_endpoint_rejects_external_or_ambiguous_urls(url: str) ->
         validate_local_endpoint(url)
 
 
+def test_validate_local_endpoint_rejects_hostname_resolving_public(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "blackholememory.local_endpoint_policy.socket.getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", ("203.0.113.9", 9000))],
+    )
+    with pytest.raises(LocalEndpointError, match="outside local boundary"):
+        validate_local_endpoint("http://localhost:9000/v1")
+
+
+def test_validate_local_endpoint_rejects_unresolvable_non_test_hostname(monkeypatch) -> None:
+    def fail_resolution(*_args, **_kwargs):
+        raise OSError("dns unavailable")
+
+    monkeypatch.setattr("blackholememory.local_endpoint_policy.socket.getaddrinfo", fail_resolution)
+    with pytest.raises(LocalEndpointError, match="could not be resolved"):
+        validate_local_endpoint("http://localhost.localdomain:9000/v1")
+
+
 def test_read_bounded_response_rejects_oversized_payload() -> None:
     class Response:
         def read(self, limit: int) -> bytes:
