@@ -252,9 +252,15 @@ class SafePatchFactory:
         plan: SafePatchPlan,
         command: Sequence[str],
         *,
+        allow_host_process: bool = False,
         timeout_seconds: float = 30.0,
         env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        if allow_host_process is not True:
+            raise SafePatchError(
+                "host-process execution requires explicit allow_host_process=True; "
+                "use a containerized runner for untrusted code"
+            )
         candidate = self._validated_plan_paths(plan)[1]
         if isinstance(command, (str, bytes)) or not command or any(not str(part).strip() for part in command):
             raise SafePatchError("sandbox command must be a non-empty argv sequence")
@@ -290,6 +296,7 @@ class SafePatchFactory:
             "bounded": True,
             "execution_boundary": {
                 "kind": "host-process",
+                "host_process_authorized": True,
                 "cwd_contained": True,
                 "shell": False,
                 "environment": "allowlisted",
