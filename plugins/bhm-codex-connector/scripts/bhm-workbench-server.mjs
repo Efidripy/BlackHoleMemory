@@ -43,6 +43,12 @@ const runtimeHints = {
   otelDefault: process.env.BHM_OTEL_URL || "",
 };
 const MCP_PANEL_SCHEMA_VERSION = "bhm.mcp.panel.v1";
+const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
+const MAX_CHILD_OUTPUT_BYTES = 4 * 1024 * 1024;
+const MAX_ACTIVE_CHILDREN = 4;
+const CHILD_TIMEOUT_MS = 120000;
+const HTTP_PROBE_TIMEOUT_MS = 5000;
+let activeChildren = 0;
 
 function stableSlug(value, fallback) {
   const slug = String(value || "")
@@ -117,6 +123,34 @@ function isLoopbackHostname(value) {
   return normalized === "127.0.0.1" || normalized === "localhost" || normalized === "::1";
 }
 
+function normalizeLocalEndpoint(value) {
+  try {
+    const parsed = new URL(String(value || ""));
+    if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !isLoopbackHostname(parsed.hostname)) {
+      return null;
+    }
+    if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+      return null;
+    }
+    const pathname = parsed.pathname.replace(/\/+$/, "");
+    return `${parsed.origin}${pathname}`;
+  } catch {
+    return null;
+  }
+}
+
+function approvedApiEndpoint(value) {
+  const normalized = normalizeLocalEndpoint(value);
+  if (!normalized) return null;
+  const configured = loadRuntimeConfig();
+  const configuredOrigins = [
+    ...(configured.apiCandidates || []),
+    process.env.III_REST_PORT ? `http://localhost:${process.env.III_REST_PORT}` : "http://localhost:8000",
+    "http://127.0.0.1:8000",
+  ].map(normalizeLocalEndpoint).filter(Boolean).map((candidate) => new URL(candidate).origin);
+  return configuredOrigins.includes(new URL(normalized).origin) ? normalized : null;
+}
+
 function loopbackHostHeaderIsValid(value) {
   try {
     const parsed = new URL(`http://${String(value || "")}`);
@@ -171,7 +205,15 @@ function authorizeApiRequest(req, requestPort) {
 }
 
 function runPowerShell(args) {
+  if (activeChildren >= MAX_ACTIVE_CHILDREN) {
+    return Promise.resolve({ ok: false, error: "powershell_capacity_exceeded" });
+  }
+  activeChildren += 1;
   return new Promise((resolve) => {
+    let settled = false;
+    let timedOut = false;
+    let outputLimitExceeded = false;
+    let timer = null;
     const child = spawn("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", ...args], {
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -180,16 +222,34 @@ function runPowerShell(args) {
 
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      activeChildren = Math.max(0, activeChildren - 1);
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const appendBounded = (target, chunk) => {
+      const text = chunk.toString("utf8");
+      if (Buffer.byteLength(target + text, "utf8") > MAX_CHILD_OUTPUT_BYTES) {
+        outputLimitExceeded = true;
+        return target;
+      }
+      return target + text;
+    };
+    child.stdout.on("data", (chunk) => { stdout = appendBounded(stdout, chunk); if (outputLimitExceeded) child.kill(); });
+    child.stderr.on("data", (chunk) => { stderr = appendBounded(stderr, chunk); if (outputLimitExceeded) child.kill(); });
     child.on("close", (code) => {
-      resolve({
-        ok: code === 0,
+      finish({
+        ok: code === 0 && !timedOut && !outputLimitExceeded,
         exitCode: code,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
+        error: timedOut ? "powershell_timeout" : outputLimitExceeded ? "powershell_output_limit_exceeded" : undefined,
+        stdout: stdout.slice(0, MAX_CHILD_OUTPUT_BYTES).trim(),
+        stderr: stderr.slice(0, MAX_CHILD_OUTPUT_BYTES).trim(),
       });
     });
+    child.on("error", (error) => finish({ ok: false, error: error.code || "powershell_spawn_failed" }));
+    timer = setTimeout(() => { timedOut = true; child.kill(); }, CHILD_TIMEOUT_MS);
   });
 }
 
@@ -199,7 +259,7 @@ async function runJsonPowerShell(scriptPath, extraArgs = []) {
     return {
       ok: false,
       exitCode: result.exitCode,
-      error: "powershell_failed",
+      error: result.error || "powershell_failed",
     };
   }
 
@@ -219,19 +279,41 @@ async function runJsonPowerShell(scriptPath, extraArgs = []) {
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
-    req.on("data", (chunk) => { body += chunk.toString("utf8"); });
+    let byteCount = 0;
+    let settled = false;
+    let timer = null;
+    const finish = (handler, value) => { if (settled) return; settled = true; clearTimeout(timer); handler(value); };
+    req.on("data", (chunk) => {
+      if (settled) return;
+      byteCount += Buffer.byteLength(chunk);
+      if (byteCount > MAX_REQUEST_BODY_BYTES) {
+        const error = new Error("request body exceeds configured limit");
+        error.code = "request_body_too_large";
+        finish(reject, error);
+        req.resume();
+        return;
+      }
+      body += chunk.toString("utf8");
+    });
     req.on("end", () => {
       if (!body.trim()) {
-        resolve({});
+        finish(resolve, {});
         return;
       }
       try {
-        resolve(JSON.parse(body));
+        finish(resolve, JSON.parse(body));
       } catch (error) {
-        reject(error);
+        error.code = "request_body_invalid";
+        finish(reject, error);
       }
     });
-    req.on("error", reject);
+    req.on("error", (error) => finish(reject, error));
+    timer = setTimeout(() => {
+      const error = new Error("request body read timed out");
+      error.code = "request_body_timeout";
+      finish(reject, error);
+      req.resume();
+    }, 30000);
   });
 }
 
@@ -255,42 +337,52 @@ function parseEnvFile(filePath) {
 }
 
 async function probeHttp(url) {
+  const safeUrl = normalizeLocalEndpoint(url);
+  if (!safeUrl) {
+    return { ok: false, status: null, statusText: "destination_rejected", url };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), HTTP_PROBE_TIMEOUT_MS);
   try {
-    const response = await fetch(url, { method: "GET" });
+    const response = await fetch(safeUrl, { method: "GET", signal: controller.signal });
     return {
       ok: response.ok,
       status: response.status,
       statusText: response.statusText,
-      url,
+      url: safeUrl,
     };
   } catch {
     return {
       ok: false,
       status: null,
       statusText: "probe_unavailable",
-      url,
+      url: safeUrl,
     };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 async function firstHealthyApi(candidates = []) {
-  for (const candidate of candidates) {
-    const probe = await probeHttp(`${candidate.replace(/\/$/, "")}/bhm/health`);
+  const safeCandidates = candidates.map(approvedApiEndpoint).filter(Boolean);
+  for (const candidate of safeCandidates) {
+    const probe = await probeHttp(`${candidate}/bhm/health`);
     if (probe.ok && probe.status === 200) {
       return candidate;
     }
   }
-  return candidates[0] || runtimeHints.apiDefault;
+  return safeCandidates[0] || null;
 }
 
 async function firstHealthyUrl(candidates = []) {
-  for (const candidate of candidates) {
+  const safeCandidates = candidates.map(normalizeLocalEndpoint).filter(Boolean);
+  for (const candidate of safeCandidates) {
     const probe = await probeHttp(candidate);
     if (probe.ok && probe.status === 200) {
       return candidate;
     }
   }
-  return candidates[0] || null;
+  return safeCandidates[0] || null;
 }
 
 async function probeRuntimeDiscovery() {
@@ -305,7 +397,7 @@ async function probeRuntimeDiscovery() {
     env.BHM_WORKSPACE_MEMORY_URL || null,
     env.III_REST_PORT ? `http://localhost:${env.III_REST_PORT}` : null,
     ...(runtimeConfig.apiCandidates || [])
-  ].filter(Boolean);
+  ].map(approvedApiEndpoint).filter(Boolean);
   const viewerCandidates = [
     ...(runtimeConfig.viewerCandidates || [])
   ].filter(Boolean);
@@ -326,8 +418,8 @@ async function probeRuntimeDiscovery() {
 
   const probes = {
     api: await probeHttp(apiUrl),
-    livez: await probeHttp(`${apiUrl.replace(/\/$/, "")}/livez`),
-      health: await probeHttp(`${apiUrl.replace(/\/$/, "")}/bhm/health`),
+    livez: await probeHttp(apiUrl ? `${apiUrl}/livez` : null),
+    health: await probeHttp(apiUrl ? `${apiUrl}/bhm/health` : null),
     viewer: await probeHttp(viewerUrl),
   };
 
@@ -404,7 +496,9 @@ function unavailableMcpPanel(reason = "runtime_api_unavailable") {
 }
 
 async function fetchMcpPanel(apiUrl) {
-  const target = `${String(apiUrl || runtimeHints.apiDefault).replace(/\/$/, "")}/bhm/telemetry/mcp-panel`;
+  const safeApiUrl = approvedApiEndpoint(apiUrl || runtimeHints.apiDefault);
+  if (!safeApiUrl) return unavailableMcpPanel("mcp_panel_destination_rejected");
+  const target = `${safeApiUrl}/bhm/telemetry/mcp-panel`;
   try {
     const response = await fetch(target, { method: "GET", headers: bhmCallerHeaders() });
     const payload = await response.json();
@@ -419,7 +513,19 @@ async function fetchMcpPanel(apiUrl) {
 
 async function fetchMcpRepair(apiUrl, operation = "preview") {
   const safeOperation = operation === "reprobe" ? "reprobe" : "preview";
-  const target = `${String(apiUrl || runtimeHints.apiDefault).replace(/\/$/, "")}/bhm/mcp/repair/${safeOperation}`;
+  const safeApiUrl = approvedApiEndpoint(apiUrl || runtimeHints.apiDefault);
+  if (!safeApiUrl) {
+    return {
+      schema_version: "bhm.mcp.repair.v1",
+      operation: safeOperation,
+      ok: false,
+      read_only: true,
+      writes_live_state: false,
+      bounded: true,
+      error: "mcp_repair_destination_rejected",
+    };
+  }
+  const target = `${safeApiUrl}/bhm/mcp/repair/${safeOperation}`;
   try {
     const response = await fetch(target, { method: "GET", headers: bhmCallerHeaders() });
     const payload = await response.json();
@@ -449,9 +555,10 @@ async function fetchMcpRepair(apiUrl, operation = "preview") {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url || "/", `http://${req.headers.host || `127.0.0.1:${port}`}`);
-  const address = server.address();
-  const requestPort = typeof address === "object" && address ? address.port : port;
+  try {
+    const url = new URL(req.url || "/", `http://${req.headers.host || `127.0.0.1:${port}`}`);
+    const address = server.address();
+    const requestPort = typeof address === "object" && address ? address.port : port;
 
   if ((req.method === "GET" || req.method === "HEAD") && url.pathname === "/") {
     const html = await readFile(uiPath, "utf8");
@@ -779,7 +886,12 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, await runJsonPowerShell(obsidianExportScript, args));
   }
 
-  json(res, 404, { ok: false, error: "not_found", path: url.pathname });
+    return json(res, 404, { ok: false, error: "not_found", path: url.pathname });
+  } catch (error) {
+    const code = error?.code || "workbench_request_failed";
+    const status = code === "request_body_invalid" ? 400 : code === "request_body_too_large" ? 413 : code === "request_body_timeout" ? 408 : 500;
+    return json(res, status, { ok: false, error: code });
+  }
 });
 
 server.listen(port, "127.0.0.1", () => {

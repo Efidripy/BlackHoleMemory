@@ -330,14 +330,36 @@ function New-ConnectorTransportTruth {
 
 function Get-ConnectorSessionDir {
     param([string]$Project)
+    if ($Project -ne "e-github-workspace" -and $Project -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') {
+        throw "Project identifier is invalid for connector session storage"
+    }
     $root = Join-Path (Get-PluginDataRoot) "runtime\logs"
     if ($Project -eq "e-github-workspace") {
         $path = Join-Path $root "_workspace\sessions"
     } else {
         $path = Join-Path $root "projects\$Project\sessions"
     }
+
+    $rootFull = [System.IO.Path]::GetFullPath($root).TrimEnd([System.IO.Path]::DirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+    $pathFull = [System.IO.Path]::GetFullPath($path)
+    if (-not $pathFull.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Connector session path escapes the plugin-data runtime root"
+    }
+
+    $cursor = $pathFull
+    while ($cursor.StartsWith($rootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+        if (Test-Path -LiteralPath $cursor) {
+            $item = Get-Item -LiteralPath $cursor -Force
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Connector session path crosses a reparse point"
+            }
+        }
+        $parent = Split-Path -Parent $cursor
+        if (-not $parent -or $parent -eq $cursor) { break }
+        $cursor = $parent
+    }
     New-Item -ItemType Directory -Force -Path $path | Out-Null
-    return $path
+    return $pathFull
 }
 
 function ConvertTo-ConnectorSlug {
