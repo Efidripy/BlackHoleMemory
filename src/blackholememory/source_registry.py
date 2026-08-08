@@ -150,6 +150,33 @@ def _validate_web_source_url(value: str) -> str:
     return raw
 
 
+_GIT_URL_SCHEMES = frozenset({"file", "git", "git+ssh", "https", "ssh"})
+_GIT_SCP_URL_RE = re.compile(r"^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+$")
+
+
+def _validate_git_source_url(value: str) -> str:
+    """Validate a registry Git remote before placing it in Git argv."""
+
+    raw = str(value or "").strip()
+    if not raw or raw.startswith("-") or any(ord(char) < 0x20 or char.isspace() for char in raw):
+        raise SourceRegistryError("git source URL must be a non-empty non-option value")
+    parsed = urlsplit(raw)
+    if not parsed.scheme:
+        if not _GIT_SCP_URL_RE.fullmatch(raw):
+            raise SourceRegistryError("git source URL must use an allowlisted URL or scp-style form")
+        return raw
+    scheme = parsed.scheme.casefold()
+    if scheme not in _GIT_URL_SCHEMES:
+        raise SourceRegistryError(f"git source URL scheme is not allowed: {parsed.scheme}")
+    if parsed.fragment or parsed.query:
+        raise SourceRegistryError("git source URL must not contain query or fragment material")
+    if parsed.password or (parsed.username and not (scheme in {"ssh", "git+ssh"} and parsed.username == "git")):
+        raise SourceRegistryError("git source URL must not contain embedded credentials")
+    if scheme != "file" and not parsed.hostname:
+        raise SourceRegistryError("git source URL must include a host")
+    return raw
+
+
 class _ExternalRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Permit a small, explicitly validated redirect chain for web sources."""
 
@@ -726,6 +753,7 @@ def _manifest_base(source: dict[str, Any], *, acquired_at: str) -> dict[str, Any
 
 
 def sync_git_source(source: dict[str, Any], source_root: Path, *, refresh: bool = False) -> dict[str, Any]:
+    source_url = _validate_git_source_url(str(source["source_url"]))
     quarantine = _source_root(source_root, str(source["slug"]))
     checkout = quarantine / "source"
     quarantine.mkdir(parents=True, exist_ok=True)
@@ -745,7 +773,8 @@ def sync_git_source(source: dict[str, Any], source_root: Path, *, refresh: bool 
                 "--no-tags",
                 "--filter=blob:none",
                 "--no-checkout",
-                source["source_url"],
+                "--",
+                source_url,
                 str(checkout),
             ],
             timeout=PROCESS_EXECUTION_SOURCE_REGISTRY_CLONE_TIMEOUT_SECONDS,
