@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from blackholememory import source_registry
 from blackholememory.resource_limits import (
     PROCESS_EXECUTION_SOURCE_REGISTRY_CLONE_TIMEOUT_SECONDS,
@@ -50,6 +52,35 @@ def test_source_registry_local_git_probe_uses_registry_timeout(monkeypatch, tmp_
     assert calls[-1]["timeout"] == PROCESS_EXECUTION_SOURCE_REGISTRY_GIT_TIMEOUT_SECONDS
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "--upload-pack=evil",
+        "https://example.invalid/repo.git?token=secret",
+        "https://user:secret@example.invalid/repo.git",
+        "https://example.invalid/repo.git#fragment",
+        "ftp://example.invalid/repo.git",
+        "not-a-git-remote",
+    ],
+)
+def test_git_source_url_validation_rejects_option_injection_and_unsafe_forms(url: str) -> None:
+    with pytest.raises(source_registry.SourceRegistryError):
+        source_registry._validate_git_source_url(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/example/repo.git",
+        "ssh://git@github.com/example/repo.git",
+        "git@github.com:example/repo.git",
+        "file:///tmp/example-repo",
+    ],
+)
+def test_git_source_url_validation_accepts_supported_forms(url: str) -> None:
+    assert source_registry._validate_git_source_url(url) == url
+
+
 def test_source_registry_clone_and_fetch_use_operation_specific_bounds(monkeypatch, tmp_path: Path) -> None:
     calls: list[tuple[list[str], int]] = []
     head_calls = 0
@@ -75,7 +106,9 @@ def test_source_registry_clone_and_fetch_use_operation_specific_bounds(monkeypat
     manifest = source_registry.sync_git_source(_source(), tmp_path)
 
     assert manifest["acquisition_status"] == "acquired"
-    assert next(timeout for args, timeout in calls if args and args[0] == "clone") == PROCESS_EXECUTION_SOURCE_REGISTRY_CLONE_TIMEOUT_SECONDS
+    clone_args, clone_timeout = next((args, timeout) for args, timeout in calls if args and args[0] == "clone")
+    assert clone_timeout == PROCESS_EXECUTION_SOURCE_REGISTRY_CLONE_TIMEOUT_SECONDS
+    assert clone_args[-3:] == ["--", _source()["source_url"], str(tmp_path / "fixture-source" / "source")]
     assert all(timeout == PROCESS_EXECUTION_SOURCE_REGISTRY_GIT_TIMEOUT_SECONDS for args, timeout in calls if args[0] not in {"clone", "fetch"})
 
     checkout = tmp_path / "fixture-source" / "source"
