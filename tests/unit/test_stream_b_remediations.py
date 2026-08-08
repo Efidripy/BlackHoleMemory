@@ -41,6 +41,9 @@ def test_synthesis_route_is_exactly_allowlisted() -> None:
 
 
 def test_reconcile_report_stays_under_approved_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = Path(RECONCILE.__file__).read_text(encoding="utf-8")
+    assert "replace_bytes_safely" in source
+    assert "target.write_text" not in source
     monkeypatch.setattr(RECONCILE, "REPORT_ROOT", tmp_path / "reports")
     target = tmp_path / "reports" / "nested" / "report.json"
     RECONCILE._write_report(target, {"ok": True})
