@@ -18,6 +18,7 @@ from pathlib import Path
 
 from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.code_graph import SQLiteCodeGraphStore, build_code_graph
 from blackholememory.code_graph_query import explain_code_graph, query_code_graph
 from blackholememory.convention_memory import preview_convention_memory
@@ -26,7 +27,19 @@ from blackholememory.repository_index import RepositoryWatcher, index_repository
 from blackholememory.unified_context import build_unified_context_from_graph
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
 GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+DISPOSABLE_DATABASE_ROOT = REPO_ROOT / ".runtime" / "validation-databases"
+
+
+def approved_database_path(path: Path) -> Path:
+    candidate = path.expanduser().resolve()
+    root = DISPOSABLE_DATABASE_ROOT.resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"database must be under approved disposable root: {candidate}") from exc
+    return assert_safe_path(candidate)
 
 
 def _write_report(path: Path, report: dict) -> None:
@@ -68,7 +81,7 @@ def _args() -> argparse.Namespace:
 def main() -> int:
     args = _args()
     root = args.root.expanduser().resolve()
-    database = args.database.expanduser().resolve()
+    database = approved_database_path(args.database)
     report_path = args.report.expanduser().resolve()
     before_status = _git(root, "status", "--porcelain=v1")
     source_url = _git(root, "remote", "get-url", "origin")

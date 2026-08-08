@@ -461,6 +461,18 @@ def _rollback_records(records: Iterable[Mapping[str, Any]]) -> list[dict[str, An
     return results
 
 
+def _assert_authorized_rollback_target(target: Path) -> None:
+    """Rollback may only touch the two canonical client configuration files."""
+
+    target = assert_safe_path(target)
+    allowed = {
+        (Path.home() / ".codex" / "config.toml").resolve(),
+        (Path.home() / ".claude" / "settings.json").resolve(),
+    }
+    if target.resolve() not in allowed:
+        raise AdapterContractError(f"rollback target is outside canonical client config scope: {target}")
+
+
 def _write_backup_manifest(backup_dir: Path, records: list[dict[str, Any]]) -> None:
     _atomic_write(backup_dir / "manifest.json", json.dumps({"schema": SCHEMA, "records": records}, indent=2) + "\n")
 
@@ -571,6 +583,11 @@ def run_rollback(backup_dir: Path) -> dict[str, Any]:
             assert_safe_path(backup)
             if not backup.is_file():
                 raise AdapterContractError(f"rollback backup is not a regular file: {backup}")
+            payload = backup.read_bytes()
+            expected_hash = str(record.get("sha256_before") or "").strip().lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_hash) or _sha256_bytes(payload) != expected_hash:
+                raise AdapterContractError(f"rollback backup hash mismatch: {backup}")
+        _assert_authorized_rollback_target(Path(str(record.get("target") or "")))
     result = _rollback_records(reversed(records))
     return {
         "schema": SCHEMA,

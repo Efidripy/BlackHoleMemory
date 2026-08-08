@@ -56,7 +56,9 @@ def _fixture_snapshot(root: Path) -> dict[str, Any]:
 
 
 def validate(repo: Path) -> dict[str, Any]:
-    with tempfile.TemporaryDirectory(prefix="bhm-p21-15-", dir=repo) as raw:
+    # Fixtures are disposable and must never be created inside the selected
+    # source repository, even when validation is interrupted.
+    with tempfile.TemporaryDirectory(prefix="bhm-p21-15-") as raw:
         root = Path(raw)
         snapshot = _fixture_snapshot(root)
         first = extract_code_graph(snapshot)

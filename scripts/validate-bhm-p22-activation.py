@@ -29,6 +29,7 @@ if str(ROOT / "src") not in sys.path:
 from blackholememory.local_endpoint_policy import open_local_url
 from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
 
 
@@ -62,9 +63,15 @@ def qdrant_collections(base_url: str) -> dict[str, Any]:
 
 
 def online_backup(source: Path, target: Path) -> dict[str, Any]:
-    target.parent.mkdir(parents=True, exist_ok=True)
     if os.path.lexists(target) or target.exists():
         raise RuntimeError(f"backup already exists: {target}")
+    source = assert_safe_path(source)
+    target = assert_safe_path(target)
+    try:
+        target.relative_to(BACKUP_ROOT.resolve())
+    except ValueError as exc:
+        raise RuntimeError(f"backup destination must be under approved recovery root: {target}") from exc
+    target.parent.mkdir(parents=True, exist_ok=True)
     source_db = sqlite3.connect(str(source))
     target_db = sqlite3.connect(str(target))
     try:

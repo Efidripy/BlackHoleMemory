@@ -36,12 +36,16 @@ from blackholememory.local_endpoint_policy import is_local_host
 from blackholememory.local_endpoint_policy import open_local_url
 from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.local_endpoint_policy import validate_local_endpoint
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.resource_limits import LLM_INVENTORY_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_LLM_INVENTORY_HARDWARE_TIMEOUT_SECONDS
 
 
 # Compatibility name retained; the registry-backed local inventory bound is canonical.
 DEFAULT_TIMEOUT = float(LLM_INVENTORY_HTTP_TIMEOUT_SECONDS)
+MAX_INVENTORY_SAMPLES = 8
+INVENTORY_OUTPUT_ROOT = REPO_ROOT / ".runtime" / "llm-inventory"
 
 
 def discover_llama_process(processes: list[dict[str, Any]] | None = None) -> dict[str, Any] | None:
@@ -99,8 +103,26 @@ def bounded_llm_inventory_timeout(value: float) -> float:
     return max(min(requested, float(LLM_INVENTORY_HTTP_TIMEOUT_SECONDS)), 0.1)
 
 
+def bounded_llm_inventory_samples(value: int) -> int:
+    try:
+        requested = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("LLM inventory samples must be an integer") from exc
+    return max(1, min(requested, MAX_INVENTORY_SAMPLES))
+
+
+def approved_inventory_output(path: Path) -> Path:
+    output = assert_safe_path(path.expanduser().resolve())
+    try:
+        output.relative_to(INVENTORY_OUTPUT_ROOT.resolve())
+    except ValueError as exc:
+        raise ValueError(f"inventory output must be under approved root: {output}") from exc
+    return output
+
+
 def probe_inventory(server: dict[str, Any], *, timeout: float = DEFAULT_TIMEOUT, samples: int = 3) -> dict[str, Any]:
     timeout = bounded_llm_inventory_timeout(timeout)
+    samples = bounded_llm_inventory_samples(samples)
     base_url = f"http://{server['host']}:{server['port']}/v1"
     headers = {}
     api_key = _command_value(_process_commandline(server.get("pid")), "--api-key") if server.get("pid") else ""
@@ -121,7 +143,7 @@ def probe_inventory(server: dict[str, Any], *, timeout: float = DEFAULT_TIMEOUT,
     metadata = model.get("meta") if isinstance(model.get("meta"), dict) else {}
     details = model.get("details") if isinstance(model.get("details"), dict) else {}
     samples_out: list[dict[str, Any]] = []
-    for index in range(max(int(samples), 1)):
+    for index in range(samples):
         payload = {
             "model": model_id,
             "messages": [{"role": "user", "content": 'Return JSON exactly: {"status":"ok"}'}],
@@ -354,6 +376,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     args.timeout = bounded_llm_inventory_timeout(args.timeout)
+    args.samples = bounded_llm_inventory_samples(args.samples)
     server = discover_llama_process()
     if server is None:
         report = {"ok": False, "local_only": False, "failure": {"stage": "process_discovery", "error": "llama-server not found"}}
@@ -361,8 +384,9 @@ def main() -> int:
         report = probe_inventory(server, timeout=args.timeout, samples=args.samples)
     payload = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
     if args.output:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(payload, encoding="utf-8", newline="\n")
+        output = approved_inventory_output(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        replace_bytes_safely(output, payload.encode("utf-8"))
     print(payload, end="")
     return 0 if report.get("ok") and report.get("local_only") else 1
 
