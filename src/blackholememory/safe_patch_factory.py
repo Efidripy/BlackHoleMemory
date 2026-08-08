@@ -323,6 +323,9 @@ class SafePatchFactory:
         if not baseline.is_dir() or not candidate.is_dir():
             raise SafePatchPathError("plan quarantine is missing baseline or candidate directory")
         allowed_files = tuple(_normalize_allowed_files(plan.allowed_files))
+        for relative in allowed_files:
+            _contained_path(baseline, relative)
+            _contained_path(candidate, relative)
         return baseline, candidate, allowed_files
 
     def review(
