@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.observation_security import redact_secret_text
 from blackholememory.repository_index import RepositoryIndexLimits
 from blackholememory.repository_index import RepositorySourceProvenance
@@ -49,8 +50,7 @@ def parse_args() -> argparse.Namespace:
 def _write_report(path: Path | None, payload: dict[str, object]) -> None:
     rendered = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
     if path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(rendered, encoding="utf-8", newline="\n")
+        replace_bytes_safely(path, rendered.encode("utf-8"))
     print(rendered, end="")
 
 
