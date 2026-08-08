@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from blackholememory.config import settings
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.mem0_adapter import global_collection_name
 from blackholememory.mem0_adapter import local_collection_name
@@ -159,11 +161,11 @@ def _backup_lines(targets: list[dict[str, Any]]) -> list[str]:
 
 
 def _write_backup(backup_dir: Path, targets: list[dict[str, Any]], plan: dict[str, Any]) -> dict[str, Any]:
-    backup_dir.mkdir(parents=True, exist_ok=True)
+    safe_backup_dir = assert_safe_path(backup_dir, reject_hardlink_target=False)
     lines = _backup_lines(targets)
-    payload_path = backup_dir / "payloads.jsonl"
+    payload_path = safe_backup_dir / "payloads.jsonl"
     payload_text = "\n".join(lines) + ("\n" if lines else "")
-    payload_path.write_text(payload_text, encoding="utf-8")
+    replace_bytes_safely(payload_path, payload_text.encode("utf-8"))
     payload_sha = hashlib.sha256(payload_path.read_bytes()).hexdigest()
     manifest = {
         "backup_version": BACKUP_VERSION,
@@ -174,8 +176,11 @@ def _write_backup(backup_dir: Path, targets: list[dict[str, Any]], plan: dict[st
         "payload_file": payload_path.name,
         "payload_sha256": payload_sha,
     }
-    manifest_path = backup_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    manifest_path = safe_backup_dir / "manifest.json"
+    replace_bytes_safely(
+        manifest_path,
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
     verify_lines = payload_path.read_text(encoding="utf-8").splitlines()
     if verify_lines != lines:
         raise RuntimeError("backup verification failed: payload lines changed after write")
@@ -204,8 +209,9 @@ def _apply(client: Any, targets: list[dict[str, Any]], expected_user_id: str) ->
 
 
 def _load_backup(backup_dir: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    manifest_path = backup_dir / "manifest.json"
-    payload_path = backup_dir / "payloads.jsonl"
+    safe_backup_dir = assert_safe_path(backup_dir, reject_hardlink_target=False)
+    manifest_path = assert_safe_path(safe_backup_dir / "manifest.json")
+    payload_path = assert_safe_path(safe_backup_dir / "payloads.jsonl")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("backup_version") != BACKUP_VERSION or manifest.get("payload_file") != payload_path.name:
         raise RuntimeError("unsupported or inconsistent backup manifest")
