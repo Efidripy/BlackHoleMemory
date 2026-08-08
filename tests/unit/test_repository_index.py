@@ -93,6 +93,26 @@ def test_cold_index_is_deterministic_bounded_and_deduplicated(tmp_path: Path) ->
     assert "content_sha256" in columns
 
 
+def test_source_index_keeps_path_only_literals_but_skips_credentials(tmp_path: Path) -> None:
+    root = tmp_path / "source-paths"
+    root.mkdir()
+    (root / "app.js").write_text(
+        "import './client.js';\nfetch('/api/items');\n",
+        encoding="utf-8",
+    )
+    (root / "client.js").write_text("export const ok = true;\n", encoding="utf-8")
+    (root / "credentials.txt").write_text(
+        "token=ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8\n",
+        encoding="utf-8",
+    )
+
+    indexed = index_repository(root, tmp_path / "paths.sqlite3", project="paths", source=_source())
+    snapshot = SQLiteRepositoryIndexStore(tmp_path / "paths.sqlite3").snapshot(indexed["snapshot_id"], include_files=True)
+
+    assert {item["path"] for item in snapshot["files"]} == {"app.js", "client.js"}
+    assert {item["path"]: item["reason"] for item in snapshot["skips"]}["credentials.txt"] == "secret-content"
+
+
 def test_force_refresh_publishes_new_epoch_without_source_or_qdrant_writes(tmp_path: Path) -> None:
     root = _repository(tmp_path)
     database = tmp_path / "index.sqlite3"

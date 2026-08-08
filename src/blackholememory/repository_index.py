@@ -21,7 +21,7 @@ from typing import Any, Mapping, Sequence
 
 from .filesystem_boundaries import FilesystemBoundaryError
 from .filesystem_boundaries import assert_safe_path
-from .observation_security import contains_secret_like
+from .observation_security import redact_secret_text
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 
 
@@ -78,6 +78,18 @@ _BLOCKED_PARTS = {
     ".vscode",
 }
 _SECRET_PARTS = {"secrets", "credentials", "tokens", "private-keys", "private_keys"}
+
+# Repository indexing reads source transiently to build bounded metadata and
+# never persists the source payload.  ``path-secret`` is an exception-text
+# safety signal, not evidence that a source file contains a credential: normal
+# imports, URL routes and infrastructure paths (``./client``, ``/api/items``,
+# ``../modules``) are expected in source fixtures and must not be dropped from
+# the graph.  Keep every actual credential/token signal fail-closed while
+# allowing path-only matches to reach the parser, whose output is redacted and
+# digest-based.
+def _contains_source_secret_like(value: str) -> bool:
+    result = redact_secret_text(value)
+    return any(kind != "path-secret" for kind in result.kinds)
 _SECRET_SUFFIXES = {".env", ".pem", ".key", ".p12", ".pfx", ".kdbx"}
 _DATABASE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
 _GENERATED_SUFFIXES = {".map", ".pyc", ".pyo", ".class", ".o", ".obj", ".wasm"}
@@ -843,7 +855,7 @@ def _read_candidate(root: Path, candidate: RepositoryCandidate) -> tuple[dict[st
         content = payload.decode("utf-8")
     except UnicodeDecodeError:
         return None, RepositorySkip(path=candidate.path, reason="non-utf8", size_bytes=len(payload))
-    if contains_secret_like(content):
+    if _contains_source_secret_like(content):
         return None, RepositorySkip(path=candidate.path, reason="secret-content", size_bytes=len(payload))
     return (
         {
