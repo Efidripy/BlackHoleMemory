@@ -56,9 +56,11 @@ from .local_endpoint_policy import open_local_url
 from .local_endpoint_policy import read_bounded_response
 from .memory_pulse_bus import MemoryPulseBus
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
+from .resource_limits import PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
 from .resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
 from .resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
 from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
+from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
 from .capability import ADMIN_CAPABILITY_HEADER
 from .capability import admin_route_requires_capability
 from .capability import configured_admin_capability
@@ -446,11 +448,13 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
         return max(default, minimum)
 
 
-def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
+def _env_float(name: str, default: float, minimum: float = 0.0, maximum: float | None = None) -> float:
+    upper = max(float(maximum), minimum) if maximum is not None else None
     try:
-        return max(float(os.getenv(name, str(default))), minimum)
+        value = max(float(os.getenv(name, str(default))), minimum)
     except (TypeError, ValueError):
-        return max(default, minimum)
+        value = max(default, minimum)
+    return min(value, upper) if upper is not None else value
 
 
 def _env_enabled(name: str, default: bool = False) -> bool:
@@ -491,8 +495,18 @@ _HOOK_QUEUE_STORES_LOCK = threading.RLock()
 _HOOK_QUEUE_TASKS: list[asyncio.Task[None]] = []
 _HOOK_QUEUE_STOP_EVENT: asyncio.Event | None = None
 _HOOK_QUEUE_ACCEPTING = True
-_STORAGE_STARTUP_TIMEOUT_SECONDS = _env_float("BHM_STORAGE_STARTUP_TIMEOUT_SECONDS", 30.0, 0.1)
-_QDRANT_HEALTH_TIMEOUT_SECONDS = _env_float("BHM_QDRANT_HEALTH_TIMEOUT_SECONDS", QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS, 0.1)
+_STORAGE_STARTUP_TIMEOUT_SECONDS = _env_float(
+    "BHM_STORAGE_STARTUP_TIMEOUT_SECONDS",
+    30.0,
+    0.1,
+    PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS,
+)
+_QDRANT_HEALTH_TIMEOUT_SECONDS = _env_float(
+    "BHM_QDRANT_HEALTH_TIMEOUT_SECONDS",
+    QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS,
+    0.1,
+    QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS,
+)
 _FALLBACK_MODE_ENV = "BHM_FALLBACK_MODE"
 _TELEMETRY_INTERVAL_SECONDS = 2.5
 _KNOWLEDGE_COUNTERS_SCHEMA_VERSION = "bhm.dashboard.knowledge-counters.v1"
@@ -516,7 +530,12 @@ class ResponseTimeout(Exception):
 
 
 _PROVIDER_WARMUP_REQUIRED = os.getenv("BHM_PROVIDER_WARMUP_DISABLED", "").lower() not in {"1", "true", "yes"}
-_PROVIDER_WARMUP_TIMEOUT_SECONDS = _env_float("BHM_PROVIDER_WARMUP_TIMEOUT_SECONDS", 5.0, 0.1)
+_PROVIDER_WARMUP_TIMEOUT_SECONDS = _env_float(
+    "BHM_PROVIDER_WARMUP_TIMEOUT_SECONDS",
+    5.0,
+    0.1,
+    LLM_HTTP_TIMEOUT_SECONDS,
+)
 _PROVIDER_WARMUP_INITIAL_DELAY_SECONDS = _env_float("BHM_PROVIDER_WARMUP_INITIAL_DELAY_SECONDS", 1.0, 0.1)
 _PROVIDER_WARMUP_MAX_DELAY_SECONDS = _env_float("BHM_PROVIDER_WARMUP_MAX_DELAY_SECONDS", 30.0, 1.0)
 _PROVIDER_READINESS_WAIT_SECONDS = _env_float("BHM_PROVIDER_READINESS_WAIT_SECONDS", 5.0, 0.0)
@@ -529,6 +548,7 @@ _PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS = _env_float(
     "BHM_PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS",
     _PROVIDER_WARMUP_TIMEOUT_SECONDS,
     0.1,
+    LLM_HTTP_TIMEOUT_SECONDS,
 )
 _PROVIDER_EMBEDDING_WARMUP_ATTEMPTS = _env_int("BHM_PROVIDER_EMBEDDING_WARMUP_ATTEMPTS", 2, 1)
 _PROVIDER_EMBEDDING_WARMUP_RETRY_DELAY_SECONDS = _env_float(
@@ -542,7 +562,12 @@ _PROVIDER_MEMORY_WARMUP_ENABLED = os.getenv("BHM_PROVIDER_MEMORY_WARMUP", "").lo
     "yes",
 }
 _PROVIDER_MEMORY_WARMUP_MAX_PROJECTS = _env_int("BHM_PROVIDER_MEMORY_WARMUP_MAX_PROJECTS", 8, 1)
-_FACT_SYNTHESIS_TIMEOUT_SECONDS = _env_float("BHM_FACT_SYNTHESIS_TIMEOUT_SECONDS", 20.0, 0.1)
+_FACT_SYNTHESIS_TIMEOUT_SECONDS = _env_float(
+    "BHM_FACT_SYNTHESIS_TIMEOUT_SECONDS",
+    20.0,
+    0.1,
+    LLM_HTTP_TIMEOUT_SECONDS,
+)
 _FACT_SYNTHESIS_MAX_ZONE_ITEMS = _env_int("BHM_FACT_SYNTHESIS_MAX_ZONE_ITEMS", 80, 1)
 _FACT_SYNTHESIS_MAX_ITEM_CHARS = _env_int("BHM_FACT_SYNTHESIS_MAX_ITEM_CHARS", 1600, 200)
 _FACT_SYNTHESIS_MAX_TOKENS = _env_int("BHM_FACT_SYNTHESIS_MAX_TOKENS", 800, 100)
