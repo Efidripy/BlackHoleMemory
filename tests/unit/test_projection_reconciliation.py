@@ -139,7 +139,11 @@ def test_reconciliation_detects_tombstone_delete_and_orphan_review(tmp_path):
     deleted = apply_projection_reconciliation(
         plan, repository, projector, surface, allow_orphan_delete=True
     )
-    assert deleted.deleted == 3
+    # The first apply already removed the two canonical tombstone points;
+    # re-applying the same plan now fails closed on their missing rereads and
+    # only removes the still-present orphan.
+    assert deleted.deleted == 1
+    assert len(deleted.failed) == 2
     assert surface.points == {}
 
 
