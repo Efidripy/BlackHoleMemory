@@ -22,6 +22,7 @@ from .domain import content_sha256
 from .memory_repository import MemoryRepositoryError
 from .memory_repository import MEMORY_STORE_SCHEMA_VERSION
 from .memory_repository import SQLiteMemoryRepository
+from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .sync_service import MemoryLifecycleService
 
 
@@ -88,7 +89,14 @@ class SQLiteMemoryService:
         try:
             if self.path.exists() and not self.allow_create:
                 uri = f"file:{self.path.as_posix()}?mode=ro"
-                with sqlite3.connect(uri, uri=True) as connection:
+                with sqlite3.connect(
+                    uri,
+                    uri=True,
+                    timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
+                ) as connection:
+                    connection.execute(
+                        f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}"
+                    )
                     tables = {
                         str(row[0])
                         for row in connection.execute(
@@ -144,7 +152,13 @@ class SQLiteMemoryService:
             f"WHERE lifecycle = 'active' AND project IN ({placeholders}) "
             "AND upsert_key LIKE ?"
         )
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(
+            self.path,
+            timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
+        ) as connection:
+            connection.execute(
+                f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}"
+            )
             rows = connection.execute(query, (*accepted, f"{upsert_key_prefix}%")).fetchall()
         count = 0
         for (metadata_json,) in rows:
@@ -268,7 +282,13 @@ class SQLiteMemoryService:
         """Return bounded transactional-outbox counts for health/SLO views."""
 
         self._ensure_ready(verify_integrity=False)
-        with sqlite3.connect(self.path) as connection:
+        with sqlite3.connect(
+            self.path,
+            timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
+        ) as connection:
+            connection.execute(
+                f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}"
+            )
             rows = connection.execute(
                 "SELECT status, COUNT(*) FROM memory_outbox GROUP BY status"
             ).fetchall()

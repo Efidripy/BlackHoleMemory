@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+import blackholememory.memory_service as memory_service_module
 from blackholememory.memory_service import MemoryServiceNotReady
 from blackholememory.memory_service import MemoryServiceValidationError
 from blackholememory.memory_service import SQLiteMemoryService
 from blackholememory.outbox import OutboxStatus
+from blackholememory.resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
 
 def _record(memory_id: str = "mem_bhm_service_001") -> dict:
@@ -91,6 +93,24 @@ def test_service_outbox_status_reports_bounded_counts(tmp_path):
     assert status["pending"] == 1
     assert status["failed"] == 0
     assert status["total"] == 1
+
+
+def test_service_readonly_sqlite_probes_use_registry_busy_timeout(tmp_path, monkeypatch):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    service.upsert_records([_record()])
+
+    original_connect = memory_service_module.sqlite3.connect
+    calls: list[dict[str, object]] = []
+
+    def recording_connect(*args, **kwargs):
+        calls.append(dict(kwargs))
+        return original_connect(*args, **kwargs)
+
+    monkeypatch.setattr(memory_service_module.sqlite3, "connect", recording_connect)
+    service.outbox_status()
+
+    assert calls
+    assert all(call.get("timeout") == SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS for call in calls)
 
 
 def test_service_validates_all_input_before_mutation(tmp_path):
