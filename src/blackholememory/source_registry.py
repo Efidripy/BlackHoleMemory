@@ -14,6 +14,7 @@ import math
 import os
 import re
 import shutil
+import socket
 import stat
 import subprocess
 import urllib.error
@@ -132,7 +133,32 @@ class SourceRegistryError(RuntimeError):
     """Raised when a source definition or quarantine state is invalid."""
 
 
-def _validate_web_source_url(value: str) -> str:
+def _is_public_address(value: str) -> bool:
+    try:
+        address = ipaddress.ip_address(str(value).split("%", 1)[0])
+    except ValueError:
+        return False
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_unspecified
+        or address.is_multicast
+    )
+
+
+def _assert_public_dns(hostname: str, port: int | None) -> None:
+    try:
+        infos = socket.getaddrinfo(hostname, port or 443, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise SourceRegistryError("web source hostname could not be resolved") from exc
+    addresses = {str(info[4][0]) for info in infos if info and len(info) > 4 and info[4]}
+    if not addresses or any(not _is_public_address(address) for address in addresses):
+        raise SourceRegistryError("web source hostname resolves to a private or local address")
+
+
+def _validate_web_source_url(value: str, *, resolve_dns: bool = False) -> str:
     """Validate an operator-reviewed public HTTPS source URL."""
 
     raw = str(value or "").strip()
@@ -145,8 +171,14 @@ def _validate_web_source_url(value: str) -> str:
         address = ipaddress.ip_address(parsed.hostname)
     except ValueError:
         address = None
-    if address is not None and (address.is_private or address.is_loopback or address.is_link_local or address.is_reserved):
+    if address is not None and not _is_public_address(str(address)):
         raise SourceRegistryError("web source URL must not target a private or local address")
+    if resolve_dns and address is None:
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise SourceRegistryError("web source URL has an invalid port") from exc
+        _assert_public_dns(parsed.hostname, port)
     return raw
 
 
@@ -190,22 +222,33 @@ class _ExternalRedirectHandler(urllib.request.HTTPRedirectHandler):
         target = super().redirect_request(req, fp, code, msg, headers, new)
         if target is None:
             return None
-        _validate_web_source_url(target.full_url)
+        _validate_web_source_url(target.full_url, resolve_dns=True)
         self._redirect_count += 1
         return target
 
 
 def _open_web_source(url: str, *, timeout: float):
     bounded_timeout = bounded_source_registry_web_timeout(timeout)
-    validated_url = _validate_web_source_url(url)
+    validated_url = _validate_web_source_url(url, resolve_dns=True)
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
         _ExternalRedirectHandler(),
     )
-    return opener.open(
+    response = opener.open(
         urllib.request.Request(validated_url, headers={"User-Agent": "BlackHoleMemory-source-passport/1.0"}),
         timeout=bounded_timeout,
     )
+    socket_obj = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
+    if socket_obj is not None:
+        try:
+            peer = socket_obj.getpeername()
+            peer_address = str(peer[0] if isinstance(peer, tuple) else peer)
+        except OSError as exc:
+            raise SourceRegistryError("web source peer address could not be inspected") from exc
+        if not _is_public_address(peer_address):
+            response.close()
+            raise SourceRegistryError("web source connected to a private or local address")
+    return response
 
 
 def bounded_source_registry_web_timeout(value: float) -> float:
