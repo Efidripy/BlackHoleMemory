@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import socket
 import sqlite3
@@ -45,6 +46,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
+REPORT_ROOT = REPO_ROOT / ".runtime" / "reports"
 DEFAULT_BHM_HOST, DEFAULT_BHM_PORT = endpoint_parts("bhm_api")
 
 
@@ -72,8 +74,23 @@ def _utc_iso(value: datetime) -> str:
 def _write_report(path: Path | None, report: dict[str, Any]) -> None:
     if path is None:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    root = REPORT_ROOT.expanduser().resolve()
+    target = path.expanduser().resolve(strict=False)
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"report path must stay under approved report root: {root}") from exc
+    cursor = target.parent
+    while cursor != root:
+        if cursor.is_symlink():
+            raise OSError(f"report parent must not be a symlink: {cursor}")
+        cursor = cursor.parent
+    if os.path.lexists(target) and target.is_symlink():
+        raise OSError(f"report target must not be a symlink: {target}")
+    if target.exists() and target.stat().st_nlink > 1:
+        raise OSError(f"report target must not be a hardlink: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _serialize_plan(plan: Any, *, include_observed_payload: bool) -> dict[str, Any]:

@@ -80,6 +80,7 @@ _ANONYMOUS_BHM_HEALTH_PATHS = frozenset(
 
 DEFAULT_BHM_BASE_URL = endpoint_url("bhm_api")
 DEFAULT_SYNTHESIS_ENDPOINT = "/bhm/synthesis/fact-crystal"
+ALLOWED_SYNTHESIS_ENDPOINTS = frozenset({DEFAULT_SYNTHESIS_ENDPOINT})
 DEFAULT_MIN_BATCH = 10
 DEFAULT_MAX_BATCH = 20
 DEFAULT_MAX_CANDIDATES = 300
@@ -1527,6 +1528,19 @@ def build_url(base_url: str, path: str, params: JsonDict | None = None) -> str:
     return url
 
 
+def validate_synthesis_endpoint(value: str) -> str:
+    """Keep synthesis traffic on the one authenticated BHM synthesis route."""
+
+    candidate = str(value or "").strip()
+    parsed = parse.urlsplit(candidate)
+    if parsed.scheme or parsed.netloc or parsed.query or parsed.fragment:
+        raise ValueError("--synthesis-endpoint must be a relative BHM route")
+    normalized = "/" + candidate.lstrip("/")
+    if normalized not in ALLOWED_SYNTHESIS_ENDPOINTS:
+        raise ValueError("--synthesis-endpoint is not an approved BHM synthesis route")
+    return normalized
+
+
 def _read_process_or_user_env_value(key: str) -> str | None:
     direct = str(os.getenv(key) or "").strip()
     if direct:
@@ -1815,13 +1829,14 @@ def format_crystal_fields(fields: JsonDict) -> str:
 
 
 async def call_synthesis_endpoint(payload: JsonDict, args: argparse.Namespace) -> tuple[str, JsonDict]:
+    synthesis_endpoint = validate_synthesis_endpoint(args.synthesis_endpoint)
     payload_chars = synthesis_payload_chars(payload)
     if payload_chars > MAX_PAYLOAD_CHARS:
         raise SoftFail(f"BHM synthesis payload exceeds safe local LLM limit: {payload_chars} > {MAX_PAYLOAD_CHARS}")
     response = await async_rest_call(
         args.bhm_base_url,
         "POST",
-        args.synthesis_endpoint,
+        synthesis_endpoint,
         payload,
         args.timeout,
     )
@@ -3135,6 +3150,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--llm-api-key", default="", help=argparse.SUPPRESS)
 
     args = parser.parse_args(argv)
+    try:
+        args.synthesis_endpoint = validate_synthesis_endpoint(args.synthesis_endpoint)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.min_batch < 10:
         parser.error("--min-batch must be at least 10 for Fact Crystal synthesis")
     if args.max_batch > MACRO_PROMPT_LIMIT:

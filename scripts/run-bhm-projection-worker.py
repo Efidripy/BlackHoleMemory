@@ -65,7 +65,12 @@ def _validate_openai_base_url(value: str) -> str:
         parsed.port
     except ValueError as exc:
         raise ValueError("--openai-base-url contains an invalid port") from exc
-    return candidate
+    try:
+        from blackholememory.local_endpoint_policy import validate_local_endpoint
+
+        return validate_local_endpoint(candidate)
+    except Exception as exc:
+        raise ValueError("--openai-base-url must target a local-only provider endpoint") from exc
 
 
 def _apply_provider_override(value: str | None) -> str | None:
