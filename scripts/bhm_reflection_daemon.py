@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import math
 import re
@@ -137,6 +138,28 @@ class ReflectionRecord:
 
 class ReflectionSoftFail(RuntimeError):
     """Expected runtime failure that should not mutate Qdrant."""
+
+
+def canonical_project_name(value: Any) -> str:
+    """Return the bounded project label used for reflection scope checks."""
+
+    project = str(value or "").strip()
+    return project or "blackholememory"
+
+
+def payload_digest(payload: Any) -> str:
+    """Fingerprint a Qdrant payload for delete-time TOCTOU revalidation."""
+
+    if not isinstance(payload, dict):
+        payload = {}
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def utc_now_iso() -> str:
@@ -265,7 +288,10 @@ async def fetch_reflection_candidates(
     *,
     limit: int = DEFAULT_LIMIT,
     scan_limit: int = DEFAULT_SCAN_LIMIT,
+    project: str | None = None,
 ) -> list[ReflectionRecord]:
+    project_filter = canonical_project_name(project) if project is not None else None
+
     def _scroll() -> list[ReflectionRecord]:
         client = get_qdrant_client()
         collection = global_collection_name()
@@ -278,6 +304,8 @@ async def fetch_reflection_candidates(
             with_vectors=False,
         )
         records = [record for point in points if (record := point_to_record(point)) is not None]
+        if project_filter is not None:
+            records = [record for record in records if record.project == project_filter]
         return select_dense_cluster(records, limit)
 
     return await asyncio.to_thread(_scroll)
@@ -455,7 +483,13 @@ def resolve_target_point_ids(target_ids: list[str], records: list[ReflectionReco
     return resolved
 
 
-def write_super_crystal(super_crystal: JsonDict, records: list[ReflectionRecord], target_ids: list[str]) -> list[str]:
+def write_super_crystal(
+    super_crystal: JsonDict,
+    records: list[ReflectionRecord],
+    target_ids: list[str],
+    *,
+    project: str = "blackholememory",
+) -> list[str]:
     memory = get_global_core_memory()
     source_id = f"mem_bhm_super_{uuid.uuid4().hex[:14]}"
     now = utc_now_iso()
@@ -465,7 +499,7 @@ def write_super_crystal(super_crystal: JsonDict, records: list[ReflectionRecord]
         "raw_title": "Super-Crystal Master Pattern",
         "upsert_key": f"super-crystal:{uuid.uuid4().hex[:16]}",
         "agent_id": WORKER_NAME,
-        "project": "blackholememory",
+        "project": canonical_project_name(project),
         "memory_type": "pattern",
         "semantic_type": "fact",
         "lifecycle": "validated",
@@ -510,21 +544,92 @@ def write_super_crystal(super_crystal: JsonDict, records: list[ReflectionRecord]
     return ids
 
 
-def delete_qdrant_points(point_ids: list[str]) -> None:
+def _revalidate_delete_targets(
+    client: Any,
+    point_ids: list[str],
+    records: list[ReflectionRecord],
+    *,
+    project: str,
+) -> None:
+    """Re-read exact Qdrant points and reject stale/cross-project deletes."""
+
+    expected = {record.point_id: record for record in records if record.point_id in point_ids}
+    if set(expected) != set(point_ids):
+        raise ReflectionSoftFail("delete targets are not covered by the candidate snapshot")
+
+    try:
+        points = client.retrieve(
+            collection_name=global_collection_name(),
+            ids=list(point_ids),
+            with_payload=True,
+            with_vectors=False,
+        )
+    except Exception as exc:
+        raise ReflectionSoftFail("unable to revalidate reflection delete targets") from exc
+
+    observed = {str(getattr(point, "id", "")): point for point in points or []}
+    missing = sorted(set(point_ids) - set(observed))
+    if missing:
+        raise ReflectionSoftFail(f"reflection delete target disappeared: {', '.join(missing)}")
+
+    scoped_project = canonical_project_name(project)
+    for point_id in point_ids:
+        point = observed[point_id]
+        payload = dict(getattr(point, "payload", None) or {})
+        record = expected[point_id]
+        if canonical_project_name(payload.get("project")) != scoped_project:
+            raise ReflectionSoftFail(f"reflection delete target crossed project boundary: {point_id}")
+        if payload_digest(payload) != payload_digest(record.payload):
+            raise ReflectionSoftFail(f"reflection delete target changed after audit: {point_id}")
+
+
+def delete_qdrant_points(
+    point_ids: list[str],
+    records: list[ReflectionRecord],
+    *,
+    project: str = "blackholememory",
+) -> None:
     client = get_qdrant_client()
+    _revalidate_delete_targets(client, point_ids, records, project=project)
+    scoped_project = canonical_project_name(project)
+    selector = qdrant_models.FilterSelector(
+        filter=qdrant_models.Filter(
+            must=[
+                qdrant_models.FieldCondition(
+                    key="project",
+                    match=qdrant_models.MatchValue(value=scoped_project),
+                ),
+                qdrant_models.HasIdCondition(has_id=list(point_ids)),
+            ]
+        )
+    )
     client.delete(
         collection_name=global_collection_name(),
-        points_selector=qdrant_models.PointIdsList(points=point_ids),
+        points_selector=selector,
+        wait=True,
     )
 
 
-async def commit_consolidation(audit_result: JsonDict, records: list[ReflectionRecord]) -> JsonDict:
+async def commit_consolidation(
+    audit_result: JsonDict,
+    records: list[ReflectionRecord],
+    *,
+    project: str = "blackholememory",
+) -> JsonDict:
     target_ids = normalize_string_list(audit_result.get("target_ids_to_delete"))
     point_ids = resolve_target_point_ids(target_ids, records)
+    scoped_project = canonical_project_name(project)
+    if any(record.project != scoped_project for record in records):
+        raise ReflectionSoftFail("reflection candidate project scope changed before commit")
 
     def _commit() -> JsonDict:
-        new_ids = write_super_crystal(audit_result["super_crystal"], records, target_ids)
-        delete_qdrant_points(point_ids)
+        new_ids = write_super_crystal(
+            audit_result["super_crystal"],
+            records,
+            target_ids,
+            project=scoped_project,
+        )
+        delete_qdrant_points(point_ids, records, project=scoped_project)
         return {"new_point_ids": new_ids, "deleted_point_ids": point_ids}
 
     return await asyncio.to_thread(_commit)
@@ -540,7 +645,12 @@ async def run_reflection_cycle(
 ) -> JsonDict:
     llm_timeout = bounded_reflection_timeout(llm_timeout)
     print("[INFO] Starting reflection loop for global core...", flush=True)
-    records = await fetch_reflection_candidates(limit=limit, scan_limit=scan_limit)
+    scoped_project = canonical_project_name(project_name)
+    records = await fetch_reflection_candidates(
+        limit=limit,
+        scan_limit=scan_limit,
+        project=scoped_project,
+    )
     if len(records) < MIN_CONSOLIDATION_TARGETS:
         print("[INFO] Not enough content for consolidation. Skipping.", flush=True)
         return {"status": "skipped", "reason": "low_density", "candidate_count": len(records)}
@@ -567,7 +677,7 @@ async def run_reflection_cycle(
             "audit": audit_result,
         }
 
-    commit = await commit_consolidation(audit_result, records)
+    commit = await commit_consolidation(audit_result, records, project=scoped_project)
     print(f"[SUCCESS] Consolidated {delete_count} items into one Super-Crystal.", flush=True)
     return {
         "status": "consolidated",
