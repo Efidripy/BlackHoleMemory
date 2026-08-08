@@ -40,6 +40,10 @@ def _resolve_backup_path(
         resolved = candidate.resolve()
     except OSError:
         return None
+    if approved_root not in resolved.parents:
+        # Legacy manifests may carry the old absolute runtime root.  Only the
+        # basename fallback beside the trusted manifest is accepted.
+        resolved = (manifest_path.parent / candidate.name).resolve()
     if resolved == approved_root or approved_root not in resolved.parents:
         return None
     if not resolved.is_file() or resolved.is_symlink():
