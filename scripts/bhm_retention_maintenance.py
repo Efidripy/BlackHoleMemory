@@ -26,17 +26,32 @@ from blackholememory.retention import parse_timestamp
 from blackholememory.retention import restore_retention_backup
 from blackholememory.retention import summarize_retention_plan
 from blackholememory.retention import utc_iso
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 DEFAULT_RUNTIME_DIR = REPO_ROOT / ".runtime" / "live-memory"
 DEFAULT_POLICY_PATH = REPO_ROOT / "config" / "retention-policy.json"
+REPORT_ROOT = REPO_ROOT / ".runtime" / "reports"
 
 
 def _write_report(path: Path | None, report: dict[str, Any]) -> None:
     if path is None:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    target = path.expanduser().resolve(strict=False)
+    root = REPORT_ROOT.expanduser().resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"report path must stay under approved report root: {root}") from exc
+    cursor = target.parent
+    while cursor != root:
+        if cursor.is_symlink():
+            raise OSError(f"report parent must not be a symlink: {cursor}")
+        cursor = cursor.parent
+    replace_bytes_safely(
+        target,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def _parse_as_of(value: str) -> datetime:
