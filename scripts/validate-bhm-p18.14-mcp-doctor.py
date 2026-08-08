@@ -45,7 +45,8 @@ def _ensure_project_runtime() -> None:
             continue
 
 
-_ensure_project_runtime()
+if __name__ == "__main__":
+    _ensure_project_runtime()
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
