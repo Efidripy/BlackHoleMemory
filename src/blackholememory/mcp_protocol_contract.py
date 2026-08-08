@@ -16,6 +16,10 @@ JSONRPC_INVALID_REQUEST = -32600
 JSONRPC_METHOD_NOT_FOUND = -32601
 JSONRPC_INVALID_PARAMS = -32602
 
+BHM_REMEMBER_ALLOWED_ARGUMENTS = frozenset(
+    {"content", "project", "memory_type", "concepts", "files", "metadata"}
+)
+
 
 class ProtocolContractError(ValueError):
     """A request cannot be accepted by the bounded BHM protocol contract."""
@@ -23,6 +27,27 @@ class ProtocolContractError(ValueError):
     def __init__(self, message: str, *, code: int = JSONRPC_INVALID_PARAMS) -> None:
         super().__init__(message)
         self.code = int(code)
+
+
+def validate_bhm_remember_arguments(arguments: Mapping[str, Any]) -> str | None:
+    """Validate the strict ``bhm_remember`` argument object.
+
+    Keep this pure contract helper shared by every transport envelope.  The
+    exact error strings are part of the MCP compatibility surface.
+    """
+
+    argument_keys = set(arguments)
+    unknown_keys = argument_keys - BHM_REMEMBER_ALLOWED_ARGUMENTS
+    if unknown_keys:
+        names = ", ".join(sorted(unknown_keys))
+        return f"Unsupported bhm_remember argument(s): {names}"
+    if "concepts" in arguments and not isinstance(arguments["concepts"], list):
+        return "bhm_remember concepts must be an array"
+    if "files" in arguments and not isinstance(arguments["files"], list):
+        return "bhm_remember files must be an array"
+    if "metadata" in arguments and arguments["metadata"] is not None and not isinstance(arguments["metadata"], dict):
+        return "bhm_remember metadata must be an object"
+    return None
 
 
 def negotiate_protocol_version(value: Any) -> str:

@@ -13,13 +13,17 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..observation_security import redact_secret_text
+from ..mcp_protocol_contract import BHM_REMEMBER_ALLOWED_ARGUMENTS
+from ..mcp_protocol_contract import validate_bhm_remember_arguments
 from ..resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
 from ..resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
 
 JsonRpcHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
 ConnectionCloseHandler = Callable[[str, str], None]
 
-_BHM_REMEMBER_ALLOWED_ARGUMENTS = {"content", "project", "memory_type", "concepts", "files", "metadata"}
+# Preserve the historical private import for callers while keeping the
+# canonical contract in mcp_protocol_contract.
+_BHM_REMEMBER_ALLOWED_ARGUMENTS = BHM_REMEMBER_ALLOWED_ARGUMENTS
 
 
 class BrokerAlreadyRunning(RuntimeError):
@@ -272,19 +276,7 @@ class McpIpcBroker:
         if not isinstance(arguments, dict):
             return None
 
-        argument_keys = set(arguments)
-        unknown_keys = argument_keys - _BHM_REMEMBER_ALLOWED_ARGUMENTS
-        if unknown_keys:
-            names = ", ".join(sorted(unknown_keys))
-            return f"Unsupported bhm_remember argument(s): {names}"
-
-        if "concepts" in arguments and not isinstance(arguments["concepts"], list):
-            return "bhm_remember concepts must be an array"
-        if "files" in arguments and not isinstance(arguments["files"], list):
-            return "bhm_remember files must be an array"
-        if "metadata" in arguments and arguments["metadata"] is not None and not isinstance(arguments["metadata"], dict):
-            return "bhm_remember metadata must be an object"
-        return None
+        return validate_bhm_remember_arguments(arguments)
 
     def _serve_unix(self) -> None:
         path = self.unix_socket_path
