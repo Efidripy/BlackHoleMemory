@@ -4,6 +4,7 @@ from __future__ import annotations
 # ruff: noqa: E402
 
 import asyncio
+import hashlib
 import json
 import os
 import sqlite3
@@ -53,6 +54,7 @@ from blackholememory.retention import build_retention_plan
 from blackholememory.retention import create_retention_backup
 from blackholememory.retention import load_retention_policy
 from blackholememory.retention import RetentionPolicyError
+from blackholememory.retention import RETENTION_BACKUP_SCHEMA_VERSION
 from blackholememory.retention import restore_retention_backup
 from blackholememory.retention import summarize_retention_plan
 from blackholememory.tools import infra_healer
@@ -2004,6 +2006,32 @@ def test_retention_apply_backup_and_restore_staging(tmp_path):
     assert restored["success"] is True
     assert restored_observations.status(integrity_check=True)["total"] == 2
     assert restored_queue.status(integrity_check=True)["counts"]["completed"] == 1
+
+
+def test_retention_restore_rejects_manifest_paths_outside_backup_root(tmp_path):
+    manifest_root = tmp_path / "backup"
+    manifest_root.mkdir()
+    outside = tmp_path / "observations.sqlite3"
+    outside.write_bytes(b"not a retention backup")
+    manifest = manifest_root / "retention-backup-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schemaVersion": RETENTION_BACKUP_SCHEMA_VERSION,
+                "entries": [
+                    {
+                        "kind": "observations",
+                        "backupPath": str(outside),
+                        "sha256": hashlib.sha256(outside.read_bytes()).hexdigest(),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RetentionPolicyError, match="under manifest directory"):
+        restore_retention_backup(manifest, tmp_path / "restore")
 
 
 def test_retention_status_endpoint_is_read_only(monkeypatch, tmp_path):

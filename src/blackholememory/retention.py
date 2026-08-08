@@ -571,15 +571,37 @@ def restore_retention_backup(manifest_path: Path | str, restore_dir: Path | str)
     payload = json.loads(source_manifest.read_text(encoding="utf-8"))
     if str(payload.get("schemaVersion") or "") != RETENTION_BACKUP_SCHEMA_VERSION:
         raise RetentionPolicyError("unsupported retention backup manifest schema")
+    manifest_root = source_manifest.parent.resolve()
+    entries = payload.get("entries")
+    if not isinstance(entries, list) or not entries:
+        raise RetentionPolicyError("retention backup manifest entries are required")
     target_dir = assert_safe_path(restore_dir, reject_hardlink_target=False).resolve()
     if target_dir.exists() and any(target_dir.iterdir()):
         raise FileExistsError(f"retention restore directory is not empty: {target_dir}")
     target_dir.mkdir(parents=True, exist_ok=True)
     assert_safe_path(target_dir, reject_hardlink_target=False)
     restored: list[dict[str, Any]] = []
-    for entry in payload.get("entries") or []:
+    expected_names = {
+        "observations": "observations.sqlite3",
+        "hook-jobs": "hook-jobs.sqlite3",
+    }
+    seen_kinds: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise RetentionPolicyError("retention backup manifest entry must be an object")
+        kind = str(entry.get("kind") or "")
+        if kind in seen_kinds:
+            raise RetentionPolicyError(f"duplicate retention backup entry: {kind}")
+        seen_kinds.add(kind)
+        expected_name = expected_names.get(kind)
+        if expected_name is None or Path(str(entry.get("backupPath") or "")).name != expected_name:
+            raise RetentionPolicyError(f"invalid retention backup entry name: {kind}")
         backup_path = assert_safe_path(str(entry.get("backupPath") or "")).resolve()
+        if not backup_path.is_relative_to(manifest_root):
+            raise RetentionPolicyError("retention backup path must remain under manifest directory")
         expected_hash = str(entry.get("sha256") or "")
+        if len(expected_hash) != 64 or any(char not in "0123456789abcdefABCDEF" for char in expected_hash):
+            raise RetentionPolicyError(f"invalid retention backup hash: {kind}")
         actual_hash = sha256_file(backup_path)
         if actual_hash != expected_hash:
             raise RuntimeError(f"retention backup hash mismatch: {backup_path}")
@@ -591,7 +613,7 @@ def restore_retention_backup(manifest_path: Path | str, restore_dir: Path | str)
             raise RuntimeError(f"retention restore verification failed: {target_path}")
         restored.append(
             {
-                "kind": str(entry.get("kind") or ""),
+                "kind": kind,
                 "path": str(target_path),
                 "bytes": target_path.stat().st_size,
                 "sha256": restored_hash,
