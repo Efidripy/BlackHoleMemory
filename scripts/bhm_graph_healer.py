@@ -523,7 +523,15 @@ async def heal_graph(
     applied_links = 0
 
     graph = await graph_manager.get_graph()
-    collections = collection_names or memory_collection_names(client, include_smoke=include_smoke_collections)
+    allowed_collections = set(memory_collection_names(client, include_smoke=include_smoke_collections))
+    if collection_names:
+        requested_collections = list(dict.fromkeys(str(name).strip() for name in collection_names if str(name).strip()))
+        invalid_collections = sorted(set(requested_collections) - allowed_collections)
+        if invalid_collections:
+            raise ValueError(f"collection_not_allowed: {', '.join(invalid_collections)}")
+        collections = requested_collections
+    else:
+        collections = sorted(allowed_collections)
     points, skipped_missing_vector, skipped_smoke_points = await scroll_memory_points(
         client,
         collection_names=collections,
