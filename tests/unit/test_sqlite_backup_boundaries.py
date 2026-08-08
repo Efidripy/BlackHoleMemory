@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -8,6 +9,19 @@ from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.hook_queue import HookJobQueue
 from blackholememory.observation_store import ObservationStore
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_backup_destinations_use_explicit_sqlite_busy_timeouts() -> None:
+    observation_source = (REPO_ROOT / "src" / "blackholememory" / "observation_store.py").read_text(encoding="utf-8")
+    retirement_source = (REPO_ROOT / "src" / "blackholememory" / "project_retirement.py").read_text(encoding="utf-8")
+
+    assert "timeout=OBSERVATION_STORE_BUSY_TIMEOUT_MS / 1000" in observation_source
+    assert "PRAGMA busy_timeout={OBSERVATION_STORE_BUSY_TIMEOUT_MS}" in observation_source
+    assert "timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS" in retirement_source
+    assert "PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}" in retirement_source
 
 
 @pytest.mark.skipif(os.name != "nt", reason="UNC path syntax is Windows-specific")

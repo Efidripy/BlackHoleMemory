@@ -141,7 +141,13 @@ def _backup_sqlite(source: Path, destination: Path) -> dict[str, Any]:
     destination.parent.mkdir(parents=True, exist_ok=True)
     source_connection = _connect(source, read_only=True)
     try:
-        destination_connection = sqlite3.connect(destination)
+        destination_connection = sqlite3.connect(
+            destination,
+            timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
+        )
+        destination_connection.execute(
+            f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}"
+        )
         try:
             source_connection.backup(destination_connection)
             destination_connection.commit()

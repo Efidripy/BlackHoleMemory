@@ -671,7 +671,11 @@ class ObservationStore:
                 if candidate.exists():
                     candidate.unlink()
         source_connection = self._connect()
-        target_connection = sqlite3.connect(str(target_path))
+        target_connection = sqlite3.connect(
+            str(target_path),
+            timeout=OBSERVATION_STORE_BUSY_TIMEOUT_MS / 1000,
+        )
+        target_connection.execute(f"PRAGMA busy_timeout={OBSERVATION_STORE_BUSY_TIMEOUT_MS}")
         try:
             source_connection.backup(target_connection)
         finally:
