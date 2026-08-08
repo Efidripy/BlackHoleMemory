@@ -14,6 +14,7 @@ from pathlib import Path
 from blackholememory.local_endpoint_policy import open_local_url
 from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = ROOT.parent.parent / "workspace" / "local" / "tmp" / "bhm-releases" / "wi16-release-20260716-r2" / "BHM-Release-v1.7.1.zip"
@@ -26,7 +27,10 @@ def _write_report(path: Path, report: dict) -> None:
     )
 
 
-def _probe(url: str, timeout: float = 8.0) -> tuple[bool, float, str]:
+def _probe(
+    url: str,
+    timeout: float = BHM_INTERNAL_HTTP_TIMEOUT_SECONDS,
+) -> tuple[bool, float, str]:
     started = time.perf_counter()
     try:
         request = urllib.request.Request(url, method="GET")

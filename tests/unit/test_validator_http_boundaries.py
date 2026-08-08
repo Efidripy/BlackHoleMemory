@@ -62,6 +62,27 @@ def test_packaging_probe_fails_closed_on_non_200(monkeypatch) -> None:
     assert "unexpected HTTP status 503" in detail
 
 
+def test_packaging_validator_uses_registry_timeout() -> None:
+    text = Path(PACKAGING.__file__).read_text(encoding="utf-8")
+    assert "BHM_INTERNAL_HTTP_TIMEOUT_SECONDS" in text
+    assert "timeout=8" not in text
+
+
+def test_packaging_probe_default_timeout_is_registry_bound(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    def fake_open(request, *, timeout):
+        calls["timeout"] = timeout
+        return _Response()
+
+    monkeypatch.setattr(PACKAGING, "open_local_url", fake_open)
+    ok, _latency, detail = PACKAGING._probe("http://127.0.0.1:8000/health/ready")
+
+    assert ok is True
+    assert detail == "ok"
+    assert calls["timeout"] == BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+
+
 def test_activation_probe_delegates_to_local_policy(monkeypatch) -> None:
     calls: list[str] = []
 
