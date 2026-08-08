@@ -83,6 +83,36 @@ def test_projection_operator_reports_reject_hardlink_targets(
     assert outside.read_text(encoding="utf-8") == "sentinel"
 
 
+def test_projection_quarantine_backup_writer_rejects_hardlink_target(tmp_path: Path) -> None:
+    root = tmp_path / "backup"
+    root.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_text("sentinel", encoding="utf-8")
+    target = root / "qdrant-orphan-points.json"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        QUARANTINE._write_json(target, {"ok": True})
+    assert outside.read_text(encoding="utf-8") == "sentinel"
+
+
+def test_projection_quarantine_backup_writer_rejects_reparse_parent(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "backup-link"
+    try:
+        linked_root.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="symlink|junction|reparse"):
+        QUARANTINE._write_json(linked_root / "quarantine-manifest.json", {"ok": True})
+    assert not (outside / "quarantine-manifest.json").exists()
+
+
 def test_credential_bearing_endpoints_are_loopback_only() -> None:
     assert ENDPOINTS.validate_loopback_endpoint("http://127.0.0.1:8000") == "http://127.0.0.1:8000"
     with pytest.raises(ValueError, match="loopback"):
