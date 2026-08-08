@@ -1,3 +1,7 @@
+param(
+    [ValidateRange(1, 30)][int]$TimeoutSec = 30
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
@@ -7,4 +11,4 @@ $composeFile = Join-Path $repoRoot "infra\qdrant\docker-compose.yml"
 $qdrantHealthUrl = Get-BhmRuntimeEndpoint -Name 'qdrant_http' -RepoRoot $repoRoot -Path 'healthz'
 
 docker compose -f $composeFile up -d
-Invoke-WebRequest -UseBasicParsing $qdrantHealthUrl | Select-Object -ExpandProperty Content
+Invoke-WebRequest -UseBasicParsing -TimeoutSec $TimeoutSec $qdrantHealthUrl | Select-Object -ExpandProperty Content
