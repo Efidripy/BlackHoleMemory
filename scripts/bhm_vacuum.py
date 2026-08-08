@@ -184,6 +184,7 @@ def main() -> int:
         print(f"Total collections: {report['total_collections']}")
         print(f"Protected collections present: {len(protected_present)}")
         print(f"Cleanup candidates: {report['candidate_count']}")
+        print(f"Candidate digest: {report['candidate_digest']}")
         print(f"Candidate points: {report['candidate_points']}")
         for info in infos:
             points = "unknown" if info.points_count is None else str(info.points_count)
