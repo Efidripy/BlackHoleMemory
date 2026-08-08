@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 
 from blackholememory.llm_learning import LLMLearningCollision
+from blackholememory.llm_learning import LLMLearningError
 from blackholememory.llm_learning import LLMLearningPrivacyError
 from blackholememory.llm_learning import LLMLearningReviewError
 from blackholememory.llm_learning import LLMLearningStore
+from blackholememory.llm_learning import default_llm_learning_path
 
 
 def _accepted(store: LLMLearningStore, *, source_job_id: str = "job-1") -> dict:
@@ -31,6 +33,13 @@ def _accepted(store: LLMLearningStore, *, source_job_id: str = "job-1") -> dict:
         },
         provenance={"source": "test", "job_digest": "job-digest"},
     )
+
+
+def test_llm_learning_path_override_cannot_redirect_sqlite_writer(monkeypatch, tmp_path):
+    monkeypatch.setenv("BHM_LLM_LEARNING_PATH", str(tmp_path / "outside.sqlite3"))
+
+    with pytest.raises(LLMLearningError, match="canonical"):
+        default_llm_learning_path()
 
 
 def test_reviewed_acceptance_becomes_eval_and_few_shot_without_training(tmp_path):
