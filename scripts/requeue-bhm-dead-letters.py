@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
@@ -36,6 +37,8 @@ def _read_dead_letters(database: Path) -> tuple[list[str], str | None]:
     database = assert_safe_path(database)
     if not database.exists():
         return [], "database does not exist"
+    if not database.is_file():
+        raise FilesystemBoundaryError(f"database target is not a regular file: {database}")
     connection = sqlite3.connect(database)
     try:
         rows = connection.execute(
@@ -52,12 +55,16 @@ def _online_backup(database: Path, backup: Path) -> None:
     database = assert_safe_path(database)
     backup = assert_safe_path(backup)
     if backup.exists():
+        if not backup.is_file():
+            raise FilesystemBoundaryError(f"backup target is not a regular file: {backup}")
         raise FileExistsError(f"backup already exists: {backup}")
     backup.parent.mkdir(parents=True, exist_ok=True)
     assert_safe_path(backup.parent, reject_hardlink_target=False)
     # Re-check after directory creation and immediately before SQLite opens the
     # destination so a raced link/reparse target fails closed.
     assert_safe_path(backup)
+    if backup.exists() and not backup.is_file():
+        raise FilesystemBoundaryError(f"backup target is not a regular file: {backup}")
     source = sqlite3.connect(database)
     target = sqlite3.connect(backup)
     try:
@@ -80,6 +87,8 @@ def _apply(database: Path, backup_root: Path, event_digest: str) -> dict[str, An
     assert_safe_path(backup_root, reject_hardlink_target=False)
     backup = backup_root / database.name
     manifest_path = assert_safe_path(backup_root / "requeue-manifest.json")
+    if manifest_path.exists() and not manifest_path.is_file():
+        raise FilesystemBoundaryError(f"manifest target is not a regular file: {manifest_path}")
     _online_backup(database, backup)
     now = _utc_now()
     connection = sqlite3.connect(database)
