@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import tomllib
 from collections import Counter
@@ -27,6 +28,9 @@ MAX_MANIFEST_BYTES = 512 * 1024
 MAX_LOCKFILES = 64
 MAX_LOCKFILE_DEPENDENCIES = 512
 MAX_LOCKFILE_BYTES = 2 * 1024 * 1024
+MAX_TRAVERSAL_ENTRIES = 8_192
+MAX_JSON_DEPTH = 64
+MAX_JSON_NODES = 4_096
 _BLOCKED_PARTS = {".git", ".src", ".venv", "venv", "node_modules", "dist", "build", "runtime", "__pycache__", ".pytest_cache"}
 _MANIFEST_NAMES = {
     "package.json": "npm",
@@ -68,6 +72,29 @@ class PackageResolutionError(ValueError):
 
 class DependencyProvenanceError(ValueError):
     """Raised when a lockfile provenance request violates a safe bound."""
+
+
+def _bounded_files(base: Path, *, max_entries: int = MAX_TRAVERSAL_ENTRIES):
+    """Yield repository files without materializing an unbounded tree."""
+
+    remaining = max(1, int(max_entries))
+    for raw_dir, dirnames, filenames in os.walk(base, topdown=True, followlinks=False):
+        safe_dirs = sorted(
+            name for name in dirnames if name.casefold() not in _BLOCKED_PARTS
+        )
+        if len(safe_dirs) >= remaining:
+            dirnames[:] = safe_dirs[:remaining]
+            remaining = 0
+        else:
+            dirnames[:] = safe_dirs
+            remaining -= len(safe_dirs)
+        if remaining <= 0:
+            return
+        for name in sorted(filenames):
+            if remaining <= 0:
+                return
+            remaining -= 1
+            yield Path(raw_dir) / name
 
 
 def _digest(value: bytes) -> str:
@@ -539,7 +566,7 @@ def _lock_row(name: Any, *, ecosystem: str, manifest: str, unresolved: bool = Fa
 def _parse_package_lock(payload: bytes, manifest: str, ecosystem: str) -> list[dict[str, Any]]:
     try:
         data = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return []
     candidates: list[Any] = []
     if isinstance(data, Mapping):
@@ -548,12 +575,20 @@ def _parse_package_lock(payload: bytes, manifest: str, ecosystem: str) -> list[d
             candidates.extend(str(key) for key in packages if str(key))
         dependencies = data.get("dependencies")
         if isinstance(dependencies, Mapping):
-            def walk(value: Mapping[str, Any]) -> None:
+            stack: list[tuple[Mapping[str, Any], int]] = [(dependencies, 0)]
+            nodes = 0
+            while stack and nodes < MAX_JSON_NODES:
+                value, depth = stack.pop()
+                if depth > MAX_JSON_DEPTH:
+                    continue
                 for key, child in value.items():
+                    nodes += 1
+                    if nodes > MAX_JSON_NODES:
+                        break
                     candidates.append(str(key))
-                    if isinstance(child, Mapping) and isinstance(child.get("dependencies"), Mapping):
-                        walk(child["dependencies"])
-            walk(dependencies)
+                    nested = child.get("dependencies") if isinstance(child, Mapping) else None
+                    if isinstance(nested, Mapping) and depth < MAX_JSON_DEPTH:
+                        stack.append((nested, depth + 1))
     rows: list[dict[str, Any]] = []
     for candidate in candidates:
         row = _lock_row(candidate, ecosystem=ecosystem, manifest=manifest)
@@ -565,10 +600,16 @@ def _parse_package_lock(payload: bytes, manifest: str, ecosystem: str) -> list[d
 def _parse_package_resolved(payload: bytes, manifest: str, ecosystem: str) -> list[dict[str, Any]]:
     try:
         data = json.loads(payload.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
         return []
     rows: list[dict[str, Any]] = []
-    def visit(value: Any) -> None:
+    stack: list[tuple[Any, int]] = [(data, 0)]
+    nodes = 0
+    while stack and nodes < MAX_JSON_NODES:
+        value, depth = stack.pop()
+        if depth > MAX_JSON_DEPTH:
+            continue
+        nodes += 1
         if isinstance(value, Mapping):
             if "identity" in value:
                 row = _lock_row(value.get("identity"), ecosystem=ecosystem, manifest=manifest)
@@ -578,13 +619,10 @@ def _parse_package_resolved(payload: bytes, manifest: str, ecosystem: str) -> li
                 row = _lock_row(value.get("package"), ecosystem=ecosystem, manifest=manifest)
                 if row:
                     rows.append(row)
-            for child in value.values():
-                if isinstance(child, (Mapping, list)):
-                    visit(child)
-        elif isinstance(value, list):
-            for child in value:
-                visit(child)
-    visit(data)
+            if depth < MAX_JSON_DEPTH:
+                stack.extend((child, depth + 1) for child in value.values() if isinstance(child, (Mapping, list)))
+        elif isinstance(value, list) and depth < MAX_JSON_DEPTH:
+            stack.extend((child, depth + 1) for child in value if isinstance(child, (Mapping, list)))
     return rows
 
 
@@ -688,7 +726,7 @@ def resolve_dependency_provenance(root: str | Path, *, limit: int = MAX_LOCKFILE
     if not base.is_dir():
         raise DependencyProvenanceError("repository root is not a directory")
     lockfiles: list[tuple[Path, str]] = []
-    for path in sorted(base.rglob("*")):
+    for path in _bounded_files(base):
         if not path.is_file() or any(part.casefold() in _BLOCKED_PARTS for part in path.relative_to(base).parts):
             continue
         ecosystem = _LOCKFILE_NAMES.get(path.name.casefold())
@@ -752,7 +790,7 @@ def resolve_package_manifests(root: str | Path, *, limit: int = 64) -> dict[str,
     if not base.is_dir():
         raise PackageResolutionError("repository root is not a directory")
     manifests: list[tuple[Path, str]] = []
-    for path in sorted(base.rglob("*")):
+    for path in _bounded_files(base):
         if not path.is_file() or any(part.casefold() in _BLOCKED_PARTS for part in path.relative_to(base).parts):
             continue
         name = path.name.casefold()

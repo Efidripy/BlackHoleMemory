@@ -19,13 +19,27 @@ def _default_project_normalizer(project: str | None) -> str:
 class MemoryPulseBus:
     """Broadcast bounded memory pulses to subscribed websocket clients."""
 
-    def __init__(self, project_normalizer: Callable[[str | None], str] | None = None) -> None:
+    def __init__(
+        self,
+        project_normalizer: Callable[[str | None], str] | None = None,
+        *,
+        max_clients: int = 64,
+        max_pending_broadcasts: int = 256,
+        send_timeout_seconds: float = 1.0,
+    ) -> None:
         self._clients: dict[Any, frozenset[str] | None] = {}
         self._loop: asyncio.AbstractEventLoop | None = None
         self._lock = threading.RLock()
         self._project_normalizer = project_normalizer or _default_project_normalizer
+        self.max_clients = max(1, int(max_clients))
+        self.max_pending_broadcasts = max(1, int(max_pending_broadcasts))
+        self.send_timeout_seconds = max(0.01, float(send_timeout_seconds))
+        self._pending_broadcasts = 0
 
     async def connect(self, websocket: Any, projects: frozenset[str] | None = None) -> None:
+        with self._lock:
+            if len(self._clients) >= self.max_clients:
+                raise RuntimeError("pulse_client_limit")
         await websocket.accept()
         with self._lock:
             self._loop = asyncio.get_running_loop()
@@ -39,6 +53,11 @@ class MemoryPulseBus:
     def client_count(self) -> int:
         with self._lock:
             return len(self._clients)
+
+    @property
+    def pending_broadcast_count(self) -> int:
+        with self._lock:
+            return self._pending_broadcasts
 
     async def broadcast(self, payload: dict[str, Any]) -> None:
         with self._lock:
@@ -54,8 +73,8 @@ class MemoryPulseBus:
             ):
                 continue
             try:
-                await client.send_json(payload)
-            except (RuntimeError, WebSocketDisconnect):
+                await asyncio.wait_for(client.send_json(payload), timeout=self.send_timeout_seconds)
+            except (RuntimeError, WebSocketDisconnect, asyncio.TimeoutError):
                 disconnected.append(client)
         if disconnected:
             with self._lock:
@@ -70,6 +89,10 @@ class MemoryPulseBus:
             has_clients = bool(self._clients)
         if loop is None or loop.is_closed() or not has_clients:
             return
+        with self._lock:
+            if self._pending_broadcasts >= self.max_pending_broadcasts:
+                return
+            self._pending_broadcasts += 1
         payload = {
             "event": "pulse",
             "node_id": node_id,
@@ -79,10 +102,21 @@ class MemoryPulseBus:
             running_loop = asyncio.get_running_loop()
         except RuntimeError:
             running_loop = None
-        if running_loop is loop:
-            running_loop.create_task(self.broadcast(payload))
-        else:
-            asyncio.run_coroutine_threadsafe(self.broadcast(payload), loop)
+        async def run_broadcast() -> None:
+            try:
+                await self.broadcast(payload)
+            finally:
+                with self._lock:
+                    self._pending_broadcasts = max(0, self._pending_broadcasts - 1)
+
+        try:
+            if running_loop is loop:
+                running_loop.create_task(run_broadcast())
+            else:
+                asyncio.run_coroutine_threadsafe(run_broadcast(), loop)
+        except (RuntimeError, OSError):
+            with self._lock:
+                self._pending_broadcasts = max(0, self._pending_broadcasts - 1)
 
 
 __all__ = ["MemoryPulseBus"]

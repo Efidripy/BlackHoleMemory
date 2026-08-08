@@ -24,6 +24,7 @@ MAX_DSL_ROWS = 128
 MAX_DSL_PATHS = 256
 MAX_DSL_OFFSET = 10_000
 MAX_DSL_TIME_BUDGET_MS = 5_000.0
+MAX_DSL_REGEX_CHARS = 160
 ALLOWED_RETURN_FIELDS = frozenset({"node_id", "stable_key", "kind", "node_kind", "name", "qualified_name", "path", "language", "signature"})
 ALLOWED_OPERATORS = frozenset({"=", "=~", "contains"})
 FORBIDDEN_TOKENS = re.compile(r"\b(?:CREATE|DELETE|DETACH|DROP|MERGE|REMOVE|SET|LOAD|CALL|UNION|USE|FOREACH|PERIODIC)\b|;|//|/\*|\*/", re.IGNORECASE)
@@ -57,6 +58,10 @@ _TWO_HOP_PATTERN_RE = re.compile(
     r"(?:\s+(?i:GROUP)\s+(?i:BY)\s+(?P<group_alias>[A-Za-z_][A-Za-z0-9_]*)\.(?P<group_field>[A-Za-z_][A-Za-z0-9_]*))?"
     r"(?:\s+LIMIT\s+(?P<query_limit>\d+))?\s*$",
     re.IGNORECASE,
+)
+
+_NESTED_REGEX_QUANTIFIER_RE = re.compile(
+    r"\([^()\n]{0,120}(?:[+*]|\{\d+(?:,\d*)?\})[^()\n]*\)(?:[+*?]|\{\d+(?:,\d*)?\})"
 )
 
 
@@ -97,6 +102,15 @@ def _parse_query(query: str) -> dict[str, Any]:
     where_value = str(data.get("where_value") or "")
     if where_value:
         where_value = where_value[1:-1]
+    if operator == "=~":
+        if len(where_value) > MAX_DSL_REGEX_CHARS:
+            raise GraphDslError(f"WHERE regex must be at most {MAX_DSL_REGEX_CHARS} characters")
+        if _NESTED_REGEX_QUANTIFIER_RE.search(where_value):
+            raise GraphDslError("WHERE regex contains nested quantifiers")
+        try:
+            re.compile(where_value, flags=re.IGNORECASE)
+        except re.error as exc:
+            raise GraphDslError("WHERE regex is invalid") from exc
     returns = []
     aggregate: dict[str, str] | None = None
     aliases = {data["left_alias"], data["right_alias"]}

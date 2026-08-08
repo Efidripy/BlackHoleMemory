@@ -20,12 +20,34 @@ REPOSITORY_INTELLIGENCE_MAX_LINE_CHARS = 16 * 1024
 REPOSITORY_INTELLIGENCE_MAX_SYMBOLS = 256
 REPOSITORY_INTELLIGENCE_MAX_DEPENDENCIES = 512
 REPOSITORY_INTELLIGENCE_MAX_ISSUES = 128
+REPOSITORY_INTELLIGENCE_MAX_TRAVERSAL_ENTRIES = 8_192
 _ALLOWED_SUFFIXES = {".py", ".pyi", ".js", ".jsx", ".ts", ".tsx", ".md", ".json", ".yaml", ".yml", ".toml"}
 _BLOCKED_PARTS = {".git", ".venv", "venv", "node_modules", "dist", "build", "runtime", "__pycache__", ".pytest_cache"}
 
 
 class RepositoryIntelligenceError(ValueError):
     """Raised when repository intelligence input exceeds its safe bounds."""
+
+
+def _bounded_files(base: Path, *, max_entries: int = REPOSITORY_INTELLIGENCE_MAX_TRAVERSAL_ENTRIES):
+    """Yield files from a pruned, bounded walk instead of materializing rglob."""
+
+    remaining = max(1, int(max_entries))
+    for raw_dir, dirnames, filenames in os.walk(base, topdown=True, followlinks=False):
+        safe_dirs = sorted(name for name in dirnames if name.casefold() not in _BLOCKED_PARTS)
+        if len(safe_dirs) >= remaining:
+            dirnames[:] = safe_dirs[:remaining]
+            remaining = 0
+        else:
+            dirnames[:] = safe_dirs
+            remaining -= len(safe_dirs)
+        if remaining <= 0:
+            return
+        for name in sorted(filenames):
+            if remaining <= 0:
+                return
+            remaining -= 1
+            yield Path(raw_dir) / name
 
 
 def collect_repository_files(root: str | Path, paths: Sequence[str] | None = None) -> list[dict[str, Any]]:
@@ -44,11 +66,12 @@ def collect_repository_files(root: str | Path, paths: Sequence[str] | None = Non
             if path.is_file():
                 selected.append(path)
     else:
-        selected = [
-            path
-            for path in sorted(base.rglob("*"))
-            if path.is_file() and path.suffix.casefold() in _ALLOWED_SUFFIXES and not _blocked(path, base)
-        ][:REPOSITORY_INTELLIGENCE_MAX_FILES]
+        selected = []
+        for path in _bounded_files(base):
+            if path.is_file() and path.suffix.casefold() in _ALLOWED_SUFFIXES and not _blocked(path, base):
+                selected.append(path)
+                if len(selected) >= REPOSITORY_INTELLIGENCE_MAX_FILES:
+                    break
     result: list[dict[str, Any]] = []
     for path in selected:
         if path.suffix.casefold() not in _ALLOWED_SUFFIXES or _blocked(path, base):

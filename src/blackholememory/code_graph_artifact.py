@@ -165,7 +165,13 @@ def _resolve_artifact_path(path: str, runtime_dir: Path) -> Path:
     return candidate
 
 
-def verify_graph_artifact(path: str, *, runtime_dir: Path) -> dict[str, Any]:
+def verify_graph_artifact(
+    path: str,
+    *,
+    runtime_dir: Path,
+    expected_project: str | None = None,
+    expected_root_id: str | None = None,
+) -> dict[str, Any]:
     candidate = _resolve_artifact_path(path, runtime_dir)
     # lgtm [py/path-injection]
     compressed = candidate.read_bytes()
@@ -184,6 +190,10 @@ def verify_graph_artifact(path: str, *, runtime_dir: Path) -> dict[str, Any]:
     required = ("project", "root_id", "repository_snapshot_id", "graph_digest", "nodes", "edges")
     if any(not payload.get(key) for key in required):
         raise CodeGraphArtifactError("graph artifact provenance is incomplete")
+    if expected_project is not None and str(payload.get("project") or "") != str(expected_project):
+        raise CodeGraphArtifactError("graph artifact project does not match authorized project")
+    if expected_root_id is not None and str(payload.get("root_id") or "") != str(expected_root_id):
+        raise CodeGraphArtifactError("graph artifact root does not match authorized repository")
     for collection_name in ("nodes", "edges", "parse_results"):
         collection = payload.get(collection_name, [])
         if not isinstance(collection, list) or any(not isinstance(item, Mapping) for item in collection):

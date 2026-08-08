@@ -68,6 +68,40 @@ def _headers(scope: Scope) -> dict[str, str]:
     }
 
 
+def _authorize_request_payload(principal: Any, payload: Any) -> str | None:
+    """Authorize every JSON-RPC item before the SDK dispatches a batch.
+
+    Streamable HTTP accepts either one JSON-RPC object or a batch array.  A
+    batch must not inherit authorization from one sibling item: every
+    project-bearing tool call is checked independently, and scoped callers
+    must provide an explicit project for each ``tools/call`` item.
+    """
+
+    if isinstance(payload, list):
+        for item in payload:
+            if not isinstance(item, dict):
+                if not principal.all_projects:
+                    return "caller_project_required"
+                continue
+            method = str(item.get("method") or "").casefold()
+            error = authorize_projects(
+                principal,
+                extract_request_projects(item),
+                require_explicit=(not principal.all_projects and method == "tools/call"),
+            )
+            if error:
+                return error
+        return None
+    if isinstance(payload, dict):
+        method = str(payload.get("method") or "").casefold()
+        return authorize_projects(
+            principal,
+            extract_request_projects(payload),
+            require_explicit=(not principal.all_projects and method == "tools/call"),
+        )
+    return authorize_projects(principal, (), require_explicit=False)
+
+
 async def _send_auth_error(send: Send, status: int, code: str) -> None:
     payload = json.dumps({"detail": {"code": code}}, separators=(",", ":")).encode("utf-8")
     headers = [(b"content-type", b"application/json; charset=utf-8"), (b"cache-control", b"no-store")]
@@ -470,6 +504,7 @@ class _StreamableHttpAsgiApp:
         request_method = str(scope.get("method") or "").upper()
         body = b""
         message: dict[str, Any] = {}
+        payload: Any = message
         replay: list[dict[str, Any]] = []
         if request_method == "POST":
             while True:
@@ -492,19 +527,13 @@ class _StreamableHttpAsgiApp:
                     break
             try:
                 parsed = json.loads(body.decode("utf-8"))
+                payload = parsed
                 if isinstance(parsed, dict):
                     message = parsed
             except (UnicodeDecodeError, json.JSONDecodeError):
                 message = {}
 
-        project_error = authorize_projects(
-            principal,
-            extract_request_projects(message),
-            require_explicit=(
-                not principal.all_projects
-                and str(message.get("method") or "").casefold() == "tools/call"
-            ),
-        )
+        project_error = _authorize_request_payload(principal, payload)
         if project_error:
             await _send_auth_error(send, 403, project_error)
             return
