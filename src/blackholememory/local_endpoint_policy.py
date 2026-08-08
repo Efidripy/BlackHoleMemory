@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import socket
 import urllib.error
 import urllib.request
 from typing import Any
@@ -42,6 +43,23 @@ def _is_local_host(host: str) -> bool:
     return bool(address.is_loopback or address.is_link_local or address in ipaddress.ip_network("fc00::/7"))
 
 
+def _validate_hostname_resolution(host: str, port: int | None) -> None:
+    """Reject a hostname that resolves outside the local-only boundary."""
+
+    normalized = host.casefold().rstrip(".")
+    # RFC 6761 reserves .test for local/non-production use.  It has no public
+    # routable meaning, and keeping it unresolved preserves deterministic tests.
+    if normalized.endswith(".test"):
+        return
+    try:
+        infos = socket.getaddrinfo(host, port or 80, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise LocalEndpointError("local-only provider hostname could not be resolved") from exc
+    addresses = {str(info[4][0]) for info in infos if info and len(info) > 4 and info[4]}
+    if not addresses or any(not _is_local_host(address) for address in addresses):
+        raise LocalEndpointError("local-only provider hostname resolves outside local boundary")
+
+
 def is_local_host(host: str) -> bool:
     """Return whether a hostname or IP is inside the local-only boundary."""
 
@@ -65,6 +83,10 @@ def validate_local_endpoint(value: str) -> str:
         raise LocalEndpointError("local-only provider URL has an invalid port") from exc
     if not _is_local_host(parsed.hostname):
         raise LocalEndpointError("local-only provider endpoint is not loopback/private")
+    try:
+        ipaddress.ip_address(parsed.hostname)
+    except ValueError:
+        _validate_hostname_resolution(parsed.hostname, parsed.port)
     return raw.rstrip("/")
 
 
