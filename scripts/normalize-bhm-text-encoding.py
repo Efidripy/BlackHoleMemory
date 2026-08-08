@@ -12,9 +12,11 @@ import argparse
 import hashlib
 import importlib.util
 import json
-import shutil
 import sys
 from pathlib import Path
+
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 _AUDIT_PATH = Path(__file__).with_name("audit-bhm-cleanup.py")
 _SPEC = importlib.util.spec_from_file_location("bhm_cleanup_audit", _AUDIT_PATH)
@@ -45,9 +47,36 @@ def repair(text: str) -> str:
     return current
 
 
+def _safe_root(root: Path) -> Path:
+    safe_root = assert_safe_path(root, reject_hardlink_target=False)
+    if not safe_root.is_dir():
+        raise ValueError(f"normalization root is not a directory: {safe_root}")
+    return safe_root
+
+
+def _contained_path(root: Path, relative: object, *, label: str) -> Path:
+    if not isinstance(relative, str) or not relative.strip():
+        raise ValueError(f"{label} path is invalid")
+    candidate = assert_safe_path(root / Path(relative))
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"{label} path escapes its approved root") from exc
+    return candidate
+
+
+def _writable_target(path: Path, *, label: str) -> Path:
+    safe_path = assert_safe_path(path)
+    if safe_path.exists() and not safe_path.is_file():
+        raise ValueError(f"{label} target is not a regular file: {safe_path}")
+    return safe_path
+
+
 def plan(root: Path, *, include_vendor: bool = False) -> list[dict]:
+    root = _safe_root(root)
     changes: list[dict] = []
     for path in iter_text_files(root, include_vendor=include_vendor):
+        path = assert_safe_path(path)
         if path.relative_to(root).as_posix() in KNOWN_FIXTURE_FILES:
             continue
         raw = path.read_bytes()
@@ -63,19 +92,49 @@ def plan(root: Path, *, include_vendor: bool = False) -> list[dict]:
 
 
 def apply(root: Path, changes: list[dict], backup_root: Path) -> None:
+    root = _safe_root(root)
+    backup_root = assert_safe_path(backup_root, reject_hardlink_target=False)
+    try:
+        backup_root.relative_to(root)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("normalization backup root must not be inside source root")
     backup_root.mkdir(parents=True, exist_ok=True)
-    manifest: list[dict] = []
+    assert_safe_path(backup_root, reject_hardlink_target=False)
+    manifest_path = _writable_target(backup_root / "manifest.json", label="manifest")
+    prepared: list[tuple[dict, Path, Path]] = []
     for change in changes:
-        source = root / change["path"]
-        backup = backup_root / change["path"]
+        source = _contained_path(root, change.get("path"), label="source")
+        backup = _writable_target(
+            _contained_path(backup_root, change.get("path"), label="backup"),
+            label="backup",
+        )
+        if not source.is_file():
+            raise ValueError(f"normalization source is not a regular file: {source}")
+        assert_safe_path(source)
+        assert_safe_path(backup)
+        prepared.append((change, source, backup))
+
+    # Validate every mutable target before the first backup/source write.
+    assert_safe_path(manifest_path)
+    manifest: list[dict] = []
+    for change, source, backup in prepared:
         backup.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, backup)
+        assert_safe_path(backup.parent, reject_hardlink_target=False)
         raw = source.read_bytes()
+        expected_before = str(change.get("before_sha256") or "").lower()
+        if expected_before and hashlib.sha256(raw).hexdigest() != expected_before:
+            raise RuntimeError(f"normalization source changed since plan: {source}")
+        replace_bytes_safely(backup, raw)
         text = raw.decode("utf-8-sig")
         repaired = repair(text)
-        source.write_text(repaired, encoding="utf-8", newline="")
+        replace_bytes_safely(source, repaired.encode("utf-8"))
         manifest.append({**change, "backup": str(backup), "after_sha256": hashlib.sha256(source.read_bytes()).hexdigest()})
-    (backup_root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="")
+    replace_bytes_safely(
+        manifest_path,
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def main() -> int:
@@ -87,14 +146,14 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--backup-root", type=Path)
     args = parser.parse_args()
-    root = args.root.resolve()
+    root = _safe_root(args.root)
     changes = plan(root, include_vendor=args.include_vendor)
     print(json.dumps({"root": str(root), "apply": args.apply, "changes": changes}, ensure_ascii=False, indent=2))
     if not args.apply:
         return 0
     if args.backup_root is None:
         parser.error("--apply requires --backup-root")
-    apply(root, changes, args.backup_root.resolve())
+    apply(root, changes, args.backup_root)
     return 0
 
 
