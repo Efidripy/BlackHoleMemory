@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.session_capture import DISCLOSURE_LEVELS
 from blackholememory.session_capture import SESSION_CAPTURE_SCHEMA_VERSION
 from blackholememory.session_capture import SessionCaptureError
@@ -17,9 +18,8 @@ def _emit(value: object, report: str | None = None) -> None:
     rendered = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str)
     print(rendered)
     if report:
-        target = Path(report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        target = Path(report).expanduser()
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
 
 
 def _fixture(path: str | None) -> dict[str, list[dict]]:

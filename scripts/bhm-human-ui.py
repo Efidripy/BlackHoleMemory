@@ -7,7 +7,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.human_ui_bridge import build_human_ui_bridge_preview
+
+
+def _write_report(path: Path | None, rendered: str) -> None:
+    if path is not None:
+        replace_bytes_safely(path.expanduser(), (rendered + "\n").encode("utf-8"))
 
 
 def main() -> int:
@@ -26,9 +32,7 @@ def main() -> int:
     rendered = json.dumps(preview, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)
     if args.report:
-        target = args.report.expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        _write_report(args.report, rendered)
     return 0 if all(preview["checks"].values()) else 1
 
 

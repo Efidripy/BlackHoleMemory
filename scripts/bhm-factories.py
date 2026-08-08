@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.factory_integration import FACTORY_INTEGRATION_SCHEMA_VERSION
 from blackholememory.factory_integration import FactoryIntegrationError
 from blackholememory.factory_integration import build_factory_integration_preview
@@ -15,9 +16,8 @@ def _emit(value: object, report: str | None = None) -> None:
     rendered = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str)
     print(rendered)
     if report:
-        target = Path(report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        target = Path(report).expanduser()
+        replace_bytes_safely(target, (rendered + "\n").encode("utf-8"))
 
 
 def main() -> int:
