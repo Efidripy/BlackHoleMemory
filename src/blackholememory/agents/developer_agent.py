@@ -2924,7 +2924,11 @@ class LocalLLMClient:
                     ],
                 },
             ]
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout,
+                trust_env=False,
+                follow_redirects=False,
+            ) as client:
                 result = await self._gateway_result_async(
                     vision_messages,
                     temperature=0.0,
@@ -2968,7 +2972,11 @@ class LocalLLMClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         temperatures = [0.2, 0.35, 0.5, 0.65][:candidate_count]
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             tasks = [
                 self._generate_solution_variant(client, task_query, domain, context, headers, index, temperature)
                 for index, temperature in enumerate(temperatures)
@@ -3261,7 +3269,11 @@ class LocalLLMClient:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         temperatures = [0.15, 0.25, 0.35, 0.45][:candidate_count]
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             tasks = [
                 self._chat_completion_async(
                     [
