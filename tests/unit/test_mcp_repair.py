@@ -98,7 +98,8 @@ def _write_fixture_repo(root: Path) -> tuple[Path, Path]:
     (repo / "config").mkdir(parents=True)
     (repo / "scripts").mkdir(parents=True)
     (repo / "plugins").mkdir(parents=True)
-    user.mkdir(parents=True)
+    (user / ".codex").mkdir(parents=True)
+    (user / ".claude").mkdir(parents=True)
     shutil.copyfile(REPO_ROOT / "scripts" / "generate-bhm-mcp-adapters.py", repo / "scripts" / "generate-bhm-mcp-adapters.py")
     manifest = {
         "adapter_contract": {
@@ -115,7 +116,7 @@ def _write_fixture_repo(root: Path) -> tuple[Path, Path]:
                 "codex": {
                     "format": "toml",
                     "server_id": "bhm",
-                    "target": "<user>/codex.toml",
+                    "target": "<user>/.codex/config.toml",
                     "managed_scope": "mcp_servers.bhm",
                     "reload_action": "restart-codex-client",
                     "extra": {"enabled": True, "required": True, "startup_timeout_sec": 15.0, "tool_timeout_sec": 30.0},
@@ -123,7 +124,7 @@ def _write_fixture_repo(root: Path) -> tuple[Path, Path]:
                 "claude": {
                     "format": "json",
                     "server_id": "bhm",
-                    "target": "<user>/claude.json",
+                    "target": "<user>/.claude/settings.json",
                     "managed_scope": "mcpServers.bhm",
                     "reload_action": "restart-claude-client",
                     "extra": {"type": "http"},
@@ -140,8 +141,8 @@ def _write_fixture_repo(root: Path) -> tuple[Path, Path]:
         }
     }
     (repo / "config" / "mcp-registration.json").write_text(json.dumps(manifest), encoding="utf-8")
-    (user / "codex.toml").write_text("[mcp_servers.bhm]\ncommand = 'old'\n[mcp_servers.other]\ncommand = 'keep'\n", encoding="utf-8")
-    (user / "claude.json").write_text('{"mcpServers":{"bhm":{"command":"old"},"other":{"command":"keep"}}}\n', encoding="utf-8")
+    (user / ".codex" / "config.toml").write_text("[mcp_servers.bhm]\ncommand = 'old'\n[mcp_servers.other]\ncommand = 'keep'\n", encoding="utf-8")
+    (user / ".claude" / "settings.json").write_text('{"mcpServers":{"bhm":{"command":"old"},"other":{"command":"keep"}}}\n', encoding="utf-8")
     return repo, user
 
 
@@ -166,13 +167,13 @@ def test_confirmed_adapter_repair_rolls_back_exactly_and_keeps_foreign_entries(t
     assert result["rollback"]["available"] is True
     repair_id = result["repair_id"]
 
-    changed = json.loads((user / "claude.json").read_text(encoding="utf-8"))
+    changed = json.loads((user / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert changed["mcpServers"]["other"] == {"command": "keep"}
 
     rolled_back = execute_rollback(repo_root=repo, repair_id=repair_id, panel_after=after, confirm=True)
     assert rolled_back["ok"] is True
     assert rolled_back["rollback"]["attempted"] is True
-    restored = json.loads((user / "claude.json").read_text(encoding="utf-8"))
+    restored = json.loads((user / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert restored["mcpServers"]["other"] == {"command": "keep"}
     assert restored["mcpServers"]["bhm"]["command"] == "old"
 
