@@ -25,3 +25,9 @@ def test_frozen_launcher_passes_real_project_root_to_api_service_script():
     assert "172\\.18\\.0\\.1:13666/v1" not in service
     assert "127.0.0.1:13666/v1" not in service
     assert "Resolve-Path -LiteralPath $ProjectRoot" in service
+
+
+def test_launcher_does_not_select_project_root_from_process_cwd():
+    launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+
+    assert "roots.append(Path.cwd().resolve())" not in launcher

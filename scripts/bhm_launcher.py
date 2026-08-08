@@ -301,7 +301,6 @@ def candidate_roots() -> list[Path]:
     roots = [base]
     if base.name.lower() in {"scripts", "dist"}:
         roots.append(base.parent)
-    roots.append(Path.cwd().resolve())
     return list(dict.fromkeys(roots))
 
 
