@@ -24,6 +24,8 @@ def test_every_integration_test_has_one_domain():
     # Keep the manifest fail-closed while accounting for the parity,
     # semantic-readiness, security and cross-surface project-scope regression
     # surfaces now present in the current test tree.
-    assert len(assignments) == 258
+    # The current integration tree contains one additional scoped regression
+    # test; keep this inventory gate aligned with the checked-in test surface.
+    assert len(assignments) == 259
     assert set(assignments) == set(DOMAIN_NAMES)
     assert all(assignments.count(domain) > 0 for domain in DOMAIN_NAMES)
