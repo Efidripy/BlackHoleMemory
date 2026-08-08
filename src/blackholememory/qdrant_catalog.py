@@ -72,7 +72,15 @@ def _manifest_path(raw_path: str, manifest_path: Path, approved_root: Path | Non
         resolved = candidate.resolve()
     except OSError:
         return None
-    if resolved == resolved_root or resolved_root not in resolved.parents:
+    # Older receipts stored the pre-cutover absolute runtime root.  Preserve
+    # compatibility by resolving only the basename beside the trusted
+    # manifest; never reuse the legacy absolute destination itself.
+    if resolved_root not in resolved.parents:
+        fallback = (manifest_path.parent / candidate.name).resolve()
+        if resolved_root not in fallback.parents:
+            return None
+        resolved = fallback
+    if resolved == resolved_root:
         return None
     if not resolved.is_file() or resolved.is_symlink():
         return None
