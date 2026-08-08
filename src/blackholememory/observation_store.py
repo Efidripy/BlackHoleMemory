@@ -18,6 +18,7 @@ OBSERVATION_STORE_SCHEMA_VERSION = 2
 OBSERVATION_STORE_BUSY_TIMEOUT_MS = 5_000
 OBSERVATION_STORE_WRITE_RETRY_DELAYS = (0.025, 0.05, 0.1, 0.2, 0.4)
 ObservationLifecycle = Literal["active", "archived", "purged"]
+_EVENT_ID_SEPARATOR = "\x1f"
 
 
 class ObservationStoreError(RuntimeError):
@@ -82,6 +83,14 @@ def _record_field(record: dict[str, Any], name: str, default: str = "") -> str:
     if value is None:
         return default
     return str(value)
+
+
+def _scoped_event_id(project: str, event_id: str) -> str:
+    return f"{project}{_EVENT_ID_SEPARATOR}{event_id}"
+
+
+def _public_event_id(value: str) -> str:
+    return str(value).split(_EVENT_ID_SEPARATOR, 1)[-1]
 
 
 class ObservationStore:
@@ -234,17 +243,23 @@ class ObservationStore:
                 results: list[ObservationAppendResult] = []
                 for values, item in prepared:
                     event_id = values[0]
+                    public_event_id = _public_event_id(str(event_id))
+                    project = str(values[6])
                     record_sha256 = values[-2]
                     existing = connection.execute(
-                        "SELECT sequence, record_sha256 FROM observation_events WHERE event_id = ?",
-                        (event_id,),
+                        """
+                        SELECT sequence, record_sha256 FROM observation_events
+                        WHERE event_id = ?
+                           OR (event_id = ? AND project = ?)
+                        """,
+                        (event_id, public_event_id, project),
                     ).fetchone()
                     if existing is not None:
                         if str(existing["record_sha256"]) != record_sha256:
-                            raise ObservationIdCollision(event_id)
+                            raise ObservationIdCollision(public_event_id)
                         results.append(
                             ObservationAppendResult(
-                                event_id=event_id,
+                                event_id=public_event_id,
                                 sequence=int(existing["sequence"]),
                                 inserted=False,
                                 record_sha256=record_sha256,
@@ -253,15 +268,19 @@ class ObservationStore:
                         continue
 
                     tombstone = connection.execute(
-                        "SELECT original_sequence, record_sha256 FROM observation_tombstones WHERE event_id = ?",
-                        (event_id,),
+                        """
+                        SELECT original_sequence, record_sha256 FROM observation_tombstones
+                        WHERE event_id = ?
+                           OR (event_id = ? AND project = ?)
+                        """,
+                        (event_id, public_event_id, project),
                     ).fetchone()
                     if tombstone is not None:
                         if str(tombstone["record_sha256"]) != record_sha256:
-                            raise ObservationIdCollision(event_id)
+                            raise ObservationIdCollision(public_event_id)
                         results.append(
                             ObservationAppendResult(
-                                event_id=event_id,
+                                event_id=public_event_id,
                                 sequence=int(tombstone["original_sequence"]),
                                 inserted=False,
                                 record_sha256=record_sha256,
@@ -319,7 +338,7 @@ class ObservationStore:
                     )
                     results.append(
                         ObservationAppendResult(
-                            event_id=event_id,
+                            event_id=public_event_id,
                             sequence=int(cursor.lastrowid),
                             inserted=True,
                             record_sha256=record_sha256,
@@ -351,7 +370,7 @@ class ObservationStore:
                 "SELECT event_id, original_sequence, record_sha256 FROM observation_tombstones"
             ).fetchall()
         result = {
-            str(row["event_id"]): {
+            _public_event_id(str(row["event_id"])): {
                 "location": "live",
                 "sequence": int(row["sequence"]),
                 "recordSha256": str(row["record_sha256"]),
@@ -361,7 +380,7 @@ class ObservationStore:
         }
         result.update(
             {
-                str(row["event_id"]): {
+                _public_event_id(str(row["event_id"])): {
                     "location": "tombstone",
                     "sequence": int(row["original_sequence"]),
                     "recordSha256": str(row["record_sha256"]),
@@ -484,7 +503,8 @@ class ObservationStore:
             ).fetchall()
         return [
             {
-                "eventId": str(row["event_id"]),
+                "eventId": _public_event_id(str(row["event_id"])),
+                "storageEventId": str(row["event_id"]),
                 "sequence": int(row["sequence"]),
                 "hookType": str(row["hook_type"]),
                 "project": str(row["project"]),
@@ -512,7 +532,7 @@ class ObservationStore:
                 f"SELECT event_id FROM observation_tombstones {where}",
                 params,
             ).fetchall()
-        return {str(row["event_id"]) for row in rows}
+        return {_public_event_id(str(row["event_id"])) for row in rows}
 
     def expire_payloads(
         self,
@@ -536,6 +556,21 @@ class ObservationStore:
                 expired_ids: list[str] = []
                 payload_bytes = 0
                 for event_id in normalized_ids:
+                    matching = connection.execute(
+                        """
+                        SELECT e.event_id
+                        FROM observation_events AS e
+                        WHERE e.event_id = ?
+                           OR e.event_id LIKE ?
+                        ORDER BY e.event_id
+                        """,
+                        (event_id, f"%{_EVENT_ID_SEPARATOR}{event_id}"),
+                    ).fetchall()
+                    if len(matching) > 1:
+                        raise ObservationStoreError(
+                            f"observation event id is ambiguous across projects: {event_id}"
+                        )
+                    storage_event_id = str(matching[0]["event_id"]) if matching else event_id
                     row = connection.execute(
                         """
                         SELECT
@@ -552,7 +587,7 @@ class ObservationStore:
                         FROM observation_events AS e
                         WHERE e.event_id = ?
                         """,
-                        (event_id,),
+                        (storage_event_id,),
                     ).fetchone()
                     if row is None:
                         continue
@@ -592,8 +627,8 @@ class ObservationStore:
                             str(policy_name)[:200] or None,
                         ),
                     )
-                    connection.execute("DELETE FROM observation_events WHERE event_id = ?", (event_id,))
-                    expired_ids.append(event_id)
+                    connection.execute("DELETE FROM observation_events WHERE event_id = ?", (storage_event_id,))
+                    expired_ids.append(_public_event_id(storage_event_id))
                     payload_bytes += record_bytes
                 connection.commit()
                 return len(expired_ids), payload_bytes, tuple(expired_ids)
@@ -687,18 +722,20 @@ class ObservationStore:
         if not isinstance(record, dict):
             raise ObservationStoreError("observation record must be an object")
         event_id = _record_id(record)
+        project = _record_field(record, "project", "e-github-workspace")
+        storage_event_id = _scoped_event_id(project, event_id)
         serialized = _canonical_json(record)
         record_sha256 = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
         occurred_at = _record_field(record, "timestamp", _utc_now_iso())
         ingested_at = _record_field(record, "ingestedAt", occurred_at)
         return (
-            event_id,
+            storage_event_id,
             _record_field(record, "schemaVersion", "1.0"),
             _record_field(record, "hookType", "observe"),
             _record_field(record, "sessionId", event_id),
             _record_field(record, "correlationId", _record_field(record, "sessionId", event_id)),
             _record_field(record, "parentEventId") or None,
-            _record_field(record, "project", "e-github-workspace"),
+            project,
             _record_field(record, "cwd"),
             occurred_at,
             ingested_at,
@@ -734,6 +771,19 @@ class ObservationStore:
                 changed = 0
                 updated_at = _utc_now_iso()
                 for event_id in normalized_ids:
+                    matches = connection.execute(
+                        """
+                        SELECT event_id FROM observation_state
+                        WHERE event_id = ? OR event_id LIKE ?
+                        ORDER BY event_id
+                        """,
+                        (event_id, f"%{_EVENT_ID_SEPARATOR}{event_id}"),
+                    ).fetchall()
+                    if len(matches) > 1:
+                        raise ObservationStoreError(
+                            f"observation event id is ambiguous across projects: {event_id}"
+                        )
+                    storage_event_id = str(matches[0]["event_id"]) if matches else event_id
                     cursor = connection.execute(
                         """
                         UPDATE observation_state
@@ -754,7 +804,7 @@ class ObservationStore:
                             archived_by or None,
                             scale_tier or None,
                             updated_at,
-                            event_id,
+                            storage_event_id,
                             lifecycle,
                         ),
                     )

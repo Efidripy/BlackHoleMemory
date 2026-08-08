@@ -23,12 +23,28 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
-def _resolve_backup_path(manifest_path: Path, raw_path: str) -> Path | None:
-    candidate = Path(str(raw_path or ""))
-    if candidate.is_file():
-        return candidate
-    sibling = manifest_path.parent / candidate.name
-    return sibling if sibling.is_file() else None
+def _resolve_backup_path(
+    manifest_path: Path,
+    raw_path: str,
+    *,
+    backup_root: Path | None = None,
+) -> Path | None:
+    raw = str(raw_path or "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        candidate = manifest_path.parent / candidate
+    try:
+        approved_root = (backup_root or manifest_path.parent).resolve()
+        resolved = candidate.resolve()
+    except OSError:
+        return None
+    if resolved == approved_root or approved_root not in resolved.parents:
+        return None
+    if not resolved.is_file() or resolved.is_symlink():
+        return None
+    return resolved
 
 
 def _manifest_paths(backup_root: Path | None) -> list[Path]:
@@ -40,8 +56,34 @@ def _manifest_paths(backup_root: Path | None) -> list[Path]:
         return []
 
 
-def _validate_backup_manifest(path: Path) -> dict[str, Any]:
+def _validate_backup_manifest(path: Path, *, backup_root: Path | None = None) -> dict[str, Any]:
     errors: list[str] = []
+    try:
+        resolved_manifest = path.resolve()
+        approved_root = (backup_root or path.parent).resolve()
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or resolved_manifest == approved_root
+            or approved_root not in resolved_manifest.parents
+        ):
+            return {
+                "manifest": str(path),
+                "collection": None,
+                "status": "invalid",
+                "restore_ready": False,
+                "points": 0,
+                "errors": ["manifest_outside_backup_root"],
+            }
+    except OSError:
+        return {
+            "manifest": str(path),
+            "collection": None,
+            "status": "invalid",
+            "restore_ready": False,
+            "points": 0,
+            "errors": ["manifest_unreadable"],
+        }
     try:
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
@@ -66,7 +108,11 @@ def _validate_backup_manifest(path: Path) -> dict[str, Any]:
     status = str(manifest.get("status") or "unknown").strip().lower()
     if status != "completed":
         errors.append(f"status:{status}")
-    backup_path = _resolve_backup_path(path, str(manifest.get("backupPath") or ""))
+    backup_path = _resolve_backup_path(
+        path,
+        str(manifest.get("backupPath") or ""),
+        backup_root=backup_root,
+    )
     expected_backup_hash = str(manifest.get("backupSha256") or "").strip().lower()
     actual_backup_hash = None
     points: list[Any] = []
@@ -215,7 +261,7 @@ def run_qdrant_restore_drill(
 ) -> dict[str, Any]:
     """Validate every quarantine backup as an in-memory restore rehearsal."""
 
-    manifests = [_validate_backup_manifest(path) for path in _manifest_paths(backup_root)]
+    manifests = [_validate_backup_manifest(path, backup_root=backup_root) for path in _manifest_paths(backup_root)]
     ready = [item for item in manifests if item["restore_ready"]]
     drill_payload = [
         {
