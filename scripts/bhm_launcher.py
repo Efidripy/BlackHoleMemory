@@ -45,6 +45,13 @@ from blackholememory.resource_limits import PROCESS_EXECUTION_OPERATOR_CONTROL_T
 from blackholememory.resource_limits import PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_POLL_SECONDS
+from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS
 
 
 class PyQt6UnavailableError(RuntimeError):
@@ -220,10 +227,10 @@ load_pyqt6()
 
 REFRESH_SECONDS = 3
 TELEMETRY_SECONDS = 30
-TELEMETRY_TIMEOUT = 15.0
-SERVICE_READINESS_TIMEOUT_SECONDS = 45.0
-SERVICE_READINESS_POLL_SECONDS = 1.0
-UI_SESSION_MINT_TIMEOUT_SECONDS = 4.0
+TELEMETRY_TIMEOUT = LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
+SERVICE_READINESS_TIMEOUT_SECONDS = LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
+SERVICE_READINESS_POLL_SECONDS = LAUNCHER_SERVICE_READINESS_POLL_SECONDS
+UI_SESSION_MINT_TIMEOUT_SECONDS = LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS
 PROCESS_CONTROL_TIMEOUT_SECONDS = float(PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS)
 LAUNCHER_INSTALL_TIMEOUT_SECONDS = PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS
 QDRANT_HEALTH_URL = endpoint_url("qdrant_http", "/healthz")
@@ -561,7 +568,7 @@ def save_launcher_settings(settings: dict) -> None:
     )
 
 
-def http_status(url: str, timeout: float = 2.0) -> ServiceStatus:
+def http_status(url: str, timeout: float = LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS) -> ServiceStatus:
     ok, detail = probe_http(url, timeout=timeout)
     if ok:
         return ServiceStatus("Running", detail)
@@ -768,7 +775,7 @@ def fetch_telemetry() -> dict[str, str]:
     return current
 
 
-def tcp_status(port: int, timeout: float = 1.0, host: str | None = None) -> ServiceStatus:
+def tcp_status(port: int, timeout: float = LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS, host: str | None = None) -> ServiceStatus:
     if not 1 <= port <= 65535:
         return ServiceStatus("Error", "Invalid port")
     try:
@@ -785,7 +792,7 @@ def remote_status(url: str) -> ServiceStatus:
         return ServiceStatus("Error", "Remote URL is empty")
     if not re.match(r"^https?://", target, re.IGNORECASE):
         target = f"http://{target}"
-    return http_status(target, timeout=3.0)
+    return http_status(target, timeout=LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS)
 
 
 def compact_error(exc: BaseException) -> str:

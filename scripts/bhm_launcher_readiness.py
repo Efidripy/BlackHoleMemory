@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 import urllib.error
 import urllib.request
@@ -12,12 +13,24 @@ from typing import Any, Callable
 from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.local_endpoint_policy import open_local_url
 from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.resource_limits import LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_POLL_SECONDS
+from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
 
 
 Probe = Callable[[], tuple[bool, str]]
 Start = Callable[[], Any]
 Rollback = Callable[[Any], None]
 MAX_HTTP_BYTES = 128 * 1024
+
+
+def bound_timeout(value: float, *, maximum: float, minimum: float = 0.0) -> float:
+    """Return a finite timeout constrained by the launcher registry contract."""
+
+    candidate = float(value)
+    if not math.isfinite(candidate):
+        raise ValueError("timeout must be finite")
+    return min(max(candidate, minimum), maximum)
 
 
 @dataclass(frozen=True)
@@ -40,12 +53,13 @@ class ReadinessResult:
         }
 
 
-def probe_http(url: str, *, timeout: float = 2.0, require_json_ok: bool = False) -> tuple[bool, str]:
+def probe_http(url: str, *, timeout: float = LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS, require_json_ok: bool = False) -> tuple[bool, str]:
     """Probe a local health URL with bounded, fail-closed transport."""
 
     try:
         request = urllib.request.Request(url, headers={"User-Agent": "BHM-Control-Deck"})
-        with open_local_url(request, timeout=timeout) as response:
+        bounded_timeout = bound_timeout(timeout, maximum=LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS, minimum=0.01)
+        with open_local_url(request, timeout=bounded_timeout) as response:
             if int(response.status) != 200:
                 return False, f"HTTP {response.status}"
             if not require_json_ok:
@@ -68,15 +82,15 @@ def probe_http(url: str, *, timeout: float = 2.0, require_json_ok: bool = False)
 def wait_for_readiness(
     probe: Probe,
     *,
-    timeout_seconds: float = 45.0,
-    poll_seconds: float = 1.0,
+    timeout_seconds: float = LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS,
+    poll_seconds: float = LAUNCHER_SERVICE_READINESS_POLL_SECONDS,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
 ) -> ReadinessResult:
     """Poll a bounded readiness probe until success or timeout."""
 
-    timeout = max(float(timeout_seconds), 0.0)
-    poll = max(float(poll_seconds), 0.01)
+    timeout = bound_timeout(timeout_seconds, maximum=LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS)
+    poll = bound_timeout(poll_seconds, maximum=LAUNCHER_SERVICE_READINESS_POLL_SECONDS, minimum=0.01)
     started_at = monotonic()
     attempts = 0
     last_detail = "not probed"
@@ -114,8 +128,8 @@ def start_when_ready(
     probe: Probe,
     *,
     rollback: Rollback | None = None,
-    timeout_seconds: float = 45.0,
-    poll_seconds: float = 1.0,
+    timeout_seconds: float = LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS,
+    poll_seconds: float = LAUNCHER_SERVICE_READINESS_POLL_SECONDS,
 ) -> ReadinessResult:
     """Start only when needed, wait for readiness, and rollback on timeout."""
 
@@ -166,4 +180,4 @@ def start_when_ready(
     return result
 
 
-__all__ = ["ReadinessResult", "probe_http", "start_when_ready", "wait_for_readiness"]
+__all__ = ["ReadinessResult", "bound_timeout", "probe_http", "start_when_ready", "wait_for_readiness"]
