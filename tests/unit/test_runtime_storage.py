@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 
+import blackholememory.runtime_storage as runtime_storage
 from blackholememory.runtime_storage import MemoryStoreMode
 from blackholememory.runtime_storage import RuntimeReadiness
 from blackholememory.runtime_storage import clear_memory_store_schema_cache
@@ -11,6 +13,7 @@ from blackholememory.runtime_storage import inspect_memory_store_schema
 from blackholememory.runtime_storage import resolve_runtime_storage_config
 from blackholememory.runtime_storage import resolve_runtime_storage_mode
 from blackholememory.runtime_storage import runtime_storage_state
+from blackholememory.resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 
@@ -117,6 +120,13 @@ def test_runtime_storage_state_inspects_sqlite_schema_without_writing(tmp_path):
     healthy = runtime_storage_state(runtime_dir=tmp_path, environ=environ)
     assert healthy.ready is True
     assert healthy.as_dict()["database_schema_ready"] is True
+
+
+def test_runtime_storage_schema_probe_uses_registry_timeout() -> None:
+    source = Path(runtime_storage.__file__).read_text(encoding="utf-8")
+    assert "SQLITE_READINESS_PROBE_TIMEOUT_SECONDS" in source
+    assert "timeout=1.0" not in source
+    assert SQLITE_READINESS_PROBE_TIMEOUT_SECONDS == 1.0
 
 
 def test_memory_store_schema_cache_reuses_recent_full_check(tmp_path, monkeypatch):

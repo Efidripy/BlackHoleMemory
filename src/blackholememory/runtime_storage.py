@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 from typing import Mapping
 
+from .resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
+
 
 RUNTIME_MEMORY_STORE_ENV = "BHM_MEMORY_STORE_MODE"
 MEMORY_STORE_PATH_ENV = "BHM_MEMORY_STORE_PATH"
@@ -149,7 +151,7 @@ def _inspect_memory_store_schema_uncached(
 ) -> tuple[bool, str]:
     uri = f"file:{database_path.as_posix()}?mode=ro"
     try:
-        connection = sqlite3.connect(uri, uri=True, timeout=1.0)
+        connection = sqlite3.connect(uri, uri=True, timeout=SQLITE_READINESS_PROBE_TIMEOUT_SECONDS)
         try:
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             if version != _MEMORY_STORE_SCHEMA_VERSION:
