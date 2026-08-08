@@ -102,6 +102,46 @@ def test_authoritative_database_requires_explicit_operator_gate(tmp_path: Path) 
         )
 
 
+def test_disposable_database_rejects_hardlink_alias(tmp_path: Path) -> None:
+    source = tmp_path / "authoritative.sqlite3"
+    source.write_bytes(b"sqlite-fixture")
+    alias = tmp_path / "alternate.sqlite3"
+    try:
+        alias.hardlink_to(source)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        SQLiteLangGraphCheckpointSaver(
+            alias,
+            project="p",
+            caller_id="c",
+            task_id="t",
+            session_id="s",
+            enabled=True,
+        )
+
+
+def test_disposable_database_rejects_symlink_alias(tmp_path: Path) -> None:
+    source = tmp_path / "authoritative.sqlite3"
+    source.write_bytes(b"sqlite-fixture")
+    alias = tmp_path / "alternate.sqlite3"
+    try:
+        alias.symlink_to(source)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="symlink|reparse"):
+        SQLiteLangGraphCheckpointSaver(
+            alias,
+            project="p",
+            caller_id="c",
+            task_id="t",
+            session_id="s",
+            enabled=True,
+        )
+
+
 def test_round_trip_parent_chain_and_reopen(tmp_path: Path) -> None:
     saver = _saver(tmp_path)
     root = saver.put(_config(), _checkpoint("0001", 1), {"step": 1}, {"value": "0001"})
