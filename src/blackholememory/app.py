@@ -420,6 +420,24 @@ _INFRA_SPAWNED_PIDS_LOCK = threading.RLock()
 
 _LOGGER = logging.getLogger(__name__)
 
+# Exception text crosses several REST/MCP and operator-facing boundaries in
+# this module.  Keep the diagnostic value bounded while applying the same
+# secret/path redaction policy used by observation ingress.  This helper is
+# intentionally local to the app boundary: internal exceptions retain their
+# original traceback for logs, but serialized responses never do.
+_PUBLIC_EXCEPTION_TEXT_LIMIT = 500
+
+
+def _safe_exception_text(
+    exc: BaseException,
+    *,
+    limit: int = _PUBLIC_EXCEPTION_TEXT_LIMIT,
+    fallback: str = "operation failed",
+) -> str:
+    bounded_limit = max(int(limit), 1)
+    value = redact_secret_text(str(exc)).value.strip()
+    return (value[:bounded_limit] or fallback)
+
 
 def _env_int(name: str, default: int, minimum: int = 0) -> int:
     try:
@@ -758,7 +776,7 @@ async def warmup_provider_probe() -> None:
                     except asyncio.CancelledError:
                         raise
                     except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
-                        embedding_error = str(exc)
+                        embedding_error = _safe_exception_text(exc)
                         _set_provider_warmup_status(
                             embedding_ready=False,
                             embedding_last_error=embedding_error,
@@ -788,7 +806,7 @@ async def warmup_provider_probe() -> None:
                 except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError, RuntimeError) as exc:
                     _set_provider_warmup_status(
                         memory_ready=False,
-                        memory_last_error=str(exc),
+                        memory_last_error=_safe_exception_text(exc),
                         memory_phase="degraded",
                     )
             _PROVIDER_WARMUP_READY.set()
@@ -797,7 +815,7 @@ async def warmup_provider_probe() -> None:
         except asyncio.CancelledError:
             raise
         except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
-            _set_provider_warmup_status(ready=False, phase="retrying", last_error=str(exc))
+            _set_provider_warmup_status(ready=False, phase="retrying", last_error=_safe_exception_text(exc))
             await asyncio.sleep(delay)
             delay = min(delay * 2, _PROVIDER_WARMUP_MAX_DELAY_SECONDS)
 
@@ -1285,7 +1303,7 @@ async def _hook_queue_worker(*, worker_name: str, kinds: tuple[str, ...], stop_e
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            print(f"[WARN] Hook queue claim failed for {worker_name}: {exc}", flush=True)
+            print(f"[WARN] Hook queue claim failed for {worker_name}: {_safe_exception_text(exc)}", flush=True)
             if stop_event.is_set():
                 return
             await asyncio.sleep(_HOOK_QUEUE_POLL_SECONDS)
@@ -1313,7 +1331,7 @@ async def _hook_queue_worker(*, worker_name: str, kinds: tuple[str, ...], stop_e
             )
             raise
         except Exception as exc:
-            redacted_error = redact_secret_text(str(exc)).value[:4000]
+            redacted_error = _safe_exception_text(exc, limit=4000)
             retry_delay = _HOOK_QUEUE_RETRY_BASE_SECONDS * (2 ** max(int(job.get("attempts") or 1) - 1, 0))
             try:
                 status = await asyncio.to_thread(
@@ -1457,7 +1475,7 @@ async def _enqueue_hook_request(kind: str, request: BaseModel) -> tuple[BaseMode
     except HookQueueError as exc:
         raise HTTPException(
             status_code=503,
-            detail={"error": "hook_queue_unavailable", "detail": str(exc)},
+            detail={"error": "hook_queue_unavailable", "detail": _safe_exception_text(exc)},
             headers=_hook_queue_headers(),
         ) from exc
     except Exception as exc:
@@ -1692,7 +1710,7 @@ async def _telemetry_harvester_loop() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            print(f"[WARN] BHM telemetry harvester skipped tick: {exc}", flush=True)
+            print(f"[WARN] BHM telemetry harvester skipped tick: {_safe_exception_text(exc)}", flush=True)
 
 
 def _mcp_model_dump(value: Any) -> Any:
@@ -1769,7 +1787,7 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
         try:
             requested_version = negotiate_protocol_version(params.get("protocolVersion"))
         except ProtocolContractError as exc:
-            return _jsonrpc_error(request_id, exc.code, str(exc))
+            return _jsonrpc_error(request_id, exc.code, _safe_exception_text(exc))
         surface = resolve_mcp_surface()
         return _jsonrpc_success(
             request_id,
@@ -2078,7 +2096,7 @@ _JSON_REPLACE_RETRY_DELAYS = (0.025, 0.05, 0.1, 0.2, 0.4, 0.8)
 async def storage_not_ready_handler(_request: Request, exc: StorageNotReady) -> JSONResponse:
     return JSONResponse(
         status_code=503,
-        content={"detail": {"code": "storage_not_ready", "reason": str(exc)}},
+        content={"detail": {"code": "storage_not_ready", "reason": _safe_exception_text(exc)}},
     )
 
 
@@ -5207,7 +5225,7 @@ async def _terminate_process_tree(
             result["soft_exit_code"] = soft.returncode
             result["soft_output"] = (soft.stdout or soft.stderr or "").strip()[:500]
         except (OSError, subprocess.TimeoutExpired) as exc:
-            result["soft_error"] = str(exc)
+            result["soft_error"] = _safe_exception_text(exc)
         await asyncio.sleep(max(grace_seconds, 0))
         if _is_pid_running(pid):
             try:
@@ -5223,7 +5241,7 @@ async def _terminate_process_tree(
                 result["force_exit_code"] = forced.returncode
                 result["force_output"] = (forced.stdout or forced.stderr or "").strip()[:500]
             except (OSError, subprocess.TimeoutExpired) as exc:
-                result["force_error"] = str(exc)
+                result["force_error"] = _safe_exception_text(exc)
     else:
         try:
             os.kill(pid, 15)
@@ -5232,7 +5250,7 @@ async def _terminate_process_tree(
                 os.kill(pid, 9)
                 result["forced"] = True
         except OSError as exc:
-            result["error"] = str(exc)
+            result["error"] = _safe_exception_text(exc)
     result["terminated"] = not _is_pid_running(pid)
     return result
 
@@ -5930,7 +5948,7 @@ async def _add_semantic_dependency_links(record: dict, project_name: str) -> dic
             edge = await _BHM_GRAPH_MANAGER.add_semantic_link(source_id, target_id, edge_type)
             created.append({"source_id": source_id, **edge, "keyword": keyword})
         except Exception as exc:
-            errors.append({"keyword": keyword, "edge_type": edge_type, "error": str(exc)})
+            errors.append({"keyword": keyword, "edge_type": edge_type, "error": _safe_exception_text(exc)})
     return {"created": created, "errors": errors}
 
 
@@ -6326,7 +6344,7 @@ def _apply_idle_duplicate_merge(request: BhmHookIdleRequest) -> dict:
                 }
             )
         except Exception as exc:
-            merged.append({"error": str(exc), "candidate": candidate})
+            merged.append({"error": _safe_exception_text(exc), "candidate": candidate})
     return {"candidates": len(candidates), "merged": merged}
 
 
@@ -6351,7 +6369,7 @@ def _refresh_decay_scores_for_project(project: str, limit: int) -> dict:
                     with_vectors=False,
                 )
             except Exception as exc:
-                errors.append({"collection": collection_name, "error": str(exc)})
+                errors.append({"collection": collection_name, "error": _safe_exception_text(exc)})
                 break
             if not points:
                 break
@@ -6378,7 +6396,7 @@ def _refresh_decay_scores_for_project(project: str, limit: int) -> dict:
                     )
                     updated += 1
                 except Exception as exc:
-                    errors.append({"collection": collection_name, "point_id": str(getattr(point, "id", "")), "error": str(exc)})
+                    errors.append({"collection": collection_name, "point_id": str(getattr(point, "id", "")), "error": _safe_exception_text(exc)})
             if offset is None:
                 break
         if updated >= limit:
@@ -6444,7 +6462,7 @@ async def _run_idle_reflection_pipeline(request: BhmHookIdleRequest) -> dict:
         try:
             result["steps"][step_name] = await asyncio.to_thread(step_call)
         except Exception as exc:
-            result["steps"][step_name] = {"success": False, "error": str(exc)}
+            result["steps"][step_name] = {"success": False, "error": _safe_exception_text(exc)}
 
     for step_name, step_call in (
         ("graph_healer", lambda: _run_idle_graph_healer(request)),
@@ -6453,7 +6471,7 @@ async def _run_idle_reflection_pipeline(request: BhmHookIdleRequest) -> dict:
         try:
             result["steps"][step_name] = await step_call()
         except Exception as exc:
-            result["steps"][step_name] = {"success": False, "error": str(exc)}
+            result["steps"][step_name] = {"success": False, "error": _safe_exception_text(exc)}
 
     result["finished_at"] = _utc_now_iso()
     return result
@@ -8752,7 +8770,7 @@ def _memory_redact(request: MemoryRedactRequest) -> dict:
                     max_length=_CUSTOM_REDACTION_MAX_PATTERN_LENGTH,
                 )
             except SecurityBoundaryError as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
+                raise HTTPException(status_code=422, detail=_safe_exception_text(exc)) from exc
             redacted, count = compiled.subn(
                 lambda match: ((match.group(1) if match.lastindex else "") + request.replacement),
                 redacted,
@@ -9107,7 +9125,7 @@ def _restore_tombstoned_memory(memory_id: str, project: str | None, reason: str,
             undo_window_seconds=undo_window_seconds,
         )
     except (InvalidTombstone, UndoWindowExpired) as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=_safe_exception_text(exc)) from exc
     except MemoryServiceNotReady as exc:
         raise StorageNotReady(str(exc)) from exc
     if restored is None:
@@ -10190,7 +10208,7 @@ def _update_vector_access_payloads(updates: list[dict[str, Any]]) -> None:
                 points=[update["point_id"]],
             )
         except Exception as exc:
-            print(f"[WARN] BHM decay access update failed: {exc}", flush=True)
+            print(f"[WARN] BHM decay access update failed: {_safe_exception_text(exc)}", flush=True)
 
 
 async def _update_vector_access_payloads_async(updates: list[dict[str, Any]]) -> None:
@@ -13207,7 +13225,7 @@ async def bhm_public_code_tools(
                             except Exception as exc:  # optional channel must not break lexical search
                                 semantic_status = "unavailable"
                                 semantic_hits = []
-                                print(f"[WARN] BHM code semantic fusion unavailable: {exc}", flush=True)
+                                print(f"[WARN] BHM code semantic fusion unavailable: {_safe_exception_text(exc)}", flush=True)
                             finally:
                                 semantic_latency_ms = round((time.perf_counter() - semantic_started) * 1000.0, 3)
                 if request.search_mode == "metadata":
@@ -15199,7 +15217,7 @@ async def bhm_context_compile(
     try:
         context_profile = resolve_context_profile(request.profile or settings.context_profile, repo_root=settings.repo_root)
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=_safe_exception_text(exc)) from exc
     effective_limit = request.limit if request.limit is not None else context_profile.limit
     effective_token_budget = request.token_budget if request.token_budget is not None else context_profile.token_budget
     effective_include_archived = request.include_archived or context_profile.include_archived
@@ -15609,7 +15627,7 @@ def bhm_project_retirement_preview(project: str) -> dict:
     try:
         return preview_project_retirement(database_path, project_id)
     except ProjectRetirementError as exc:
-        raise HTTPException(status_code=422, detail={"error": "project_retirement_preview_rejected", "detail": str(exc)[:500]}) from exc
+        raise HTTPException(status_code=422, detail={"error": "project_retirement_preview_rejected", "detail": _safe_exception_text(exc)}) from exc
 
 
 @app.post("/bhm/project/retirement/apply")
@@ -15629,7 +15647,7 @@ async def bhm_project_retirement_apply(request: ProjectRetirementRequest, http_r
                 backup_dir=request.backup_dir,
             )
         except ProjectRetirementError as exc:
-            raise HTTPException(status_code=422, detail={"error": "project_retirement_rejected", "detail": str(exc)[:500]}) from exc
+            raise HTTPException(status_code=422, detail={"error": "project_retirement_rejected", "detail": _safe_exception_text(exc)}) from exc
 
     return await _run_bounded_write("bhm.project-retirement", _apply)
 
@@ -16681,7 +16699,7 @@ def bhm_retention_status(project: str | None = None, as_of: str | None = None) -
     except (OSError, RetentionPolicyError) as exc:
         raise HTTPException(
             status_code=503,
-            detail={"error": "retention_policy_unavailable", "detail": str(exc)},
+            detail={"error": "retention_policy_unavailable", "detail": _safe_exception_text(exc)},
         ) from exc
 
 
