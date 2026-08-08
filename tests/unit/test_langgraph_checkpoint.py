@@ -13,6 +13,7 @@ from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.graph import END, START, StateGraph
 
 from blackholememory.langgraph_checkpoint import SQLiteLangGraphCheckpointSaver
+from blackholememory.langgraph_checkpoint import _redact
 from blackholememory.langgraph_contract import build_langgraph_contract
 
 
@@ -71,6 +72,22 @@ def test_disabled_by_default_and_contract_is_fail_closed(tmp_path: Path) -> None
             checkpointer=saver,
             resumable=True,
         )
+
+
+def test_checkpoint_metadata_redacts_private_keys_and_credentials() -> None:
+    redacted = _redact(
+        {
+            "private_key": "synthetic-private-key",
+            "credential": "synthetic-credential",
+            "nested": {"PRIVATE-KEY": "synthetic-nested-key"},
+        }
+    )
+
+    assert redacted == {
+        "private_key": "[REDACTED]",
+        "credential": "[REDACTED]",
+        "nested": {"PRIVATE-KEY": "[REDACTED]"},
+    }
 
 
 def test_authoritative_database_requires_explicit_operator_gate(tmp_path: Path) -> None:
