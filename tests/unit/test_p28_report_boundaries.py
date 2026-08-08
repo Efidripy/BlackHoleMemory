@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import importlib.util
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,11 @@ REPORT_SCRIPTS = (
     "validate-bhm-p28-wi83-watch-backpressure.py",
     "validate-bhm-p28-wi97-semantic-relevance.py",
     "validate-bhm-p28-wi99-cross-repo-history.py",
+    "bhm-capability-router.py",
+    "bhm-cbm-local-llm.py",
+    "bhm-code-graph-query.py",
+    "bhm-code-graph.py",
+    "bhm-conventions.py",
 )
 
 
@@ -24,3 +30,20 @@ def test_p28_report_targets_use_shared_boundary_writer(script_name: str) -> None
     source = (REPO_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
     assert "replace_bytes_safely" in source
     assert not re.search(r"(?:args\.(?:report|output)|Path\(args\.report\))\.write_text", source)
+
+
+def test_code_graph_report_writer_rejects_dangling_symlink(tmp_path: Path) -> None:
+    spec = importlib.util.spec_from_file_location("bhm_code_graph_report_test", REPO_ROOT / "scripts" / "bhm-code-graph.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    target = tmp_path / "report.json"
+    outside = tmp_path / "outside.json"
+    try:
+        target.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    with pytest.raises(OSError):
+        module._json({"ok": True}, str(target))
+    assert not outside.exists()
