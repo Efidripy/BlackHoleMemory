@@ -25,6 +25,7 @@ from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 from blackholememory.runtime_endpoints import endpoint_url
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
@@ -32,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "config" / "mcp-registration.json"
 BACKUP_ROOT = REPO_ROOT.parent.parent / "workspace" / "runtime" / "logs" / "mcp-adapters" / "backups"
 SCHEMA = "bhm.mcp.adapter-generation.v2"
+MAX_BACKUP_RECORDS = 2
 TOKEN_RE = re.compile(r"<(?P<name>repo|user|workspace)>", re.IGNORECASE)
 
 
@@ -409,7 +411,10 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
 
 
 def _backup_target(path: Path, backup_dir: Path, client: str) -> dict[str, Any]:
+    assert_safe_path(path)
+    assert_safe_path(backup_dir, reject_hardlink_target=False)
     backup_path = backup_dir / f"{client}{path.suffix}.bak"
+    assert_safe_path(backup_path)
     existed = path.exists()
     record: dict[str, Any] = {
         "client": client,
@@ -420,7 +425,9 @@ def _backup_target(path: Path, backup_dir: Path, client: str) -> dict[str, Any]:
     }
     if existed:
         backup_path.parent.mkdir(parents=True, exist_ok=True)
+        assert_safe_path(backup_path.parent, reject_hardlink_target=False)
         shutil.copyfile(path, backup_path)
+        assert_safe_path(backup_path)
     return record
 
 
@@ -428,10 +435,18 @@ def _rollback_records(records: Iterable[Mapping[str, Any]]) -> list[dict[str, An
     results: list[dict[str, Any]] = []
     for record in records:
         target = Path(str(record["target"]))
+        assert_safe_path(target)
         existed = bool(record.get("existed"))
         if existed:
             backup = Path(str(record["backup"]))
-            _atomic_write_bytes(target, backup.read_bytes())
+            assert_safe_path(backup)
+            if not backup.is_file():
+                raise AdapterContractError(f"rollback backup is not a regular file: {backup}")
+            payload = backup.read_bytes()
+            expected_hash = str(record.get("sha256_before") or "").strip().lower()
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_hash) or _sha256_bytes(payload) != expected_hash:
+                raise AdapterContractError(f"rollback backup hash mismatch: {backup}")
+            _atomic_write_bytes(target, payload)
         else:
             target.unlink(missing_ok=True)
         restored_hash = _sha256_bytes(target.read_bytes()) if target.exists() else None
@@ -526,14 +541,36 @@ def run_apply(adapters: Mapping[str, Adapter], *, repo_root: Path, backup_root: 
 
 
 def run_rollback(backup_dir: Path) -> dict[str, Any]:
+    backup_dir = Path(backup_dir)
+    assert_safe_path(backup_dir, reject_hardlink_target=False)
+    if not backup_dir.is_dir():
+        raise AdapterContractError(f"rollback backup directory is missing: {backup_dir}")
     manifest_path = backup_dir / "manifest.json"
+    assert_safe_path(manifest_path)
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise AdapterContractError(f"rollback manifest is unreadable: {manifest_path}") from exc
-    records = payload.get("records") if isinstance(payload, dict) else None
-    if not isinstance(records, list):
+    if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
+        raise AdapterContractError("rollback manifest schema is invalid")
+    records = payload.get("records")
+    if not isinstance(records, list) or not records or len(records) > MAX_BACKUP_RECORDS:
         raise AdapterContractError("rollback manifest has no records")
+    backup_root = os.path.realpath(os.fspath(backup_dir))
+    for record in records:
+        if not isinstance(record, Mapping):
+            raise AdapterContractError("rollback manifest has an invalid record")
+        backup = Path(str(record.get("backup") or ""))
+        try:
+            contained = os.path.commonpath((backup_root, os.path.realpath(os.fspath(backup)))) == backup_root
+        except ValueError as exc:
+            raise AdapterContractError("rollback backup path escapes its manifest directory") from exc
+        if not contained:
+            raise AdapterContractError("rollback backup path escapes its manifest directory")
+        if bool(record.get("existed")):
+            assert_safe_path(backup)
+            if not backup.is_file():
+                raise AdapterContractError(f"rollback backup is not a regular file: {backup}")
     result = _rollback_records(reversed(records))
     return {
         "schema": SCHEMA,

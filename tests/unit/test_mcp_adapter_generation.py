@@ -141,6 +141,32 @@ def test_canary_applies_and_restores_exact_fixture_bytes(tmp_path):
     assert {name: adapter.target.read_bytes() for name, adapter in adapters.items()} == before
 
 
+def test_rollback_rejects_tampered_backup_bytes(tmp_path):
+    adapters = _fixture_adapters(tmp_path)
+    backup_root = tmp_path / "backups"
+    result = generator.run_apply(adapters, repo_root=REPO_ROOT, backup_root=backup_root)
+    backup_dir = Path(result["backup_dir"])
+    manifest = json.loads((backup_dir / "manifest.json").read_text(encoding="utf-8"))
+    Path(manifest["records"][0]["backup"]).write_bytes(b"tampered")
+
+    with pytest.raises(generator.AdapterContractError, match="hash mismatch"):
+        generator.run_rollback(backup_dir)
+
+
+def test_rollback_rejects_backup_path_escape(tmp_path):
+    adapters = _fixture_adapters(tmp_path)
+    backup_root = tmp_path / "backups"
+    result = generator.run_apply(adapters, repo_root=REPO_ROOT, backup_root=backup_root)
+    backup_dir = Path(result["backup_dir"])
+    manifest_path = backup_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["records"][0]["backup"] = str(tmp_path / "outside.json")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(generator.AdapterContractError, match="escapes"):
+        generator.run_rollback(backup_dir)
+
+
 def test_drift_is_detected_without_writing(tmp_path):
     adapters = _fixture_adapters(tmp_path)
     adapter = adapters["claude"]

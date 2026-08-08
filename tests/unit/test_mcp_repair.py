@@ -177,6 +177,48 @@ def test_confirmed_adapter_repair_rolls_back_exactly_and_keeps_foreign_entries(t
     assert restored["mcpServers"]["bhm"]["command"] == "old"
 
 
+def test_rollback_refuses_manifest_digest_drift(tmp_path, monkeypatch):
+    repo, user = _write_fixture_repo(tmp_path)
+    monkeypatch.setenv("USERPROFILE", str(user))
+    result = execute_reconnect(
+        repo_root=repo,
+        panel_before=_healthy_panel(),
+        panel_after=lambda: _healthy_panel(),
+        confirm=True,
+        apply_adapters=True,
+    )
+    repair_id = result["repair_id"]
+    plan = json.loads(_plan_path(repo, repair_id).read_text(encoding="utf-8"))
+    backup_dir = Path(plan["backup_dir"])
+    manifest_path = backup_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["records"][0]["backup"] = str(tmp_path / "outside.json")
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    with pytest.raises(McpRepairError, match="manifest digest"):
+        execute_rollback(repo_root=repo, repair_id=repair_id, panel_after=lambda: _healthy_panel(), confirm=True)
+
+
+def test_rollback_refuses_backup_hash_drift(tmp_path, monkeypatch):
+    repo, user = _write_fixture_repo(tmp_path)
+    monkeypatch.setenv("USERPROFILE", str(user))
+    result = execute_reconnect(
+        repo_root=repo,
+        panel_before=_healthy_panel(),
+        panel_after=lambda: _healthy_panel(),
+        confirm=True,
+        apply_adapters=True,
+    )
+    repair_id = result["repair_id"]
+    plan = json.loads(_plan_path(repo, repair_id).read_text(encoding="utf-8"))
+    backup_dir = Path(plan["backup_dir"])
+    manifest = json.loads((backup_dir / "manifest.json").read_text(encoding="utf-8"))
+    Path(manifest["records"][0]["backup"]).write_text("tampered", encoding="utf-8")
+
+    with pytest.raises(McpRepairError, match="backup hash"):
+        execute_rollback(repo_root=repo, repair_id=repair_id, panel_after=lambda: _healthy_panel(), confirm=True)
+
+
 def test_reprobe_is_read_only():
     result = build_reprobe(repo_root=REPO_ROOT, panel=_healthy_panel())
     assert result["operation"] == "reprobe"
