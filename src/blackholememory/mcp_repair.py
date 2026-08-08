@@ -11,6 +11,7 @@ client reload; it is never promoted to an automatic reconnect.
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 import os
 import re
@@ -132,6 +133,8 @@ def _safe_backup_dir(repo_root: Path, value: Any) -> Path | None:
     raw = str(value or "").strip()
     if not raw:
         return None
+    if not Path(raw).is_absolute():
+        raise McpRepairError("rollback backup must use an absolute path")
     root_name = os.path.realpath(os.fspath(_backup_root(repo_root)))
     candidate_name = os.path.realpath(os.path.expanduser(raw))
     try:
@@ -140,21 +143,50 @@ def _safe_backup_dir(repo_root: Path, value: Any) -> Path | None:
         raise McpRepairError("rollback backup is outside the BHM adapter backup root") from exc
     if not contained:
         raise McpRepairError("rollback backup is outside the BHM adapter backup root")
-    return Path(candidate_name)
+    root = Path(root_name)
+    assert_safe_path(root, reject_hardlink_target=False)
+    candidate = Path(candidate_name)
+    assert_safe_path(candidate, reject_hardlink_target=False)
+    if candidate.exists() and not candidate.is_dir():
+        raise McpRepairError("rollback backup path is not a directory")
+    return candidate
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _contained_path(root: Path, candidate: Path) -> bool:
+    root_name = os.path.realpath(os.fspath(root))
+    candidate_name = os.path.realpath(os.fspath(candidate))
+    try:
+        return os.path.commonpath((root_name, candidate_name)) == root_name
+    except ValueError as exc:
+        raise McpRepairError("rollback manifest path crosses filesystem roots") from exc
 
 
 def _validate_backup_scope(repo_root: Path, backup_dir: Path, clients: list[str]) -> None:
     """Prove a rollback manifest contains only the selected BHM targets."""
 
     manifest_path = backup_dir / "manifest.json"
+    assert_safe_path(backup_dir, reject_hardlink_target=False)
+    if not backup_dir.is_dir():
+        raise McpRepairError("rollback backup directory is missing")
+    assert_safe_path(manifest_path)
     try:
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise McpRepairError("rollback manifest is unreadable") from exc
-    records = payload.get("records") if isinstance(payload, Mapping) else None
+    generator, adapters = _adapter_context(Path(repo_root), clients)
+    if not isinstance(payload, Mapping) or payload.get("schema") != getattr(generator, "SCHEMA", None):
+        raise McpRepairError("rollback manifest schema is invalid")
+    records = payload.get("records")
     if not isinstance(records, list) or not records or len(records) > MAX_CLIENTS:
         raise McpRepairError("rollback manifest has an invalid bounded record set")
-    _generator, adapters = _adapter_context(Path(repo_root), clients)
     expected_targets = {client: os.path.realpath(os.fspath(adapter.target)) for client, adapter in adapters.items()}
     seen: set[str] = set()
     for record in records:
@@ -164,8 +196,23 @@ def _validate_backup_scope(repo_root: Path, backup_dir: Path, clients: list[str]
         target = str(record.get("target") or "").strip()
         if client not in expected_targets or not target or os.path.realpath(target) != expected_targets[client]:
             raise McpRepairError("rollback manifest escapes the BHM-only target scope")
+        target_path = Path(target)
+        assert_safe_path(target_path)
+        backup_path = Path(str(record.get("backup") or ""))
+        if not _contained_path(backup_dir, backup_path):
+            raise McpRepairError("rollback manifest backup escapes its manifest directory")
+        existed = bool(record.get("existed"))
+        expected_hash = str(record.get("sha256_before") or "").strip().lower()
+        if existed:
+            assert_safe_path(backup_path)
+            if not backup_path.is_file():
+                raise McpRepairError("rollback manifest backup is not a regular file")
+            if not re.fullmatch(r"[0-9a-f]{64}", expected_hash) or _sha256_file(backup_path) != expected_hash:
+                raise McpRepairError("rollback manifest backup hash mismatch")
+        elif backup_path.exists():
+            raise McpRepairError("rollback manifest unexpectedly contains a backup for a missing target")
         seen.add(client)
-    if len(seen) != len(records):
+    if len(seen) != len(records) or seen != set(clients):
         raise McpRepairError("rollback manifest contains duplicate client records")
 
 
@@ -479,6 +526,7 @@ def execute_reconnect(
     result = _base_result(operation="reconnect", repair_id=identifier, clients=selected, panel=panel_before, adapters=adapters)
     drift_clients = list(result["drift_clients"])
     backup_dir: Path | None = None
+    manifest_digest: str | None = None
     canary_result: dict[str, Any] | None = None
     apply_result: dict[str, Any] | None = None
 
@@ -518,6 +566,11 @@ def execute_reconnect(
                         reason_code = "adapter_apply_failed"
                     else:
                         backup_dir = _safe_backup_dir(Path(repo_root), raw_apply.get("backup_dir"))
+                        if backup_dir is None:
+                            raise McpRepairError("adapter apply returned no rollback backup")
+                        manifest_path = backup_dir / "manifest.json"
+                        assert_safe_path(manifest_path)
+                        manifest_digest = _sha256_file(manifest_path)
                         action_status = "client_reload_required"
                         reason_code = "client_restart_api_unavailable"
                 except Exception:  # pragma: no cover - defensive local filesystem boundary
@@ -532,6 +585,7 @@ def execute_reconnect(
             "repair_id": identifier,
             "clients": selected,
             "backup_dir": str(backup_dir) if backup_dir else None,
+            "backup_manifest_sha256": manifest_digest if backup_dir else None,
             "status": action_status,
             "created_at": _utc_now(),
         },
@@ -612,6 +666,12 @@ def execute_rollback(
         )
         return result
 
+    expected_manifest_digest = str(selected_plan.get("backup_manifest_sha256") or "").strip().lower()
+    if expected_manifest_digest:
+        manifest_path = backup_dir / "manifest.json"
+        assert_safe_path(manifest_path)
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_manifest_digest) or _sha256_file(manifest_path) != expected_manifest_digest:
+            raise McpRepairError("rollback manifest digest does not match the applied repair plan")
     _validate_backup_scope(Path(repo_root), backup_dir, selected)
     generator, _adapters = _adapter_context(Path(repo_root), selected)
     try:
