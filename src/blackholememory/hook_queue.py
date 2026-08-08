@@ -12,10 +12,12 @@ from pathlib import Path
 from typing import Any, Literal, Sequence
 
 from .filesystem_boundaries import assert_safe_path
+from .resource_limits import SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS
 
 
 HOOK_QUEUE_SCHEMA_VERSION = 2
-HOOK_QUEUE_BUSY_TIMEOUT_MS = 5_000
+# Compatibility name retained for diagnostics and existing callers.
+HOOK_QUEUE_BUSY_TIMEOUT_MS = int(SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS * 1000)
 HOOK_QUEUE_WRITE_RETRY_DELAYS = (0.025, 0.05, 0.1, 0.2, 0.4)
 HOOK_QUEUE_MAX_RESULT_BYTES = 64 * 1024
 HOOK_QUEUE_ENQUEUE_PRIORITY_HEAD_START_SECONDS = 0.01
@@ -769,7 +771,7 @@ class HookJobQueue:
                 if candidate.exists():
                     candidate.unlink()
         source_connection = self._connect()
-        target_connection = sqlite3.connect(str(target_path))
+        target_connection = sqlite3.connect(str(target_path), timeout=SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS)
         try:
             source_connection.backup(target_connection)
         finally:
