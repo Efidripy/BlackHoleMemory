@@ -547,6 +547,8 @@ def _sandbox_environment(overrides: dict[str, str] | None) -> dict[str, str]:
             raise SafePatchPathError(f"sandbox environment key is not allowlisted: {normalized_key}")
         if not isinstance(value, str) or "\x00" in value:
             raise SafePatchError(f"sandbox environment value is invalid: {normalized_key}")
+        if len(value.encode("utf-8")) > SAFE_PATCH_MAX_COMMAND_ARG_BYTES:
+            raise SafePatchBoundsError(f"sandbox environment value is oversized: {normalized_key}")
         environment[normalized_key] = value
     return environment
 
