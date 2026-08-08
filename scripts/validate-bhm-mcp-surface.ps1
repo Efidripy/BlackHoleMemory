@@ -9,6 +9,9 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot }
 if ([string]::IsNullOrWhiteSpace($QdrantBaseUrl)) { $QdrantBaseUrl = Get-BhmRuntimeEndpoint -Name 'qdrant_http' -RepoRoot $repoRoot }
+# Keep every smoke-surface HTTP attempt finite. This validator-only bound does
+# not alter the existing mutation ordering or cleanup semantics.
+$BhmHttpTimeoutSec = 15
 $script:BhmAdminHeaders = @{}
 $script:BhmAdminCapability = @(
     $env:BHM_ADMIN_CAPABILITY,
@@ -77,10 +80,10 @@ function Invoke-BhmJsonRequest {
 
     $headers = Get-BhmRequestHeaders -Method $Method -Url $Url
     if ($null -ne $Body) {
-        return Invoke-RestMethod -Method $Method -Uri $Url -Headers $headers -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 10)
+        return Invoke-RestMethod -Method $Method -Uri $Url -Headers $headers -ContentType "application/json" -Body ($Body | ConvertTo-Json -Depth 10) -TimeoutSec $BhmHttpTimeoutSec
     }
 
-    return Invoke-RestMethod -Method $Method -Uri $Url -Headers $headers
+    return Invoke-RestMethod -Method $Method -Uri $Url -Headers $headers -TimeoutSec $BhmHttpTimeoutSec
 }
 
 function Invoke-BhmJson {
@@ -201,6 +204,7 @@ function Remove-QdrantCollectionBestEffort {
         Invoke-RestMethod `
             -Method Delete `
             -Uri "$($QdrantBaseUrl.TrimEnd('/'))/collections/$encodedName" `
+            -TimeoutSec $BhmHttpTimeoutSec `
             -ErrorAction Stop | Out-Null
         Write-Verbose "Cleaned smoke Qdrant collection: $CollectionName"
     }
@@ -236,6 +240,7 @@ function Remove-SurfaceSmokeProject {
         Invoke-RestMethod `
             -Method Post `
             -Uri "$($QdrantBaseUrl.TrimEnd('/'))/collections/bhm_global_core_knowledge/points/delete?wait=true" `
+            -TimeoutSec $BhmHttpTimeoutSec `
             -ContentType "application/json" `
             -Body (@{ points = $globalIds } | ConvertTo-Json -Depth 5) `
             -ErrorAction Stop | Out-Null
@@ -266,6 +271,7 @@ function Remove-SurfaceSmokeProject {
         $retrieved = Invoke-RestMethod `
             -Method Post `
             -Uri "$($QdrantBaseUrl.TrimEnd('/'))/collections/bhm_global_core_knowledge/points" `
+            -TimeoutSec $BhmHttpTimeoutSec `
             -ContentType "application/json" `
             -Body (@{ ids = $globalIds; with_payload = $false; with_vector = $false } | ConvertTo-Json -Depth 5) `
             -ErrorAction Stop
