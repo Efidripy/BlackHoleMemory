@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import socket
 import sqlite3
@@ -28,6 +27,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from blackholememory.mem0_adapter import get_project_mem0_memory
 from blackholememory.mem0_adapter import get_qdrant_client
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.projection_reconciliation import QdrantSurfaceAdapter
 from blackholememory.projection_reconciliation import apply_projection_reconciliation
@@ -85,12 +85,10 @@ def _write_report(path: Path | None, report: dict[str, Any]) -> None:
         if cursor.is_symlink():
             raise OSError(f"report parent must not be a symlink: {cursor}")
         cursor = cursor.parent
-    if os.path.lexists(target) and target.is_symlink():
-        raise OSError(f"report target must not be a symlink: {target}")
-    if target.exists() and target.stat().st_nlink > 1:
-        raise OSError(f"report target must not be a hardlink: {target}")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    replace_bytes_safely(
+        target,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def _serialize_plan(plan: Any, *, include_observed_payload: bool) -> dict[str, Any]:
