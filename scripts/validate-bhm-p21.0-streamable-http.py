@@ -14,14 +14,34 @@ from typing import Any
 
 import httpx
 
+SCRIPT_ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(SCRIPT_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
-from blackholememory.local_endpoint_policy import validate_local_endpoint
-from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
+from blackholememory.local_endpoint_policy import LocalEndpointError  # noqa: E402
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES  # noqa: E402
+from blackholememory.mcp_surfaces import CORE_TOOL_NAMES  # noqa: E402
+from bhm_runtime_endpoints import validate_loopback_endpoint  # noqa: E402
 
 SCHEMA_VERSION = "bhm.mcp.streamable-http-validation.v1"
 PROTOCOL_VERSION = "2025-06-18"
 EXPECTED_TOOL_COUNT = len(CORE_TOOL_NAMES)
+MAX_COLD_CYCLES = 100
+MAX_RECOVERY_CYCLES = 50
+MAX_TOTAL_CYCLES = 120
+
+
+def validate_cycle_counts(cold: int, recovery: int) -> tuple[int, int]:
+    """Enforce per-phase and aggregate lifecycle probe budgets."""
+
+    cold_count = int(cold)
+    recovery_count = int(recovery)
+    if not 1 <= cold_count <= MAX_COLD_CYCLES:
+        raise ValueError("cold count is outside bounded validation limits")
+    if not 1 <= recovery_count <= MAX_RECOVERY_CYCLES:
+        raise ValueError("recovery count is outside bounded validation limits")
+    if cold_count + recovery_count > MAX_TOTAL_CYCLES:
+        raise ValueError("cold/recovery total is outside bounded validation limits")
+    return cold_count, recovery_count
 
 
 def _bounded_json(response: httpx.Response) -> Any:
@@ -69,7 +89,10 @@ def _percentile(values: list[float], fraction: float) -> float:
 
 class Probe:
     def __init__(self, base_url: str, timeout_seconds: float) -> None:
-        self.base_url = validate_local_endpoint(base_url)
+        try:
+            self.base_url = validate_loopback_endpoint(base_url)
+        except ValueError as exc:
+            raise LocalEndpointError(str(exc)) from exc
         self.endpoint = f"{self.base_url}/mcp"
         self.client = httpx.Client(timeout=timeout_seconds, follow_redirects=False, trust_env=False)
         self.caller_token = _caller_token()
@@ -290,8 +313,10 @@ def main() -> int:
     parser.add_argument("--recovery", type=int, default=10)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
     args = parser.parse_args()
-    if not 1 <= args.cold <= 100 or not 1 <= args.recovery <= 50:
-        raise SystemExit("cold/recovery counts are outside bounded validation limits")
+    try:
+        args.cold, args.recovery = validate_cycle_counts(args.cold, args.recovery)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     result = run(
         args.base_url,
         cold=args.cold,

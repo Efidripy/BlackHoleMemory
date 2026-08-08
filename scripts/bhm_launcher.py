@@ -39,6 +39,7 @@ from bhm_launcher_config import save_settings as save_validated_launcher_setting
 from bhm_runtime_endpoints import endpoint_parts
 from bhm_runtime_endpoints import endpoint_port
 from bhm_runtime_endpoints import endpoint_url
+from bhm_runtime_endpoints import validate_loopback_endpoint
 from blackholememory.filesystem_boundaries import append_bytes_safely
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.resource_limits import PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS
@@ -885,10 +886,11 @@ def run_release_doctor() -> dict[str, Any]:
 
 
 def mcp_config_payload() -> dict:
+    validated_base_url = validate_loopback_endpoint(BHM_BASE_URL)
     return {
         "mcpServers": {
             MCP_SERVER_NAME: {
-                "url": f"{BHM_BASE_URL.rstrip('/')}/mcp",
+                "url": f"{validated_base_url}/mcp",
                 "bearer_token_env_var": "BHM_CALLER_TOKEN",
             }
         }

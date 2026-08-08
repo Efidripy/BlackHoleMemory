@@ -36,6 +36,7 @@ from .filesystem_boundaries import append_bytes_safely
 from .filesystem_boundaries import replace_bytes_safely
 from .local_endpoint_policy import open_local_url
 from .local_endpoint_policy import read_bounded_response
+from .local_endpoint_policy import validate_local_endpoint
 from .project_registry import canonical_project_id
 from .retrieval_fusion import weighted_rank_fusion
 from .resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
@@ -697,6 +698,7 @@ def build_mem0_config(collection_name: str) -> dict[str, Any]:
     # does not accept the SDK client's ``timeout`` option. Keep the bounded
     # timeout on the native QdrantClient path and pass only provider-supported
     # fields into Mem0.
+    openai_base_url = validate_local_endpoint(settings.mem0_openai_base_url)
     qdrant_config = {
         key: value
         for key, value in _qdrant_connection_config().items()
@@ -718,7 +720,7 @@ def build_mem0_config(collection_name: str) -> dict[str, Any]:
             "provider": settings.mem0_llm_provider,
             "config": {
                 "api_key": settings.mem0_api_key,
-                "openai_base_url": settings.mem0_openai_base_url,
+                "openai_base_url": openai_base_url,
                 "model": settings.mem0_llm_model,
             },
         },
@@ -726,7 +728,7 @@ def build_mem0_config(collection_name: str) -> dict[str, Any]:
             "provider": settings.mem0_embedder_provider,
             "config": {
                 "api_key": settings.mem0_api_key,
-                "openai_base_url": settings.mem0_openai_base_url,
+                "openai_base_url": openai_base_url,
                 "model": settings.mem0_embedding_model,
                 "embedding_dims": settings.mem0_embedding_dims,
             },

@@ -13,8 +13,10 @@ import sys
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import urlsplit
 
 from bhm_runtime_endpoints import endpoint_url
+from bhm_runtime_endpoints import validate_loopback_endpoint
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +26,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from blackholememory.caller_auth import configured_caller_token
 from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.mcp_repair import SCHEMA_VERSION
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
@@ -75,6 +78,11 @@ def _json_request(
     method: str = "GET",
     caller_auth: bool = False,
 ) -> tuple[int, dict[str, Any]]:
+    parsed = urlsplit(url)
+    try:
+        validate_loopback_endpoint(f"{parsed.scheme}://{parsed.netloc}")
+    except ValueError as exc:
+        raise LocalEndpointError(str(exc)) from exc
     request = urllib.request.Request(
         url,
         method=method,

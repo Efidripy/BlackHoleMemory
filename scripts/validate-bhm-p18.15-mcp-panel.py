@@ -12,6 +12,7 @@ import urllib.request
 from typing import Any
 
 from bhm_runtime_endpoints import endpoint_url
+from bhm_runtime_endpoints import validate_loopback_endpoint
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +25,7 @@ from blackholememory.mcp_panel import SCHEMA_VERSION
 from blackholememory.mcp_final_gate import EXPECTED_CLIENTS
 from blackholememory.caller_auth import configured_caller_token
 from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
@@ -56,6 +58,10 @@ def _args() -> argparse.Namespace:
 
 
 def _get_json(base_url: str, path: str) -> dict[str, Any]:
+    try:
+        base_url = validate_loopback_endpoint(base_url)
+    except ValueError as exc:
+        raise LocalEndpointError(str(exc)) from exc
     token = configured_caller_token()
     if len(token) < 32:
         raise RuntimeError("BHM_CALLER_TOKEN is unavailable")

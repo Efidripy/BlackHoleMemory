@@ -3,10 +3,42 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
+
+
+_LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain"})
+
+
+def validate_loopback_endpoint(value: str) -> str:
+    """Validate an HTTP(S) endpoint whose credentials must stay on loopback."""
+
+    raw = str(value or "").strip().rstrip("/")
+    parsed = urlsplit(raw)
+    if parsed.scheme.casefold() not in {"http", "https"}:
+        raise ValueError("local-only endpoint must use http or https")
+    if not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError("local-only loopback endpoint must not contain credentials")
+    if parsed.query or parsed.fragment:
+        raise ValueError("local-only loopback endpoint must not contain query or fragment")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("local-only loopback endpoint has an invalid port") from exc
+    host = parsed.hostname.casefold().rstrip(".")
+    if host in _LOOPBACK_HOSTNAMES:
+        return raw
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise ValueError("local-only endpoint host must be loopback-only") from exc
+    if not address.is_loopback:
+        raise ValueError("local-only endpoint host must be loopback-only")
+    _ = port
+    return raw
 
 
 def _roots() -> list[Path]:
@@ -57,4 +89,4 @@ def endpoint_port(name: str) -> int:
     return endpoint_parts(name)[1]
 
 
-__all__ = ["endpoint_parts", "endpoint_port", "endpoint_url"]
+__all__ = ["endpoint_parts", "endpoint_port", "endpoint_url", "validate_loopback_endpoint"]
