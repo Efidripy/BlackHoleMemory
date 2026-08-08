@@ -27,6 +27,8 @@ from langgraph.checkpoint.base import CheckpointTuple
 from langgraph.checkpoint.base import WRITES_IDX_MAP
 from langgraph.checkpoint.base import get_checkpoint_metadata
 
+from .filesystem_boundaries import assert_safe_path
+
 
 CHECKPOINT_SCHEMA_VERSION = "bhm.langgraph.checkpoint.sqlite.v1"
 DEFAULT_MAX_STATE_BYTES = 4 * 1024 * 1024
@@ -116,7 +118,14 @@ class SQLiteLangGraphCheckpointSaver(BaseCheckpointSaver[str]):
         serde: Any | None = None,
     ) -> None:
         super().__init__(serde=serde)
-        self.database_path = Path(database_path).expanduser().resolve()
+        raw_database_path = Path(database_path).expanduser()
+        # Preserve the lexical path until boundary checks complete.  Resolving
+        # first would erase symlink/junction provenance and could turn a
+        # hardlinked authoritative SQLite file into an apparently disposable
+        # alternate path.
+        assert_safe_path(raw_database_path)
+        self.database_path = raw_database_path.resolve(strict=False)
+        assert_safe_path(self.database_path)
         self.project = _text(project, name="project")
         self.caller_id = _text(caller_id, name="caller_id")
         self.task_id = _text(task_id, name="task_id")
