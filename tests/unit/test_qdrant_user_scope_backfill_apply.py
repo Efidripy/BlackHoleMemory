@@ -4,6 +4,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "apply-bhm-qdrant-user-scope-backfill.py"
@@ -57,3 +59,38 @@ def test_backup_round_trip_and_rollback(tmp_path):
     client = _FakeQdrant()
     assert module._rollback(client, rows) == 1
     assert client.overwrite_calls[0]["payload"] == target["payload"]
+
+
+def test_backup_writer_uses_boundary_aware_replacement(tmp_path: Path) -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert "replace_bytes_safely" in source
+    assert ".write_text(" not in source
+
+
+def test_backup_writer_rejects_hardlink_target(tmp_path: Path) -> None:
+    backup_dir = tmp_path / "backup"
+    backup_dir.mkdir()
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("sentinel", encoding="utf-8")
+    target = backup_dir / "payloads.jsonl"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        module._write_backup(backup_dir, [_target()], {"expected_user_id": "user-1", "summary": {"target_digest": "digest"}})
+    assert outside.read_text(encoding="utf-8") == "sentinel"
+
+
+def test_backup_loader_rejects_reparse_backup_directory(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    backup_dir = tmp_path / "backup-link"
+    try:
+        backup_dir.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="symlink/junction/reparse"):
+        module._load_backup(backup_dir)
