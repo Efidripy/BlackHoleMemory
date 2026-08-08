@@ -94,8 +94,11 @@ def _sha256_file(path: Path) -> str:
 
 
 def _write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    target = assert_safe_path(path)
+    replace_bytes_safely(
+        target,
+        (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 REPORT_ROOT = REPO_ROOT / ".runtime" / "reports"
