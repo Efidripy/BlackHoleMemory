@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
+from .resource_limits import PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS
 
 
 SAFE_PATCH_SCHEMA_VERSION = "bhm.llm.safe-patch.v1"
@@ -624,7 +625,7 @@ def _run_command(
         stdout = stderr = ""
         if process is not None:
             try:
-                stdout, stderr = process.communicate(timeout=2.0)
+                stdout, stderr = process.communicate(timeout=PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 process.kill()
                 stdout, stderr = process.communicate()
@@ -654,7 +655,7 @@ def _terminate_process_group(pid: int) -> bool:
                 ["taskkill", "/PID", str(pid), "/T", "/F"],
                 capture_output=True,
                 text=True,
-                timeout=2.0,
+                timeout=PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS,
                 check=False,
                 shell=False,
             )
