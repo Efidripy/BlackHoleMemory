@@ -15,6 +15,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 TASK_ID = "TASK-20260717-BHM-UPSTREAM-PERMISSIONS"
 PLAN_ID = "BHM-V5-POST-ACCEPTANCE-20260717"
@@ -23,7 +26,30 @@ TODAY = date(2026, 7, 21).isoformat()
 
 
 def _load(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    safe_path = assert_safe_path(path)
+    return json.loads(safe_path.read_text(encoding="utf-8"))
+
+
+def _source_manifest_path(source_root: Path, slug: str) -> Path:
+    """Resolve one registry slug without allowing traversal or reparse escapes."""
+
+    normalized = str(slug or "").strip().replace("\\", "/")
+    slug_path = Path(normalized)
+    if (
+        not normalized
+        or normalized in {".", ".."}
+        or slug_path.is_absolute()
+        or slug_path.name != normalized
+        or "/" in normalized
+        or ".." in slug_path.parts
+    ):
+        raise ValueError(f"unsafe source slug: {slug!r}")
+    return assert_safe_path(source_root / normalized / "SOURCE-MANIFEST.json")
+
+
+def _write_json(path: Path, value: dict[str, Any]) -> None:
+    payload = (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    replace_bytes_safely(path, payload)
 
 
 def _entry(source: dict[str, Any]) -> dict[str, Any]:
@@ -59,8 +85,13 @@ def _entry(source: dict[str, Any]) -> dict[str, Any]:
 
 def compile_ledger(registry: dict[str, Any]) -> dict[str, Any]:
     sources = registry.get("sources")
-    if not isinstance(sources, list) or len(sources) != 33:
-        raise ValueError(f"expected 33 registry sources, found {len(sources or [])}")
+    if not isinstance(sources, list) or not sources:
+        raise ValueError("source registry must contain at least one source")
+    source_ids = [str(source.get("id") or "") for source in sources if isinstance(source, dict)]
+    if len(source_ids) != len(sources) or any(not source_id for source_id in source_ids):
+        raise ValueError("source registry entries must be objects with non-empty ids")
+    if len(set(source_ids)) != len(source_ids):
+        raise ValueError("source registry source ids must be unique")
     return {
         "schema_version": LEDGER_SCHEMA,
         "generated_at": TODAY,
@@ -76,7 +107,18 @@ def compile_ledger(registry: dict[str, Any]) -> dict[str, Any]:
 
 
 def apply_metadata(registry: dict[str, Any], ledger: dict[str, Any], repo: Path) -> None:
+    repo = assert_safe_path(repo, reject_hardlink_target=False)
     by_id = {entry["source_id"]: entry for entry in ledger["entries"]}
+    registry_path = assert_safe_path(repo / "config" / "source-registry.json")
+    source_root = assert_safe_path(repo / ".src", reject_hardlink_target=False)
+    manifest_targets: list[tuple[dict[str, Any], Path, dict[str, Any]]] = []
+    for source in registry["sources"]:
+        manifest_path = _source_manifest_path(source_root, str(source["slug"]))
+        if not manifest_path.is_file():
+            continue
+        manifest = _load(manifest_path)
+        manifest_targets.append((source, manifest_path, manifest))
+
     for source in registry["sources"]:
         entry = by_id[source["id"]]
         for key in (
@@ -95,15 +137,9 @@ def apply_metadata(registry: dict[str, Any], ledger: dict[str, Any], repo: Path)
     registry["generated_at"] = TODAY
     registry["plan_id"] = PLAN_ID
     registry["attestation_ref"] = ".docs/ops/bhm-p21.13-wi31-permission-attestation-ledger-2026-07-21.json"
-    registry_path = repo / "config" / "source-registry.json"
-    registry_path.write_text(json.dumps(registry, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_json(registry_path, registry)
 
-    source_root = repo / ".src"
-    for source in registry["sources"]:
-        manifest_path = source_root / str(source["slug"]) / "SOURCE-MANIFEST.json"
-        if not manifest_path.is_file():
-            continue
-        manifest = _load(manifest_path)
+    for source, manifest_path, manifest in manifest_targets:
         for key in (
             "permission_status",
             "permission_evidence_ref",
@@ -116,7 +152,7 @@ def apply_metadata(registry: dict[str, Any], ledger: dict[str, Any], repo: Path)
         ):
             manifest[key] = source[key]
         manifest["code_copy_allowed"] = False
-        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        _write_json(manifest_path, manifest)
 
 
 def main() -> int:
@@ -127,7 +163,9 @@ def main() -> int:
     args = parser.parse_args()
     if not args.operator_attested:
         raise SystemExit("refusing to compile permission ledger without --operator-attested")
-    repo = args.repo_root.resolve()
+    repo = assert_safe_path(args.repo_root, reject_hardlink_target=False)
+    if not repo.is_dir():
+        raise SystemExit(f"repo root is not a directory: {repo}")
     registry_path = repo / "config" / "source-registry.json"
     registry = _load(registry_path)
     ledger = compile_ledger(registry)
@@ -135,7 +173,7 @@ def main() -> int:
     if args.apply:
         apply_metadata(registry, ledger, repo)
         ledger["registry_mutated"] = True
-    ledger_path.write_text(json.dumps(ledger, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    _write_json(repo / "docs" / "ops" / ledger_path.name, ledger)
     print(f"mode={'applied' if args.apply else 'check-only'} entries={len(ledger['entries'])} ledger={ledger_path}")
     return 0
 
