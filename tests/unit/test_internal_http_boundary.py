@@ -61,6 +61,7 @@ def test_bhm_rest_client_disables_proxy_redirects_and_bounds_response(monkeypatc
 
 
 def test_owned_agent_http_clients_clamp_and_reject_non_finite_timeouts() -> None:
+    assert developer_agent.BHMAgentExecutor.timeout == LLM_HTTP_TIMEOUT_SECONDS
     assert BHMRestClient("http://127.0.0.1:8000", timeout=999).timeout == float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS)
     assert LocalLLMClient("http://127.0.0.1:13666/v1", "test-model", "", 999).timeout == float(LLM_HTTP_TIMEOUT_SECONDS)
 

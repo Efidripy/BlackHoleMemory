@@ -3871,7 +3871,7 @@ async def qa_node(state: DeveloperAgentState) -> dict[str, Any]:
 
 class BHMAgentExecutor:
     MAX_ITERATIONS = 7
-    timeout = 120
+    timeout = LLM_HTTP_TIMEOUT_SECONDS
     max_log_chars = 350
 
     def __init__(
