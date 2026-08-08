@@ -6,7 +6,6 @@ import base64
 import ctypes
 import hashlib
 import importlib.util
-import ipaddress
 import json
 import logging
 import math
@@ -16,7 +15,6 @@ import subprocess
 import sqlite3
 import threading
 import urllib.error
-from urllib.parse import urlsplit
 import urllib.request
 import uuid
 from collections import Counter
@@ -82,6 +80,10 @@ from .ui_session import SESSION_TTL_SECONDS
 from .ui_session import UI_SESSION_COOKIE
 from .ui_session import UiSessionRegistry
 from .ui_session import ui_session_route_allowed
+from .ui_origin_policy import browser_request_is_same_origin
+from .ui_origin_policy import request_host_parts
+from .ui_origin_policy import request_is_loopback
+from .ui_origin_policy import websocket_origin_is_allowed
 from .embedding_reuse import search_with_precomputed_embedding
 from .embedding_cache import EmbeddingCache
 from .embedding_cache import embed_query_with_cache
@@ -1961,71 +1963,34 @@ class UiSessionExchangeRequest(BaseModel):
     bootstrap_token: StrictStr = Field(min_length=32, max_length=256)
 
 
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-
-
 def _request_host_parts(host_header: str | None) -> tuple[str, str] | None:
-    raw_host = str(host_header or "").strip()
-    if not raw_host:
-        return None
-    try:
-        parsed = urlsplit(f"http://{raw_host}")
-        hostname = str(parsed.hostname or "").casefold()
-        port = parsed.port
-    except ValueError:
-        return None
-    if hostname not in _LOOPBACK_HOSTS or port != settings.port or parsed.username or parsed.password:
-        return None
-    return hostname, raw_host.casefold()
+    return request_host_parts(host_header, canonical_port=settings.port)
 
 
 def _ui_browser_request_is_same_origin(request: Request, *, require_origin: bool = False) -> bool:
-    host_parts = _request_host_parts(request.headers.get("host"))
-    if host_parts is None:
-        return False
-    fetch_site = str(request.headers.get("sec-fetch-site") or "").strip().casefold()
-    if fetch_site != "same-origin":
-        return False
-    origin_value = str(request.headers.get("origin") or "").strip()
-    if not origin_value:
-        return not require_origin
-    try:
-        origin = urlsplit(origin_value)
-        origin_host = str(origin.hostname or "").casefold()
-    except ValueError:
-        return False
-    return (
-        origin.scheme.casefold() == request.url.scheme.casefold()
-        and origin_host in _LOOPBACK_HOSTS
-        and origin.netloc.casefold() == host_parts[1]
+    return browser_request_is_same_origin(
+        host_header=request.headers.get("host"),
+        sec_fetch_site=request.headers.get("sec-fetch-site"),
+        origin_header=request.headers.get("origin"),
+        request_scheme=request.url.scheme,
+        canonical_port=settings.port,
+        require_origin=require_origin,
     )
 
 
 def _ui_request_is_loopback(request: Request) -> bool:
     """Allow direct browser bootstrap only from the local loopback listener."""
 
-    client_host = str(getattr(request.client, "host", "") or "").strip()
-    try:
-        return ipaddress.ip_address(client_host).is_loopback
-    except ValueError:
-        return client_host.casefold() == "localhost"
+    return request_is_loopback(getattr(request.client, "host", ""))
 
 
 def _websocket_origin_is_allowed(websocket: WebSocket, *, require_exact_origin: bool) -> bool:
-    host_parts = _request_host_parts(websocket.headers.get("host"))
-    if host_parts is None:
-        return False
-    origin_value = str(websocket.headers.get("origin") or "").strip()
-    if not origin_value:
-        return not require_exact_origin
-    try:
-        origin = urlsplit(origin_value)
-        origin_host = str(origin.hostname or "").casefold()
-    except ValueError:
-        return False
-    if origin.scheme.casefold() not in {"http", "https"} or origin_host not in _LOOPBACK_HOSTS:
-        return False
-    return not require_exact_origin or origin.netloc.casefold() == host_parts[1]
+    return websocket_origin_is_allowed(
+        host_header=websocket.headers.get("host"),
+        origin_header=websocket.headers.get("origin"),
+        canonical_port=settings.port,
+        require_exact_origin=require_exact_origin,
+    )
 
 
 async def _cancel_lifespan_task(task: asyncio.Task[None] | None, *, name: str) -> None:
