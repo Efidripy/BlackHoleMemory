@@ -24,6 +24,8 @@ def _load(name: str, filename: str):
 
 CRYSTALLIZER = _load("stream_b_crystallizer", "bhm_crystallize_worker.py")
 RECONCILE = _load("stream_b_reconcile", "bhm_reconcile_projection.py")
+CLASSIFY = _load("stream_b_classify", "bhm_classify_projection_orphans.py")
+QUARANTINE = _load("stream_b_quarantine", "bhm_quarantine_projection_orphans.py")
 PROJECTION = _load("stream_b_projection", "run-bhm-projection-worker.py")
 ENDPOINTS = _load("stream_b_endpoints", "bhm_runtime_endpoints.py")
 STREAMABLE = _load("stream_b_streamable", "validate-bhm-p21.0-streamable-http.py")
@@ -44,6 +46,37 @@ def test_reconcile_report_stays_under_approved_root(tmp_path: Path, monkeypatch:
     assert '"ok": true' in target.read_text(encoding="utf-8")
     with pytest.raises(ValueError, match="approved report root"):
         RECONCILE._write_report(tmp_path / "outside.json", {"ok": True})
+
+
+@pytest.mark.parametrize("module", (CLASSIFY, QUARANTINE))
+def test_projection_operator_reports_stay_under_approved_root(
+    module: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(module, "REPORT_ROOT", tmp_path / "reports")
+    target = tmp_path / "reports" / "nested" / "report.json"
+    module._write_report(target, {"ok": True})
+    assert '"ok": true' in target.read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match="approved report root"):
+        module._write_report(tmp_path / "outside.json", {"ok": True})
+
+
+@pytest.mark.parametrize("module", (CLASSIFY, QUARANTINE))
+def test_projection_operator_reports_reject_hardlink_targets(
+    module: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "reports"
+    monkeypatch.setattr(module, "REPORT_ROOT", root)
+    target = root / "report.json"
+    outside = tmp_path / "outside.json"
+    root.mkdir(parents=True)
+    outside.write_text("sentinel", encoding="utf-8")
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+    with pytest.raises(OSError, match="hardlink"):
+        module._write_report(target, {"ok": True})
+    assert outside.read_text(encoding="utf-8") == "sentinel"
 
 
 def test_credential_bearing_endpoints_are_loopback_only() -> None:

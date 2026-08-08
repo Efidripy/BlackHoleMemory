@@ -26,6 +26,7 @@ if str(SRC_ROOT) not in sys.path:
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.capability import configured_admin_capability
 from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.projection_quarantine import QUARANTINE_SCHEMA_VERSION
 from blackholememory.projection_quarantine import collect_quarantine_points
@@ -95,6 +96,29 @@ def _sha256_file(path: Path) -> str:
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+REPORT_ROOT = REPO_ROOT / ".runtime" / "reports"
+
+
+def _write_report(path: Path | None, payload: Any) -> None:
+    if path is None:
+        return
+    target = path.expanduser().resolve(strict=False)
+    root = REPORT_ROOT.expanduser().resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"report path must stay under approved report root: {root}") from exc
+    cursor = target.parent
+    while cursor != root:
+        if cursor.is_symlink():
+            raise OSError(f"report parent must not be a symlink: {cursor}")
+        cursor = cursor.parent
+    replace_bytes_safely(
+        target,
+        (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def _batch_id(collection_name: str) -> str:
@@ -414,7 +438,7 @@ def main() -> int:
             manifest["status"] = "completed"
             _write_json(manifest_path, manifest)
 
-        _write_json(args.report.resolve(), report) if args.report else None
+        _write_report(args.report, report)
         print(json.dumps(_summary(report) if args.summary_only else report, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:
