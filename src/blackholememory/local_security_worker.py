@@ -24,6 +24,7 @@ from .llm_gateway import GatewayResult
 from .llm_job_queue import deterministic_llm_job_id
 from .llm_safety import build_proposal_envelope
 from .local_security_gate import evaluate_local_security_gate
+from .resource_limits import LLM_SECURITY_REVIEW_TIMEOUT_SECONDS
 
 
 LOCAL_SECURITY_WORKER_SCHEMA_VERSION = "bhm.security.local-llm-worker.v1"
@@ -361,7 +362,7 @@ class LocalSecurityWorker:
                 # Qwen under a bounded two-request wave can take ~60s while
                 # producing a compact proposal.  Keep this explicit and
                 # finite; it is still below the operator's long-job budget.
-                timeout_seconds=90.0,
+                timeout_seconds=LLM_SECURITY_REVIEW_TIMEOUT_SECONDS,
                 json_required_keys=("work_item_id", "target_digest", "decision", "confidence", "summary", "evidence_refs"),
                 json_schema=request_schema,
                 project="blackholememory",

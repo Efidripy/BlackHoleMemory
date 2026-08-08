@@ -32,6 +32,7 @@ from blackholememory.resource_limits import EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_REFLECTION_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_INVENTORY_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LLM_SECURITY_REVIEW_TIMEOUT_SECONDS
 from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS
 from blackholememory.resource_limits import RESOURCE_LIMITS
@@ -82,6 +83,7 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert LLM_HTTP_TIMEOUT_SECONDS == 120
     assert LLM_REFLECTION_TIMEOUT_SECONDS == 30
     assert LLM_INVENTORY_HTTP_TIMEOUT_SECONDS == 20
+    assert LLM_SECURITY_REVIEW_TIMEOUT_SECONDS == 90
     assert QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS == 30
     assert SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS == 45
     assert any(item.key == "process.execution_timeout" for item in RESOURCE_LIMITS)
