@@ -25,6 +25,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.capability import configured_admin_capability
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.projection_quarantine import QUARANTINE_SCHEMA_VERSION
 from blackholememory.projection_quarantine import collect_quarantine_points
@@ -148,11 +149,20 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def _restore_from_manifest(manifest_path: Path, *, client: Any) -> dict[str, Any]:
+    manifest_path = assert_safe_path(manifest_path).resolve()
+    manifest_root = manifest_path.parent.resolve()
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schemaVersion") != QUARANTINE_SCHEMA_VERSION:
         raise ProjectionQuarantineCliError("unsupported quarantine manifest schema")
-    backup_path = Path(str(manifest.get("backupPath") or "")).resolve()
+    raw_backup_path = Path(str(manifest.get("backupPath") or ""))
+    if raw_backup_path.name != "qdrant-orphan-points.json":
+        raise ProjectionQuarantineCliError("quarantine backup filename is invalid")
+    backup_path = assert_safe_path(raw_backup_path).resolve()
+    if not backup_path.is_relative_to(manifest_root):
+        raise ProjectionQuarantineCliError("quarantine backup path must remain under manifest directory")
     expected_hash = str(manifest.get("backupSha256") or "")
+    if len(expected_hash) != 64 or any(char not in "0123456789abcdefABCDEF" for char in expected_hash):
+        raise ProjectionQuarantineCliError("quarantine backup hash is invalid")
     if not backup_path.exists() or _sha256_file(backup_path) != expected_hash:
         raise ProjectionQuarantineCliError("quarantine backup hash mismatch")
     backup = json.loads(backup_path.read_text(encoding="utf-8"))
