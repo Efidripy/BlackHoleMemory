@@ -629,6 +629,51 @@ def test_scoped_streamable_http_requires_explicit_project_only_for_tool_calls(mo
     asyncio.run(exercise())
 
 
+def test_scoped_streamable_http_batch_checks_each_tool_call(monkeypatch):
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+
+    async def dispatch(message: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "jsonrpc": "2.0",
+            "id": message.get("id"),
+            "result": {"content": [{"type": "text", "text": "ok"}]},
+        }
+
+    async def exercise() -> None:
+        gateway = BhmStreamableHttpGateway(dispatch, server_version="test")
+        async with gateway.run():
+            transport = httpx.ASGITransport(app=gateway.asgi_app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+                _, session_id = await _initialize(client, 1)
+                response = await _post(
+                    client,
+                    [
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 2,
+                            "method": "tools/call",
+                            "params": {
+                                "name": "bhm_search",
+                                "arguments": {"query": "scope", "project": "blackholememory"},
+                            },
+                        },
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 3,
+                            "method": "tools/call",
+                            "params": {"name": "bhm_search", "arguments": {"query": "scope"}},
+                        },
+                    ],
+                    session_id=session_id,
+                )
+
+                assert response.status_code == 403
+                assert response.json()["detail"]["code"] == "caller_project_required"
+
+    asyncio.run(exercise())
+
+
 def test_streamable_http_tool_call_does_not_block_event_loop():
     async def dispatch(message: dict[str, Any]) -> dict[str, Any]:
         if message["method"] == "tools/list":

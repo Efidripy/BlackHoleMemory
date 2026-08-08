@@ -18,8 +18,10 @@ def check_qdrant() -> DependencyStatus:
         client = get_qdrant_client()
         client.get_collections()
         return DependencyStatus("qdrant", True, "ok")
-    except Exception as exc:  # pragma: no cover - runtime probe
-        return DependencyStatus("qdrant", False, str(exc))
+    except Exception:  # pragma: no cover - runtime probe
+        # Dependency exceptions may contain hostnames, paths or credentials;
+        # expose only the stable health-contract code to callers.
+        return DependencyStatus("qdrant", False, "qdrant_unavailable")
 
 
 def dependency_report(include_optional: bool = False) -> dict:

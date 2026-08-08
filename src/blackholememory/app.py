@@ -264,6 +264,7 @@ from .code_graph_artifact import verify_graph_artifact
 from .code_graph_dsl import GraphDslError
 from .code_graph_dsl import query_graph_dsl
 from .cross_repo_links import build_cross_repo_link_preview
+from .cross_repo_links import project_scope_is_aggregate
 from .change_impact import ChangeImpactError
 from .change_impact import build_change_impact_preview
 from .change_impact import build_impact_binding_receipt
@@ -12475,7 +12476,10 @@ def _public_code_root_id(project: str, root: Path) -> str:
     return str(probe_repository_state(root, project=project).root_id)
 
 
-def _public_code_projects(database_path: Path) -> dict[str, Any]:
+def _public_code_projects(
+    database_path: Path,
+    allowed_projects: frozenset[str] | None = None,
+) -> dict[str, Any]:
     store = SQLiteRepositoryIndexStore(database_path)
     schema = store.inspect_schema()
     if not schema.get("ready"):
@@ -12502,6 +12506,8 @@ def _public_code_projects(database_path: Path) -> dict[str, Any]:
         projects = []
         for row in rows:
             item = dict(row)
+            if allowed_projects is not None and str(item.get("project") or "") not in allowed_projects:
+                continue
             item["dirty"] = bool(item.get("dirty"))
             projects.append(item)
     finally:
@@ -12583,10 +12589,18 @@ async def bhm_public_code_tools(
             detail={"error": "force_refresh_requires_build_graph"},
         )
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+    principal = getattr(getattr(http_request, "state", None), "bhm_caller_principal", None)
     if operation == "projects":
-        projects = await _run_bounded_read("code.projects", _public_code_projects, database_path)
+        projects = await _run_bounded_read(
+            "code.projects",
+            _public_code_projects,
+            database_path,
+            None if principal is None or principal.all_projects else principal.allowed_projects,
+        )
         return {**projects, "contract_digest": _public_code_contract_digest()}
     if operation == "cross_repo":
+        if principal is not None and not principal.all_projects and project_scope_is_aggregate(request.project):
+            raise HTTPException(status_code=403, detail={"error": "caller_all_projects_required"})
         try:
             preview = await _run_bounded_read(
                 "code.cross_repo",
@@ -12607,7 +12621,6 @@ async def bhm_public_code_tools(
         _public_code_request_scope,
         request,
     )
-    principal = getattr(getattr(http_request, "state", None), "bhm_caller_principal", None)
     if principal is not None:
         root_error = authorize_project_root(
             principal,
@@ -12757,6 +12770,8 @@ async def bhm_public_code_tools(
                 verify_graph_artifact,
                 request.artifact_path,
                 runtime_dir=settings.runtime_dir,
+                expected_project=project,
+                expected_root_id=root_id,
             )
         except CodeGraphArtifactError as exc:
             raise HTTPException(status_code=422, detail={"error": "graph_artifact_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
@@ -12779,6 +12794,8 @@ async def bhm_public_code_tools(
                 verify_graph_artifact,
                 request.artifact_path,
                 runtime_dir=settings.runtime_dir,
+                expected_project=project,
+                expected_root_id=root_id,
             )
             current_graph = await _run_bounded_read(
                 "code.graph_artifact.promotion.snapshot",
@@ -14986,7 +15003,13 @@ async def bhm_memory_pulse_ws(websocket: WebSocket) -> None:
         await websocket.close(code=4403, reason=project_error)
         return
     subscribed_projects = None if principal.all_projects and not requested_projects else frozenset(requested_projects)
-    await _MEMORY_PULSE_BUS.connect(websocket, subscribed_projects)
+    try:
+        await _MEMORY_PULSE_BUS.connect(websocket, subscribed_projects)
+    except RuntimeError as exc:
+        if str(exc) == "pulse_client_limit":
+            await websocket.close(code=1013, reason="pulse_client_limit")
+            return
+        raise
     try:
         while True:
             if bearer_authenticated:

@@ -132,7 +132,7 @@ def build_cross_repo_link_preview(
         rows = _current_graph_rows(connection)
     finally:
         connection.close()
-    if project and project not in {".", "*", "blackholememory"}:
+    if project and not project_scope_is_aggregate(project):
         rows = [row for row in rows if str(row["project"]) == str(project)]
     materials: list[dict[str, Any]] = []
     for row in rows:
@@ -324,4 +324,15 @@ def build_cross_repo_link_preview(
     }
 
 
-__all__ = ["CROSS_EDGE_KINDS", "CROSS_REPO_SCHEMA_VERSION", "build_cross_repo_link_preview"]
+def project_scope_is_aggregate(project: str | None) -> bool:
+    """Return whether a cross-repository request asks for aggregate scope."""
+
+    return str(project or "").strip().casefold() in {"", ".", "*", "blackholememory"}
+
+
+__all__ = [
+    "CROSS_EDGE_KINDS",
+    "CROSS_REPO_SCHEMA_VERSION",
+    "build_cross_repo_link_preview",
+    "project_scope_is_aggregate",
+]
