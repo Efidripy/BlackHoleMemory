@@ -185,6 +185,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="explicitly delete REVIEW orphan points during apply",
     )
+    parser.add_argument(
+        "--allow-non-authoritative-target",
+        action="store_true",
+        help="explicitly permit apply to a schema-valid SQLite target other than the canonical live database",
+    )
     return parser.parse_args()
 
 
@@ -205,6 +210,10 @@ def main() -> int:
             raise ProjectionReconciliationError("--apply requires --confirm-plan-digest")
 
         targets_live = database == DEFAULT_DATABASE.resolve()
+        if args.apply and not targets_live and not args.allow_non_authoritative_target:
+            raise ProjectionReconciliationError(
+                "apply to a non-authoritative SQLite target requires --allow-non-authoritative-target"
+            )
         listener_open = _listener_open()
         if args.apply and targets_live and listener_open:
             raise ProjectionReconciliationError(
@@ -243,6 +252,7 @@ def main() -> int:
                     "targetsLiveDatabase": targets_live,
                     "apiListenerOpen": listener_open,
                     "applyRequiresOfflineLiveWriter": True,
+                    "nonAuthoritativeApplyExplicitlyAllowed": bool(args.allow_non_authoritative_target),
                 },
                 "readOnlyRehearsal": not args.apply,
                 "writes_live_state": bool(args.apply),

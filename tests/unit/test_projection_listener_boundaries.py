@@ -19,3 +19,9 @@ def test_projection_listener_probes_use_registry_timeout() -> None:
         text = script.read_text(encoding="utf-8")
         assert "LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS" in text
         assert "timeout=0.25" not in text
+
+
+def test_reconcile_foreign_database_apply_requires_explicit_opt_in() -> None:
+    source = (ROOT / "scripts" / "bhm_reconcile_projection.py").read_text(encoding="utf-8")
+    assert "--allow-non-authoritative-target" in source
+    assert "apply to a non-authoritative SQLite target requires" in source
