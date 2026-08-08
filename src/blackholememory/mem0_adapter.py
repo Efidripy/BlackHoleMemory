@@ -460,6 +460,35 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
     scanned = 0
     evicted: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
+    schema_probe = getattr(authoritative, "_schema_is_ready_without_writes", None)
+    if callable(schema_probe):
+        try:
+            schema_ready = bool(schema_probe())
+        except Exception as exc:
+            schema_ready = False
+            errors.append(
+                {
+                    "collection": "authoritative-sqlite",
+                    "error": f"authoritative readiness probe failed: {type(exc).__name__}",
+                }
+            )
+        if not schema_ready:
+            if not errors:
+                errors.append(
+                    {
+                        "collection": "authoritative-sqlite",
+                        "error": "authoritative SQLite is not ready",
+                    }
+                )
+            return {
+                "ok": False,
+                "threshold": threshold,
+                "scanned": scanned,
+                "evicted_count": 0,
+                "evicted": evicted,
+                "archive_path": str(DECAY_ARCHIVE_PATH),
+                "errors": errors,
+            }
 
     for collection_name in _memory_collection_names(client):
         offset = None
