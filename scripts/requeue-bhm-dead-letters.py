@@ -15,6 +15,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
@@ -30,6 +33,7 @@ def _event_digest(event_ids: list[str]) -> str:
 
 
 def _read_dead_letters(database: Path) -> tuple[list[str], str | None]:
+    database = assert_safe_path(database)
     if not database.exists():
         return [], "database does not exist"
     connection = sqlite3.connect(database)
@@ -45,9 +49,15 @@ def _read_dead_letters(database: Path) -> tuple[list[str], str | None]:
 
 
 def _online_backup(database: Path, backup: Path) -> None:
-    backup.parent.mkdir(parents=True, exist_ok=True)
+    database = assert_safe_path(database)
+    backup = assert_safe_path(backup)
     if backup.exists():
         raise FileExistsError(f"backup already exists: {backup}")
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(backup.parent, reject_hardlink_target=False)
+    # Re-check after directory creation and immediately before SQLite opens the
+    # destination so a raced link/reparse target fails closed.
+    assert_safe_path(backup)
     source = sqlite3.connect(database)
     target = sqlite3.connect(backup)
     try:
@@ -58,14 +68,18 @@ def _online_backup(database: Path, backup: Path) -> None:
 
 
 def _apply(database: Path, backup_root: Path, event_digest: str) -> dict[str, Any]:
+    database = assert_safe_path(database)
     current_ids, error = _read_dead_letters(database)
     if error:
         raise RuntimeError(f"cannot revalidate dead-letter preview: {error}")
     current_digest = _event_digest(current_ids)
     if current_digest != event_digest:
         raise RuntimeError("dead-letter preview is stale; re-run the read-only preview")
+    backup_root = assert_safe_path(backup_root, reject_hardlink_target=False)
     backup_root.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(backup_root, reject_hardlink_target=False)
     backup = backup_root / database.name
+    manifest_path = assert_safe_path(backup_root / "requeue-manifest.json")
     _online_backup(database, backup)
     now = _utc_now()
     connection = sqlite3.connect(database)
@@ -97,9 +111,9 @@ def _apply(database: Path, backup_root: Path, event_digest: str) -> dict[str, An
         "changed": changed,
         "timestamp": now,
     }
-    (backup_root / "requeue-manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    replace_bytes_safely(
+        manifest_path,
+        (json.dumps(manifest, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
     )
     return manifest
 
