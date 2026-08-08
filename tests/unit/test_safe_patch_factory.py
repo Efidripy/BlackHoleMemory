@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
+import blackholememory.safe_patch_factory as safe_patch_factory
 from blackholememory.safe_patch_factory import SafePatchApprovalRequired
 from blackholememory.safe_patch_factory import SafePatchFactory
 from blackholememory.safe_patch_factory import SafePatchPathError
+from blackholememory.resource_limits import PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS
 
 
 PATCH = """diff --git a/src/demo.py b/src/demo.py
@@ -21,6 +23,14 @@ PATCH = """diff --git a/src/demo.py b/src/demo.py
  def read():
      return VALUE
 """
+
+
+def test_safe_patch_process_cleanup_uses_registry_timeout() -> None:
+    source = Path(safe_patch_factory.__file__).read_text(encoding="utf-8")
+    assert "PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS" in source
+    assert "communicate(timeout=2.0)" not in source
+    assert "timeout=2.0" not in source
+    assert PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS == 2.0
 
 
 def test_factory_applies_only_to_quarantine_and_collects_ast_diff_and_sandbox(tmp_path: Path):
