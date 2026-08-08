@@ -51,6 +51,7 @@ SQLITE_READINESS_PROBE_TIMEOUT_SECONDS = 1.0
 LLM_HTTP_TIMEOUT_SECONDS = 120
 LLM_REFLECTION_TIMEOUT_SECONDS = 30
 LLM_INVENTORY_HTTP_TIMEOUT_SECONDS = 20
+LLM_SECURITY_REVIEW_TIMEOUT_SECONDS = 90
 BHM_INTERNAL_HTTP_TIMEOUT_SECONDS = 15
 BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS = 3
 EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS = 20
@@ -107,6 +108,7 @@ RESOURCE_LIMITS: tuple[ResourceLimit, ...] = (
     ResourceLimit("llm.http_timeout", "llm", LLM_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.LLM_HTTP_TIMEOUT_SECONDS"),
     ResourceLimit("llm.reflection_timeout", "llm", LLM_REFLECTION_TIMEOUT_SECONDS, "seconds", "resource_limits.LLM_REFLECTION_TIMEOUT_SECONDS"),
     ResourceLimit("llm.inventory_http_timeout", "llm", LLM_INVENTORY_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.LLM_INVENTORY_HTTP_TIMEOUT_SECONDS"),
+    ResourceLimit("llm.security_review_timeout", "llm", LLM_SECURITY_REVIEW_TIMEOUT_SECONDS, "seconds", "resource_limits.LLM_SECURITY_REVIEW_TIMEOUT_SECONDS"),
     ResourceLimit("outbound.bhm_internal_timeout", "outbound-http", BHM_INTERNAL_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_INTERNAL_HTTP_TIMEOUT_SECONDS"),
     ResourceLimit("outbound.bhm_speculative_search_timeout", "outbound-http", BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS"),
     ResourceLimit("outbound.external_search_timeout", "outbound-http", EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS"),
@@ -208,6 +210,7 @@ __all__ = [
     "LLM_HTTP_TIMEOUT_SECONDS",
     "LLM_REFLECTION_TIMEOUT_SECONDS",
     "LLM_INVENTORY_HTTP_TIMEOUT_SECONDS",
+    "LLM_SECURITY_REVIEW_TIMEOUT_SECONDS",
     "BHM_INTERNAL_HTTP_TIMEOUT_SECONDS",
     "BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS",
     "EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS",

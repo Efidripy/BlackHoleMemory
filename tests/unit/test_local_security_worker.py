@@ -13,6 +13,7 @@ from blackholememory.local_security_worker import LocalSecurityWorkerError
 from blackholememory.local_security_worker import normalize_worklist
 from blackholememory.local_security_worker import profile_for
 from blackholememory.local_security_worker import worker_contract_descriptor
+from blackholememory.resource_limits import LLM_SECURITY_REVIEW_TIMEOUT_SECONDS
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -159,7 +160,7 @@ def test_ready_execution_returns_proposals_without_authority_writes():
     assert all(item["auto_apply"] is False for item in result["proposals"])
     assert len(gateway.requests) == 2
     assert all(request.json_schema is None for request in gateway.requests)
-    assert all(request.timeout_seconds == 90.0 for request in gateway.requests)
+    assert all(request.timeout_seconds == LLM_SECURITY_REVIEW_TIMEOUT_SECONDS for request in gateway.requests)
 
 
 def test_worker_only_sends_json_schema_when_model_declares_capability():
