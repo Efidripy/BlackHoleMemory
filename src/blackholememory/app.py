@@ -101,7 +101,7 @@ from .health_routes import build_live
 from .health_routes import build_ready
 from .health_routes import build_ready_public
 from .health_routes import build_slo
-from .infra.mcp_broker import _BHM_REMEMBER_ALLOWED_ARGUMENTS
+from .mcp_protocol_contract import validate_bhm_remember_arguments
 from .mem0_adapter import BHMGraphManager
 from .mem0_adapter import StorageNotReady
 from .mem0_adapter import decay_lambda_for_payload
@@ -1784,18 +1784,7 @@ def _jsonrpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
 
 
 def _validate_bhm_remember_mcp_arguments(arguments: dict[str, Any]) -> str | None:
-    argument_keys = set(arguments)
-    unknown_keys = argument_keys - _BHM_REMEMBER_ALLOWED_ARGUMENTS
-    if unknown_keys:
-        names = ", ".join(sorted(unknown_keys))
-        return f"Unsupported bhm_remember argument(s): {names}"
-    if "concepts" in arguments and not isinstance(arguments["concepts"], list):
-        return "bhm_remember concepts must be an array"
-    if "files" in arguments and not isinstance(arguments["files"], list):
-        return "bhm_remember files must be an array"
-    if "metadata" in arguments and arguments["metadata"] is not None and not isinstance(arguments["metadata"], dict):
-        return "bhm_remember metadata must be an object"
-    return None
+    return validate_bhm_remember_arguments(arguments)
 
 
 async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str, Any] | None:
