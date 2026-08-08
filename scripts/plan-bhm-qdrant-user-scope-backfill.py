@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from blackholememory.config import settings
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.mem0_adapter import global_collection_name
 from blackholememory.mem0_adapter import local_collection_name
@@ -19,6 +20,8 @@ PLAN_VERSION = 1
 DEFAULT_PAGE_SIZE = 256
 MAX_PAGES = 10000
 REQUIRED_PROJECTION_FIELDS = ("user_id", "data")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+REPORT_ROOT = REPO_ROOT / ".runtime" / "reports"
 
 
 def _digest_rows(rows: Iterable[str]) -> str:
@@ -128,6 +131,21 @@ def build_plan(collections: Iterable[str], *, page_size: int = DEFAULT_PAGE_SIZE
     }
 
 
+def _write_report(path: Path, rendered: str) -> None:
+    root = REPORT_ROOT.expanduser().resolve()
+    target = path.expanduser().resolve(strict=False)
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"json output path must stay under approved report root: {root}") from exc
+    cursor = target.parent
+    while cursor != root:
+        if cursor.is_symlink():
+            raise OSError(f"json output parent must not be a symlink: {cursor}")
+        cursor = cursor.parent
+    replace_bytes_safely(target, rendered.encode("utf-8"))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project", default="blackholememory")
@@ -141,8 +159,7 @@ def main() -> int:
     plan = build_plan(collections, page_size=args.page_size)
     rendered = json.dumps(plan, ensure_ascii=False, indent=2) + "\n"
     if args.json_output is not None:
-        args.json_output.parent.mkdir(parents=True, exist_ok=True)
-        args.json_output.write_text(rendered, encoding="utf-8")
+        _write_report(args.json_output, rendered)
     print(rendered, end="")
     return 0 if plan["ok"] else 1
 

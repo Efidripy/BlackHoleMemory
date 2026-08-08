@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
+from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 
 def load_plan_module():
@@ -64,3 +68,34 @@ def test_build_plan_rejects_empty_collection_set():
         assert "at least one collection" in str(exc)
     else:
         raise AssertionError("empty collection set must fail closed")
+
+
+def test_json_output_uses_approved_report_boundary(tmp_path: Path, monkeypatch):
+    source = Path(plan_module.__file__).read_text(encoding="utf-8")
+    assert "replace_bytes_safely" in source
+    assert not re.search(r"json_output\.write_text", source)
+
+    report_root = tmp_path / "reports"
+    monkeypatch.setattr(plan_module, "REPORT_ROOT", report_root)
+    target = report_root / "nested" / "plan.json"
+    plan_module._write_report(target, '{"ok": true}\n')
+    assert target.read_text(encoding="utf-8") == '{"ok": true}\n'
+    with pytest.raises(ValueError, match="approved report root"):
+        plan_module._write_report(tmp_path / "outside.json", '{}\n')
+
+
+def test_json_output_rejects_hardlink_target(tmp_path: Path, monkeypatch):
+    report_root = tmp_path / "reports"
+    monkeypatch.setattr(plan_module, "REPORT_ROOT", report_root)
+    report_root.mkdir(parents=True)
+    target = report_root / "plan.json"
+    outside = tmp_path / "outside.json"
+    outside.write_text("sentinel", encoding="utf-8")
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        plan_module._write_report(target, '{}\n')
+    assert outside.read_text(encoding="utf-8") == "sentinel"
