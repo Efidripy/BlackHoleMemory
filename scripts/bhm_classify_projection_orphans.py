@@ -27,6 +27,7 @@ from blackholememory.projection_reconciliation import QdrantSurfaceAdapter
 from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
 from blackholememory.projection_reconciliation import classify_projection_review_entries
 from blackholememory.projection_reconciliation import projection_review_classification_digest
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.runtime_endpoints import endpoint_parts
 from blackholememory.runtime_storage import inspect_memory_store_schema
 from blackholememory.resource_limits import LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS
@@ -39,6 +40,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
+REPORT_ROOT = REPO_ROOT / ".runtime" / "reports"
 
 
 class ProjectionClassificationError(RuntimeError):
@@ -72,8 +74,21 @@ def _as_of(value: str) -> str:
 def _write_report(path: Path | None, report: dict[str, Any]) -> None:
     if path is None:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    root = REPORT_ROOT.expanduser().resolve()
+    target = path.expanduser().resolve(strict=False)
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"report path must stay under approved report root: {root}") from exc
+    cursor = target.parent
+    while cursor != root:
+        if cursor.is_symlink():
+            raise OSError(f"report parent must not be a symlink: {cursor}")
+        cursor = cursor.parent
+    replace_bytes_safely(
+        target,
+        (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def parse_args() -> argparse.Namespace:
