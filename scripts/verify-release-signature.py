@@ -141,8 +141,13 @@ def verify(
     trust_registry: Path | None = None,
     allow_untrusted_local_signer: bool = False,
     expected_source_revision: str | None = None,
+    local_test_mode: bool = False,
 ) -> dict[str, object]:
     failures: list[str] = []
+    if allow_untrusted_local_signer and not local_test_mode:
+        failures.append("--allow-untrusted-local-signer requires --local-test-mode")
+    if not local_test_mode and not expected_source_revision:
+        failures.append("expected source revision is required outside local test mode")
     input_paths = [("archive", archive), ("signature", signature), ("public key", public_key), ("trust receipt", receipt)]
     if trust_registry is not None:
         input_paths.append(("trust registry", trust_registry))
@@ -321,7 +326,12 @@ def main() -> int:
     parser.add_argument(
         "--allow-untrusted-local-signer",
         action="store_true",
-        help="explicit test/operator-local mode; never use for publishable releases",
+        help="explicit disposable-test signer bypass; requires --local-test-mode",
+    )
+    parser.add_argument(
+        "--local-test-mode",
+        action="store_true",
+        help="allow disposable local verification semantics; never use for promotion",
     )
     parser.add_argument("--expected-source-revision")
     args = parser.parse_args()
@@ -334,6 +344,7 @@ def main() -> int:
         trust_registry=args.trust_registry.absolute() if args.trust_registry else None,
         allow_untrusted_local_signer=args.allow_untrusted_local_signer,
         expected_source_revision=args.expected_source_revision,
+        local_test_mode=args.local_test_mode,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["ok"] else 1

@@ -1,5 +1,6 @@
 param(
     [Parameter(Mandatory = $true)][string]$ReleaseArchive,
+    [string]$ExpectedSourceRevision = "",
     [string]$PythonPath = "",
     [string]$QdrantUrl = '',
     [string]$QdrantCollection = "blackholememory",
@@ -63,6 +64,9 @@ function Get-ArchiveReleaseVersion {
 if (-not (Test-Path -LiteralPath $ReleaseArchive)) {
     throw "Release archive not found: $ReleaseArchive"
 }
+if ([string]::IsNullOrWhiteSpace($ExpectedSourceRevision)) {
+    throw "-ExpectedSourceRevision is required; portable verification must bind the archive to an exact source revision"
+}
 
 $python = Resolve-Python -Candidate $PythonPath
 $repoRoot = Split-Path -Parent $PSScriptRoot
@@ -124,7 +128,8 @@ try {
     }
     $trustVerification = Invoke-JsonScript -Python $python -Script $trustVerifyScript -Arguments @(
         "--archive", $archivePath,
-        "--expected-version", $expectedVersion
+        "--expected-version", $expectedVersion,
+        "--expected-source-revision", $ExpectedSourceRevision
     )
     if (-not [bool]$trustVerification.ok) {
         throw "Release trust verifier returned not-ok."

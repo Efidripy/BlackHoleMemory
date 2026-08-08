@@ -70,6 +70,7 @@ def test_detached_release_signature_round_trip(tmp_path: Path) -> None:
             "--expected-version",
             "v1.8.0",
             "--allow-untrusted-local-signer",
+            "--local-test-mode",
         ],
         check=False,
         capture_output=True,
@@ -117,6 +118,7 @@ def test_detached_release_signature_rejects_archive_tamper(tmp_path: Path) -> No
             "--expected-version",
             "v1.8.0",
             "--allow-untrusted-local-signer",
+            "--local-test-mode",
         ],
         check=False,
         capture_output=True,
@@ -157,6 +159,7 @@ def test_detached_release_signature_rejects_tampered_signed_provenance(tmp_path:
             "--receipt", str(receipt_path),
             "--expected-version", "v1.8.0",
             "--allow-untrusted-local-signer",
+            "--local-test-mode",
             "--expected-source-revision", "a" * 40,
         ],
         check=False,
@@ -360,6 +363,7 @@ def test_detached_signature_verifier_rejects_symlinked_archive(tmp_path: Path) -
             "--receipt", str(tmp_path / "release.trust.json"),
             "--expected-version", "v1.8.0",
             "--allow-untrusted-local-signer",
+            "--local-test-mode",
         ],
         check=False,
         capture_output=True,
@@ -400,6 +404,34 @@ def test_detached_signer_rejects_hardlinked_output(tmp_path: Path) -> None:
     assert result.returncode != 0
     assert "hardlink" in result.stderr.lower()
     assert output.read_bytes() == b"do not replace"
+
+
+def test_detached_release_signature_bypass_requires_explicit_local_test_mode(tmp_path: Path) -> None:
+    archive = tmp_path / "BHM-Release-v1.8.0.zip"
+    key = tmp_path / "signer.pem"
+    archive.write_bytes(b"immutable release bytes")
+    _key(key)
+    subprocess.run(
+        [
+            sys.executable, str(SIGN), "--archive", str(archive), "--private-key", str(key),
+            "--expected-version", "v1.8.0", "--signer-id", "test-signer",
+            "--source-revision", "a" * 40,
+        ],
+        check=True,
+    )
+    result = subprocess.run(
+        [
+            sys.executable, str(VERIFY), "--archive", str(archive),
+            "--signature", f"{archive}.sig", "--public-key", f"{archive}.pub",
+            "--receipt", f"{archive}.trust.json", "--expected-version", "v1.8.0",
+            "--allow-untrusted-local-signer", "--expected-source-revision", "a" * 40,
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert any("requires --local-test-mode" in item for item in json.loads(result.stdout)["failures"])
 
 
 def test_detached_signer_refuses_existing_single_link_output(tmp_path: Path) -> None:
