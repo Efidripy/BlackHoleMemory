@@ -26,6 +26,7 @@ CRYSTALLIZER = _load("stream_b_crystallizer", "bhm_crystallize_worker.py")
 RECONCILE = _load("stream_b_reconcile", "bhm_reconcile_projection.py")
 CLASSIFY = _load("stream_b_classify", "bhm_classify_projection_orphans.py")
 QUARANTINE = _load("stream_b_quarantine", "bhm_quarantine_projection_orphans.py")
+RETENTION = _load("stream_b_retention", "bhm_retention_maintenance.py")
 PROJECTION = _load("stream_b_projection", "run-bhm-projection-worker.py")
 ENDPOINTS = _load("stream_b_endpoints", "bhm_runtime_endpoints.py")
 STREAMABLE = _load("stream_b_streamable", "validate-bhm-p21.0-streamable-http.py")
@@ -48,7 +49,7 @@ def test_reconcile_report_stays_under_approved_root(tmp_path: Path, monkeypatch:
         RECONCILE._write_report(tmp_path / "outside.json", {"ok": True})
 
 
-@pytest.mark.parametrize("module", (CLASSIFY, QUARANTINE))
+@pytest.mark.parametrize("module", (CLASSIFY, QUARANTINE, RETENTION))
 def test_projection_operator_reports_stay_under_approved_root(
     module: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -60,7 +61,7 @@ def test_projection_operator_reports_stay_under_approved_root(
         module._write_report(tmp_path / "outside.json", {"ok": True})
 
 
-@pytest.mark.parametrize("module", (CLASSIFY, QUARANTINE))
+@pytest.mark.parametrize("module", (CLASSIFY, QUARANTINE, RETENTION))
 def test_projection_operator_reports_reject_hardlink_targets(
     module: object, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
