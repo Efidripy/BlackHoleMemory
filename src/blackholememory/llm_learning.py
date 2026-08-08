@@ -513,10 +513,29 @@ class LLMLearningStore:
 
 
 def default_llm_learning_path() -> Path:
+    """Return the canonical reviewed-learning database path.
+
+    The legacy environment override is accepted only when it names the exact
+    canonical path.  A process environment must not be able to redirect this
+    writer to an arbitrary or authoritative SQLite database.
+    """
+
+    canonical = (Path(__file__).resolve().parents[2] / ".runtime" / "llm-jobs" / "learning.sqlite3").resolve()
     configured = str(os.getenv("BHM_LLM_LEARNING_PATH") or "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[2] / ".runtime" / "llm-jobs" / "learning.sqlite3"
+    if not configured:
+        return canonical
+    configured_path = Path(configured).expanduser()
+    if configured_path.exists():
+        metadata = configured_path.stat()
+        if configured_path.is_symlink() or int(getattr(metadata, "st_nlink", 1)) > 1:
+            raise LLMLearningError("configured reviewed-learning database must not be a link")
+    try:
+        selected = configured_path.resolve(strict=False)
+    except OSError as exc:
+        raise LLMLearningError("llm learning path is not resolvable") from exc
+    if selected != canonical:
+        raise LLMLearningError("BHM_LLM_LEARNING_PATH must name the canonical reviewed-learning database")
+    return canonical
 
 
 def _sanitize(value: Any, *, source: str, project: str, max_bytes: int) -> tuple[Any, dict[str, Any]]:
