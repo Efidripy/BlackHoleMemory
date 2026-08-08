@@ -21,6 +21,7 @@ from blackholememory.resource_limits import PROCESS_EXECUTION_DOCKER_RECOVERY_TI
 DOCKER_CHECK_TIMEOUT_SECONDS = PROCESS_EXECUTION_DOCKER_CHECK_TIMEOUT_SECONDS
 DOCKER_RECOVERY_TIMEOUT_SECONDS = PROCESS_EXECUTION_DOCKER_RECOVERY_TIMEOUT_SECONDS
 DOCKER_HEALTHY_STATUS = "Docker был здоров"
+DOCKER_CHECK_FAILED_PREFIX = "Docker check failed"
 DOCKER_HEALED_STATUS = "Docker успешно реанимирован / перезапущен"
 DOCKER_HEAL_FAILED_PREFIX = "Docker реанимация не удалась"
 MCP_BRIDGE_RESET_STATUS = "MCP bridges reset requested"
@@ -122,6 +123,15 @@ def _run_command(args: Sequence[str], timeout_seconds: int) -> InfraCommandResul
 
 def _docker_health_probe() -> InfraCommandResult:
     return _run_command(_DOCKER_CHECK_COMMAND, DOCKER_CHECK_TIMEOUT_SECONDS)
+
+
+def tool_check_docker() -> str:
+    """Probe Docker without attempting host recovery or service mutation."""
+
+    probe = _docker_health_probe()
+    if probe.success:
+        return DOCKER_HEALTHY_STATUS
+    return f"{DOCKER_CHECK_FAILED_PREFIX}: {probe.summary()}"
 
 
 def _docker_recovery_commands() -> list[tuple[str, ...]]:
@@ -230,11 +240,13 @@ def tool_reset_mcp_bridges() -> str:
 
 
 __all__ = [
+    "DOCKER_CHECK_FAILED_PREFIX",
     "DOCKER_HEALED_STATUS",
     "DOCKER_HEALTHY_STATUS",
     "DOCKER_HEAL_FAILED_PREFIX",
     "MCP_BRIDGE_RESET_FAILED_PREFIX",
     "MCP_BRIDGE_RESET_STATUS",
+    "tool_check_docker",
     "tool_check_and_heal_docker",
     "tool_inject_docker_failure",
     "tool_reset_mcp_bridges",
