@@ -40,10 +40,13 @@ class MemoryPulseBus:
         with self._lock:
             if len(self._clients) >= self.max_clients:
                 raise RuntimeError("pulse_client_limit")
-        await websocket.accept()
-        with self._lock:
             self._loop = asyncio.get_running_loop()
             self._clients[websocket] = projects
+        try:
+            await websocket.accept()
+        except Exception:
+            self.disconnect(websocket)
+            raise
 
     def disconnect(self, websocket: Any) -> None:
         with self._lock:
