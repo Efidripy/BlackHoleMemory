@@ -34,6 +34,13 @@ from blackholememory.resource_limits import LLM_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_REFLECTION_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_INVENTORY_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_SECURITY_REVIEW_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_POLL_SECONDS
+from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
+from blackholememory.resource_limits import LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS
 from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS
 from blackholememory.resource_limits import RESOURCE_LIMITS
@@ -86,6 +93,13 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert LLM_REFLECTION_TIMEOUT_SECONDS == 30
     assert LLM_INVENTORY_HTTP_TIMEOUT_SECONDS == 20
     assert LLM_SECURITY_REVIEW_TIMEOUT_SECONDS == 90
+    assert LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS == 2.0
+    assert LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS == 1.0
+    assert LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS == 3.0
+    assert LAUNCHER_TELEMETRY_TIMEOUT_SECONDS == 15.0
+    assert LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS == 45.0
+    assert LAUNCHER_SERVICE_READINESS_POLL_SECONDS == 1.0
+    assert LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS == 4.0
     assert QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS == 30
     assert SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS == 45
     assert any(item.key == "process.execution_timeout" for item in RESOURCE_LIMITS)

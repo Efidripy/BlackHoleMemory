@@ -62,6 +62,13 @@ QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS = 30
 SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS = 45
 MCP_BROKER_JOIN_TIMEOUT_SECONDS = 3.0
 MCP_BROKER_CAPACITY_WAIT_SECONDS = 0.2
+LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS = 2.0
+LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS = 1.0
+LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS = 3.0
+LAUNCHER_TELEMETRY_TIMEOUT_SECONDS = 15.0
+LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS = 45.0
+LAUNCHER_SERVICE_READINESS_POLL_SECONDS = 1.0
+LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS = 4.0
 
 
 @dataclass(frozen=True)
@@ -120,6 +127,13 @@ RESOURCE_LIMITS: tuple[ResourceLimit, ...] = (
     ResourceLimit("source_registry.web_timeout", "source-registry-web", SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS, "seconds", "resource_limits.SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS"),
     ResourceLimit("mcp.broker_join_timeout", "mcp", MCP_BROKER_JOIN_TIMEOUT_SECONDS, "seconds", "resource_limits.MCP_BROKER_JOIN_TIMEOUT_SECONDS"),
     ResourceLimit("mcp.broker_capacity_wait", "mcp", MCP_BROKER_CAPACITY_WAIT_SECONDS, "seconds", "resource_limits.MCP_BROKER_CAPACITY_WAIT_SECONDS"),
+    ResourceLimit("launcher.http_probe_timeout", "launcher", LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS"),
+    ResourceLimit("launcher.tcp_probe_timeout", "launcher", LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS"),
+    ResourceLimit("launcher.remote_http_timeout", "launcher", LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS"),
+    ResourceLimit("launcher.telemetry_timeout", "launcher", LAUNCHER_TELEMETRY_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_TELEMETRY_TIMEOUT_SECONDS"),
+    ResourceLimit("launcher.service_readiness_timeout", "launcher", LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS"),
+    ResourceLimit("launcher.service_readiness_poll", "launcher", LAUNCHER_SERVICE_READINESS_POLL_SECONDS, "seconds", "resource_limits.LAUNCHER_SERVICE_READINESS_POLL_SECONDS"),
+    ResourceLimit("launcher.ui_session_mint_timeout", "launcher", LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS"),
     ResourceLimit("outbound.internal_response_bytes", "outbound-http", MAX_RESPONSE_BYTES, "bytes", "local_endpoint_policy.MAX_RESPONSE_BYTES"),
     ResourceLimit("auth.project_inspection_body", "auth", 1_048_576, "bytes", "caller_auth.MAX_PROJECT_INSPECTION_BYTES"),
     ResourceLimit("ui.exchange_body", "ui", 16_384, "bytes", "app.MAX_UI_EXCHANGE_BODY_BYTES"),
@@ -223,6 +237,13 @@ __all__ = [
     "SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS",
     "MCP_BROKER_JOIN_TIMEOUT_SECONDS",
     "MCP_BROKER_CAPACITY_WAIT_SECONDS",
+    "LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS",
+    "LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS",
+    "LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS",
+    "LAUNCHER_TELEMETRY_TIMEOUT_SECONDS",
+    "LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS",
+    "LAUNCHER_SERVICE_READINESS_POLL_SECONDS",
+    "LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS",
     "RESOURCE_LIMITS",
     "RESOURCE_LIMITS_SCHEMA_VERSION",
     "ResourceLimit",
