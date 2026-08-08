@@ -10,6 +10,17 @@ from blackholememory.repository_index import SQLiteRepositoryIndexStore
 from blackholememory.repository_index import index_repository
 
 
+def test_repository_index_migration_backup_connections_are_bounded() -> None:
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "blackholememory"
+        / "repository_index.py"
+    ).read_text(encoding="utf-8")
+    assert "timeout=self.busy_timeout_ms / 1000" in source
+    assert "PRAGMA busy_timeout={self.busy_timeout_ms}" in source
+
+
 def _git(root: Path, *args: str) -> None:
     subprocess.run(
         ["git", "-C", str(root), *args],

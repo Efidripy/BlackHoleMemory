@@ -1065,13 +1065,22 @@ class SQLiteRepositoryIndexStore:
         backup.parent.mkdir(parents=True, exist_ok=True)
         source_connection = self._connect()
         try:
-            destination = sqlite3.connect(backup)
+            destination = sqlite3.connect(
+                backup,
+                timeout=self.busy_timeout_ms / 1000,
+            )
+            destination.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
             try:
                 source_connection.backup(destination)
                 destination.commit()
             finally:
                 destination.close()
-            backup_connection = sqlite3.connect(f"file:{backup.as_posix()}?mode=ro", uri=True)
+            backup_connection = sqlite3.connect(
+                f"file:{backup.as_posix()}?mode=ro",
+                uri=True,
+                timeout=self.busy_timeout_ms / 1000,
+            )
+            backup_connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
             try:
                 backup_quick_check = str(backup_connection.execute("PRAGMA quick_check").fetchone()[0])
             finally:
