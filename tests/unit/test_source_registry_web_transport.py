@@ -126,3 +126,24 @@ def test_external_redirect_handler_rejects_private_redirect() -> None:
             {},
             "https://127.0.0.1/internal",
         )
+
+
+def test_web_source_dns_validation_rejects_private_resolution(monkeypatch) -> None:
+    monkeypatch.setattr(
+        source_registry.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", ("127.0.0.1", 443))],
+    )
+
+    with pytest.raises(source_registry.SourceRegistryError, match="private or local"):
+        source_registry._validate_web_source_url("https://example.com/reference.txt", resolve_dns=True)
+
+
+def test_web_source_dns_validation_accepts_public_resolution(monkeypatch) -> None:
+    monkeypatch.setattr(
+        source_registry.socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [(2, 1, 6, "", ("93.184.216.34", 443))],
+    )
+
+    assert source_registry._validate_web_source_url("https://example.com/reference.txt", resolve_dns=True).startswith("https://")
