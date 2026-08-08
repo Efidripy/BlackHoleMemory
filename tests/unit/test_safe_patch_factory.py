@@ -209,3 +209,27 @@ def test_factory_sandbox_timeout_reports_process_group_cleanup(tmp_path: Path) -
     assert sandbox["timed_out"] is True
     assert sandbox["process_group_terminated"] is True
     factory.cleanup(plan.quarantine_root)
+
+
+def test_factory_rejects_tampered_candidate_file_before_execution(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "demo.py").write_text("VALUE = 'old'\ndef read():\n    return VALUE\n", encoding="utf-8")
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+    plan = factory.prepare(
+        task_id="safe-patch-tampered-candidate",
+        repo_root=repo,
+        allowed_files=["src/demo.py"],
+        patch_text=PATCH,
+    )
+    outside = tmp_path / "outside.py"
+    outside.write_text("VALUE = 'outside'\n", encoding="utf-8")
+    candidate_file = Path(plan.quarantine_root) / "candidate" / "src" / "demo.py"
+    candidate_file.unlink()
+    try:
+        candidate_file.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+    with pytest.raises(SafePatchPathError, match="reparse point"):
+        factory.run_sandbox(plan, [sys.executable, "-c", "print('never runs')"])
+    factory.cleanup(plan.quarantine_root)
