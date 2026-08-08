@@ -1643,7 +1643,7 @@ def test_secret_text_redaction_covers_dsn_and_credential_paths():
     raw = (
         "dsn=postgresql://user:synthetic-dsn-password@db.example.test:5432/bhm "
         "PWD=short "
-        "path=C:\\runtime\\secret-token\\memories.sqlite"
+        "C:\\runtime\\secret-token\\memories.sqlite"
     )
 
     redacted = redact_secret_text(raw)

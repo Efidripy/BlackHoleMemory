@@ -301,6 +301,18 @@ _TEXT_REDACTION_RULES: tuple[tuple[re.Pattern[str], str | Any, str], ...] = (
         "path-secret",
     ),
     (
+        # Absolute filesystem paths can disclose usernames, deployment roots,
+        # and secret-bearing directory names even when no `path=` label is
+        # present in an exception. Avoid URL authorities (`//host`) and
+        # preserve relative source paths used for ordinary diagnostics.
+        re.compile(
+            r"(?<![A-Za-z0-9:/])(?:[A-Za-z]:[\\/]|\\\\|/(?!/))"
+            r"[^\s,;\"']*(?:[\\/][^\s,;\"']*)+",
+        ),
+        "[REDACTED:path]",
+        "path-secret",
+    ),
+    (
         re.compile(r"\b(set-cookie|cookie)\s*:(?!(?:\s*)\[REDACTED:)\s*[^\r\n]+", re.IGNORECASE),
         lambda match: f"{match.group(1)}: [REDACTED:cookie]",
         "cookie",
