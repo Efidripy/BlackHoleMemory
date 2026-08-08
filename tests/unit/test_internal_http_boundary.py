@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 
 import httpx
@@ -67,6 +68,44 @@ def test_owned_agent_http_clients_clamp_and_reject_non_finite_timeouts() -> None
         BHMRestClient("http://127.0.0.1:8000", timeout=math.inf)
     with pytest.raises(ValueError, match="finite"):
         LocalLLMClient("http://127.0.0.1:13666/v1", "test-model", "", math.nan)
+
+
+def test_local_llm_generation_clients_disable_proxy_redirects(monkeypatch) -> None:
+    captured: list[dict[str, object]] = []
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            captured.append(kwargs)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr(developer_agent.httpx, "AsyncClient", FakeAsyncClient)
+    llm = LocalLLMClient("http://127.0.0.1:13666/v1", "test-model", "", 5)
+
+    async def fake_variant(client, task_query, domain, context, headers, index, temperature):
+        assert client is not None
+        return "solution", {"prompt": 1, "completion": 1, "total": 2}
+
+    async def fake_completion(messages, temperature, client=None, headers=None, proactive_memory_context=""):
+        assert client is not None
+        return "code", {"prompt": 1, "completion": 1, "total": 2}
+
+    monkeypatch.setattr(llm, "_generate_solution_variant", fake_variant)
+    monkeypatch.setattr(llm, "_chat_completion_async", fake_completion)
+
+    solutions, _ = asyncio.run(llm._generate_solutions_async("task", "domain", [], 1))
+    code_variants, _ = asyncio.run(llm._generate_code_from_plan_async("task", "domain", "plan", [], 1))
+
+    assert solutions == ["solution"]
+    assert code_variants == ["code"]
+    assert len(captured) == 2
+    assert all(kwargs["trust_env"] is False for kwargs in captured)
+    assert all(kwargs["follow_redirects"] is False for kwargs in captured)
+    assert all(kwargs["timeout"] == 5.0 for kwargs in captured)
 
 
 def test_mcp_rest_client_disables_proxy_redirects_and_bounds_response(monkeypatch) -> None:

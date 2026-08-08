@@ -4263,7 +4263,7 @@ def test_swarm_vision_api_fallback(monkeypatch, tmp_path):
 
     class FailingVisionClient:
         def __init__(self, *args, **kwargs):
-            pass
+            captured["client_kwargs"] = kwargs
 
         async def __aenter__(self):
             return self
@@ -4283,6 +4283,8 @@ def test_swarm_vision_api_fallback(monkeypatch, tmp_path):
 
     assert api_result.startswith(developer_agent.VISION_ANALYSIS_ERROR_PREFIX)
     assert "vision api offline" in api_result
+    assert captured["client_kwargs"]["trust_env"] is False
+    assert captured["client_kwargs"]["follow_redirects"] is False
     assert captured["url"] == "http://vision.test/v1/chat/completions"
     image_part = captured["payload"]["messages"][1]["content"][1]
     assert image_part["type"] == "image_url"
