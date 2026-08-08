@@ -267,9 +267,38 @@ _TEXT_REDACTION_RULES: tuple[tuple[re.Pattern[str], str | Any, str], ...] = (
         "secret-assignment",
     ),
     (
-        re.compile(r"\b(https?://)([^:/@\s]+):(?!\[REDACTED:)([^@\s]+)@", re.IGNORECASE),
+        # Connection strings are not limited to HTTP(S): database, cache,
+        # broker and other DSNs routinely carry a password in the authority
+        # component.  Keep the scheme/user/host visible while removing only
+        # the credential value.
+        re.compile(r"\b([A-Za-z][A-Za-z0-9+.-]*://)([^:/@\s]+):(?!\[REDACTED:)([^@\s]+)@", re.IGNORECASE),
         lambda match: f"{match.group(1)}{match.group(2)}:[REDACTED:url-credential]@",
         "url-credential",
+    ),
+    (
+        # ODBC/libpq-style DSNs use semicolon-delimited key/value pairs and
+        # can contain short passwords that do not meet the generic assignment
+        # rule's eight-character minimum.
+        re.compile(
+            r"\b(PWD|PASSWORD|PASS)\s*=\s*(?!\[REDACTED:)([^;\s,\"']+)",
+            re.IGNORECASE,
+        ),
+        lambda match: f"{match.group(1)}=[REDACTED:dsn-credential]",
+        "dsn-credential",
+    ),
+    (
+        # Error messages often label a filesystem target explicitly.  Redact
+        # path values only when the path itself contains a credential marker,
+        # preserving ordinary diagnostic paths while preventing token/key
+        # material from escaping through exception text.
+        re.compile(
+            r"(?i)(\b(?:path|file(?:name)?|cwd|root|target)\s*[:=]\s*)(['\"]?)"
+            r"(?=[^'\"\r\n,;]*(?:api[-_]?key|access[-_]?token|refresh[-_]?token|"
+            r"auth[-_]?token|client[-_]?secret|password|passwd|pwd|secret|token|"
+            r"credential|private[-_]?key))[^'\"\r\n,;]+",
+        ),
+        lambda match: f"{match.group(1)}{match.group(2)}[REDACTED:path]",
+        "path-secret",
     ),
     (
         re.compile(r"\b(set-cookie|cookie)\s*:(?!(?:\s*)\[REDACTED:)\s*[^\r\n]+", re.IGNORECASE),

@@ -1639,6 +1639,21 @@ def test_secret_text_redaction_is_idempotent_for_headers_and_urls():
     assert second.replacements == 0
 
 
+def test_secret_text_redaction_covers_dsn_and_credential_paths():
+    raw = (
+        "dsn=postgresql://user:synthetic-dsn-password@db.example.test:5432/bhm "
+        "PWD=short "
+        "path=C:\\runtime\\secret-token\\memories.sqlite"
+    )
+
+    redacted = redact_secret_text(raw)
+
+    assert "synthetic-dsn-password" not in redacted.value
+    assert "short" not in redacted.value
+    assert "secret-token" not in redacted.value
+    assert {"url-credential", "dsn-credential", "path-secret"}.issubset(redacted.kinds)
+
+
 def test_observation_security_enforces_input_and_sanitized_limits():
     base = {
         "hookType": "codex_post_tool_use",
