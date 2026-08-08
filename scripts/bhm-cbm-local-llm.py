@@ -25,6 +25,7 @@ from blackholememory.llm_gateway import ModelDefinition  # noqa: E402
 from blackholememory.llm_gateway import ModelRegistry  # noqa: E402
 from blackholememory.llm_gateway import PromptDefinition  # noqa: E402
 from blackholememory.llm_gateway import PromptRegistry  # noqa: E402
+from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
 
 
 SCHEMA_VERSION = "bhm.cbm.local-llm-working.v1"
@@ -57,8 +58,7 @@ def _emit(report: dict, path: Path | None) -> None:
     rendered = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True, default=str)
     print(rendered)
     if path:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(path, (rendered + "\n").encode("utf-8"))
 
 
 def main() -> int:
@@ -184,7 +184,7 @@ def main() -> int:
         },
         "input_digest": _sha256(user_payload),
     }
-    _emit(report, Path(args.report).expanduser().resolve())
+    _emit(report, Path(args.report).expanduser())
     return 0 if report["ok"] else 1
 
 

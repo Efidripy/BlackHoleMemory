@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from blackholememory.capability_router import build_capability_route_plan
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 def main() -> int:
@@ -47,9 +48,7 @@ def main() -> int:
     rendered = json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True)
     print(rendered)
     if args.report:
-        target = args.report.expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(args.report.expanduser(), (rendered + "\n").encode("utf-8"))
     return 0 if all(plan["checks"].values()) else 1
 
 

@@ -10,6 +10,7 @@ from blackholememory.code_graph_query import ALLOWED_OPERATIONS
 from blackholememory.code_graph_query import CodeGraphQueryError
 from blackholememory.code_graph_query import explain_code_graph
 from blackholememory.code_graph_query import query_code_graph
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.repository_index import probe_repository_state
 
 
@@ -21,9 +22,7 @@ def _emit(value: object, report: str | None = None) -> None:
     rendered = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True, default=str)
     print(rendered)
     if report:
-        target = Path(report).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(rendered + "\n", encoding="utf-8")
+        replace_bytes_safely(Path(report).expanduser(), (rendered + "\n").encode("utf-8"))
 
 
 def main() -> int:
