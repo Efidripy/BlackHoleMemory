@@ -31,7 +31,11 @@ def main() -> int:
         source.write_text(original, encoding="utf-8")
         factory = SafePatchFactory(root=root / "quarantine")
         plan = factory.prepare(task_id="p17.10-validator", repo_root=repo, allowed_files=["src/demo.py"], patch_text=PATCH)
-        sandbox = factory.run_sandbox(plan, [sys.executable, "-c", "from src.demo import read; assert read() == 'new'"])
+        sandbox = factory.run_sandbox(
+            plan,
+            [sys.executable, "-c", "from src.demo import read; assert read() == 'new'"],
+            allow_host_process=True,
+        )
         review = factory.review(plan, sandbox_result=sandbox, root_cause="stale constant")
         handoff = factory.apply_approved(plan, approval_token="operator-approved", expected_diff_digest=plan.diff_digest)
         checks = {
