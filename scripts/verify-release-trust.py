@@ -330,6 +330,11 @@ def main() -> int:
     parser.add_argument("--public-key", type=Path, help="optional detached Ed25519 public-key sidecar")
     parser.add_argument("--signature-receipt", type=Path, help="optional detached signature trust receipt")
     parser.add_argument("--trust-registry", type=Path, help="pinned signer trust registry")
+    parser.add_argument(
+        "--local-test-mode",
+        action="store_true",
+        help="allow disposable local verification without an expected source revision",
+    )
     args = parser.parse_args()
 
     if args.archive:
@@ -343,6 +348,8 @@ def main() -> int:
         elif expected != actual:
             failures.append("archive SHA-256 sidecar mismatch")
         trust_result = verify_files(files, args.expected_version, failures, args.expected_source_revision)
+        if not args.local_test_mode and not args.expected_source_revision:
+            failures.append("expected source revision is required outside local test mode")
         result = {"ok": not failures, "source": str(archive), "archive_sha256": actual, "sidecar": str(sidecar), **trust_result, "failures": failures}
         signature_paths = (args.signature, args.public_key, args.signature_receipt)
         if any(path is not None for path in signature_paths):
@@ -367,6 +374,8 @@ def main() -> int:
     else:
         files, failures = read_root(args.release_root.resolve())
         trust_result = verify_files(files, args.expected_version, failures, args.expected_source_revision)
+        if not args.local_test_mode and not args.expected_source_revision:
+            failures.append("expected source revision is required outside local test mode")
         result = {"ok": not failures, "source": str(args.release_root.resolve()), **trust_result, "failures": failures}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["ok"] else 1

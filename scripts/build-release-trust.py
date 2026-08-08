@@ -16,6 +16,7 @@ import urllib.parse
 from pathlib import Path
 
 from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 RELEASE_TRUST_GIT_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
@@ -443,7 +444,8 @@ def build_trust_manifest(root: Path, version: str, created: str) -> dict[str, ob
 
 
 def write_json(path: Path, value: object) -> None:
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=False) + "\n", encoding="utf-8", newline="\n")
+    payload = (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=False) + "\n").encode("utf-8")
+    replace_bytes_safely(path, payload)
 
 
 def build(root: Path, expected_version: str) -> dict[str, object]:

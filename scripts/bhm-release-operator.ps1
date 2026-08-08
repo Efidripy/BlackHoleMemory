@@ -412,6 +412,9 @@ function Invoke-Mutation {
     if (-not $Confirm -and -not $DryRun) {
         throw "$Mode requires explicit -Confirm; use -DryRun for a non-mutating plan"
     }
+    if ([string]::IsNullOrWhiteSpace($ExpectedSourceRevision)) {
+        throw "$Mode requires -ExpectedSourceRevision; promotion verification must bind the archive to an exact source revision"
+    }
     $archiveInfo = Verify-Archive -Path $Archive -Python $Python -ExpectedSourceRevision $ExpectedSourceRevision
     $targetInfo = Get-InstallSnapshot -Root $Target
     if ($Mode -eq "update" -and -not $targetInfo.exists) {

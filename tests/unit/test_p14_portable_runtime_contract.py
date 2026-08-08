@@ -57,5 +57,7 @@ def test_portable_validator_requires_authoritative_contract():
         "BHM_PROVIDER_WARMUP_DISABLED",
         "PYTHONPATH",
         "checkout_present",
+        "ExpectedSourceRevision",
+        "expected-source-revision",
     ):
         assert marker in text

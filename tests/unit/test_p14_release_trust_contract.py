@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import hashlib
 import json
+import os
 import sys
 import zipfile
 from pathlib import Path
@@ -220,6 +221,29 @@ def test_trust_builder_fails_closed_on_git_error_in_checkout_root(tmp_path, monk
         raise AssertionError("trust builder accepted unavailable Git identity in checkout")
 
 
+def test_trust_builder_rejects_hardlinked_metadata_target(tmp_path, monkeypatch):
+    create_bundle(tmp_path)
+    monkeypatch.setenv("BHM_SOURCE_REVISION", "0123456789abcdef0123456789abcdef01234567")
+    monkeypatch.setenv("BHM_SOURCE_DIRTY", "false")
+    manifest = build_manifest.build_manifest(tmp_path, "v1.7.1")
+    build_manifest.write_manifest(tmp_path, manifest)
+    sentinel = tmp_path / "metadata-sentinel"
+    sentinel.write_text("do not replace", encoding="utf-8")
+    target = tmp_path / "sbom.spdx.json"
+    try:
+        os.link(sentinel, target)
+    except (OSError, NotImplementedError):
+        return
+
+    try:
+        build_trust.build(tmp_path, "v1.7.1")
+    except OSError as exc:
+        assert "hardlink" in str(exc).lower()
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("trust builder replaced a hardlinked metadata target")
+    assert sentinel.read_text(encoding="utf-8") == "do not replace"
+
+
 def test_trust_builder_git_identity_callers_use_registry_bound_timeout(monkeypatch, tmp_path):
     calls: list[dict[str, object]] = []
 
@@ -321,6 +345,8 @@ def test_release_trust_flow_is_wired_to_builder_operator_and_portable_install():
     portable = (REPO_ROOT / "scripts" / "validate-bhm-portable-install.ps1").read_text(encoding="utf-8")
     for text in (builder, operator, portable):
         assert "verify-release-trust.py" in text
+    assert "promotion verification must bind the archive to an exact source revision" in operator
+    assert "ExpectedSourceRevision is required" in portable
     trust_builder = (REPO_ROOT / "scripts" / "build-release-trust.py").read_text(encoding="utf-8")
     assert "operator-checksum" in trust_builder
 
