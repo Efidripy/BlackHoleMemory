@@ -59,18 +59,31 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _manifest_path(raw_path: str, manifest_path: Path) -> Path | None:
-    candidate = Path(str(raw_path or ""))
-    if candidate.is_file():
-        return candidate
-    relative = manifest_path.parent / candidate.name
-    return relative if relative.is_file() else None
+def _manifest_path(raw_path: str, manifest_path: Path, approved_root: Path | None = None) -> Path | None:
+    raw = str(raw_path or "").strip()
+    if not raw:
+        return None
+    backup_root = (approved_root or manifest_path.parent).resolve()
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        candidate = manifest_path.parent / candidate
+    try:
+        resolved_root = backup_root.resolve()
+        resolved = candidate.resolve()
+    except OSError:
+        return None
+    if resolved == resolved_root or resolved_root not in resolved.parents:
+        return None
+    if not resolved.is_file() or resolved.is_symlink():
+        return None
+    return resolved
 
 
 def _load_quarantine_manifests(backup_root: Path | None) -> dict[str, dict[str, Any]]:
     if backup_root is None or not backup_root.exists():
         return {}
     result: dict[str, dict[str, Any]] = {}
+    approved_root = backup_root.resolve()
     try:
         paths = sorted(backup_root.rglob(_BACKUP_MANIFEST_NAME))
     except OSError:
@@ -85,7 +98,16 @@ def _load_quarantine_manifests(backup_root: Path | None) -> dict[str, dict[str, 
         collection = str(payload.get("quarantineCollection") or "").strip()
         if not collection:
             continue
-        backup_path = _manifest_path(str(payload.get("backupPath") or ""), manifest_path)
+        # A manifest may name an absolute path, but it must remain beneath the
+        # operator-selected backup root.  Never fall back to ``candidate.name``
+        # because that turns a traversal into an arbitrary readable-file sink.
+        try:
+            manifest_path = manifest_path.resolve()
+            if manifest_path == approved_root or approved_root not in manifest_path.parents:
+                continue
+        except OSError:
+            continue
+        backup_path = _manifest_path(str(payload.get("backupPath") or ""), manifest_path, approved_root)
         expected_hash = str(payload.get("backupSha256") or "").strip().lower()
         actual_hash = None
         if backup_path is not None:

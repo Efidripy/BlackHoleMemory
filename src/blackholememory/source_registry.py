@@ -480,7 +480,8 @@ def load_registry(path: Path) -> dict[str, Any]:
         if missing:
             raise SourceRegistryError(f"source {source.get('id', '<unknown>')} missing fields: {missing}")
         source_id = str(source["id"])
-        slug = str(source["slug"])
+        slug = validate_source_slug(source["slug"])
+        source["slug"] = slug
         if source_id in seen_ids or slug in seen_slugs:
             raise SourceRegistryError(f"duplicate source id/slug: {source_id}/{slug}")
         if source["source_type"] not in {"git", "web", "paper", "container-image"}:
@@ -492,6 +493,30 @@ def load_registry(path: Path) -> dict[str, Any]:
         seen_ids.add(source_id)
         seen_slugs.add(slug)
     return registry
+
+
+def validate_source_slug(value: Any) -> str:
+    """Return a single safe quarantine directory name.
+
+    Registry slugs are later joined to ``.src`` by attestation and inventory
+    code.  Keep the contract deliberately narrower than a general relative
+    path: one non-empty directory component, no separators or dot segments.
+    """
+
+    slug = str(value or "").strip()
+    normalized = slug.replace("\\", "/")
+    path = Path(normalized)
+    if (
+        not normalized
+        or normalized in {".", ".."}
+        or path.is_absolute()
+        or "/" in normalized
+        or normalized != path.name
+        or ".." in path.parts
+        or len(normalized) > 120
+    ):
+        raise SourceRegistryError(f"unsafe source slug: {slug!r}")
+    return normalized
 
 
 def _source_root(source_root: Path, slug: str) -> Path:

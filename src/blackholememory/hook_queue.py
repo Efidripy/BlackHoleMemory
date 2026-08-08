@@ -83,8 +83,21 @@ def _canonical_json(value: Any) -> str:
     )
 
 
-def _job_id(kind: HookJobKind, event_id: str) -> str:
-    digest = hashlib.sha256(f"{kind}:{event_id}".encode("utf-8")).hexdigest()[:32]
+_EVENT_ID_SEPARATOR = "\x1f"
+
+
+def _scoped_event_id(project: str, event_id: str) -> str:
+    return f"{project}{_EVENT_ID_SEPARATOR}{event_id}"
+
+
+def _public_event_id(value: str) -> str:
+    return str(value).split(_EVENT_ID_SEPARATOR, 1)[-1]
+
+
+def _job_id(kind: HookJobKind, event_id: str, project: str = "e-github-workspace") -> str:
+    digest = hashlib.sha256(
+        f"{kind}:{_scoped_event_id(project, event_id)}".encode("utf-8")
+    ).hexdigest()[:32]
     return f"hookjob_{digest}"
 
 
@@ -206,11 +219,13 @@ class HookJobQueue:
         if kind not in {"compact", "idle"}:
             raise HookQueueError(f"unsupported hook job kind: {kind}")
         event_id = str(payload.get("eventId") or "").strip()
+        project = str(payload.get("project") or "e-github-workspace").strip() or "e-github-workspace"
         if not event_id:
             raise HookQueueError("durable hook job requires eventId")
+        storage_event_id = _scoped_event_id(project, event_id)
         payload_json = _canonical_json(payload)
         payload_sha256 = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
-        job_id = _job_id(kind, event_id)
+        job_id = _job_id(kind, event_id, project)
         created_at = _utc_now_iso()
         now_epoch = time.time()
         self.initialize()
@@ -224,8 +239,9 @@ class HookJobQueue:
                     SELECT job_id, event_id, kind, payload_sha256, status, created_at
                     FROM hook_jobs
                     WHERE event_id = ?
+                       OR (event_id = ? AND project = ?)
                     """,
-                    (event_id,),
+                    (storage_event_id, event_id, project),
                 ).fetchone()
                 pending = self._pending_count_connection(connection)
                 if existing is not None:
@@ -246,8 +262,9 @@ class HookJobQueue:
                     SELECT job_id, event_id, kind, payload_sha256, final_status, created_at
                     FROM hook_job_tombstones
                     WHERE event_id = ?
+                       OR (event_id = ? AND project = ?)
                     """,
-                    (event_id,),
+                    (storage_event_id, event_id, project),
                 ).fetchone()
                 if tombstone is not None:
                     if str(tombstone["kind"]) != kind or str(tombstone["payload_sha256"]) != payload_sha256:
@@ -287,11 +304,11 @@ class HookJobQueue:
                     """,
                     (
                         job_id,
-                        event_id,
+                        storage_event_id,
                         kind,
                         str(payload.get("hookType") or kind),
                         str(payload.get("sessionId") or event_id),
-                        str(payload.get("project") or "e-github-workspace"),
+                        project,
                         int(priority),
                         payload_json,
                         payload_sha256,
@@ -564,7 +581,8 @@ class HookJobQueue:
         return [
             {
                 "jobId": str(row["job_id"]),
-                "eventId": str(row["event_id"]),
+                "eventId": _public_event_id(str(row["event_id"])),
+                "storageEventId": str(row["event_id"]),
                 "kind": str(row["kind"]),
                 "hookType": str(row["hook_type"]),
                 "project": str(row["project"]),
@@ -791,7 +809,8 @@ class HookJobQueue:
         job = {
             "sequence": int(row["sequence"]),
             "jobId": str(row["job_id"]),
-            "eventId": str(row["event_id"]),
+            "eventId": _public_event_id(str(row["event_id"])),
+            "storageEventId": str(row["event_id"]),
             "kind": str(row["kind"]),
             "hookType": str(row["hook_type"]),
             "sessionId": str(row["session_id"]),
@@ -816,7 +835,8 @@ class HookJobQueue:
     def _materialize_tombstone(row: sqlite3.Row) -> dict[str, Any]:
         return {
             "jobId": str(row["job_id"]),
-            "eventId": str(row["event_id"]),
+            "eventId": _public_event_id(str(row["event_id"])),
+            "storageEventId": str(row["event_id"]),
             "kind": str(row["kind"]),
             "hookType": str(row["hook_type"]),
             "project": str(row["project"]),

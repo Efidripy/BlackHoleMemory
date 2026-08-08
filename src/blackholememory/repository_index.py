@@ -1400,6 +1400,27 @@ class SQLiteRepositoryIndexStore:
                     "SELECT * FROM repository_index_jobs WHERE job_id = ?",
                     (job_id,),
                 ).fetchone()
+                if not force_refresh_nonce and (row is None or row["status"] == "completed"):
+                    # A bounded forced refresh may have been interrupted after
+                    # one batch.  Resume that running epoch instead of creating
+                    # a fresh job that can accidentally republish its prior
+                    # snapshot and digest.
+                    completed_row = row
+                    running_row = connection.execute(
+                        """
+                        SELECT * FROM repository_index_jobs
+                        WHERE project = ? AND root_id = ? AND state_digest = ?
+                          AND config_digest = ? AND status = 'running'
+                        ORDER BY updated_at DESC, job_id
+                        LIMIT 1
+                        """,
+                        (state.project, state.root_id, state.state_digest, state.config_digest),
+                    ).fetchone()
+                    if running_row is not None:
+                        row = running_row
+                        job_id = str(row["job_id"])
+                    else:
+                        row = completed_row
                 if row is None:
                     connection.execute(
                         """
@@ -2285,12 +2306,15 @@ def index_repository(
                 and previous_snapshot.get("git_head") == state.git_head
                 and candidate.path not in git_changed_paths
             )
-            trusted_untracked_reuse = candidate.origin != "tracked"
             can_reuse = (
                 previous is not None
                 and int(previous.get("size_bytes", -1)) == candidate.size_bytes
                 and int(previous.get("mtime_ns", -1)) == candidate.mtime_ns
-                and (not state.is_git or trusted_tracked_reuse or trusted_untracked_reuse)
+                # Untracked/filesystem candidates have no immutable revision
+                # anchor.  Size and mtime are insufficient to prove content
+                # identity (an attacker can replace bytes while preserving
+                # both), so always re-read them and recompute the digest.
+                and trusted_tracked_reuse
             )
             if can_reuse:
                 indexed = {

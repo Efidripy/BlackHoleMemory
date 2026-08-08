@@ -89,15 +89,27 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _job_id(idempotency_key: str) -> str:
-    return f"llmjob_{_sha256(idempotency_key)[:32]}"
+_IDEMPOTENCY_SEPARATOR = "\x1f"
 
 
-def deterministic_llm_job_id(idempotency_key: str) -> str:
+def _scoped_idempotency_key(project: str, idempotency_key: str) -> str:
+    return f"{project}{_IDEMPOTENCY_SEPARATOR}{idempotency_key}"
+
+
+def _public_idempotency_key(value: str) -> str:
+    return str(value).split(_IDEMPOTENCY_SEPARATOR, 1)[-1]
+
+
+def _job_id(idempotency_key: str, project: str = "blackholememory") -> str:
+    return f"llmjob_{_sha256(_scoped_idempotency_key(project, idempotency_key))[:32]}"
+
+
+def deterministic_llm_job_id(idempotency_key: str, project: str = "blackholememory") -> str:
     normalized = str(idempotency_key or "").strip()
     if not normalized:
         raise LLMJobQueueError("idempotency_key is required")
-    return _job_id(normalized)
+    normalized_project = str(project or "").strip() or "blackholememory"
+    return _job_id(normalized, normalized_project)
 
 
 def default_llm_job_queue_path() -> Path:
@@ -224,7 +236,8 @@ class LLMJobQueue:
         if payload_size > LLM_JOB_QUEUE_MAX_PAYLOAD_BYTES:
             raise LLMJobQueueError("LLM job payload exceeds durable payload limit")
         payload_sha256 = _sha256(payload_json)
-        job_id = _job_id(normalized_key)
+        storage_key = _scoped_idempotency_key(normalized_project, normalized_key)
+        job_id = _job_id(normalized_key, normalized_project)
         created_at = _utc_now_iso()
         available_epoch = time.time() if available_at is None else float(available_at)
         attempts_limit = max(int(max_attempts), 1)
@@ -239,8 +252,9 @@ class LLMJobQueue:
                     SELECT job_id, idempotency_key, job_type, payload_sha256, status, created_at
                     FROM llm_jobs
                     WHERE idempotency_key = ?
+                       OR (idempotency_key = ? AND project = ?)
                     """,
-                    (normalized_key,),
+                    (storage_key, normalized_key, normalized_project),
                 ).fetchone()
                 pending = self._pending_count_connection(connection)
                 if existing is not None:
@@ -268,7 +282,7 @@ class LLMJobQueue:
                     """,
                     (
                         job_id,
-                        normalized_key,
+                        storage_key,
                         normalized_type,
                         normalized_project,
                         int(priority),
@@ -707,7 +721,7 @@ class LLMJobQueue:
     def _materialize_job(row: sqlite3.Row, *, include_payload: bool) -> dict[str, Any]:
         result: dict[str, Any] = {
             "job_id": str(row["job_id"]),
-            "idempotency_key": str(row["idempotency_key"]),
+            "idempotency_key": _public_idempotency_key(str(row["idempotency_key"])),
             "job_type": str(row["job_type"]),
             "project": str(row["project"]),
             "priority": int(row["priority"]),

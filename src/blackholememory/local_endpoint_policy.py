@@ -7,7 +7,7 @@ import socket
 import urllib.error
 import urllib.request
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 
 MAX_RESPONSE_BYTES = 256 * 1024
@@ -58,6 +58,57 @@ def _validate_hostname_resolution(host: str, port: int | None) -> None:
     addresses = {str(info[4][0]) for info in infos if info and len(info) > 4 and info[4]}
     if not addresses or any(not _is_local_host(address) for address in addresses):
         raise LocalEndpointError("local-only provider hostname resolves outside local boundary")
+
+
+def _resolved_local_address(host: str, port: int | None) -> str | None:
+    """Resolve a local hostname once and return a literal address to connect to.
+
+    Validation and connection must use the same resolved address.  Re-opening
+    the original hostname after validation permits DNS rebinding to move the
+    request to a non-local destination.
+    """
+
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        normalized = host.casefold().rstrip(".")
+        if normalized.endswith(".test"):
+            raise LocalEndpointError("local-only provider test hostname cannot be pinned")
+        try:
+            infos = socket.getaddrinfo(host, port or 80, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            raise LocalEndpointError("local-only provider hostname could not be resolved") from exc
+        addresses = sorted({str(info[4][0]) for info in infos if info and len(info) > 4 and info[4]})
+        if not addresses or any(not _is_local_host(address) for address in addresses):
+            raise LocalEndpointError("local-only provider hostname resolves outside local boundary")
+        return addresses[0]
+    return None
+
+
+def _pin_request_host(request: urllib.request.Request) -> urllib.request.Request:
+    parsed = urlsplit(request.full_url)
+    if not parsed.hostname:
+        raise LocalEndpointError("local-only request has no hostname")
+    resolved_address = _resolved_local_address(parsed.hostname, parsed.port)
+    if resolved_address is None:
+        return request
+    host_for_url = f"[{resolved_address}]" if ":" in resolved_address else resolved_address
+    if parsed.port is not None:
+        host_for_url = f"{host_for_url}:{parsed.port}"
+    original_host = parsed.hostname
+    if parsed.port is not None:
+        original_host = f"{original_host}:{parsed.port}"
+    headers = dict(request.header_items())
+    headers.setdefault("Host", original_host)
+    pinned_url = urlunsplit((parsed.scheme, host_for_url, parsed.path, parsed.query, ""))
+    return urllib.request.Request(
+        pinned_url,
+        data=request.data,
+        headers=headers,
+        origin_req_host=request.origin_req_host,
+        unverifiable=request.unverifiable,
+        method=request.get_method(),
+    )
 
 
 def is_local_host(host: str) -> bool:
@@ -128,11 +179,12 @@ def open_local_url(
             or target.port != origin.port
         ):
             raise LocalEndpointError("local-only request target differs from configured endpoint")
+    pinned_request = _pin_request_host(request)
     opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}),
         _NoRedirectHandler(),
     )
-    return opener.open(request, timeout=timeout)
+    return opener.open(pinned_request, timeout=timeout)
 
 
 def read_bounded_response(response: Any, *, limit: int = MAX_RESPONSE_BYTES) -> bytes:

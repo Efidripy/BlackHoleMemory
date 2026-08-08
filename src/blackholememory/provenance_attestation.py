@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .provenance_boundary import build_provenance_boundary_report
+from .source_registry import SourceRegistryError
+from .source_registry import validate_source_slug
 
 
 PROVENANCE_ATTESTATION_SCHEMA = "bhm.p28.provenance-attestation.v1"
@@ -94,10 +96,17 @@ def build_provenance_attestation_report(
     manifest = None
     manifest_path = None
     if source:
-        manifest_path = root / ".src" / str(source.get("slug")) / "SOURCE-MANIFEST.json"
         try:
+            slug = validate_source_slug(source.get("slug"))
+            source_root = (root / ".src" / slug).resolve()
+            quarantine_root = (root / ".src").resolve()
+            if source_root == quarantine_root or quarantine_root not in source_root.parents:
+                raise SourceRegistryError("source slug escapes quarantine root")
+            manifest_path = source_root / "SOURCE-MANIFEST.json"
+            if not manifest_path.is_file() or manifest_path.is_symlink():
+                raise SourceRegistryError("source manifest is not a regular file")
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, SourceRegistryError):
             failures.append("source manifest unavailable or invalid")
     identity = envelope.get("identity") if isinstance(envelope.get("identity"), dict) else {}
     if source and manifest:
