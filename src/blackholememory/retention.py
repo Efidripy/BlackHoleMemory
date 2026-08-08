@@ -15,6 +15,7 @@ from .hook_queue import HookJobQueue
 from .filesystem_boundaries import assert_safe_path
 from .filesystem_boundaries import replace_bytes_safely
 from .observation_store import ObservationStore
+from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
 
 RETENTION_POLICY_SCHEMA_VERSION = "1.0"
@@ -513,7 +514,13 @@ def sha256_file(path: Path | str) -> str:
 
 
 def sqlite_quick_check(path: Path | str) -> str:
-    connection = sqlite3.connect(str(path))
+    connection = sqlite3.connect(
+        str(path),
+        timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
+    )
+    connection.execute(
+        f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}"
+    )
     try:
         return str(connection.execute("PRAGMA quick_check").fetchone()[0])
     finally:
