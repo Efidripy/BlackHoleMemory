@@ -12,8 +12,10 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import math
 import os
 import re
+import signal
 import shutil
 import stat
 import subprocess
@@ -31,7 +33,32 @@ SAFE_PATCH_MAX_DIFF_BYTES = 256 * 1024
 SAFE_PATCH_MAX_OUTPUT_BYTES = 32 * 1024
 SAFE_PATCH_MAX_TIMEOUT_SECONDS = 300
 SAFE_PATCH_MAX_CONTEXT_SYMBOLS = 512
+SAFE_PATCH_MAX_COMMAND_ARGS = 32
+SAFE_PATCH_MAX_COMMAND_ARG_BYTES = 4096
 SAFE_PATCH_ROOT_ENV = "BHM_SAFE_PATCH_ROOT"
+
+_SANDBOX_ENV_KEYS = frozenset(
+    {
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "PATH",
+        "PATHEXT",
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "USERPROFILE",
+        "WINDIR",
+        "PYTHONIOENCODING",
+        "PYTHONUTF8",
+    }
+)
+_SANDBOX_ENV_BLOCKED = re.compile(
+    r"(?:api[_-]?key|auth|credential|cookie|password|passwd|private[_-]?key|secret|token)",
+    re.IGNORECASE,
+)
 
 _PATH_HEADER = re.compile(r"^(?:---|\+\+\+) ([^\t]+)")
 _SUSPICIOUS_PATTERNS = (
@@ -163,10 +190,10 @@ class SafePatchFactory:
             raise
 
     def ast_context(self, plan: SafePatchPlan) -> dict[str, Any]:
-        candidate = Path(plan.quarantine_root) / "candidate"
+        _baseline, candidate, allowed_files = self._validated_plan_paths(plan)
         symbols: list[dict[str, Any]] = []
         parse_errors: list[dict[str, str]] = []
-        for relative in plan.allowed_files:
+        for relative in allowed_files:
             path = candidate / relative
             if path.suffix.casefold() != ".py" or not path.is_file():
                 continue
@@ -197,11 +224,11 @@ class SafePatchFactory:
         }
 
     def diff_evidence(self, plan: SafePatchPlan) -> dict[str, Any]:
-        baseline = Path(plan.quarantine_root) / "baseline"
-        candidate = Path(plan.quarantine_root) / "candidate"
-        result = _run_command(["git", "diff", "--no-index", "--binary", "--", str(baseline), str(candidate)], cwd=Path(plan.quarantine_root), timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS)
+        baseline, candidate, allowed_files = self._validated_plan_paths(plan)
+        quarantine = baseline.parent
+        result = _run_command(["git", "diff", "--no-index", "--binary", "--", str(baseline), str(candidate)], cwd=quarantine, timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS)
         diff_text = result["stdout"]
-        changed_files = _changed_files(plan)
+        changed_files = _changed_files(baseline, candidate, allowed_files)
         suspicious: set[str] = set()
         for pattern_name, pattern in _SUSPICIOUS_PATTERNS:
             if pattern.search(diff_text):
@@ -227,21 +254,76 @@ class SafePatchFactory:
         timeout_seconds: float = 30.0,
         env: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        if not command or any(not str(part).strip() for part in command):
+        candidate = self._validated_plan_paths(plan)[1]
+        if isinstance(command, (str, bytes)) or not command or any(not str(part).strip() for part in command):
             raise SafePatchError("sandbox command must be a non-empty argv sequence")
-        timeout = max(min(float(timeout_seconds), SAFE_PATCH_MAX_TIMEOUT_SECONDS), 0.1)
-        result = _run_command([str(part) for part in command], cwd=Path(plan.quarantine_root) / "candidate", timeout=timeout, env=env)
+        normalized_command = [str(part) for part in command]
+        if len(normalized_command) > SAFE_PATCH_MAX_COMMAND_ARGS:
+            raise SafePatchBoundsError(f"sandbox command may contain at most {SAFE_PATCH_MAX_COMMAND_ARGS} argv items")
+        if any("\x00" in part or len(part.encode("utf-8")) > SAFE_PATCH_MAX_COMMAND_ARG_BYTES for part in normalized_command):
+            raise SafePatchBoundsError("sandbox command contains an invalid or oversized argv item")
+        try:
+            requested_timeout = float(timeout_seconds)
+        except (TypeError, ValueError) as exc:
+            raise SafePatchError("sandbox timeout must be numeric") from exc
+        if not math.isfinite(requested_timeout):
+            raise SafePatchError("sandbox timeout must be finite")
+        timeout = max(min(requested_timeout, SAFE_PATCH_MAX_TIMEOUT_SECONDS), 0.1)
+        result = _run_command(
+            normalized_command,
+            cwd=candidate,
+            timeout=timeout,
+            env=_sandbox_environment(env),
+            process_group=True,
+        )
         return {
             "schema_version": "bhm.llm.sandbox.v1",
             "plan_id": plan.plan_id,
-            "command": [str(part)[:160] for part in command[:32]],
+            "command": [part[:160] for part in normalized_command],
             "success": result["exit_code"] == 0 and not result["timed_out"],
             "exit_code": result["exit_code"],
             "timed_out": result["timed_out"],
+            "process_group_terminated": result.get("process_group_terminated", False),
             "stdout": result["stdout"],
             "stderr": result["stderr"],
             "bounded": True,
+            "execution_boundary": {
+                "kind": "host-process",
+                "cwd_contained": True,
+                "shell": False,
+                "environment": "allowlisted",
+                "network_isolated": False,
+                "filesystem_isolated": False,
+                "requires_container_for_untrusted_code": True,
+            },
         }
+
+    def _validated_plan_paths(self, plan: SafePatchPlan) -> tuple[Path, Path, tuple[str, ...]]:
+        """Validate a plan's quarantine identity before reading or executing it."""
+
+        plan_id = _safe_identifier(plan.plan_id, "plan_id")
+        requested = Path(plan.quarantine_root).expanduser()
+        lexical = Path(os.path.abspath(os.fspath(requested)))
+        if not _is_relative_to(lexical, self.root) or lexical == self.root or lexical.name != plan_id:
+            raise SafePatchPathError("plan quarantine is outside the factory root or has an invalid identity")
+        _assert_no_reparse_components(lexical, self.root)
+        quarantine = lexical.resolve(strict=False)
+        if not _is_relative_to(quarantine, self.root) or quarantine == self.root:
+            raise SafePatchPathError("plan quarantine resolves outside the factory root")
+        if not quarantine.is_dir():
+            raise SafePatchPathError("plan quarantine directory does not exist")
+        baseline_lexical = quarantine / "baseline"
+        candidate_lexical = quarantine / "candidate"
+        _assert_no_reparse_components(baseline_lexical, quarantine)
+        _assert_no_reparse_components(candidate_lexical, quarantine)
+        baseline = baseline_lexical.resolve(strict=False)
+        candidate = candidate_lexical.resolve(strict=False)
+        if not _is_relative_to(baseline, quarantine) or not _is_relative_to(candidate, quarantine):
+            raise SafePatchPathError("plan evidence path escapes quarantine")
+        if not baseline.is_dir() or not candidate.is_dir():
+            raise SafePatchPathError("plan quarantine is missing baseline or candidate directory")
+        allowed_files = tuple(_normalize_allowed_files(plan.allowed_files))
+        return baseline, candidate, allowed_files
 
     def review(
         self,
@@ -372,11 +454,9 @@ def _normalize_relative_path(raw: str) -> str:
     return "/".join(parts)
 
 
-def _changed_files(plan: SafePatchPlan) -> list[str]:
-    baseline = Path(plan.quarantine_root) / "baseline"
-    candidate = Path(plan.quarantine_root) / "candidate"
+def _changed_files(baseline: Path, candidate: Path, allowed_files: Sequence[str]) -> list[str]:
     changed: list[str] = []
-    for relative in plan.allowed_files:
+    for relative in allowed_files:
         before = baseline / relative
         after = candidate / relative
         before_digest = _file_sha256(before) if before.is_file() else None
@@ -446,6 +526,31 @@ def _safe_identifier(value: str, field: str) -> str:
     return normalized
 
 
+def _sandbox_environment(overrides: dict[str, str] | None) -> dict[str, str]:
+    """Build a minimal environment without inherited credentials/import hooks."""
+
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key in _SANDBOX_ENV_KEYS and isinstance(value, str)
+    }
+    environment.pop("PYTHONPATH", None)
+    environment["PYTHONNOUSERSITE"] = "1"
+    for key, value in (overrides or {}).items():
+        normalized_key = str(key)
+        if (
+            not normalized_key
+            or normalized_key not in _SANDBOX_ENV_KEYS
+            or _SANDBOX_ENV_BLOCKED.search(normalized_key)
+            or normalized_key in {"PYTHONPATH", "PYTHONHOME"}
+        ):
+            raise SafePatchPathError(f"sandbox environment key is not allowlisted: {normalized_key}")
+        if not isinstance(value, str) or "\x00" in value:
+            raise SafePatchError(f"sandbox environment value is invalid: {normalized_key}")
+        environment[normalized_key] = value
+    return environment
+
+
 def _run_command(
     command: Sequence[str],
     *,
@@ -453,34 +558,109 @@ def _run_command(
     timeout: float,
     input_text: str | None = None,
     env: dict[str, str] | None = None,
+    process_group: bool = False,
 ) -> dict[str, Any]:
+    normalized_command = [str(item) for item in command]
+    if any("\x00" in item for item in normalized_command):
+        return {"exit_code": 127, "stdout": "", "stderr": "invalid command", "timed_out": False}
+    if not process_group:
+        try:
+            completed = subprocess.run(
+                normalized_command,
+                cwd=cwd,
+                input=input_text,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+                shell=False,
+                env=env,
+            )
+            return {
+                "exit_code": int(completed.returncode),
+                "stdout": str(completed.stdout or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+                "stderr": str(completed.stderr or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+                "timed_out": False,
+            }
+        except subprocess.TimeoutExpired as exc:
+            return {
+                "exit_code": 124,
+                "stdout": str(exc.stdout or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+                "stderr": str(exc.stderr or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+                "timed_out": True,
+            }
+        except OSError as exc:
+            return {"exit_code": 127, "stdout": "", "stderr": str(exc)[:SAFE_PATCH_MAX_OUTPUT_BYTES], "timed_out": False}
+
+    process: subprocess.Popen[str] | None = None
     try:
-        completed = subprocess.run(
-            list(command),
+        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+        process = subprocess.Popen(
+            normalized_command,
             cwd=cwd,
-            input=input_text,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
-            check=False,
             shell=False,
             env=env,
+            stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
+            start_new_session=os.name != "nt",
+            creationflags=creationflags,
         )
+        stdout, stderr = process.communicate(input=input_text, timeout=timeout)
         return {
-            "exit_code": int(completed.returncode),
-            "stdout": str(completed.stdout or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
-            "stderr": str(completed.stderr or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+            "exit_code": int(process.returncode),
+            "stdout": str(stdout or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+            "stderr": str(stderr or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
             "timed_out": False,
         }
     except subprocess.TimeoutExpired as exc:
+        terminated = _terminate_process_group(process.pid if process is not None else 0)
+        stdout = stderr = ""
+        if process is not None:
+            try:
+                stdout, stderr = process.communicate(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                stdout, stderr = process.communicate()
         return {
             "exit_code": 124,
-            "stdout": str(exc.stdout or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
-            "stderr": str(exc.stderr or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+            "stdout": str(stdout or exc.stdout or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+            "stderr": str(stderr or exc.stderr or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
             "timed_out": True,
+            "process_group_terminated": terminated,
         }
     except OSError as exc:
-        return {"exit_code": 127, "stdout": "", "stderr": str(exc)[:SAFE_PATCH_MAX_OUTPUT_BYTES], "timed_out": False}
+        return {
+            "exit_code": 127,
+            "stdout": "",
+            "stderr": str(exc)[:SAFE_PATCH_MAX_OUTPUT_BYTES],
+            "timed_out": False,
+            "process_group_terminated": False,
+        }
+
+
+def _terminate_process_group(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+                shell=False,
+            )
+            return result.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
 
 
 def _file_sha256(path: Path) -> str:

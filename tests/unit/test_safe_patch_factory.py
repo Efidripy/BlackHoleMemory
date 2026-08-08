@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+import os
 import sys
 from pathlib import Path
 
@@ -133,3 +135,77 @@ def test_factory_rejects_portable_unsafe_allowlist_paths(tmp_path: Path, path: s
             allowed_files=[path],
             patch_text=PATCH,
         )
+
+
+def test_factory_revalidates_plan_quarantine_before_sandbox_execution(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "demo.py").write_text("VALUE = 'old'\ndef read():\n    return VALUE\n", encoding="utf-8")
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+    plan = factory.prepare(
+        task_id="safe-patch-forged-plan",
+        repo_root=repo,
+        allowed_files=["src/demo.py"],
+        patch_text=PATCH,
+    )
+    forged = replace(plan, quarantine_root=str(tmp_path))
+    with pytest.raises(SafePatchPathError):
+        factory.run_sandbox(forged, [sys.executable, "-c", "print('never runs')"])
+    factory.cleanup(plan.quarantine_root)
+
+
+def test_factory_sandbox_does_not_inherit_secret_environment(tmp_path: Path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "demo.py").write_text("VALUE = 'old'\ndef read():\n    return VALUE\n", encoding="utf-8")
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+    plan = factory.prepare(
+        task_id="safe-patch-env-boundary",
+        repo_root=repo,
+        allowed_files=["src/demo.py"],
+        patch_text=PATCH,
+    )
+    monkeypatch.setenv("BHM_TEST_SECRET", "must-not-cross-boundary")
+    sandbox = factory.run_sandbox(
+        plan,
+        [sys.executable, "-c", "import os; print(os.getenv('BHM_TEST_SECRET', 'missing'))"],
+    )
+    assert sandbox["success"] is True
+    assert sandbox["stdout"].strip() == "missing"
+    assert sandbox["execution_boundary"]["environment"] == "allowlisted"
+    assert sandbox["execution_boundary"]["network_isolated"] is False
+    factory.cleanup(plan.quarantine_root)
+
+
+def test_factory_sandbox_rejects_import_path_override(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "demo.py").write_text("VALUE = 'old'\ndef read():\n    return VALUE\n", encoding="utf-8")
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+    plan = factory.prepare(
+        task_id="safe-patch-env-override",
+        repo_root=repo,
+        allowed_files=["src/demo.py"],
+        patch_text=PATCH,
+    )
+    with pytest.raises(SafePatchPathError):
+        factory.run_sandbox(plan, [sys.executable, "-c", "pass"], env={"PYTHONPATH": os.getcwd()})
+    factory.cleanup(plan.quarantine_root)
+
+
+def test_factory_sandbox_timeout_reports_process_group_cleanup(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "src").mkdir(parents=True)
+    (repo / "src" / "demo.py").write_text("VALUE = 'old'\ndef read():\n    return VALUE\n", encoding="utf-8")
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+    plan = factory.prepare(
+        task_id="safe-patch-timeout-boundary",
+        repo_root=repo,
+        allowed_files=["src/demo.py"],
+        patch_text=PATCH,
+    )
+    sandbox = factory.run_sandbox(plan, [sys.executable, "-c", "import time; time.sleep(30)"], timeout_seconds=0.1)
+    assert sandbox["success"] is False
+    assert sandbox["timed_out"] is True
+    assert sandbox["process_group_terminated"] is True
+    factory.cleanup(plan.quarantine_root)
