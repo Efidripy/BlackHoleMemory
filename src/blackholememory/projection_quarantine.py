@@ -284,20 +284,67 @@ def delete_original_points(
     *,
     batch_size: int = 128,
 ) -> int:
-    grouped: dict[str, list[Any]] = defaultdict(list)
+    grouped: dict[tuple[str, str], list[QuarantinePoint]] = defaultdict(list)
     for point in points:
-        grouped[point.original_collection].append(point.original_id)
+        project = str(point.payload.get("project") or "").strip()
+        if not project:
+            raise ProjectionQuarantineError(
+                f"cannot delete unscoped projection point: "
+                f"{point.original_collection}:{point.original_point_id}"
+            )
+        grouped[(point.original_collection, project)].append(point)
+
     deleted = 0
-    for collection_name in sorted(grouped):
-        point_ids = grouped[collection_name]
-        for start in range(0, len(point_ids), batch_size):
-            batch = point_ids[start : start + batch_size]
+    for (collection_name, project) in sorted(grouped):
+        point_list = grouped[(collection_name, project)]
+        for start in range(0, len(point_list), batch_size):
+            batch_points = point_list[start : start + batch_size]
+            point_ids = [point.original_id for point in batch_points]
+            observed = client.retrieve(
+                collection_name=collection_name,
+                ids=point_ids,
+                with_payload=True,
+                with_vectors=True,
+            )
+            observed_by_id = {str(record.id): record for record in observed or []}
+            expected_ids = {point.original_point_id for point in batch_points}
+            if set(observed_by_id) != expected_ids:
+                raise ProjectionQuarantineError(
+                    f"candidate set changed before delete: {collection_name}:{project}"
+                )
+            for point in batch_points:
+                record = observed_by_id[point.original_point_id]
+                payload = dict(getattr(record, "payload", None) or {})
+                vector = getattr(record, "vector", None)
+                if str(payload.get("project") or "").strip() != project:
+                    raise ProjectionQuarantineError(
+                        f"candidate crossed project boundary: {collection_name}:{point.original_point_id}"
+                    )
+                if json_sha256(payload) != point.payload_sha256:
+                    raise ProjectionQuarantineError(
+                        f"candidate payload changed before delete: {collection_name}:{point.original_point_id}"
+                    )
+                if json_sha256(vector) != point.vector_sha256:
+                    raise ProjectionQuarantineError(
+                        f"candidate vector changed before delete: {collection_name}:{point.original_point_id}"
+                    )
+            selector = qdrant_models.FilterSelector(
+                filter=qdrant_models.Filter(
+                    must=[
+                        qdrant_models.FieldCondition(
+                            key="project",
+                            match=qdrant_models.MatchValue(value=project),
+                        ),
+                        qdrant_models.HasIdCondition(has_id=point_ids),
+                    ]
+                )
+            )
             client.delete(
                 collection_name=collection_name,
-                points_selector=qdrant_models.PointIdsList(points=batch),
+                points_selector=selector,
                 wait=True,
             )
-            deleted += len(batch)
+            deleted += len(batch_points)
     return deleted
 
 

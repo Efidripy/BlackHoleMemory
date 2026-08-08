@@ -4,6 +4,7 @@ from __future__ import annotations
 # ruff: noqa: E402
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -448,6 +449,12 @@ def _append_decayed_payload_archive(
 
 def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
     client = get_qdrant_client()
+    # Qdrant is a rebuildable projection.  A destructive projection cleanup
+    # still requires a read-only confirmation that its source row exists in
+    # the canonical SQLite store and belongs to the same project.
+    from .memory_repository import SQLiteMemoryRepository
+
+    authoritative = SQLiteMemoryRepository(settings.runtime_dir / "live-memory" / "memories.sqlite3")
     now_dt = datetime.now(timezone.utc)
     archived_at = now_dt.isoformat().replace("+00:00", "Z")
     scanned = 0
@@ -480,6 +487,90 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
                 if score >= threshold:
                     continue
 
+                source_id = str(payload.get("source_id") or "").strip()
+                project = str(payload.get("project") or "").strip()
+                if not source_id or not project:
+                    errors.append(
+                        {
+                            "collection": collection_name,
+                            "error": "stale projection has no authoritative source/project scope",
+                        }
+                    )
+                    continue
+                try:
+                    source_memory = authoritative.get_memory(source_id, project=project)
+                except Exception as exc:
+                    errors.append(
+                        {
+                            "collection": collection_name,
+                            "error": f"authoritative lookup failed: {type(exc).__name__}",
+                        }
+                    )
+                    continue
+                if source_memory is None:
+                    errors.append(
+                        {
+                            "collection": collection_name,
+                            "error": "authoritative memory missing for stale projection",
+                        }
+                    )
+                    continue
+
+                try:
+                    current_points = client.retrieve(
+                        collection_name=collection_name,
+                        ids=[point.id],
+                        with_payload=True,
+                        with_vectors=False,
+                    )
+                except Exception as exc:
+                    errors.append(
+                        {
+                            "collection": collection_name,
+                            "error": f"stale projection revalidation failed: {type(exc).__name__}",
+                        }
+                    )
+                    continue
+                if len(current_points or []) != 1:
+                    errors.append(
+                        {
+                            "collection": collection_name,
+                            "error": "stale projection disappeared before delete",
+                        }
+                    )
+                    continue
+                current_payload = dict(getattr(current_points[0], "payload", None) or {})
+                encoded_before = json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+                encoded_after = json.dumps(
+                    current_payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode("utf-8")
+                if hashlib.sha256(encoded_before).digest() != hashlib.sha256(encoded_after).digest():
+                    errors.append(
+                        {
+                            "collection": collection_name,
+                            "error": "stale projection changed before delete",
+                        }
+                    )
+                    continue
+                if str(current_payload.get("project") or "").strip() != project:
+                    errors.append(
+                        {
+                            "collection": collection_name,
+                            "error": "stale projection crossed project boundary",
+                        }
+                    )
+                    continue
+
                 _append_decayed_payload_archive(
                     collection_name=collection_name,
                     point_id=point.id,
@@ -490,7 +581,18 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
                 )
                 client.delete(
                     collection_name=collection_name,
-                    points_selector=qdrant_models.PointIdsList(points=[point.id]),
+                    points_selector=qdrant_models.FilterSelector(
+                        filter=qdrant_models.Filter(
+                            must=[
+                                qdrant_models.FieldCondition(
+                                    key="project",
+                                    match=qdrant_models.MatchValue(value=project),
+                                ),
+                                qdrant_models.HasIdCondition(has_id=[point.id]),
+                            ]
+                        )
+                    ),
+                    wait=True,
                 )
                 evicted.append({"collection": collection_name, "point_id": str(point.id), "decay_score": score})
 

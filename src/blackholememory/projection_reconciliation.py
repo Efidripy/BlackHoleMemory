@@ -227,6 +227,63 @@ class QdrantSurfaceAdapter:
         )
 
 
+def _payload_digest(payload: Mapping[str, Any] | None) -> str:
+    """Fingerprint an observed projection for apply-time TOCTOU checks."""
+
+    canonical = json.dumps(
+        dict(payload or {}),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _revalidate_review_delete(
+    plan: ProjectionReconciliationPlan,
+    entry: ReconciliationEntry,
+    surface: ProjectionSurface,
+) -> None:
+    """Re-read an orphan before operator-approved destructive cleanup."""
+
+    observed = surface.get_point(entry.collection_name, entry.point_id)
+    if not isinstance(observed, Mapping):
+        raise RuntimeError("projection disappeared or could not be revalidated")
+    payload = observed.get("payload") if isinstance(observed.get("payload"), Mapping) else {}
+    if _payload_digest(payload) != _payload_digest(entry.observed_payload):
+        raise RuntimeError("projection changed after reconciliation plan")
+    if plan.project is not None and str(payload.get("project") or "") != str(plan.project):
+        raise RuntimeError("projection crossed project boundary")
+
+
+def _revalidate_tombstone_delete(
+    plan: ProjectionReconciliationPlan,
+    entry: ReconciliationEntry,
+    memory: Any,
+    surface: ProjectionSurface,
+) -> None:
+    """Re-read canonical tombstone projection and authoritative SQLite state."""
+
+    if getattr(memory, "lifecycle", None) is not Lifecycle.TOMBSTONED:
+        raise RuntimeError("authoritative memory is no longer tombstoned")
+    if plan.project is not None and str(getattr(memory, "project", "")) != str(plan.project):
+        raise RuntimeError("authoritative memory crossed project boundary")
+    observed = surface.get_point(entry.collection_name, entry.point_id)
+    if not isinstance(observed, Mapping):
+        raise RuntimeError("tombstone projection disappeared or could not be revalidated")
+    payload = observed.get("payload") if isinstance(observed.get("payload"), Mapping) else {}
+    if str(payload.get("source_id") or "") != str(entry.memory_id or ""):
+        raise RuntimeError("tombstone projection source changed after plan")
+    if str(payload.get("revision_id") or "") != str(entry.observed_revision_id or ""):
+        raise RuntimeError("tombstone projection revision changed after plan")
+    expected_lifecycle = str((entry.observed_payload or {}).get("lifecycle") or "")
+    if str(payload.get("lifecycle") or "") != expected_lifecycle:
+        raise RuntimeError("tombstone projection lifecycle changed after plan")
+    if plan.project is not None and str(payload.get("project") or "") != str(plan.project):
+        raise RuntimeError("tombstone projection crossed project boundary")
+
+
 def classify_projection_review_entries(
     plan: ProjectionReconciliationPlan,
     *,
@@ -417,6 +474,7 @@ def apply_projection_reconciliation(
                 if not allow_orphan_delete:
                     reviewed += 1
                     continue
+                _revalidate_review_delete(plan, entry, surface)
                 surface.delete_point(entry.collection_name, entry.point_id)
                 deleted += 1
                 continue
@@ -428,6 +486,13 @@ def apply_projection_reconciliation(
                 failures.append(f"{entry.collection_name}:{entry.point_id}:memory-not-found")
                 continue
             if entry.action is ReconciliationAction.DELETE:
+                # Re-read authority immediately before deleting the projection;
+                # the first lookup only proves the plan had a source row.
+                memory = repository.get_memory(entry.memory_id, project=plan.project)
+                if memory is None:
+                    failures.append(f"{entry.collection_name}:{entry.point_id}:memory-not-found")
+                    continue
+                _revalidate_tombstone_delete(plan, entry, memory, surface)
                 surface.delete_point(entry.collection_name, entry.point_id)
                 deleted += 1
             elif entry.action is ReconciliationAction.UPSERT:
