@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..observation_security import redact_secret_text
 from ..resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
 from ..resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
 
@@ -235,7 +236,12 @@ class McpIpcBroker:
 
     @staticmethod
     def _error_response(request_id: Any, code: int, message: str) -> dict[str, Any]:
-        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+        # The broker is also an exception boundary: injected handlers and JSON
+        # parsing can raise before the FastAPI JSON-RPC sanitizer runs.  Keep
+        # the public message bounded and redact bearer/API-key/DSN/path
+        # material before framing it for an MCP client.
+        safe_message = redact_secret_text(str(message)).value[:2_000]
+        return {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": safe_message}}
 
     @staticmethod
     def _validate_jsonrpc_payload(payload: dict[str, Any]) -> str | None:

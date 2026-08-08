@@ -45,6 +45,38 @@ def test_broker_times_out_slow_handler():
     assert elapsed < 0.2
 
 
+def test_broker_redacts_exception_secrets_before_serialization():
+    broker = McpIpcBroker()
+
+    def failing_handler(_payload: dict) -> dict:
+        raise RuntimeError(
+            "Authorization: Bearer synthetic-bearer-token; "
+            "api_key=synthetic-api-key-value; "
+            "dsn=postgresql://user:synthetic-dsn-password@db.example.test:5432/bhm; "
+            "path=C:\\runtime\\secret-token\\memories.sqlite; "
+            "cookie: sid=synthetic-cookie-value"
+        )
+
+    broker._handler = failing_handler
+    try:
+        raw = broker._dispatch_line(b'{"jsonrpc":"2.0","id":4,"method":"ping","params":{}}\n')
+    finally:
+        broker.close()
+
+    assert raw is not None
+    response = _decode(raw)
+    message = response["error"]["message"]
+    for secret in (
+        "synthetic-bearer-token",
+        "synthetic-api-key-value",
+        "synthetic-dsn-password",
+        "synthetic-cookie-value",
+        "secret-token",
+    ):
+        assert secret not in message
+    assert "REDACTED" in message
+
+
 def test_broker_bounds_oversized_response():
     broker = McpIpcBroker(max_frame_bytes=4096)
     broker._handler = lambda _payload: {
