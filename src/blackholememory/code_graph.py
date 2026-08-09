@@ -5248,10 +5248,10 @@ def extract_code_graph(
     """Parse one completed WI-01 snapshot into bounded graph material."""
 
     root_id = str(snapshot.get("root_id") or "")
-    lexical_root = Path(str(snapshot.get("root_path") or "")).expanduser()
-    assert_safe_path(lexical_root, reject_hardlink_target=False)
-    root_path = lexical_root.resolve()
-    assert_safe_path(root_path, reject_hardlink_target=False)
+    root_path = assert_safe_path(
+        Path(str(snapshot.get("root_path") or "")).expanduser(),
+        reject_hardlink_target=False,
+    )
     if not root_id or not root_path.is_dir():
         raise CodeGraphError("snapshot root is unavailable")
     files = list(snapshot.get("files") or [])
