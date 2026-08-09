@@ -19,6 +19,8 @@ from datetime import timezone
 from pathlib import Path
 from typing import Callable
 
+from .filesystem_boundaries import assert_safe_path
+
 
 SCHEMA_VERSION = "bhm.mcp.readiness.v1"
 MAX_DETAIL_LENGTH = 240
@@ -102,7 +104,10 @@ class ReadinessSingleFlightLock:
         self._local_lock = local_lock
         deadline = time.monotonic() + timeout
         try:
+            assert_safe_path(self.path)
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.path.parent, reject_hardlink_target=False)
+            assert_safe_path(self.path)
             handle = self.path.open("a+b")
             handle.seek(0, os.SEEK_END)
             if handle.tell() == 0:

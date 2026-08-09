@@ -5,9 +5,11 @@ import time
 
 import pytest
 
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.mcp_readiness import ReadinessConfig
 from blackholememory.mcp_readiness import ReadinessCoordinator
 from blackholememory.mcp_readiness import ReadinessError
+from blackholememory.mcp_readiness import ReadinessSingleFlightLock
 from blackholememory.mcp_readiness import default_lock_path
 
 
@@ -134,3 +136,31 @@ def test_single_flight_lock_prevents_duplicate_start_across_threads(tmp_path):
 
     assert results == [True, True]
     assert starts == 1
+
+
+def test_single_flight_lock_rejects_hardlinked_target_before_open(tmp_path):
+    outside = tmp_path / "outside.lock"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "startup.lock"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        ReadinessSingleFlightLock(target).acquire(0.1)
+    assert outside.read_bytes() == b"do-not-touch"
+
+
+def test_single_flight_lock_rejects_reparse_parent_before_creation(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|reparse"):
+        ReadinessSingleFlightLock(linked_parent / "startup.lock").acquire(0.1)
+    assert not (outside / "startup.lock").exists()
