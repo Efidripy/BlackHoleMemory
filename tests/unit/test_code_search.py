@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from blackholememory.code_search import get_repository_snippet
 from blackholememory.code_search import search_repository_code
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
 def _files() -> list[dict[str, object]]:
@@ -34,6 +37,36 @@ def test_code_snippet_is_explicitly_redacted(tmp_path: Path) -> None:
     assert "secret" not in result["snippet"]
     assert "[REDACTED]" in result["snippet"]
     assert result["execution"]["source_persisted"] is False
+
+
+def test_code_search_rejects_reparse_repository_root_before_source_read(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        search_repository_code(linked_root, _files(), query="keep")
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        get_repository_snippet(linked_root, _files(), path="module.py")
+
+
+def test_code_search_rejects_linked_snapshot_file_before_source_read(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("def keep():\n    return 1\n", encoding="utf-8")
+    linked_file = root / "module.py"
+    try:
+        linked_file.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        get_repository_snippet(root, _files(), path="module.py")
 
 
 def test_code_search_uses_bounded_ranked_strategy_across_all_indexed_files(tmp_path: Path) -> None:
