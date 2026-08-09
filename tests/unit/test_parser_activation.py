@@ -88,3 +88,27 @@ def test_online_backup_rejects_reparse_parent(tmp_path: Path) -> None:
     with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
         online_backup(source, linked_parent / "backup.sqlite3")
     assert not (outside / "backup.sqlite3").exists()
+
+
+def test_parser_activation_rejects_hardlinked_database_target(tmp_path: Path) -> None:
+    root, database, _root_id = _fixture(tmp_path)
+    alias = tmp_path / "database-alias.sqlite3"
+    try:
+        alias.hardlink_to(database)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        activate_parser_v2(alias, root=root, project="demo", backup=tmp_path / "rollback.sqlite3")
+
+
+def test_parser_activation_rejects_reparse_repository_root(tmp_path: Path) -> None:
+    root, database, _root_id = _fixture(tmp_path)
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(root, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        activate_parser_v2(database, root=linked_root, project="demo", backup=tmp_path / "rollback.sqlite3")
