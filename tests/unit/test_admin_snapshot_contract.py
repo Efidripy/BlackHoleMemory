@@ -85,6 +85,23 @@ def test_admin_export_filters_alias_and_foreign_nested_records(monkeypatch, tmp_
     assert {item["id"] for item in payload["artifacts"]["checkpoint"]} == {"local-artifact"}
 
 
+def test_admin_export_rejects_linked_export_parent_before_creation(monkeypatch, tmp_path) -> None:
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    export_root = runtime_root / "admin-exports"
+    try:
+        export_root.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks unavailable on this Windows host")
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_root)
+
+    with pytest.raises(OSError, match="symlink|junction|reparse"):
+        bhm_app._admin_export(bhm_app.AdminExportRequest(export_name="blocked.json"))
+    assert not (outside / "blocked.json").exists()
+
+
 def test_admin_snapshot_rejects_cross_project_link_endpoints(monkeypatch) -> None:
     monkeypatch.setattr(
         bhm_app,
