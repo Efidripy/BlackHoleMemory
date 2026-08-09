@@ -95,3 +95,31 @@ def test_memory_graph_is_project_scoped_and_bounded(tmp_path):
     result = query_memory_graph(database, project="fixture", operation="search", query="m2", limit=8)
     assert result["nodes"] == []
     assert result["budget"]["within_time_budget"] is True
+
+
+def test_memory_graph_build_rejects_hardlinked_target(tmp_path):
+    outside = tmp_path / "outside.sqlite3"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "memory.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="hardlink"):
+        build_memory_graph(target, project="fixture")
+    assert outside.read_bytes() == b"do-not-touch"
+
+
+def test_memory_graph_build_rejects_reparse_parent(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="symlink|junction|reparse"):
+        build_memory_graph(linked_parent / "memory.sqlite3", project="fixture")
+    assert not (outside / "memory.sqlite3").exists()
