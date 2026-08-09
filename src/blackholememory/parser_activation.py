@@ -23,6 +23,7 @@ from .code_graph import PARSER_REGISTRY_DIGEST
 from .code_graph import SQLiteCodeGraphStore
 from .code_graph import build_code_graph
 from .code_graph import verify_code_graph_snapshot
+from .filesystem_boundaries import assert_safe_path
 from .filesystem_boundaries import replace_bytes_safely
 from .repository_index import SQLiteRepositoryIndexStore
 from .repository_index import probe_repository_state
@@ -38,8 +39,9 @@ class ParserActivationError(RuntimeError):
 
 
 def sha256_file(path: str | Path) -> str:
+    safe_path = assert_safe_path(path)
     digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
+    with safe_path.open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
@@ -48,13 +50,21 @@ def sha256_file(path: str | Path) -> str:
 def online_backup(source: str | Path, target: str | Path) -> dict[str, Any]:
     """Create and verify an SQLite online backup without copying a live file."""
 
-    source_path = Path(source).expanduser().resolve()
-    target_path = Path(target).expanduser().resolve()
+    source_path = Path(source).expanduser()
+    target_path = Path(target).expanduser()
+    assert_safe_path(source_path)
+    assert_safe_path(target_path)
+    source_path = source_path.resolve()
+    target_path = target_path.resolve()
+    assert_safe_path(source_path)
+    assert_safe_path(target_path)
     if not source_path.exists():
         raise ParserActivationError(f"authoritative database is missing: {source_path}")
     if target_path.exists():
         raise ParserActivationError(f"backup already exists: {target_path}")
     target_path.parent.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(target_path.parent, reject_hardlink_target=False)
+    assert_safe_path(target_path)
     source_connection = sqlite3.connect(str(source_path), timeout=SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS)
     target_connection = sqlite3.connect(str(target_path), timeout=SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS)
     try:
@@ -63,6 +73,7 @@ def online_backup(source: str | Path, target: str | Path) -> dict[str, Any]:
     finally:
         target_connection.close()
         source_connection.close()
+    assert_safe_path(target_path)
     with sqlite3.connect(str(target_path), uri=False, timeout=SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS) as connection:
         quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
     if quick_check != "ok":
