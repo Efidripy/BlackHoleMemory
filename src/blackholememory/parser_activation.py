@@ -92,8 +92,14 @@ def activate_parser_v2(
 ) -> dict[str, Any]:
     """Back up and publish the current parser registry against a repository snapshot."""
 
-    database_path = Path(database).expanduser().resolve()
-    root_path = Path(root).expanduser().resolve()
+    database_path = Path(database).expanduser()
+    root_path = Path(root).expanduser()
+    assert_safe_path(database_path)
+    assert_safe_path(root_path, reject_hardlink_target=False)
+    database_path = database_path.resolve()
+    root_path = root_path.resolve()
+    assert_safe_path(database_path)
+    assert_safe_path(root_path, reject_hardlink_target=False)
     project_name = str(project).strip().casefold()
     live_database = Path(__file__).resolve().parents[2] / ".runtime" / "live-memory" / "memories.sqlite3"
     if database_path == live_database.resolve() and not allow_live:
@@ -139,7 +145,7 @@ def activate_parser_v2(
         "build": result,
         "backup": backup_info,
         "rollback": {
-            "restore_sqlite_backup": str(Path(backup).expanduser().resolve()),
+            "restore_sqlite_backup": str(backup_info["path"]),
             "restore_method": "restore SQLite online-backup after service quiesce",
             "previous_parser_registry_digest": (before or {}).get("parser_registry_digest"),
             "previous_code_revision_required": previous_code_revision,
