@@ -17,6 +17,7 @@ from ..mcp_protocol_contract import BHM_REMEMBER_ALLOWED_ARGUMENTS
 from ..mcp_protocol_contract import validate_bhm_remember_arguments
 from ..resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
 from ..resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
+from ..resource_limits import MCP_BROKER_WAKE_TIMEOUT_SECONDS
 
 JsonRpcHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
 ConnectionCloseHandler = Callable[[str, str], None]
@@ -416,9 +417,11 @@ class McpIpcBroker:
     def _wake_listener(self) -> None:
         if os.name == "nt":
             try:
-                with open(self.pipe_path, "wb", buffering=0):
-                    pass
-            except OSError:
+                _WindowsKernel32().wake_named_pipe(
+                    self.pipe_path,
+                    timeout_seconds=MCP_BROKER_WAKE_TIMEOUT_SECONDS,
+                )
+            except (OSError, TypeError, ValueError):
                 pass
             return
         try:
@@ -438,6 +441,9 @@ class _WindowsKernel32:
     _ERROR_PIPE_CONNECTED = 535
     _ERROR_BROKEN_PIPE = 109
     _ERROR_NO_DATA = 232
+    _GENERIC_READ = 0x80000000
+    _GENERIC_WRITE = 0x40000000
+    _OPEN_EXISTING = 3
 
     def __init__(self) -> None:
         self._kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -447,6 +453,8 @@ class _WindowsKernel32:
         self._kernel32.WriteFile.restype = ctypes.c_int
         self._kernel32.DisconnectNamedPipe.restype = ctypes.c_int
         self._kernel32.CloseHandle.restype = ctypes.c_int
+        self._kernel32.WaitNamedPipeW.restype = ctypes.c_int
+        self._kernel32.CreateFileW.restype = ctypes.c_void_p
 
     def create_named_pipe(self, path: str, max_instances: int, buffer_size: int) -> int | None:
         handle = self._kernel32.CreateNamedPipeW(
@@ -468,6 +476,28 @@ class _WindowsKernel32:
         if ok:
             return True
         return ctypes.get_last_error() == self._ERROR_PIPE_CONNECTED
+
+    def wake_named_pipe(self, path: str, *, timeout_seconds: float) -> bool:
+        timeout_ms = max(1, min(int(round(float(timeout_seconds) * 1000)), 30_000))
+        available = self._kernel32.WaitNamedPipeW(
+            ctypes.c_wchar_p(path),
+            ctypes.c_uint32(timeout_ms),
+        )
+        if not available:
+            return False
+        handle = self._kernel32.CreateFileW(
+            ctypes.c_wchar_p(path),
+            ctypes.c_uint32(self._GENERIC_READ | self._GENERIC_WRITE),
+            ctypes.c_uint32(0),
+            None,
+            ctypes.c_uint32(self._OPEN_EXISTING),
+            ctypes.c_uint32(0),
+            None,
+        )
+        if handle in (None, self._INVALID_HANDLE_VALUE):
+            return False
+        self.close_handle(int(handle))
+        return True
 
     def read(self, handle: int, size: int) -> bytes:
         buffer = ctypes.create_string_buffer(size)
