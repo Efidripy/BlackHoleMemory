@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.resource_limits import PROCESS_EXECUTION_DOCKER_CHECK_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_DOCKER_RECOVERY_TIMEOUT_SECONDS
@@ -184,8 +185,9 @@ def tool_check_and_heal_docker() -> str:
 
 
 def _write_mcp_reset_marker() -> Path:
-    marker_path = Path(os.getenv(MCP_RESET_MARKER_ENV) or (_repo_root() / ".runtime" / "infra" / "mcp-bridge-reset.json"))
-    marker_path.parent.mkdir(parents=True, exist_ok=True)
+    marker_path = assert_safe_path(
+        Path(os.getenv(MCP_RESET_MARKER_ENV) or (_repo_root() / ".runtime" / "infra" / "mcp-bridge-reset.json"))
+    )
     payload = {
         "requested_at": _now_iso(),
         "pid": os.getpid(),

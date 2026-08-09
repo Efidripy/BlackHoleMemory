@@ -54,3 +54,19 @@ def test_mcp_reset_marker_writes_json_with_boundary_safe_replace(tmp_path: Path,
     payload = __import__("json").loads(target.read_text(encoding="utf-8"))
     assert payload["pid"] > 0
     assert payload["process_reset_enabled"] is True
+
+
+def test_mcp_reset_marker_rejects_linked_parent_before_creation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks unavailable on this Windows host")
+    target = linked_parent / "mcp-bridge-reset.json"
+    monkeypatch.setenv(infra_healer.MCP_RESET_MARKER_ENV, str(target))
+
+    with pytest.raises(OSError, match="symlink|junction|reparse"):
+        infra_healer._write_mcp_reset_marker()
+    assert not (outside / "mcp-bridge-reset.json").exists()
