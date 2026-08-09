@@ -14,6 +14,7 @@ from blackholememory.repository_index import index_repository
 from blackholememory.repository_index import probe_repository_state
 from blackholememory.repository_index import RepositoryRootError
 from blackholememory.repository_index import verify_repository_snapshot
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
 def _git(root: Path, *args: str) -> str:
@@ -272,6 +273,19 @@ def test_probe_rejects_reparse_repository_root_before_resolution(tmp_path: Path)
 
     with pytest.raises(RepositoryRootError, match="filesystem boundary"):
         probe_repository_state(linked_root, project="filesystem-boundary")
+
+
+def test_repository_watcher_rejects_reparse_root_before_resolution(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(root, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        RepositoryWatcher(linked_root, tmp_path / "index.sqlite3")
 
 
 def test_failure_before_publish_preserves_last_known_good_then_recovers(tmp_path: Path) -> None:
