@@ -8,10 +8,11 @@ import os
 import re
 from urllib.error import URLError
 from urllib.request import Request
-from urllib.request import urlopen
 from typing import Any
 
 from blackholememory.config import settings
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.mem0_adapter import get_project_mem0_memory
 from blackholememory.mem0_adapter import get_global_core_memory
 from blackholememory.mem0_adapter import get_qdrant_client
@@ -24,7 +25,12 @@ from blackholememory.runtime_endpoints import endpoint_url
 def _provider_is_live(base_url: str) -> bool:
     try:
         request = Request(f"{base_url.rstrip('/')}/models", method="GET")
-        with urlopen(request, timeout=LLM_INVENTORY_HTTP_TIMEOUT_SECONDS) as response:
+        with open_local_url(
+            request,
+            timeout=LLM_INVENTORY_HTTP_TIMEOUT_SECONDS,
+            endpoint=base_url,
+        ) as response:
+            read_bounded_response(response, limit=128)
             return int(getattr(response, "status", 0) or 0) == 200
     except (OSError, URLError, ValueError):
         return False
