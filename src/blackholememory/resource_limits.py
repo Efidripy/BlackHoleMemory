@@ -62,6 +62,7 @@ QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS = 30
 SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS = 45
 MCP_BROKER_JOIN_TIMEOUT_SECONDS = 3.0
 MCP_BROKER_CAPACITY_WAIT_SECONDS = 0.2
+MCP_SESSION_ADMISSION_TIMEOUT_SECONDS = 30.0
 LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS = 2.0
 LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS = 1.0
 LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS = 3.0
@@ -127,6 +128,7 @@ RESOURCE_LIMITS: tuple[ResourceLimit, ...] = (
     ResourceLimit("source_registry.web_timeout", "source-registry-web", SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS, "seconds", "resource_limits.SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS"),
     ResourceLimit("mcp.broker_join_timeout", "mcp", MCP_BROKER_JOIN_TIMEOUT_SECONDS, "seconds", "resource_limits.MCP_BROKER_JOIN_TIMEOUT_SECONDS"),
     ResourceLimit("mcp.broker_capacity_wait", "mcp", MCP_BROKER_CAPACITY_WAIT_SECONDS, "seconds", "resource_limits.MCP_BROKER_CAPACITY_WAIT_SECONDS"),
+    ResourceLimit("mcp.session_admission_timeout", "mcp", MCP_SESSION_ADMISSION_TIMEOUT_SECONDS, "seconds", "resource_limits.MCP_SESSION_ADMISSION_TIMEOUT_SECONDS"),
     ResourceLimit("launcher.http_probe_timeout", "launcher", LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS"),
     ResourceLimit("launcher.tcp_probe_timeout", "launcher", LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS"),
     ResourceLimit("launcher.remote_http_timeout", "launcher", LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS"),
@@ -237,6 +239,7 @@ __all__ = [
     "SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS",
     "MCP_BROKER_JOIN_TIMEOUT_SECONDS",
     "MCP_BROKER_CAPACITY_WAIT_SECONDS",
+    "MCP_SESSION_ADMISSION_TIMEOUT_SECONDS",
     "LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS",
     "LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS",
     "LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS",

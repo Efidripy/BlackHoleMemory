@@ -25,6 +25,7 @@ from .caller_auth import configured_caller_principal
 from .caller_auth import extract_request_projects
 from .caller_auth import is_caller_token_valid
 from .caller_auth import parse_bearer_token
+from .resource_limits import MCP_SESSION_ADMISSION_TIMEOUT_SECONDS
 
 
 JsonRpcDispatcher = Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
@@ -171,9 +172,16 @@ class _HttpSessionAdmissionTicket:
 class HttpMcpSessionRegistry:
     """Bounded, redacted truth surface for SDK-owned HTTP MCP sessions."""
 
-    def __init__(self, *, idle_seconds: float, max_sessions: int = DEFAULT_MAX_SESSIONS) -> None:
+    def __init__(
+        self,
+        *,
+        idle_seconds: float,
+        max_sessions: int = DEFAULT_MAX_SESSIONS,
+        admission_timeout_seconds: float = MCP_SESSION_ADMISSION_TIMEOUT_SECONDS,
+    ) -> None:
         self.idle_seconds = max(float(idle_seconds), 30.0)
         self.max_sessions = max(int(max_sessions), 1)
+        self.admission_timeout_seconds = max(float(admission_timeout_seconds), 0.1)
         self._lock = threading.RLock()
         self._sessions: dict[str, _HttpSession] = {}
         self._expired_count = 0
@@ -222,7 +230,7 @@ class HttpMcpSessionRegistry:
         if waiter.admitted:
             return waiter
         try:
-            await waiter.event.wait()
+            await asyncio.wait_for(waiter.event.wait(), timeout=self.admission_timeout_seconds)
             return waiter
         except BaseException:
             self.cancel_initialize_slot(waiter)
@@ -569,7 +577,26 @@ class _StreamableHttpAsgiApp:
         method = str(message.get("method") or "")
         admission: _HttpSessionAdmissionTicket | None = None
         if request_method == "POST" and method == "initialize":
-            admission = await self._sessions.acquire_initialize_slot()
+            try:
+                admission = await self._sessions.acquire_initialize_slot()
+            except asyncio.TimeoutError:
+                payload = json.dumps(
+                    {"detail": {"code": "mcp_session_admission_timeout"}},
+                    separators=(",", ":"),
+                ).encode("utf-8")
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 503,
+                        "headers": [
+                            (b"content-type", b"application/json; charset=utf-8"),
+                            (b"cache-control", b"no-store"),
+                            (b"retry-after", b"1"),
+                        ],
+                    }
+                )
+                await send({"type": "http.response.body", "body": payload})
+                return
         manager_completed = False
         try:
             await self._manager.handle_request(
@@ -651,6 +678,7 @@ class BhmStreamableHttpGateway:
         dispatch_timeout_seconds: float = DEFAULT_DISPATCH_TIMEOUT_SECONDS,
         max_concurrent_calls: int = DEFAULT_MAX_CONCURRENT_CALLS,
         max_sessions: int = DEFAULT_MAX_SESSIONS,
+        session_admission_timeout_seconds: float = MCP_SESSION_ADMISSION_TIMEOUT_SECONDS,
     ) -> None:
         self.dispatcher = dispatcher
         self.dispatch_timeout_seconds = max(float(dispatch_timeout_seconds), 0.1)
@@ -667,6 +695,7 @@ class BhmStreamableHttpGateway:
         self.sessions = HttpMcpSessionRegistry(
             idle_seconds=session_idle_seconds,
             max_sessions=max_sessions,
+            admission_timeout_seconds=session_admission_timeout_seconds,
         )
         self.manager = StreamableHTTPSessionManager(
             app=self.server,

@@ -26,6 +26,7 @@ from blackholememory.resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_S
 from blackholememory.resource_limits import PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
 from blackholememory.resource_limits import SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS
+from blackholememory.resource_limits import MCP_SESSION_ADMISSION_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS
@@ -74,6 +75,7 @@ def test_resource_limit_registry_is_unique_and_bounded() -> None:
     assert PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS == 2.0
     assert SQLITE_READINESS_PROBE_TIMEOUT_SECONDS == 1.0
     assert SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS == 5.0
+    assert MCP_SESSION_ADMISSION_TIMEOUT_SECONDS == 30.0
 
 
 def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
@@ -103,6 +105,7 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS == 30
     assert SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS == 45
     assert any(item.key == "process.execution_timeout" for item in RESOURCE_LIMITS)
+    assert any(item.key == "mcp.session_admission_timeout" for item in RESOURCE_LIMITS)
 
 
 def test_resource_limit_snapshot_is_deterministic_and_honest_about_open_families() -> None:

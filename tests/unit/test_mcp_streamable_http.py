@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 from mcp import types
+import pytest
 
 from blackholememory import app as bhm_app
 from blackholememory.mcp_streamable_http import BhmStreamableHttpGateway
@@ -855,6 +856,78 @@ def test_streamable_http_cancelled_initialize_is_removed_from_fifo_queue():
                     },
                 )
                 assert deleted.status_code == 200
+
+    asyncio.run(exercise())
+
+
+def test_streamable_http_initialize_admission_wait_is_bounded_and_cleans_up():
+    async def exercise() -> None:
+        registry = HttpMcpSessionRegistry(
+            idle_seconds=60,
+            max_sessions=1,
+            admission_timeout_seconds=0.1,
+        )
+        first = await registry.acquire_initialize_slot()
+        started = time.perf_counter()
+        with pytest.raises(asyncio.TimeoutError):
+            await registry.acquire_initialize_slot()
+        assert time.perf_counter() - started < 0.5
+        assert registry.snapshot()["queued_count"] == 0
+        assert registry.snapshot()["reserved_count"] == 1
+        registry.cancel_initialize_slot(first)
+        assert registry.snapshot()["queued_count"] == 0
+        assert registry.snapshot()["reserved_count"] == 0
+
+    asyncio.run(exercise())
+
+
+def test_streamable_http_initialize_admission_timeout_is_explicit_503():
+    async def dispatch(message: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "jsonrpc": "2.0",
+            "id": message.get("id"),
+            "result": {"tools": []},
+        }
+
+    async def exercise() -> None:
+        gateway = BhmStreamableHttpGateway(
+            dispatch,
+            server_version="test",
+            max_sessions=1,
+            session_admission_timeout_seconds=0.1,
+        )
+        async with gateway.run():
+            transport = httpx.ASGITransport(app=gateway.asgi_app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+                _, session_id = await _initialize(client, 41)
+                started = time.perf_counter()
+                response = await _post(
+                    client,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 42,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "queued", "version": "test"},
+                        },
+                    },
+                )
+                assert response.status_code == 503
+                assert response.json() == {"detail": {"code": "mcp_session_admission_timeout"}}
+                assert response.headers["retry-after"] == "1"
+                assert time.perf_counter() - started < 0.5
+                deleted = await client.delete(
+                    "/mcp",
+                    headers={
+                        **BASE_HEADERS,
+                        "mcp-session-id": session_id,
+                        "mcp-protocol-version": "2025-06-18",
+                    },
+                )
+                assert deleted.status_code == 200
+                assert gateway.sessions.snapshot()["queued_count"] == 0
 
     asyncio.run(exercise())
 
