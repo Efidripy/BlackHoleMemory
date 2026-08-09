@@ -11,6 +11,7 @@ from collections import Counter, defaultdict, deque
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
+from .filesystem_boundaries import assert_safe_path
 from .git_history_test_receipt import build_commit_symbol_test_history_receipt
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 
@@ -55,7 +56,10 @@ def _path(value: Any) -> str:
 
 def _git_context(repo_root: str | os.PathLike[str]) -> tuple[Path, dict[str, str]]:
     # lgtm [py/path-injection]
-    root = Path(repo_root).expanduser().resolve()
+    lexical_root = Path(repo_root).expanduser()
+    assert_safe_path(lexical_root, reject_hardlink_target=False)
+    root = lexical_root.resolve()
+    assert_safe_path(root, reject_hardlink_target=False)
     if not root.is_dir():
         raise ChangeImpactError("repository root must be a directory")
     environment = {

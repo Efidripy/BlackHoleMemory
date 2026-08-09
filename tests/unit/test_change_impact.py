@@ -7,6 +7,7 @@ from blackholememory.change_impact import build_cross_repo_history_preview, buil
 from blackholememory.change_impact import collect_git_diff_hunks
 from blackholememory.change_impact import correlate_diff_hunks_to_symbols, summarize_diff_hunks
 from blackholememory import change_impact
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
 def _snapshot() -> dict:
@@ -48,6 +49,19 @@ def test_change_impact_rejects_digest_drift_and_unsafe_path() -> None:
         build_change_impact_preview(_snapshot(), ["service.py"], expected_graph_digest="other")
     with pytest.raises(ChangeImpactError, match="repository-relative"):
         build_change_impact_preview(_snapshot(), ["../outside.py"])
+
+
+def test_git_context_rejects_reparse_repository_root(tmp_path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        change_impact._git_context(linked_root)
 
 
 def test_change_impact_requires_all_paths_and_rejects_low_confidence() -> None:
