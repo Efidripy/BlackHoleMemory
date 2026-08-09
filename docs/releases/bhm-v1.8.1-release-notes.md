@@ -1,7 +1,9 @@
-# BlackHoleMemory v1.8.1 — remediation release identity
+# BlackHoleMemory v1.8.1 — remediation release
 
-Статус: release-candidate preparation. Исторический tag `v1.8.0` immutable и
-не перемещается.
+Статус: source release-ready. Исторический tag `v1.8.0` immutable и не
+перемещается. Operator signing, packaging и GitHub publication выполняются
+отдельными release-операциями и не считаются завершёнными до появления их
+проверяемых артефактов.
 
 ## Identity
 
@@ -18,16 +20,33 @@
 - centralized MCP JSON-RPC secret redaction;
 - explicit security policy and caller-token runbook;
 - CI quality/public-boundary/acceptance gates;
-- version marker and Dockerfile parser contract corrections.
+- version marker and Dockerfile parser contract corrections;
+- hermetic public CI and isolated admin-auth integration coverage;
+- descriptor-based bounded reads with symlink, reparse, hardlink, race and
+  byte-limit rejection;
+- confined admin snapshot import/export and canonical MCP repair cleanup;
+- server-inventory-only repository intelligence path selection;
+- fixed allowlist of public Workbench error codes.
 
-## Release blockers
+## Validation
 
-This document does not claim a signed or publishable release. The following
-gates remain mandatory before packaging:
+- BHM CI passed on commit `a5ae072754ebe7f8375860348ad305ad81911351`;
+- CodeQL completed successfully on the same commit;
+- open GitHub code-scanning, Dependabot and secret-scanning alerts: `0`;
+- release fixture, version manifest, public tree, documentation links,
+  workflow pinning, resource limits, auth/admin parity, REST/MCP parity and
+  search parity gates passed;
+- workspace mixed-agent gate: `157 PASS`, `0 WARN`, `0 FAIL`.
+
+## Publication gates
+
+This source state is eligible for packaging. A published release still
+requires all of the following receipts:
 
 - exact clean tracked-tree build;
 - pinned signer trust and detached-signature verification;
 - canonical provenance, SBOM, build-inputs and LICENSE binding;
 - post-install and rollback receipts;
 - UI bootstrap host-user/bearer boundary;
-- operator approval for external signing and publication.
+- explicit operator-signed publication with
+  `independent_external=false`.
