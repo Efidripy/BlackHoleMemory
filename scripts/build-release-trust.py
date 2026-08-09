@@ -15,8 +15,10 @@ import tomllib
 import urllib.parse
 from pathlib import Path
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
 
 
 RELEASE_TRUST_GIT_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
@@ -36,8 +38,51 @@ def sha256_bytes(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _lexical_path(path: Path | str) -> Path:
+    """Normalize a caller path lexically without following links or reparses."""
+
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def _safe_release_root(root: Path | str) -> Path:
+    """Admit a release root before Git, traversal, reads or writes."""
+
+    candidate = _lexical_path(root)
+    try:
+        candidate = assert_safe_path(candidate, reject_hardlink_target=False)
+    except FilesystemBoundaryError as exc:
+        raise SystemExit(f"release root crosses unsafe filesystem boundary: {candidate}") from exc
+    if not candidate.is_dir():
+        raise SystemExit(f"release root is not a directory: {candidate}")
+    return candidate
+
+
+def _safe_input_file(path: Path | str, label: str) -> Path:
+    """Admit one regular release input before metadata reads."""
+
+    candidate = _lexical_path(path)
+    try:
+        candidate = assert_safe_path(candidate)
+    except FilesystemBoundaryError as exc:
+        raise SystemExit(f"{label} crosses unsafe filesystem boundary: {candidate}") from exc
+    if not candidate.is_file():
+        raise SystemExit(f"missing {label}: {candidate}")
+    return candidate
+
+
+def _git_metadata_exists(root: Path) -> bool:
+    """Check Git metadata without following a caller-controlled link."""
+
+    metadata = _lexical_path(root / ".git")
+    try:
+        metadata = assert_safe_path(metadata, reject_hardlink_target=False)
+    except FilesystemBoundaryError as exc:
+        raise SystemExit(f"Git metadata crosses unsafe filesystem boundary: {metadata}") from exc
+    return metadata.exists()
+
+
 def sha256_file(path: Path) -> str:
-    return sha256_bytes(path.read_bytes())
+    return sha256_bytes(_safe_input_file(path, "release input").read_bytes())
 
 
 def canonical_json(value: object) -> bytes:
@@ -54,6 +99,8 @@ def generated_at() -> str:
 
 
 def source_revision(root: Path) -> str:
+    root = _safe_release_root(root)
+    git_metadata_exists = _git_metadata_exists(root)
     configured = os.environ.get("BHM_SOURCE_REVISION", "").strip()
     if configured:
         if not re.fullmatch(r"[0-9a-fA-F]{40}", configured):
@@ -67,7 +114,7 @@ def source_revision(root: Path) -> str:
                 timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.SubprocessError):
-            if (root / ".git").exists():
+            if git_metadata_exists:
                 raise SystemExit("unable to verify BHM_SOURCE_REVISION against Git HEAD")
             return configured
         actual = result.stdout.strip()
@@ -88,6 +135,8 @@ def source_revision(root: Path) -> str:
 
 
 def source_dirty(root: Path) -> bool:
+    root = _safe_release_root(root)
+    git_metadata_exists = _git_metadata_exists(root)
     configured = os.environ.get("BHM_SOURCE_DIRTY", "").strip().lower()
     if configured in {"true", "false"}:
         try:
@@ -99,7 +148,7 @@ def source_dirty(root: Path) -> bool:
             timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.SubprocessError):
-            if (root / ".git").exists():
+            if git_metadata_exists:
                 raise SystemExit("unable to verify BHM_SOURCE_DIRTY against Git status")
             return configured == "true"
         actual_dirty = bool(result.stdout.strip())
@@ -120,6 +169,8 @@ def source_dirty(root: Path) -> bool:
 
 
 def source_tree(root: Path) -> str:
+    root = _safe_release_root(root)
+    git_metadata_exists = _git_metadata_exists(root)
     configured = os.environ.get("BHM_SOURCE_TREE", "").strip()
     if configured:
         if not re.fullmatch(r"[0-9a-fA-F]{40}", configured):
@@ -133,7 +184,7 @@ def source_tree(root: Path) -> str:
             timeout=RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
             )
         except (OSError, subprocess.SubprocessError):
-            if (root / ".git").exists():
+            if git_metadata_exists:
                 raise SystemExit("unable to verify BHM_SOURCE_TREE against Git HEAD")
             return configured
         actual = result.stdout.strip()
@@ -156,7 +207,8 @@ def source_tree(root: Path) -> str:
 
 def load_version(root: Path, expected_version: str) -> str:
     expected = str(expected_version).lstrip("v")
-    payload = json.loads((root / "config" / "version-manifest.json").read_text(encoding="utf-8"))
+    version_path = _safe_input_file(root / "config" / "version-manifest.json", "version manifest")
+    payload = json.loads(version_path.read_text(encoding="utf-8"))
     actual = str(payload.get("release_version") or "")
     if actual != expected:
         raise SystemExit(f"staged version manifest does not match expected release: {actual!r} != {expected!r}")
@@ -220,9 +272,7 @@ def _locked_artifact(item: dict[str, object]) -> tuple[str, str] | None:
 
 
 def load_build_inputs(root: Path) -> dict[str, dict[str, object]]:
-    path = root / BUILD_INPUTS_FILE
-    if not path.is_file():
-        raise SystemExit("missing build-inputs.json; trusted release evidence is unavailable")
+    path = _safe_input_file(root / BUILD_INPUTS_FILE, "build-inputs.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
         raise SystemExit("unsupported build-inputs.json schema")
@@ -251,7 +301,7 @@ def load_build_inputs(root: Path) -> dict[str, dict[str, object]]:
 
 
 def load_locked_packages(root: Path, *, application_name: str, build_inputs: dict[str, dict[str, object]]) -> list[dict[str, object]]:
-    lock_path = root / "uv.lock"
+    lock_path = _safe_input_file(root / "uv.lock", "uv.lock")
     lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
     packages: list[dict[str, object]] = []
     for item in lock.get("package", []):
@@ -352,7 +402,8 @@ def build_provenance(root: Path, version: str, created: str, sbom_digest: str) -
     release_manifest_digest = sha256_file(root / "release-manifest.json")
     version_manifest_digest = sha256_file(root / "config" / "version-manifest.json")
     lock_digest = sha256_file(root / "uv.lock")
-    build_inputs = json.loads((root / BUILD_INPUTS_FILE).read_text(encoding="utf-8"))
+    build_inputs_path = _safe_input_file(root / BUILD_INPUTS_FILE, "build-inputs.json")
+    build_inputs = json.loads(build_inputs_path.read_text(encoding="utf-8"))
     source_snapshot = str(build_inputs.get("source_snapshot_sha256") or "").lower()
     if not re.fullmatch(r"[0-9a-f]{64}", source_snapshot):
         raise SystemExit("build-inputs.json source snapshot digest is missing or invalid")
@@ -402,9 +453,7 @@ def build_provenance(root: Path, version: str, created: str, sbom_digest: str) -
 
 
 def validate_launcher_evidence(root: Path, build_inputs: dict[str, object]) -> str:
-    launcher = root / "BHM_Launcher.exe"
-    if not launcher.is_file():
-        raise SystemExit("missing BHM_Launcher.exe; launcher identity evidence is unavailable")
+    launcher = _safe_input_file(root / "BHM_Launcher.exe", "BHM_Launcher.exe")
     receipt_digest = str(build_inputs.get("launcher_sha256") or "").lower()
     if not re.fullmatch(r"[0-9a-f]{64}", receipt_digest):
         raise SystemExit("build-inputs.json launcher_sha256 is missing or invalid")
@@ -417,7 +466,7 @@ def validate_launcher_evidence(root: Path, build_inputs: dict[str, object]) -> s
 def build_trust_manifest(root: Path, version: str, created: str) -> dict[str, object]:
     artifacts = []
     for relative in ("release-manifest.json", "sbom.spdx.json", "provenance.json", BUILD_INPUTS_FILE):
-        path = root / relative
+        path = _safe_input_file(root / relative, relative)
         artifacts.append({"path": relative, "size": path.stat().st_size, "sha256": sha256_file(path)})
     return {
         "schema_version": 1,
@@ -449,7 +498,7 @@ def write_json(path: Path, value: object) -> None:
 
 
 def build(root: Path, expected_version: str) -> dict[str, object]:
-    root = root.resolve()
+    root = _safe_release_root(root)
     version = load_version(root, expected_version)
     created = generated_at()
     load_build_inputs(root)

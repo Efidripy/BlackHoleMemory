@@ -246,6 +246,56 @@ def test_trust_builder_rejects_hardlinked_metadata_target(tmp_path, monkeypatch)
     assert sentinel.read_text(encoding="utf-8") == "do not replace"
 
 
+def test_trust_builder_rejects_linked_release_root_before_git(tmp_path, monkeypatch):
+    real_root = tmp_path / "release"
+    create_bundle(real_root)
+    linked_root = tmp_path / "linked-release"
+    try:
+        linked_root.symlink_to(real_root, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks unavailable on this Windows host")
+
+    def unexpected_git(*_args, **_kwargs):
+        raise AssertionError("Git must not run before release-root admission")
+
+    monkeypatch.setattr(build_trust.subprocess, "run", unexpected_git)
+    with pytest.raises(SystemExit, match="release root crosses unsafe filesystem boundary"):
+        build_trust.build(linked_root, "v1.7.1")
+
+
+def test_trust_builder_rejects_linked_metadata_input_before_read(tmp_path):
+    create_bundle(tmp_path)
+    outside = tmp_path / "outside-version-manifest.json"
+    outside.write_text(json.dumps({"release_version": "1.7.1"}), encoding="utf-8")
+    version_path = tmp_path / "config" / "version-manifest.json"
+    version_path.unlink()
+    try:
+        version_path.symlink_to(outside)
+    except OSError:
+        pytest.skip("file symlinks unavailable on this Windows host")
+
+    with pytest.raises(SystemExit, match="version manifest crosses unsafe filesystem boundary"):
+        build_trust.build(tmp_path, "v1.7.1")
+
+
+def test_trust_builder_rejects_linked_git_metadata_before_git(tmp_path, monkeypatch):
+    create_bundle(tmp_path)
+    outside_git = tmp_path / "outside-git"
+    outside_git.mkdir()
+    git_path = tmp_path / ".git"
+    try:
+        git_path.symlink_to(outside_git, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks unavailable on this Windows host")
+
+    def unexpected_git(*_args, **_kwargs):
+        raise AssertionError("Git must not run before metadata admission")
+
+    monkeypatch.setattr(build_trust.subprocess, "run", unexpected_git)
+    with pytest.raises(SystemExit, match="Git metadata crosses unsafe filesystem boundary"):
+        build_trust.source_revision(tmp_path)
+
+
 def test_trust_builder_git_identity_callers_use_registry_bound_timeout(monkeypatch, tmp_path):
     calls: list[dict[str, object]] = []
 
