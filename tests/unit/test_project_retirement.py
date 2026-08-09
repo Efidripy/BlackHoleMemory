@@ -113,3 +113,16 @@ def test_retirement_backup_rejects_reparse_parent(tmp_path):
     with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
         project_retirement_module._backup_sqlite(source, linked_parent / "backup.sqlite3")
     assert not (outside / "backup.sqlite3").exists()
+
+
+def test_retirement_preview_rejects_reparse_authoritative_database(tmp_path):
+    source = tmp_path / "source.sqlite3"
+    SQLiteMemoryRepository(source).initialize()
+    linked_database = tmp_path / "linked.sqlite3"
+    try:
+        linked_database.symlink_to(source)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        preview_project_retirement(linked_database, "fixture-project")

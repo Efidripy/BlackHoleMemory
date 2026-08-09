@@ -55,11 +55,11 @@ def _safe_project(project: str) -> str:
 
 
 def _connect(path: Path, *, read_only: bool = False) -> sqlite3.Connection:
-    assert_safe_path(path)
+    safe_path = assert_safe_path(path)
     if read_only:
-        connection = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
+        connection = sqlite3.connect(f"file:{safe_path.as_posix()}?mode=ro", uri=True, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     else:
-        connection = sqlite3.connect(path, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
+        connection = sqlite3.connect(safe_path, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     connection.row_factory = sqlite3.Row
     connection.execute(f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}")
     connection.execute("PRAGMA foreign_keys=ON")
@@ -172,10 +172,7 @@ def preview_project_retirement(database_path: Path | str, project: str) -> dict[
     """Return a read-only retirement plan; this function never creates schema."""
 
     project_id = _safe_project(project)
-    path = Path(database_path).expanduser()
-    assert_safe_path(path)
-    path = path.resolve()
-    assert_safe_path(path)
+    path = assert_safe_path(Path(database_path).expanduser())
     if not path.exists():
         raise ProjectRetirementError("authoritative SQLite database is unavailable")
     connection = _connect(path, read_only=True)
@@ -229,10 +226,7 @@ def apply_project_retirement(
         raise ProjectRetirementError("project is not present in the explicit retirement allowlist")
     if not _capability_ok(capability):
         raise ProjectRetirementError("project retirement capability is missing or invalid")
-    path = Path(database_path).expanduser()
-    assert_safe_path(path)
-    path = path.resolve()
-    assert_safe_path(path)
+    path = assert_safe_path(Path(database_path).expanduser())
     if not path.exists():
         raise ProjectRetirementError("authoritative SQLite database is unavailable")
 
@@ -260,9 +254,7 @@ def apply_project_retirement(
         or os.getenv(PROJECT_RETIREMENT_BACKUP_DIR_ENV, "")
         or (path.parent / "retirement-backups")
     ).expanduser()
-    assert_safe_path(root)
-    root = root.resolve()
-    assert_safe_path(root)
+    root = assert_safe_path(root, reject_hardlink_target=False)
     try:
         root.relative_to(path.parent)
     except ValueError as exc:
