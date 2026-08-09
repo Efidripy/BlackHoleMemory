@@ -5,7 +5,13 @@ import json
 import subprocess
 from pathlib import Path
 
-from blackholememory.provenance_attestation import PROVENANCE_ATTESTATION_SCHEMA, _sbom_boundary, build_provenance_attestation_report
+import pytest
+
+from blackholememory.provenance_attestation import (
+    PROVENANCE_ATTESTATION_SCHEMA,
+    _sbom_boundary,
+    build_provenance_attestation_report,
+)
 from blackholememory.source_registry import sync_source
 
 
@@ -159,3 +165,94 @@ def test_sbom_boundary_rejects_quarantine_path_segment(tmp_path: Path) -> None:
     report = _sbom_boundary(sbom)
     assert report["ok"] is False
     assert report["residue"]
+
+
+def test_sbom_boundary_rejects_symlink_without_reading_target(tmp_path: Path) -> None:
+    target = tmp_path / "outside.spdx.json"
+    target.write_text('{"files": []}', encoding="utf-8")
+    linked = tmp_path / "linked.spdx.json"
+    try:
+        linked.symlink_to(target)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+
+    report = _sbom_boundary(linked)
+
+    assert report["checked"] is False
+    assert report["ok"] is False
+    assert report["error"] == "SBOM is not a regular file"
+
+
+def test_attestation_blocks_linked_envelope_before_parsing(tmp_path: Path) -> None:
+    repo, manifest_path = _fixture_repository(tmp_path)
+    envelope = _write_envelope(
+        repo,
+        manifest_path,
+        external={
+            "owner_message_hash": "a" * 64,
+            "signature_hash": "a" * 64,
+            "human_adoption_approval_hash": "a" * 64,
+        },
+    )
+    linked = tmp_path / "linked-attestation.json"
+    try:
+        linked.symlink_to(envelope)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+
+    report = build_provenance_attestation_report(repo, linked)
+
+    assert report["state"] == "blocked"
+    assert report["failures"] == ["attestation envelope is not a regular file"]
+
+
+def test_attestation_blocks_linked_repository_root_before_envelope_access(
+    tmp_path: Path,
+) -> None:
+    repo, manifest_path = _fixture_repository(tmp_path)
+    envelope = _write_envelope(
+        repo,
+        manifest_path,
+        external={
+            "owner_message_hash": "a" * 64,
+            "signature_hash": "a" * 64,
+            "human_adoption_approval_hash": "a" * 64,
+        },
+    )
+    linked = tmp_path / "linked-repo"
+    try:
+        linked.symlink_to(repo, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+
+    report = build_provenance_attestation_report(linked, envelope)
+
+    assert report["state"] == "blocked"
+    assert report["failures"] == [
+        "repository root crosses an unsafe filesystem boundary"
+    ]
+
+
+def test_attestation_blocks_linked_source_manifest(tmp_path: Path) -> None:
+    repo, manifest_path = _fixture_repository(tmp_path)
+    envelope = _write_envelope(
+        repo,
+        manifest_path,
+        external={
+            "owner_message_hash": "a" * 64,
+            "signature_hash": "a" * 64,
+            "human_adoption_approval_hash": "a" * 64,
+        },
+    )
+    outside = tmp_path / "outside-manifest.json"
+    outside.write_text(manifest_path.read_text(encoding="utf-8"), encoding="utf-8")
+    manifest_path.unlink()
+    try:
+        manifest_path.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlink creation is unavailable: {exc}")
+
+    report = build_provenance_attestation_report(repo, envelope)
+
+    assert report["state"] == "blocked"
+    assert "source manifest unavailable or invalid" in report["failures"]

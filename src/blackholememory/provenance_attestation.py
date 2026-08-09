@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 from typing import Any, Iterable
 
+from .filesystem_boundaries import assert_safe_path
 from .provenance_boundary import build_provenance_boundary_report
 from .source_registry import SourceRegistryError
 from .source_registry import validate_source_slug
@@ -41,15 +42,38 @@ def _canonical_digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _blocked_report(failure: str) -> dict[str, Any]:
+    return {
+        "schema_version": PROVENANCE_ATTESTATION_SCHEMA,
+        "state": "blocked",
+        "decision": "blocked",
+        "failures": [failure],
+        "execution": {
+            "writes_sqlite": False,
+            "writes_qdrant": False,
+            "imports_quarantine": False,
+        },
+    }
+
+
 def _sbom_boundary(path: Path) -> dict[str, Any]:
-    resolved = path.resolve()
-    if not resolved.is_file() or resolved.is_symlink():
-        return {"path": str(resolved), "checked": False, "ok": False, "residue": [], "error": "SBOM is not a regular file"}
-    payload = resolved.read_text(encoding="utf-8", errors="replace")
+    try:
+        candidate = assert_safe_path(path)
+    except OSError:
+        return {
+            "path": str(path),
+            "checked": False,
+            "ok": False,
+            "residue": [],
+            "error": "SBOM is not a regular file",
+        }
+    if not candidate.is_file():
+        return {"path": str(candidate), "checked": False, "ok": False, "residue": [], "error": "SBOM is not a regular file"}
+    payload = candidate.read_text(encoding="utf-8", errors="replace")
     # Match path segments only; a prose mention such as ``.src/`` is not a
     # package payload and is therefore not treated as residue here.
     residue = sorted(set(re.findall(r"(?:^|[/\\])\.src(?:[/\\]|$)[^\"']*", payload)))
-    return {"path": str(resolved), "checked": True, "ok": not residue, "residue": residue, "sha256": _sha256_file(resolved)}
+    return {"path": str(candidate), "checked": True, "ok": not residue, "residue": residue, "sha256": _sha256_file(candidate)}
 
 
 def build_provenance_attestation_report(
@@ -61,34 +85,37 @@ def build_provenance_attestation_report(
 ) -> dict[str, Any]:
     """Validate one deterministic operator attestation envelope."""
 
-    root = repo_root.resolve()
-    envelope_file = envelope_path.resolve()
+    try:
+        root = assert_safe_path(repo_root, reject_hardlink_target=False)
+    except OSError:
+        return _blocked_report("repository root crosses an unsafe filesystem boundary")
+    if not root.is_dir():
+        return _blocked_report("repository root is not a directory")
+    try:
+        envelope_file = assert_safe_path(envelope_path)
+    except OSError:
+        return _blocked_report("attestation envelope is not a regular file")
     failures: list[str] = []
-    if not envelope_file.is_file() or envelope_file.is_symlink():
-        return {
-            "schema_version": PROVENANCE_ATTESTATION_SCHEMA,
-            "state": "blocked",
-            "decision": "blocked",
-            "failures": ["attestation envelope is not a regular file"],
-            "execution": {"writes_sqlite": False, "writes_qdrant": False, "imports_quarantine": False},
-        }
+    if not envelope_file.is_file():
+        return _blocked_report("attestation envelope is not a regular file")
     try:
         envelope = json.loads(envelope_file.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        return {
-            "schema_version": PROVENANCE_ATTESTATION_SCHEMA,
-            "state": "blocked",
-            "decision": "blocked",
-            "failures": [f"invalid attestation envelope: {exc}"],
-            "execution": {"writes_sqlite": False, "writes_qdrant": False, "imports_quarantine": False},
-        }
+        return _blocked_report(f"invalid attestation envelope: {exc}")
     if not isinstance(envelope, dict) or envelope.get("schema_version") != PROVENANCE_ATTESTATION_SCHEMA:
         failures.append("unsupported attestation envelope schema")
         envelope = envelope if isinstance(envelope, dict) else {}
 
+    try:
+        registry_path = assert_safe_path(root / "config" / "source-registry.json")
+        if not registry_path.is_file():
+            raise OSError("source registry is not a regular file")
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return _blocked_report("source registry unavailable or invalid")
+
     boundary = build_provenance_boundary_report(root, package_paths=package_paths)
     failures.extend(boundary.get("failures") or [])
-    registry = json.loads((root / "config" / "source-registry.json").read_text(encoding="utf-8"))
     source_id = str(envelope.get("source_id") or "")
     source = next((item for item in registry.get("sources", []) if item.get("id") == source_id), None)
     if not source:
@@ -98,12 +125,12 @@ def build_provenance_attestation_report(
     if source:
         try:
             slug = validate_source_slug(source.get("slug"))
-            source_root = (root / ".src" / slug).resolve()
-            quarantine_root = (root / ".src").resolve()
+            quarantine_root = assert_safe_path(root / ".src", reject_hardlink_target=False)
+            source_root = assert_safe_path(quarantine_root / slug, reject_hardlink_target=False)
             if source_root == quarantine_root or quarantine_root not in source_root.parents:
                 raise SourceRegistryError("source slug escapes quarantine root")
-            manifest_path = source_root / "SOURCE-MANIFEST.json"
-            if not manifest_path.is_file() or manifest_path.is_symlink():
+            manifest_path = assert_safe_path(source_root / "SOURCE-MANIFEST.json")
+            if not manifest_path.is_file():
                 raise SourceRegistryError("source manifest is not a regular file")
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, SourceRegistryError):
@@ -116,7 +143,7 @@ def build_provenance_attestation_report(
             "content_sha256": manifest.get("content_sha256"),
             "license": source.get("license"),
             "manifest_sha256": _sha256_file(manifest_path),
-            "registry_sha256": _sha256_file(root / "config" / "source-registry.json"),
+            "registry_sha256": _sha256_file(registry_path),
         }
         for key, expected in expected_identity.items():
             observed = identity.get(key)
