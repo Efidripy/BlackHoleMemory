@@ -6,7 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.provenance_boundary import canonical_provenance_digest, scan_package_boundary
+from blackholememory.provenance_boundary import (
+    build_provenance_boundary_report,
+    canonical_provenance_digest,
+    scan_package_boundary,
+)
 
 
 def test_provenance_digest_is_order_independent_and_identity_bound() -> None:
@@ -54,6 +58,27 @@ def test_package_boundary_rejects_reparse_directory_before_traversal(tmp_path: P
     assert report["ok"] is False
     assert report["checked"] is False
     assert "symlink/junction/reparse" in report["error"]
+
+
+def test_provenance_report_rejects_reparse_repository_root_before_inspection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked = tmp_path / "linked-repository"
+    try:
+        linked.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks unavailable on this Windows host")
+
+    def _unexpected(*args, **kwargs):
+        raise AssertionError("repository inspection must not run before root admission")
+
+    monkeypatch.setattr("blackholememory.provenance_boundary.verify_registry", _unexpected)
+    monkeypatch.setattr("blackholememory.provenance_boundary._git_paths", _unexpected)
+
+    with pytest.raises(OSError, match="symlink|junction|reparse"):
+        build_provenance_boundary_report(linked)
 
 
 def test_validator_script_is_importable() -> None:
