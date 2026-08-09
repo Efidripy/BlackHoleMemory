@@ -13,6 +13,8 @@ import tarfile
 import uuid
 from pathlib import Path, PurePosixPath
 
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import write_bytes_exclusive
 from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_ARCHIVE_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_MATERIALIZE_GIT_TIMEOUT_SECONDS
 
@@ -98,9 +100,19 @@ def safe_relative(name: str) -> str:
     return path.as_posix()
 
 
+def _remove_partial_safely(path: Path) -> None:
+    """Never recursively delete a path that crossed a reparse boundary."""
+
+    try:
+        assert_safe_path(path, reject_hardlink_target=False)
+    except OSError:
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def materialize(*, repo_root: Path, output_root: Path, expected_revision: str, expected_tree: str) -> dict[str, object]:
-    repo_root = repo_root.resolve()
-    output_root = output_root.resolve()
+    repo_root = assert_safe_path(repo_root, reject_hardlink_target=False)
+    output_root = assert_safe_path(output_root)
     if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_revision):
         raise SystemExit("expected revision must be a 40-hex Git revision")
     if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_tree):
@@ -122,8 +134,10 @@ def materialize(*, repo_root: Path, output_root: Path, expected_revision: str, e
     expected_paths = set(tracked_entries)
     if output_root.exists():
         raise SystemExit(f"materialization output already exists: {output_root}")
-    output_root.parent.mkdir(parents=True, exist_ok=True)
-    work_root = output_root.parent / f".{output_root.name}.partial-{uuid.uuid4().hex}"
+    output_parent = assert_safe_path(output_root.parent, reject_hardlink_target=False)
+    output_parent.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(output_parent, reject_hardlink_target=False)
+    work_root = output_parent / f".{output_root.name}.partial-{uuid.uuid4().hex}"
 
     try:
         archive = subprocess.run(
@@ -135,7 +149,9 @@ def materialize(*, repo_root: Path, output_root: Path, expected_revision: str, e
     except (OSError, subprocess.SubprocessError) as exc:
         raise SystemExit(f"Git archive failed: {exc}") from exc
 
+    assert_safe_path(work_root, reject_hardlink_target=False)
     work_root.mkdir()
+    assert_safe_path(work_root, reject_hardlink_target=False)
     consumed: dict[str, bytes] = {}
     try:
         with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as stream:
@@ -155,21 +171,28 @@ def materialize(*, repo_root: Path, output_root: Path, expected_revision: str, e
                 if source is None:
                     raise SystemExit(f"unable to read tracked source entry: {relative}")
                 payload = source.read()
-                target = work_root.joinpath(*PurePosixPath(relative).parts).resolve()
-                if work_root not in target.parents:
+                target = work_root.joinpath(*PurePosixPath(relative).parts)
+                try:
+                    target.relative_to(work_root)
+                except ValueError:
                     raise SystemExit(f"materialized path escaped output root: {relative}")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with target.open("xb") as handle:
-                    handle.write(payload)
+                write_bytes_exclusive(target, payload)
                 consumed[relative] = payload
         missing = sorted(expected_paths - set(consumed))
         if missing:
             raise SystemExit(f"tracked source archive is missing required files: {', '.join(missing[:8])}")
-        work_root.replace(output_root)
+        assert_safe_path(work_root, reject_hardlink_target=False)
+        assert_safe_path(output_root)
+        if output_root.exists():
+            raise SystemExit(f"materialization output appeared during publish: {output_root}")
+        try:
+            work_root.rename(output_root)
+        except FileExistsError as exc:
+            raise SystemExit(f"materialization output appeared during publish: {output_root}") from exc
     except tarfile.TarError as exc:
         raise SystemExit(f"invalid Git archive: {exc}") from exc
     except BaseException:
-        shutil.rmtree(work_root, ignore_errors=True)
+        _remove_partial_safely(work_root)
         raise
     return {
         "ok": True,

@@ -203,3 +203,43 @@ def test_materializer_cleans_partial_output_on_missing_tracked_entry(tmp_path, m
         )
     assert not (tmp_path / "snapshot").exists()
     assert not list(tmp_path.glob(".snapshot.partial-*"))
+
+
+def test_materializer_rejects_reparse_output_parent_before_git_probe(tmp_path, monkeypatch):
+    module = _module()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    linked_parent.symlink_to(outside, target_is_directory=True)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("Git must not run before output boundary admission")
+
+    monkeypatch.setattr(module.subprocess, "run", fail_if_called)
+    with pytest.raises(OSError, match="symlink|reparse"):
+        module.materialize(
+            repo_root=tmp_path / "repo",
+            output_root=linked_parent / "snapshot",
+            expected_revision="a" * 40,
+            expected_tree="b" * 40,
+        )
+
+
+def test_materializer_rejects_hardlinked_existing_output_before_git_probe(tmp_path, monkeypatch):
+    module = _module()
+    source = tmp_path / "source.bin"
+    output = tmp_path / "snapshot"
+    source.write_bytes(b"existing")
+    output.hardlink_to(source)
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("Git must not run before output boundary admission")
+
+    monkeypatch.setattr(module.subprocess, "run", fail_if_called)
+    with pytest.raises(OSError, match="hardlink"):
+        module.materialize(
+            repo_root=tmp_path / "repo",
+            output_root=output,
+            expected_revision="a" * 40,
+            expected_tree="b" * 40,
+        )
