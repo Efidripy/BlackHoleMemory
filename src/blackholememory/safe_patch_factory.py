@@ -630,18 +630,25 @@ def _run_command(
     except subprocess.TimeoutExpired as exc:
         terminated = _terminate_process_group(process.pid if process is not None else 0)
         stdout = stderr = ""
+        cleanup_timed_out = False
         if process is not None:
             try:
                 stdout, stderr = process.communicate(timeout=PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                stdout, stderr = process.communicate()
+            except subprocess.TimeoutExpired as cleanup_exc:
+                cleanup_timed_out = True
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+                stdout = cleanup_exc.stdout or ""
+                stderr = cleanup_exc.stderr or ""
         return {
             "exit_code": 124,
             "stdout": str(stdout or exc.stdout or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
             "stderr": str(stderr or exc.stderr or "")[:SAFE_PATCH_MAX_OUTPUT_BYTES],
             "timed_out": True,
             "process_group_terminated": terminated,
+            "cleanup_timed_out": cleanup_timed_out,
         }
     except OSError as exc:
         return {
