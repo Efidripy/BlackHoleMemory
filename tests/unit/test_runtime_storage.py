@@ -4,6 +4,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 import blackholememory.runtime_storage as runtime_storage
 from blackholememory.runtime_storage import MemoryStoreMode
 from blackholememory.runtime_storage import RuntimeReadiness
@@ -29,6 +31,33 @@ def test_runtime_config_defaults_to_sqlite_authoritative_and_worker_disabled(tmp
     assert config.mode is MemoryStoreMode.SQLITE_AUTHORITATIVE
     assert config.database_path == (tmp_path / "live-memory" / "memories.sqlite3").resolve()
     assert config.projection_worker.enabled is False
+
+
+def test_schema_probe_rejects_hardlinked_target(tmp_path):
+    outside = tmp_path / "outside.sqlite3"
+    SQLiteMemoryRepository(outside).initialize()
+    target = tmp_path / "memories.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    assert inspect_memory_store_schema(target, cache_ttl_seconds=0) == (False, "sqlite_schema_unreadable")
+
+
+def test_schema_probe_rejects_reparse_parent(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    assert inspect_memory_store_schema(linked_parent / "memories.sqlite3", cache_ttl_seconds=0) == (
+        False,
+        "sqlite_schema_unreadable",
+    )
 
 
 def test_shadow_state_is_degraded_until_sqlite_target_exists(tmp_path):
