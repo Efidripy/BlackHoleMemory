@@ -11,6 +11,7 @@
     ".docs", ".dev", ".local", ".legacy", ".src", ".tmp", ".venv", ".cache", ".runtime", ".runtime-legacy", ".output", ".artifacts", ".build", ".dist", ".release", ".workspace", ".node_modules", ".playwright-cli", ".pytest_cache", ".ruff_cache", ".uv-cache-final"
   ],
   "local_globs": [
+    "AGENTS.md",
     ".docs/**", ".dev/**", ".local/**", ".legacy/**", ".src/**", ".tmp/**", ".cache/**", ".runtime/**", ".runtime-legacy/**", ".output/**", ".artifacts/**", ".build/**", ".dist/**", ".release/**", ".workspace/**", ".node_modules/**", ".playwright-cli/**", ".pytest_cache/**", ".ruff_cache/**", ".uv-cache-final/**", ".docs/ops/raw/**", ".docs/ops/evidence/**", "BHM_Launcher.exe"
   ],
   "forbidden_public_globs": [

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 
 import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 
 
 def test_release_operator_has_fail_closed_actions():
@@ -62,13 +64,14 @@ def test_release_operator_rollback_validates_backup_and_restores_failed_target()
     assert "automatic target restoration failed" in text
 
 
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
 def test_release_operator_rejects_backup_inside_checkout_before_archive_verification(tmp_path: Path):
     target = tmp_path / "target"
     target.mkdir()
     script = REPO_ROOT / "scripts" / "bhm-release-operator.ps1"
     completed = subprocess.run(
         [
-            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+            POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
             "-Action", "update", "-TargetRoot", str(target),
             "-BackupRoot", str(REPO_ROOT / ".docs" / "unsafe-backup"),
             "-ReleaseArchive", str(tmp_path / "missing.zip"), "-DryRun", "-AsJson",
@@ -79,6 +82,7 @@ def test_release_operator_rejects_backup_inside_checkout_before_archive_verifica
     assert "repository checkout" in (completed.stdout + completed.stderr).lower()
 
 
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
 def test_release_operator_rejects_reparse_entry_inside_backup_tree(tmp_path: Path):
     target = tmp_path / "target"
     backup = tmp_path / "backup"
@@ -93,7 +97,7 @@ def test_release_operator_rejects_reparse_entry_inside_backup_tree(tmp_path: Pat
     script = REPO_ROOT / "scripts" / "bhm-release-operator.ps1"
     completed = subprocess.run(
         [
-            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+            POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
             "-Action", "rollback", "-TargetRoot", str(target), "-BackupRoot", str(backup),
             "-DryRun", "-AsJson",
         ],
@@ -103,6 +107,7 @@ def test_release_operator_rejects_reparse_entry_inside_backup_tree(tmp_path: Pat
     assert "symlink/junction/reparse entry" in (completed.stdout + completed.stderr).lower()
 
 
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
 def test_release_operator_rejects_symlink_target_before_archive_verification(tmp_path: Path):
     target = tmp_path / "target"
     target.mkdir()
@@ -115,7 +120,7 @@ def test_release_operator_rejects_symlink_target_before_archive_verification(tmp
     script = REPO_ROOT / "scripts" / "bhm-release-operator.ps1"
     completed = subprocess.run(
         [
-            "powershell",
+            POWERSHELL,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",

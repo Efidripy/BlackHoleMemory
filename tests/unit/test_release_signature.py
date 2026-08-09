@@ -5,6 +5,7 @@ import hashlib
 import subprocess
 import sys
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 ROOT = Path(__file__).resolve().parents[2]
 SIGN = ROOT / "scripts" / "sign-release-ed25519.py"
 VERIFY = ROOT / "scripts" / "verify-release-signature.py"
+CMD = shutil.which("cmd")
 
 
 def _key(path: Path) -> None:
@@ -493,6 +495,7 @@ def test_detached_signer_rejects_symlink_output(tmp_path: Path) -> None:
     assert target.read_bytes() == b"do not replace"
 
 
+@pytest.mark.skipif(CMD is None, reason="Windows cmd.exe is unavailable on this CI runner")
 def test_detached_signer_rejects_junction_parent(tmp_path: Path) -> None:
     archive = tmp_path / "BHM-Release-v1.8.0.zip"
     key = tmp_path / "signer.pem"
@@ -529,6 +532,7 @@ def test_detached_signer_rejects_junction_parent(tmp_path: Path) -> None:
     assert not signing_output.exists()
 
 
+@pytest.mark.skipif(CMD is None, reason="Windows cmd.exe is unavailable on this CI runner")
 def test_detached_signer_rejects_missing_output_parent_under_junction(tmp_path: Path) -> None:
     archive = tmp_path / "BHM-Release-v1.8.0.zip"
     key = tmp_path / "signer.pem"
@@ -538,7 +542,7 @@ def test_detached_signer_rejects_missing_output_parent_under_junction(tmp_path: 
     _key(key)
     target_dir.mkdir()
     result = subprocess.run(
-        ["cmd", "/c", "mklink", "/J", str(junction), str(target_dir)],
+        [CMD, "/c", "mklink", "/J", str(junction), str(target_dir)],
         check=False,
         capture_output=True,
         text=True,
@@ -565,6 +569,7 @@ def test_detached_signer_rejects_missing_output_parent_under_junction(tmp_path: 
     assert not (target_dir / "missing-parent").exists()
 
 
+@pytest.mark.skipif(CMD is None, reason="Windows cmd.exe is unavailable on this CI runner")
 def test_detached_signer_rejects_private_key_under_junction_parent(tmp_path: Path) -> None:
     archive = tmp_path / "BHM-Release-v1.8.0.zip"
     key_target_dir = tmp_path / "key-target"
@@ -572,7 +577,7 @@ def test_detached_signer_rejects_private_key_under_junction_parent(tmp_path: Pat
     archive.write_bytes(b"immutable release bytes")
     key_target_dir.mkdir()
     result = subprocess.run(
-        ["cmd", "/c", "mklink", "/J", str(key_junction), str(key_target_dir)],
+        [CMD, "/c", "mklink", "/J", str(key_junction), str(key_target_dir)],
         check=False,
         capture_output=True,
         text=True,

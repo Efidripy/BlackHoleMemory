@@ -5,7 +5,16 @@
     "require_pinned_public_key": true,
     "reject_adjacent_untrusted_keys": true,
     "require_validity_window": true,
-    "allow_empty_registry": true
+    "allow_empty_registry": false
   },
-  "signers": []
+  "signers": [
+    {
+      "id": "bhm-release-operator-2026",
+      "authority": "operator",
+      "active": true,
+      "not_before": "2026-01-01T00:00:00Z",
+      "not_after": "2027-12-31T23:59:59Z",
+      "public_key_sha256": "9113a38cad83070ecbc1842bfe3e7b53de781f5afea17a605aafd6a1cdb6718e"
+    }
+  ]
 }
