@@ -2424,8 +2424,14 @@ class RepositoryWatcher:
         max_inflight_jobs: int = DEFAULT_WATCH_MAX_INFLIGHT_JOBS,
     ) -> None:
         # lgtm [py/path-injection]
-        self.root = Path(root).expanduser().resolve()
-        self.database_path = Path(database_path).expanduser().resolve()
+        lexical_root = Path(root).expanduser()
+        assert_safe_path(lexical_root, reject_hardlink_target=False)
+        self.root = lexical_root.resolve()
+        assert_safe_path(self.root, reject_hardlink_target=False)
+        lexical_database = Path(database_path).expanduser()
+        assert_safe_path(lexical_database)
+        self.database_path = lexical_database.resolve()
+        assert_safe_path(self.database_path)
         self.project = _clip(project, 120).strip() or "blackholememory"
         self.limits = limits or RepositoryIndexLimits()
         self.source = source or RepositorySourceProvenance()
