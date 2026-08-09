@@ -122,9 +122,7 @@ class SafePatchFactory:
         configured = str(root or os.getenv(SAFE_PATCH_ROOT_ENV) or "").strip()
         lexical_root = Path(configured).expanduser() if configured else Path(tempfile.gettempdir()) / "bhm-safe-patches"
         try:
-            assert_safe_path(lexical_root, reject_hardlink_target=False)
-            self.root = lexical_root.resolve()
-            assert_safe_path(self.root, reject_hardlink_target=False)
+            self.root = assert_safe_path(lexical_root, reject_hardlink_target=False)
         except FilesystemBoundaryError as exc:
             raise SafePatchPathError(f"safe patch root crosses a filesystem boundary: {lexical_root}") from exc
         self.root.mkdir(parents=True, exist_ok=True)
@@ -140,9 +138,7 @@ class SafePatchFactory:
         normalized_task = _safe_identifier(task_id, "task_id")
         lexical_repository = Path(repo_root).expanduser()
         try:
-            assert_safe_path(lexical_repository, reject_hardlink_target=False)
-            repository = lexical_repository.resolve()
-            assert_safe_path(repository, reject_hardlink_target=False)
+            repository = assert_safe_path(lexical_repository, reject_hardlink_target=False)
         except FilesystemBoundaryError as exc:
             raise SafePatchPathError(f"repository root crosses a filesystem boundary: {lexical_repository}") from exc
         if not repository.is_dir():
@@ -329,7 +325,7 @@ class SafePatchFactory:
         if not _is_relative_to(lexical, self.root) or lexical == self.root or lexical.name != plan_id:
             raise SafePatchPathError("plan quarantine is outside the factory root or has an invalid identity")
         _assert_no_reparse_components(lexical, self.root)
-        quarantine = lexical.resolve(strict=False)
+        quarantine = lexical
         if not _is_relative_to(quarantine, self.root) or quarantine == self.root:
             raise SafePatchPathError("plan quarantine resolves outside the factory root")
         if not quarantine.is_dir():
@@ -338,8 +334,8 @@ class SafePatchFactory:
         candidate_lexical = quarantine / "candidate"
         _assert_no_reparse_components(baseline_lexical, quarantine)
         _assert_no_reparse_components(candidate_lexical, quarantine)
-        baseline = baseline_lexical.resolve(strict=False)
-        candidate = candidate_lexical.resolve(strict=False)
+        baseline = baseline_lexical
+        candidate = candidate_lexical
         if not _is_relative_to(baseline, quarantine) or not _is_relative_to(candidate, quarantine):
             raise SafePatchPathError("plan evidence path escapes quarantine")
         if not baseline.is_dir() or not candidate.is_dir():
@@ -405,7 +401,7 @@ class SafePatchFactory:
         if not _is_relative_to(target_lexical, self.root) or target_lexical == self.root:
             raise SafePatchPathError(f"refusing cleanup outside safe patch root: {requested}")
         _assert_no_reparse_components(target_lexical, self.root)
-        target = target_lexical.resolve(strict=False)
+        target = target_lexical
         if not _is_relative_to(target, self.root) or target == self.root:
             raise SafePatchPathError(f"refusing cleanup outside safe patch root: {target}")
         if target.exists():
@@ -437,7 +433,8 @@ class SafePatchFactory:
 
 def default_safe_patch_root() -> Path:
     configured = str(os.getenv(SAFE_PATCH_ROOT_ENV) or "").strip()
-    return Path(configured).expanduser().resolve() if configured else Path(tempfile.gettempdir()).resolve() / "bhm-safe-patches"
+    lexical = Path(configured).expanduser() if configured else Path(tempfile.gettempdir()) / "bhm-safe-patches"
+    return assert_safe_path(lexical, reject_hardlink_target=False)
 
 
 def _normalize_allowed_files(files: Sequence[str]) -> list[str]:
@@ -492,12 +489,12 @@ def _changed_files(baseline: Path, candidate: Path, allowed_files: Sequence[str]
 
 
 def _contained_path(root: Path, relative: str) -> Path:
-    root = root.resolve()
+    root = assert_safe_path(root, reject_hardlink_target=False)
     lexical = Path(os.path.abspath(os.fspath(root / relative)))
     if not _is_relative_to(lexical, root):
         raise SafePatchPathError(f"path escapes repository root: {relative}")
     _assert_no_reparse_components(lexical, root)
-    candidate = lexical.resolve(strict=False)
+    candidate = lexical
     if not _is_relative_to(candidate, root):
         raise SafePatchPathError(f"path escapes repository root: {relative}")
     return candidate
