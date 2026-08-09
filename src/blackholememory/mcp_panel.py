@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .filesystem_boundaries import assert_safe_path
 from .mcp_surfaces import CORE_TOOL_NAMES
 from .mcp_reconnect_receipt import build_mcp_reconnect_receipt
 
@@ -61,6 +62,7 @@ def _safe_reason(value: Any) -> str:
 
 def _read_manifest(path: Path) -> Mapping[str, Any] | None:
     try:
+        path = assert_safe_path(path)
         if not path.is_file() or path.stat().st_size > 128 * 1024:
             return None
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -93,6 +95,7 @@ def _entry_present(path: Path | None, *, file_format: str, server_id: str) -> tu
     if path is None:
         return False, False
     try:
+        path = assert_safe_path(path)
         target_present = path.is_file()
         if not target_present or path.stat().st_size > 256 * 1024:
             return target_present, False
@@ -120,8 +123,22 @@ def load_configured_sources(
 ) -> dict[str, Any]:
     """Read only bounded client-registration presence from the adapter manifest."""
 
-    root = Path(repo_root).resolve()
-    manifest = Path(manifest_path or root / "config" / "mcp-registration.json").resolve()
+    try:
+        root = assert_safe_path(Path(repo_root).expanduser(), reject_hardlink_target=False)
+        if not root.is_dir():
+            raise OSError("repository root is not a directory")
+        manifest = assert_safe_path(Path(manifest_path or root / "config" / "mcp-registration.json").expanduser())
+    except OSError:
+        return {
+            "schema_version": "bhm.mcp.configured-sources.v1",
+            "status": "unavailable",
+            "manifest_present": False,
+            "source_count": 0,
+            "configured_count": 0,
+            "sources": [],
+            "read_only": True,
+            "writes_live_state": False,
+        }
     payload = _read_manifest(manifest)
     contract = payload.get("adapter_contract") if isinstance(payload, Mapping) else None
     clients = contract.get("clients") if isinstance(contract, Mapping) else None
