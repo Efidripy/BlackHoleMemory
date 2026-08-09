@@ -8,6 +8,10 @@ import pytest
 from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.hook_queue import HookJobQueue
+from blackholememory.llm_cache import LLMCacheStore
+from blackholememory.llm_job_queue import LLMJobQueue
+from blackholememory.llm_learning import LLMLearningStore
+from blackholememory.llm_long_tasks import LongTaskStore
 from blackholememory.observation_store import ObservationStore
 
 
@@ -71,7 +75,10 @@ def test_sqlite_backup_rejects_reparse_parent(tmp_path, store_factory) -> None:
     assert not (outside / "backup.sqlite3").exists()
 
 
-@pytest.mark.parametrize("store_factory", [ObservationStore, HookJobQueue])
+@pytest.mark.parametrize(
+    "store_factory",
+    [ObservationStore, HookJobQueue, LLMJobQueue, LLMCacheStore, LLMLearningStore, LongTaskStore],
+)
 def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, store_factory) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -87,7 +94,10 @@ def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, sto
     assert not (outside / "store.sqlite3").exists()
 
 
-@pytest.mark.parametrize("store_factory", [ObservationStore, HookJobQueue])
+@pytest.mark.parametrize(
+    "store_factory",
+    [ObservationStore, HookJobQueue, LLMJobQueue, LLMCacheStore, LLMLearningStore, LongTaskStore],
+)
 def test_sqlite_store_rejects_hardlinked_target_before_initialization(tmp_path, store_factory) -> None:
     outside = tmp_path / "outside.sqlite3"
     outside.write_bytes(b"do-not-touch")

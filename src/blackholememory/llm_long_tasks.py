@@ -23,6 +23,7 @@ from typing import Any, Mapping, Sequence
 
 from .context_compiler import compile_context
 from .context_compiler import estimate_tokens
+from .filesystem_boundaries import assert_safe_path
 from .llm_safety import sanitize_llm_value
 
 
@@ -309,9 +310,12 @@ class LongTaskStore:
         with self._initialize_lock:
             if self._initialized:
                 return
+            assert_safe_path(self.path)
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.path.parent, reject_hardlink_target=False)
 
             def create_schema() -> None:
+                assert_safe_path(self.path)
                 with closing(self._connect()) as connection:
                     current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
                     if current_version not in {0, LLM_LONG_TASK_SCHEMA_VERSION}:
