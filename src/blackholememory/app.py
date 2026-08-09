@@ -88,6 +88,7 @@ from .ui_origin_policy import websocket_origin_is_allowed
 from .embedding_reuse import search_with_precomputed_embedding
 from .embedding_cache import EmbeddingCache
 from .embedding_cache import embed_query_with_cache
+from .filesystem_boundaries import assert_safe_path
 from .filesystem_boundaries import replace_bytes_safely
 from .graph import build_graph
 from .galaxy import GalaxyOptions
@@ -5074,32 +5075,82 @@ async def _finalize_pending_boot_report(warmup_task: asyncio.Task[None]) -> None
     )
 
 
-def _spawn_detached_restart_launcher() -> int:
-    start_script = settings.repo_root / "scripts" / "run-service.ps1"
-    log_dir = settings.runtime_dir / "bootstrap"
-    log_suffix = f"{os.getpid()}-{int(time.time())}"
+def _powershell_literal(value: Path | str) -> str:
+    """Return a single-quoted PowerShell literal with safe quote escaping."""
+
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _prepare_detached_restart_paths(
+    repo_root: Path | str,
+    runtime_dir: Path | str,
+    *,
+    log_suffix: str,
+) -> tuple[Path, Path, Path, Path, Path]:
+    """Validate all detached-restart paths before building the child script."""
+
+    safe_repo_root = assert_safe_path(repo_root, reject_hardlink_target=False)
+    safe_runtime_dir = assert_safe_path(runtime_dir, reject_hardlink_target=False)
+    start_script = safe_repo_root / "scripts" / "run-service.ps1"
+    assert_safe_path(start_script)
+    if not start_script.is_file():
+        raise FileNotFoundError(f"BHM restart script does not exist: {start_script}")
+
+    log_dir = safe_runtime_dir / "bootstrap"
+    assert_safe_path(log_dir, reject_hardlink_target=False)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(log_dir, reject_hardlink_target=False)
     stdout_log = log_dir / f"bhm-restart-{log_suffix}.stdout.log"
     stderr_log = log_dir / f"bhm-restart-{log_suffix}.stderr.log"
     launcher_log = log_dir / f"bhm-restart-{log_suffix}.launcher.log"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    for output in (stdout_log, stderr_log, launcher_log):
+        assert_safe_path(output)
+    return safe_repo_root, start_script, stdout_log, stderr_log, launcher_log
 
-    if os.name != "nt":
-        raise HTTPException(status_code=501, detail="detached restart is implemented for Windows runtime only")
 
-    script = f"""
+def _build_detached_restart_script(
+    *,
+    repo_root: Path,
+    start_script: Path,
+    stdout_log: Path,
+    stderr_log: Path,
+    launcher_log: Path,
+) -> str:
+    """Build the detached restart script without interpolating raw paths."""
+
+    return f"""
 $ErrorActionPreference = "Stop"
 Start-Sleep -Milliseconds 1300
-"launcher_start $(Get-Date -Format o)" | Set-Content -LiteralPath '{launcher_log}' -Encoding UTF8
+"launcher_start $(Get-Date -Format o)" | Set-Content -LiteralPath {_powershell_literal(launcher_log)} -Encoding UTF8
 Start-Process -FilePath "powershell.exe" -ArgumentList @(
   "-NoProfile",
   "-ExecutionPolicy",
   "Bypass",
   "-File",
-  "{start_script}",
+  {_powershell_literal(start_script)},
   "-SkipInstall"
-) -WorkingDirectory "{settings.repo_root}" -WindowStyle Hidden -RedirectStandardOutput "{stdout_log}" -RedirectStandardError "{stderr_log}"
-"launcher_done $(Get-Date -Format o)" | Add-Content -LiteralPath '{launcher_log}' -Encoding UTF8
+) -WorkingDirectory {_powershell_literal(repo_root)} -WindowStyle Hidden -RedirectStandardOutput {_powershell_literal(stdout_log)} -RedirectStandardError {_powershell_literal(stderr_log)}
+"launcher_done $(Get-Date -Format o)" | Add-Content -LiteralPath {_powershell_literal(launcher_log)} -Encoding UTF8
 """
+
+
+def _spawn_detached_restart_launcher() -> int:
+    repo_root, start_script, stdout_log, stderr_log, launcher_log = _prepare_detached_restart_paths(
+        settings.repo_root,
+        settings.runtime_dir,
+        log_suffix=f"{os.getpid()}-{time.time_ns()}",
+    )
+
+    if os.name != "nt":
+        raise HTTPException(status_code=501, detail="detached restart is implemented for Windows runtime only")
+
+    script = _build_detached_restart_script(
+        repo_root=repo_root,
+        start_script=start_script,
+        stdout_log=stdout_log,
+        stderr_log=stderr_log,
+        launcher_log=launcher_log,
+    )
     encoded_script = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     # Do not route the restart through ``cmd.exe /c start /min``.  ``/min``
     # only minimizes the console and can still flash a visible PowerShell
@@ -5125,7 +5176,7 @@ Start-Process -FilePath "powershell.exe" -ArgumentList @(
             "-EncodedCommand",
             encoded_script,
         ],
-        cwd=str(settings.repo_root),
+        cwd=str(repo_root),
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
