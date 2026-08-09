@@ -5,8 +5,16 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 
 _SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "validate-bhm-p28-acceptance.py"
+_CROSSWALK = (
+    Path(__file__).resolve().parents[2]
+    / ".docs"
+    / "config"
+    / "cbm-bhm-capability-crosswalk.json"
+)
 _SPEC = importlib.util.spec_from_file_location("validate_bhm_p28_acceptance", _SCRIPT)
 assert _SPEC and _SPEC.loader
 _MODULE = importlib.util.module_from_spec(_SPEC)
@@ -16,6 +24,10 @@ validate_shape = _MODULE._validate_crosswalk_shape
 tracked_source_files = _MODULE._tracked_source_files
 
 
+@pytest.mark.skipif(
+    not _CROSSWALK.is_file(),
+    reason="P28 crosswalk is local release evidence and is absent from public checkout",
+)
 def test_p28_acceptance_report_is_read_only_and_truthful() -> None:
     repo = Path(__file__).resolve().parents[2]
     report = build_report(repo)

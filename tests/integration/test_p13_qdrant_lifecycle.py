@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import pytest
+
 from blackholememory.config import settings
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.qdrant_lifecycle import build_qdrant_lifecycle_report
 
 
+@pytest.mark.skipif(
+    not (settings.runtime_dir / "live-memory" / "qdrant-quarantine-backups").is_dir(),
+    reason="live Qdrant lifecycle receipt is local operational evidence",
+)
 def test_live_qdrant_lifecycle_has_no_unknown_or_unbacked_destructive_candidate():
     report = build_qdrant_lifecycle_report(
         get_qdrant_client(),

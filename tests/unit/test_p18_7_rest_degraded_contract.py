@@ -202,7 +202,10 @@ def test_live_runtime_session_stays_unverified_from_rest_wrapper():
     assert value["recovery_action"].startswith("verify this client with a native BHM tool call")
 
 
-@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
+@pytest.mark.skipif(
+    POWERSHELL is None or not WORKSPACE_HELPER.is_file(),
+    reason="workspace-only PowerShell bridge is unavailable in a public checkout",
+)
 def test_plugin_and_workspace_transport_truth_are_exactly_equal_for_all_probe_modes():
     scenarios = (_scenario(http_attached=2), _scenario(), _scenario(http_fail=True))
     values = []
