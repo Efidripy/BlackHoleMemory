@@ -22,6 +22,8 @@
 - CI quality/public-boundary/acceptance gates;
 - version marker and Dockerfile parser contract corrections;
 - hermetic public CI and isolated admin-auth integration coverage;
+- authenticated portable-install smoke with bounded cleanup and actionable
+  startup diagnostics;
 - descriptor-based bounded reads with symlink, reparse, hardlink, race and
   byte-limit rejection;
 - confined admin snapshot import/export and canonical MCP repair cleanup;

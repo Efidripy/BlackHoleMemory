@@ -40,9 +40,32 @@ function Invoke-JsonScript {
     return ($output -join [Environment]::NewLine | ConvertFrom-Json)
 }
 
+function Resolve-BhmCallerToken {
+    $token = [string][Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', 'Process')
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $token = [string][Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', 'User')
+    }
+    if ([string]::IsNullOrWhiteSpace($token)) {
+        $envPath = Join-Path ([Environment]::GetFolderPath('UserProfile')) '.bhm\.env'
+        foreach ($line in Get-Content -LiteralPath $envPath -ErrorAction SilentlyContinue) {
+            if ($line -match '^\s*BHM_CALLER_TOKEN\s*=') {
+                $token = $line.Split('=', 2)[1].Split('#', 2)[0].Trim().Trim('"').Trim("'")
+                break
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($token) -or $token.Trim().Length -lt 32) {
+        throw 'BHM_CALLER_TOKEN is unavailable'
+    }
+    return $token.Trim()
+}
+
 function Get-JsonUrl {
-    param([Parameter(Mandatory = $true)][string]$Url)
-    return Invoke-RestMethod -UseBasicParsing -Uri $Url -TimeoutSec 5
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [Parameter(Mandatory = $true)][hashtable]$Headers
+    )
+    return Invoke-RestMethod -UseBasicParsing -Uri $Url -Headers $Headers -TimeoutSec 5
 }
 
 function Get-ArchiveReleaseVersion {
@@ -83,6 +106,13 @@ $stderr = Join-Path $tempRoot "service-stderr.log"
 $process = $null
 $result = $null
 $cleanupError = $null
+$callerTokenWasPresent = Test-Path Env:BHM_CALLER_TOKEN
+$previousCallerToken = [string]$env:BHM_CALLER_TOKEN
+$callerToken = Resolve-BhmCallerToken
+$callerHeaders = @{
+    Authorization = "Bearer $callerToken"
+    'X-BHM-Caller-Surface' = 'release-validator'
+}
 
 function Stop-PortableProcessBounded {
     param(
@@ -171,6 +201,7 @@ try {
     $env:BHM_QDRANT_URL = $QdrantUrl
     $env:BHM_QDRANT_COLLECTION = $QdrantCollection
     $env:BHM_MEM0_ENABLED = "false"
+    $env:BHM_CALLER_TOKEN = $callerToken
     # Portable-install smoke is intentionally provider-isolated.  The extracted
     # bundle must prove SQLite/cutover/Qdrant wiring without inheriting a host
     # LLM endpoint or waiting forever for a provider that is not part of the
@@ -188,7 +219,7 @@ try {
     while ((Get-Date) -lt $deadline) {
         Start-Sleep -Milliseconds 500
         try {
-            $health = Get-JsonUrl -Url "http://127.0.0.1:$Port/bhm/health"
+            $health = Get-JsonUrl -Url "http://127.0.0.1:$Port/bhm/health" -Headers $callerHeaders
             break
         } catch {
             if ($process.HasExited) {
@@ -197,15 +228,15 @@ try {
         }
     }
     if ($null -eq $health) {
-        $logs = @((Get-Content $stdout -ErrorAction SilentlyContinue), (Get-Content $stderr -ErrorAction SilentlyContinue)) -join [Environment]::NewLine
+        $logs = (@(Get-Content $stdout -ErrorAction SilentlyContinue) + @(Get-Content $stderr -ErrorAction SilentlyContinue)) -join [Environment]::NewLine
         throw "Portable runtime did not become reachable. $logs"
     }
     $cutover = $null
     $slo = $null
     $sloDeadline = (Get-Date).AddSeconds(15)
     while ((Get-Date) -lt $sloDeadline) {
-        $cutover = Get-JsonUrl -Url "http://127.0.0.1:$Port/health/cutover"
-        $slo = Get-JsonUrl -Url "http://127.0.0.1:$Port/bhm/health/slo"
+        $cutover = Get-JsonUrl -Url "http://127.0.0.1:$Port/health/cutover" -Headers $callerHeaders
+        $slo = Get-JsonUrl -Url "http://127.0.0.1:$Port/bhm/health/slo" -Headers $callerHeaders
         if ([bool]$cutover.ok -and $slo.status -eq "healthy") { break }
         Start-Sleep -Milliseconds 500
     }
@@ -248,6 +279,11 @@ try {
     }
     foreach ($name in @("BHM_MEMORY_STORE_MODE", "BHM_MEMORY_STORE_PARITY_CONFIRMED", "BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED", "BHM_FALLBACK_MODE", "BHM_PROJECTION_WORKER_ENABLED", "BHM_RUNTIME_DIR", "BHM_QDRANT_URL", "BHM_QDRANT_COLLECTION", "BHM_MEM0_ENABLED", "BHM_PROVIDER_WARMUP_DISABLED", "PYTHONPATH")) {
         Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+    }
+    if ($callerTokenWasPresent) {
+        $env:BHM_CALLER_TOKEN = $previousCallerToken
+    } else {
+        Remove-Item Env:BHM_CALLER_TOKEN -ErrorAction SilentlyContinue
     }
     if (-not $KeepExtracted -and (Test-Path -LiteralPath $tempRoot)) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
