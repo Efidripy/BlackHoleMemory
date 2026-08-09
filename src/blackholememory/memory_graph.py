@@ -15,6 +15,7 @@ from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
+from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
 
@@ -50,7 +51,10 @@ def build_memory_graph(
     project_name = _required_project(project)
     effective_as_of = _normalize_time(as_of) if as_of else None
     path = Path(database_path)
+    assert_safe_path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(path.parent, reject_hardlink_target=False)
+    assert_safe_path(path)
     nodes, quarantined = _collect_nodes(
         project_name,
         (
@@ -163,6 +167,7 @@ def query_memory_graph(
     selected_as_of = _normalize_time(as_of) if as_of else None
     started = time.perf_counter()
     path = Path(database_path)
+    assert_safe_path(path)
     if not path.exists():
         raise MemoryGraphError("memory graph database unavailable")
     connection = _connect_ro(path)
@@ -415,6 +420,7 @@ def _initialize_schema(connection: sqlite3.Connection) -> None:
 
 
 def _connect_rw(path: Path) -> sqlite3.Connection:
+    assert_safe_path(path)
     connection = sqlite3.connect(str(path), timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     connection.row_factory = sqlite3.Row
     connection.execute(f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}")
@@ -423,6 +429,7 @@ def _connect_rw(path: Path) -> sqlite3.Connection:
 
 def _connect_ro(path: Path) -> sqlite3.Connection:
     try:
+        assert_safe_path(path)
         connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     except sqlite3.Error as exc:
         raise MemoryGraphError(f"memory graph database unavailable: {exc}") from exc
