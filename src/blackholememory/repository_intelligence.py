@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
+from .filesystem_boundaries import assert_safe_path
 
 REPOSITORY_INTELLIGENCE_SCHEMA_VERSION = "bhm.llm.repository-intelligence.v1"
 REPOSITORY_INTELLIGENCE_MAX_FILES = 64
@@ -54,7 +55,10 @@ def collect_repository_files(root: str | Path, paths: Sequence[str] | None = Non
     """Read an allowlisted, bounded source snapshot without writing anything."""
 
     # lgtm [py/path-injection]
-    base = Path(root).expanduser().resolve()
+    lexical_base = Path(root).expanduser()
+    assert_safe_path(lexical_base, reject_hardlink_target=False)
+    base = lexical_base.resolve()
+    assert_safe_path(base, reject_hardlink_target=False)
     if not base.is_dir():
         raise RepositoryIntelligenceError(f"repository root is not a directory: {root}")
     selected: list[Path]
