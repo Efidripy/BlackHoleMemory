@@ -147,9 +147,7 @@ def allowlisted_artifact_manifest(paths: Iterable[str | Path], roots: Iterable[s
     for root in roots:
         lexical_root = Path(root).expanduser()
         try:
-            assert_safe_path(lexical_root, reject_hardlink_target=False)
-            resolved_root = lexical_root.resolve()
-            assert_safe_path(resolved_root, reject_hardlink_target=False)
+            resolved_root = assert_safe_path(lexical_root, reject_hardlink_target=False)
         except FilesystemBoundaryError as exc:
             raise LLMSafetyViolation(f"artifact allowlist root crosses a filesystem boundary: {root}") from exc
         resolved_roots.append(resolved_root)
@@ -159,9 +157,7 @@ def allowlisted_artifact_manifest(paths: Iterable[str | Path], roots: Iterable[s
     for raw_path in paths:
         lexical_path = Path(raw_path).expanduser()
         try:
-            assert_safe_path(lexical_path)
-            path = lexical_path.resolve()
-            assert_safe_path(path)
+            path = assert_safe_path(lexical_path)
         except FilesystemBoundaryError as exc:
             raise LLMSafetyViolation(f"artifact crosses a filesystem boundary: {raw_path}") from exc
         if not any(_is_relative_to(path, root) for root in resolved_roots):
