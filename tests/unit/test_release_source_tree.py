@@ -153,6 +153,56 @@ def test_source_tree_verifier_rejects_linked_source_file(tmp_path, monkeypatch):
     assert any("source path contains symlink" in item for item in result["failures"])
 
 
+def test_source_tree_verifier_rejects_linked_source_root_before_git(tmp_path, monkeypatch):
+    module = _module()
+    source = _fixture(tmp_path / "source")
+    staged = _fixture(tmp_path / "staged")
+    linked_root = tmp_path / "linked-source"
+    try:
+        linked_root.symlink_to(source, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks unavailable on this Windows host")
+
+    def unexpected_git(*_args, **_kwargs):
+        raise AssertionError("Git must not run before root admission")
+
+    monkeypatch.setattr(module, "git_value", unexpected_git)
+    result = module.verify(
+        source_root=linked_root,
+        release_root=staged,
+        expected_revision="a" * 40,
+        expected_tree="b" * 40,
+    )
+
+    assert result["ok"] is False
+    assert any("source root crosses unsafe filesystem boundary" in item for item in result["failures"])
+
+
+def test_source_tree_verifier_rejects_linked_release_root_before_git(tmp_path, monkeypatch):
+    module = _module()
+    source = _fixture(tmp_path / "source")
+    staged = _fixture(tmp_path / "staged")
+    linked_root = tmp_path / "linked-staged"
+    try:
+        linked_root.symlink_to(staged, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks unavailable on this Windows host")
+
+    def unexpected_git(*_args, **_kwargs):
+        raise AssertionError("Git must not run before root admission")
+
+    monkeypatch.setattr(module, "git_value", unexpected_git)
+    result = module.verify(
+        source_root=source,
+        release_root=linked_root,
+        expected_revision="a" * 40,
+        expected_tree="b" * 40,
+    )
+
+    assert result["ok"] is False
+    assert any("staged root crosses unsafe filesystem boundary" in item for item in result["failures"])
+
+
 def test_source_tree_verifier_rejects_ignored_or_untracked_source_file(tmp_path, monkeypatch):
     module = _module()
     source = _fixture(tmp_path / "source")

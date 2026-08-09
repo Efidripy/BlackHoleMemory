@@ -12,12 +12,15 @@ import argparse
 import hashlib
 import io
 import json
+import os
 import re
 import stat
 import subprocess
 import tarfile
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_ARCHIVE_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_SOURCE_TREE_GIT_TIMEOUT_SECONDS
 
@@ -105,6 +108,16 @@ def boundary_failures(files: dict[str, Path], root: Path, label: str) -> list[st
     return sorted(set(failures))
 
 
+def admit_root(path: Path, label: str) -> tuple[Path, str | None]:
+    """Admit a lexical root before Git or recursive filesystem traversal."""
+
+    candidate = Path(os.path.abspath(os.fspath(path)))
+    try:
+        return assert_safe_path(candidate, reject_hardlink_target=False), None
+    except FilesystemBoundaryError as exc:
+        return candidate, f"{label} root crosses unsafe filesystem boundary: {exc}"
+
+
 def git_value(root: Path, *args: str) -> str:
     try:
         result = subprocess.run(
@@ -187,8 +200,21 @@ def verify(
     expected_tree: str,
 ) -> dict[str, object]:
     failures: list[str] = []
-    source_root = source_root.resolve()
-    release_root = release_root.resolve()
+    source_root, source_root_error = admit_root(source_root, "source")
+    release_root, release_root_error = admit_root(release_root, "staged")
+    root_errors = [error for error in (source_root_error, release_root_error) if error]
+    if root_errors:
+        return {
+            "ok": False,
+            "source_revision": "",
+            "source_tree": "",
+            "source_file_count": 0,
+            "staged_file_count": 0,
+            "tracked_source_file_count": 0,
+            "source_snapshot_sha256": "",
+            "staged_snapshot_sha256": "",
+            "failures": root_errors,
+        }
     actual_revision = git_value(source_root, "rev-parse", "HEAD")
     actual_tree = git_value(source_root, "rev-parse", "HEAD^{tree}")
     if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_revision):
@@ -270,7 +296,16 @@ def verify_source_only(*, source_root: Path, expected_revision: str, expected_tr
     """Validate the source checkout before any compiler or copier consumes it."""
 
     failures: list[str] = []
-    source_root = source_root.resolve()
+    source_root, source_root_error = admit_root(source_root, "source")
+    if source_root_error:
+        return {
+            "ok": False,
+            "source_revision": "",
+            "source_tree": "",
+            "tracked_source_file_count": 0,
+            "source_snapshot_sha256": "",
+            "failures": [source_root_error],
+        }
     actual_revision = git_value(source_root, "rev-parse", "HEAD")
     actual_tree = git_value(source_root, "rev-parse", "HEAD^{tree}")
     if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_revision) or actual_revision.lower() != expected_revision.lower():
