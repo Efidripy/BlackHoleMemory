@@ -46,6 +46,7 @@ MAX_SCRIPT_BYTES = 512 * 1024
 MAX_ISSUES = 32
 MAX_FINGERPRINTS = 16
 MAX_CONNECTION_STATES = 16
+_STREAM_READ_CHUNK_BYTES = 64 * 1024
 _ANONYMOUS_BHM_HEALTH_PATHS = frozenset(
     {
         "/health/live",
@@ -376,10 +377,16 @@ def _read_line(process: subprocess.Popen[bytes], timeout_seconds: float) -> dict
         except BaseException as exc:  # pragma: no cover - OS edge
             result.put(exc)
 
-    threading.Thread(target=reader, daemon=True).start()
+    reader_thread = threading.Thread(target=reader, daemon=True)
+    reader_thread.start()
     try:
         value = result.get(timeout=max(timeout_seconds, 0.1))
     except Empty as exc:
+        try:
+            process.stdout.close()
+        except (OSError, ValueError):
+            pass
+        reader_thread.join(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
         raise TimeoutError("protocol_response_timeout") from exc
     if isinstance(value, BaseException):
         raise value
@@ -389,6 +396,23 @@ def _read_line(process: subprocess.Popen[bytes], timeout_seconds: float) -> dict
     if not isinstance(payload, dict):
         raise ValueError("protocol_non_object_response")
     return payload
+
+
+def _read_stream_bounded(stream: Any, *, max_bytes: int) -> bytes:
+    """Read at most ``max_bytes`` from a subprocess stream."""
+
+    chunks: list[bytes] = []
+    remaining = max(int(max_bytes), 0)
+    read1 = getattr(stream, "read1", None)
+    reader = read1 if callable(read1) else stream.read
+    while remaining:
+        chunk = reader(min(_STREAM_READ_CHUNK_BYTES, remaining))
+        if not chunk:
+            break
+        raw = bytes(chunk)
+        chunks.append(raw)
+        remaining -= len(raw)
+    return b"".join(chunks)
 
 
 def _send(process: subprocess.Popen[bytes], payload: dict[str, Any]) -> None:
@@ -404,8 +428,8 @@ def _close_process(process: subprocess.Popen[bytes], timeout_seconds: float) -> 
     def drain_stderr() -> None:
         if process.stderr is not None:
             try:
-                stderr_holder.append(process.stderr.read())
-            except OSError:
+                stderr_holder.append(_read_stream_bounded(process.stderr, max_bytes=MAX_SCRIPT_BYTES))
+            except (OSError, ValueError):
                 pass
 
     thread = threading.Thread(target=drain_stderr, daemon=True)
@@ -421,6 +445,12 @@ def _close_process(process: subprocess.Popen[bytes], timeout_seconds: float) -> 
         process.kill()
         code = process.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
     thread.join(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
+    if thread.is_alive() and process.stderr is not None:
+        try:
+            process.stderr.close()
+        except (OSError, ValueError):
+            pass
+        thread.join(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
     return int(code), (stderr_holder[0] if stderr_holder else b"").decode("utf-8", errors="replace")
 
 
@@ -512,28 +542,15 @@ def _stdio_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[st
         error_code = "protocol_probe_failed"
     finally:
         if process is not None:
-            if process.poll() is None and process.stdin is not None:
+            try:
+                returncode, stderr = _close_process(process, config.timeout_seconds)
+            except (OSError, subprocess.TimeoutExpired):
+                error_code = "probe_shutdown_timeout"
                 try:
-                    process.stdin.close()
-                except OSError:
-                    pass
-            if process.poll() is None:
-                try:
-                    returncode, stderr = _close_process(process, config.timeout_seconds)
+                    process.kill()
+                    returncode = int(process.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS))
                 except (OSError, subprocess.TimeoutExpired):
-                    error_code = "probe_shutdown_timeout"
-                    try:
-                        process.kill()
-                        returncode = int(process.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS))
-                    except (OSError, subprocess.TimeoutExpired):
-                        returncode = None
-            else:
-                returncode = int(process.returncode)
-            if process.stderr is not None:
-                try:
-                    stderr = process.stderr.read(MAX_SCRIPT_BYTES).decode("utf-8", errors="replace")
-                except OSError:
-                    stderr = ""
+                    returncode = None
     initialize = responses.get("initialize") or {}
     catalog_response = responses.get("tools/list") or {}
     shutdown = responses.get("shutdown") or {}

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import io
+import threading
+import time
+
 import pytest
 
 import blackholememory.mcp_doctor as doctor
@@ -157,3 +161,26 @@ def test_doctor_mcp_request_fails_closed_on_oversized_response(monkeypatch):
             timeout_seconds=2,
             method="DELETE",
         )
+
+
+def test_doctor_read_line_closes_blocked_stdout_after_deadline() -> None:
+    released = threading.Event()
+
+    class _BlockingStdout(io.BytesIO):
+        def readline(self, *args, **kwargs):
+            released.wait(timeout=1.0)
+            return b'{"ok":true}\n'
+
+        def close(self):
+            released.set()
+            super().close()
+
+    class _Process:
+        stdout = _BlockingStdout()
+
+    process = _Process()
+    started = time.perf_counter()
+    with pytest.raises(TimeoutError, match="protocol_response_timeout"):
+        doctor._read_line(process, timeout_seconds=0.01)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 0.5
