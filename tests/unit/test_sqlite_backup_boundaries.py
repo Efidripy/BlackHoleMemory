@@ -69,3 +69,35 @@ def test_sqlite_backup_rejects_reparse_parent(tmp_path, store_factory) -> None:
     with pytest.raises(FilesystemBoundaryError, match="symlink|reparse"):
         store.backup_to(linked_parent / "backup.sqlite3")
     assert not (outside / "backup.sqlite3").exists()
+
+
+@pytest.mark.parametrize("store_factory", [ObservationStore, HookJobQueue])
+def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, store_factory) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    store = store_factory(linked_parent / "store.sqlite3")
+    with pytest.raises(FilesystemBoundaryError, match="symlink|reparse"):
+        store.initialize()
+    assert not (outside / "store.sqlite3").exists()
+
+
+@pytest.mark.parametrize("store_factory", [ObservationStore, HookJobQueue])
+def test_sqlite_store_rejects_hardlinked_target_before_initialization(tmp_path, store_factory) -> None:
+    outside = tmp_path / "outside.sqlite3"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "store.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    store = store_factory(target)
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        store.initialize()
+    assert outside.read_bytes() == b"do-not-touch"
