@@ -5,12 +5,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_SIGNATURE_TIMEOUT_SECONDS
 
 
@@ -20,6 +23,27 @@ SIGNATURE_VERIFY_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_SIGNATURE_TIMEOUT_S
 
 def digest(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
+
+
+def lexical_path(path: Path) -> Path:
+    """Normalize a caller path lexically without following links or reparses."""
+
+    return Path(os.path.abspath(os.fspath(path)))
+
+
+def admit_path(
+    path: Path,
+    label: str,
+    *,
+    reject_hardlink_target: bool = True,
+) -> tuple[Path, str | None]:
+    """Admit one path before any filesystem read or child-process use."""
+
+    candidate = lexical_path(path)
+    try:
+        return assert_safe_path(candidate, reject_hardlink_target=reject_hardlink_target), None
+    except FilesystemBoundaryError as exc:
+        return candidate, f"{label} path crosses unsafe filesystem boundary: {exc}"
 
 
 def safe_member(name: str) -> bool:
@@ -41,42 +65,71 @@ def read_json(files: dict[str, bytes], name: str, failures: list[str]) -> dict[s
 
 
 def read_root(root: Path) -> tuple[dict[str, bytes], list[str]]:
-    bundle = root / "BlackHoleMemory" if (root / "BlackHoleMemory").is_dir() else root
-    return (
-        {
-            path.relative_to(bundle).as_posix(): path.read_bytes()
-            for path in bundle.rglob("*")
-            if path.is_file() and "__pycache__" not in path.parts and not path.name.endswith(".pyc")
-        },
-        [],
-    )
+    safe_root, root_failure = admit_path(root, "release root", reject_hardlink_target=False)
+    if root_failure:
+        return {}, [root_failure]
+    if not safe_root.is_dir():
+        return {}, [f"release root is not a directory: {safe_root}"]
+
+    nested = safe_root / "BlackHoleMemory"
+    safe_nested, nested_failure = admit_path(nested, "release bundle", reject_hardlink_target=False)
+    if nested_failure:
+        return {}, [nested_failure]
+    bundle = safe_nested if safe_nested.is_dir() else safe_root
+
+    files: dict[str, bytes] = {}
+    failures: list[str] = []
+    try:
+        candidates = bundle.rglob("*")
+        for path in candidates:
+            if "__pycache__" in path.parts or path.name.endswith(".pyc"):
+                continue
+            relative = path.relative_to(bundle).as_posix()
+            safe_file, file_failure = admit_path(path, f"release member {relative}")
+            if file_failure:
+                failures.append(file_failure)
+                continue
+            try:
+                if safe_file.is_file():
+                    files[relative] = safe_file.read_bytes()
+            except OSError as exc:
+                failures.append(f"release member cannot be read: {relative}: {exc}")
+    except OSError as exc:
+        failures.append(f"release root cannot be traversed: {safe_root}: {exc}")
+    return files, sorted(set(failures))
 
 
 def read_archive(path: Path) -> tuple[dict[str, bytes], list[str]]:
+    safe_archive, path_failure = admit_path(path, "release archive")
+    if path_failure:
+        return {}, [path_failure]
     failures: list[str] = []
-    with zipfile.ZipFile(path) as archive:
-        names = archive.namelist()
-        if len(names) != len(set(names)):
-            failures.append("archive contains duplicate members")
-        for name in names:
-            if not safe_member(name):
-                failures.append(f"unsafe archive member: {name}")
-        manifest_names = [name for name in names if name == "release-manifest.json" or name.endswith("/release-manifest.json")]
-        if len(manifest_names) != 1:
-            failures.append("archive must contain exactly one release-manifest.json")
-            return {}, failures
-        prefix = manifest_names[0][: -len("release-manifest.json")]
-        for name in names:
-            if not name.endswith("/") and not name.startswith(prefix):
-                failures.append(f"archive member outside release root: {name}")
-        return (
-            {
-                name[len(prefix) :]: archive.read(name)
-                for name in names
-                if name.startswith(prefix) and not name.endswith("/")
-            },
-            failures,
-        )
+    try:
+        with zipfile.ZipFile(safe_archive) as archive:
+            names = archive.namelist()
+            if len(names) != len(set(names)):
+                failures.append("archive contains duplicate members")
+            for name in names:
+                if not safe_member(name):
+                    failures.append(f"unsafe archive member: {name}")
+            manifest_names = [name for name in names if name == "release-manifest.json" or name.endswith("/release-manifest.json")]
+            if len(manifest_names) != 1:
+                failures.append("archive must contain exactly one release-manifest.json")
+                return {}, failures
+            prefix = manifest_names[0][: -len("release-manifest.json")]
+            for name in names:
+                if not name.endswith("/") and not name.startswith(prefix):
+                    failures.append(f"archive member outside release root: {name}")
+            return (
+                {
+                    name[len(prefix) :]: archive.read(name)
+                    for name in names
+                    if name.startswith(prefix) and not name.endswith("/")
+                },
+                failures,
+            )
+    except (OSError, zipfile.BadZipFile) as exc:
+        return {}, [f"release archive cannot be read: {safe_archive}: {exc}"]
 
 
 def verify_external_signature(
@@ -91,18 +144,37 @@ def verify_external_signature(
 ) -> dict[str, object]:
     """Run detached-signature verification with a bounded fail-closed process."""
 
+    input_paths = [
+        ("signature verifier", verifier),
+        ("release archive", archive),
+        ("signature sidecar", signature),
+        ("public-key sidecar", public_key),
+        ("signature receipt", receipt),
+    ]
+    if trust_registry is not None:
+        input_paths.append(("trust registry", trust_registry))
+    admitted: dict[str, Path] = {}
+    boundary_failures: list[str] = []
+    for label, path in input_paths:
+        safe_path, path_failure = admit_path(path, label)
+        if path_failure:
+            boundary_failures.append(path_failure)
+        admitted[label] = safe_path
+    if boundary_failures:
+        return {"status": "invalid", "failures": sorted(set(boundary_failures))}
+
     try:
         command = [
             sys.executable,
-            str(verifier),
-            "--archive", str(archive),
-            "--signature", str(signature),
-            "--public-key", str(public_key),
-            "--receipt", str(receipt),
+            str(admitted["signature verifier"]),
+            "--archive", str(admitted["release archive"]),
+            "--signature", str(admitted["signature sidecar"]),
+            "--public-key", str(admitted["public-key sidecar"]),
+            "--receipt", str(admitted["signature receipt"]),
             "--expected-version", expected_version,
         ]
         if trust_registry is not None:
-            command.extend(("--trust-registry", str(trust_registry)))
+            command.extend(("--trust-registry", str(admitted["trust registry"])))
         if expected_source_revision:
             command.extend(("--expected-source-revision", expected_source_revision))
         completed = subprocess.run(
@@ -128,10 +200,11 @@ def verify_external_signature(
 
 
 def sidecar_hash(path: Path, archive_name: str) -> str:
-    if not path.exists():
+    safe_sidecar, path_failure = admit_path(path, "archive SHA-256 sidecar")
+    if path_failure or not safe_sidecar.exists():
         return ""
     try:
-        value = path.read_text(encoding="utf-8")
+        value = safe_sidecar.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return ""
     match = re.fullmatch(rf"(?i)([a-f0-9]{{64}}) \*{re.escape(archive_name)}\r?\n?", value)
@@ -338,11 +411,22 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.archive:
-        archive = args.archive.resolve()
+        archive, archive_failure = admit_path(args.archive, "release archive")
+        failures = [archive_failure] if archive_failure else []
         files, failures = read_archive(archive)
-        sidecar = args.sidecar.resolve() if args.sidecar else Path(f"{archive}.sha256")
+        if archive_failure:
+            failures = [archive_failure]
+            files = {}
+        sidecar_candidate = args.sidecar if args.sidecar else Path(f"{archive}.sha256")
+        sidecar, sidecar_failure = admit_path(sidecar_candidate, "archive SHA-256 sidecar")
+        if sidecar_failure:
+            failures.append(sidecar_failure)
         expected = sidecar_hash(sidecar, archive.name)
-        actual = digest(archive.read_bytes())
+        try:
+            actual = digest(archive.read_bytes())
+        except OSError as exc:
+            actual = ""
+            failures.append(f"release archive cannot be read: {archive}: {exc}")
         if not expected:
             failures.append(f"missing or invalid archive SHA-256 sidecar: {sidecar}")
         elif expected != actual:
@@ -365,18 +449,19 @@ def main() -> int:
                     args.public_key,
                     args.signature_receipt,
                     args.expected_version,
-                    args.trust_registry.resolve() if args.trust_registry else None,
+                    args.trust_registry,
                     args.expected_source_revision,
                 )
                 result["external_signature"] = external
                 failures.extend(str(item) for item in external.get("failures", []) if str(item))
             result["ok"] = not failures
     else:
-        files, failures = read_root(args.release_root.resolve())
+        release_root = lexical_path(args.release_root)
+        files, failures = read_root(release_root)
         trust_result = verify_files(files, args.expected_version, failures, args.expected_source_revision)
         if not args.local_test_mode and not args.expected_source_revision:
             failures.append("expected source revision is required outside local test mode")
-        result = {"ok": not failures, "source": str(args.release_root.resolve()), **trust_result, "failures": failures}
+        result = {"ok": not failures, "source": str(release_root), **trust_result, "failures": failures}
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["ok"] else 1
 

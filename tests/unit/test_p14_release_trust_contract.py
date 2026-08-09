@@ -8,6 +8,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -337,6 +339,81 @@ def test_trust_archive_rejects_duplicate_members(tmp_path):
         archive.writestr("BlackHoleMemory/release-manifest.json", "{}")
     _, failures = verify_trust.read_archive(archive_path)
     assert "archive contains duplicate members" in failures
+
+
+def test_trust_root_rejects_reparse_bundle_before_directory_probe(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_bundle = tmp_path / "BlackHoleMemory"
+    try:
+        linked_bundle.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    files, failures = verify_trust.read_root(tmp_path)
+
+    assert files == {}
+    assert any("symlink/junction/reparse" in item for item in failures)
+
+
+def test_trust_archive_rejects_reparse_path_before_zip_open(tmp_path, monkeypatch):
+    archive = tmp_path / "release.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr("BlackHoleMemory/release-manifest.json", "{}")
+    linked_archive = tmp_path / "linked-release.zip"
+    try:
+        linked_archive.symlink_to(archive)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    def fail_if_opened(*_args, **_kwargs):
+        raise AssertionError("ZipFile must not open a linked archive")
+
+    monkeypatch.setattr(verify_trust.zipfile, "ZipFile", fail_if_opened)
+    files, failures = verify_trust.read_archive(linked_archive)
+
+    assert files == {}
+    assert any("symlink/junction/reparse" in item for item in failures)
+
+
+def test_trust_sidecar_rejects_reparse_path_before_read(tmp_path):
+    real_sidecar = tmp_path / "release.zip.sha256"
+    real_sidecar.write_text("a" * 64 + " *release.zip\n", encoding="utf-8")
+    linked_sidecar = tmp_path / "linked.sha256"
+    try:
+        linked_sidecar.symlink_to(real_sidecar)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    assert verify_trust.sidecar_hash(linked_sidecar, "release.zip") == ""
+
+
+def test_detached_signature_verifier_rejects_reparse_registry_before_child(monkeypatch, tmp_path):
+    real_registry = tmp_path / "registry.json"
+    real_registry.write_text("{}", encoding="utf-8")
+    linked_registry = tmp_path / "linked-registry.json"
+    try:
+        linked_registry.symlink_to(real_registry)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    def fail_if_called(*_args, **_kwargs):
+        raise AssertionError("detached verifier must not run with a linked registry")
+
+    monkeypatch.setattr(verify_trust.subprocess, "run", fail_if_called)
+    result = verify_trust.verify_external_signature(
+        tmp_path / "verify.py",
+        tmp_path / "release.zip",
+        tmp_path / "release.sig",
+        tmp_path / "release.pub",
+        tmp_path / "receipt.json",
+        "1.7.1",
+        linked_registry,
+        "a" * 40,
+    )
+
+    assert result["status"] == "invalid"
+    assert any("symlink/junction/reparse" in item for item in result["failures"])
 
 
 def test_release_trust_flow_is_wired_to_builder_operator_and_portable_install():
