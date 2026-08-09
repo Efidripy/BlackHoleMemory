@@ -876,13 +876,17 @@ class SQLiteRepositoryIndexStore:
     """Repository snapshot tables inside the canonical BHM SQLite database."""
 
     def __init__(self, path: str | Path, *, busy_timeout_ms: int = REPOSITORY_INDEX_BUSY_TIMEOUT_MS) -> None:
-        self.path = Path(path).expanduser().resolve()
+        # Keep the lexical path intact until the filesystem boundary has been
+        # admitted.  Resolving first would hide a symlink/junction component
+        # and could turn a linked SQLite target into an apparently safe path.
+        self.path = Path(path).expanduser()
         self.busy_timeout_ms = max(int(busy_timeout_ms), 100)
         self._initialize_lock = threading.Lock()
         self._write_lock = threading.RLock()
         self._initialized = False
 
     def _connect(self, *, read_only: bool = False) -> sqlite3.Connection:
+        assert_safe_path(self.path)
         if read_only:
             connection = sqlite3.connect(
                 f"file:{self.path.as_posix()}?mode=ro",
@@ -924,6 +928,7 @@ class SQLiteRepositoryIndexStore:
         retain the default integrity-complete behavior.
         """
 
+        assert_safe_path(self.path)
         if not self.path.is_file():
             return {
                 "database_exists": False,
@@ -1059,10 +1064,14 @@ class SQLiteRepositoryIndexStore:
             raise RepositoryIndexMigrationRequired(
                 f"v1 repository index contains data and requires a dedicated migration: {non_empty}"
             )
-        backup = Path(backup_path).expanduser().resolve()
+        backup = Path(backup_path).expanduser()
+        assert_safe_path(backup)
         if backup.exists():
             raise RepositoryIndexError(f"backup path already exists: {backup}")
+        assert_safe_path(backup)
         backup.parent.mkdir(parents=True, exist_ok=True)
+        assert_safe_path(backup.parent, reject_hardlink_target=False)
+        assert_safe_path(backup)
         source_connection = self._connect()
         try:
             destination = sqlite3.connect(
@@ -1156,7 +1165,10 @@ class SQLiteRepositoryIndexStore:
         with self._initialize_lock:
             if self._initialized:
                 return
+            assert_safe_path(self.path)
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.path.parent, reject_hardlink_target=False)
+            assert_safe_path(self.path)
             existing = self.inspect_schema()
             if existing["schema_version"] not in {None, REPOSITORY_INDEX_STORE_SCHEMA_VERSION}:
                 raise RepositoryIndexMigrationRequired(

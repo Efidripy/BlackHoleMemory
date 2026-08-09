@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from blackholememory.llm_learning import LLMLearningStore
 from blackholememory.llm_long_tasks import LongTaskStore
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.observation_store import ObservationStore
+from blackholememory.repository_index import SQLiteRepositoryIndexStore
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -86,6 +88,7 @@ def test_sqlite_backup_rejects_reparse_parent(tmp_path, store_factory) -> None:
         LLMLearningStore,
         LongTaskStore,
         SQLiteMemoryRepository,
+        SQLiteRepositoryIndexStore,
     ],
 )
 def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, store_factory) -> None:
@@ -113,6 +116,7 @@ def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, sto
         LLMLearningStore,
         LongTaskStore,
         SQLiteMemoryRepository,
+        SQLiteRepositoryIndexStore,
     ],
 )
 def test_sqlite_store_rejects_hardlinked_target_before_initialization(tmp_path, store_factory) -> None:
@@ -128,3 +132,51 @@ def test_sqlite_store_rejects_hardlinked_target_before_initialization(tmp_path, 
     with pytest.raises(FilesystemBoundaryError, match="hardlink"):
         store.initialize()
     assert outside.read_bytes() == b"do-not-touch"
+
+
+def _repository_index_v1_store(tmp_path: Path) -> SQLiteRepositoryIndexStore:
+    database = tmp_path / "memories.sqlite3"
+    SQLiteMemoryRepository(database).initialize()
+    connection = sqlite3.connect(database)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE repository_index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO repository_index_meta(key, value) VALUES ('schema_version', '1');
+            CREATE TABLE repository_index_jobs (job_id TEXT PRIMARY KEY);
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    return SQLiteRepositoryIndexStore(database)
+
+
+def test_repository_index_migration_rejects_hardlinked_backup_target(tmp_path: Path) -> None:
+    store = _repository_index_v1_store(tmp_path)
+    outside = tmp_path / "outside.sqlite3"
+    outside.write_bytes(b"do-not-overwrite")
+    backup = tmp_path / "backup.sqlite3"
+    try:
+        backup.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        store.migrate_empty_v1_to_v2(backup)
+    assert outside.read_bytes() == b"do-not-overwrite"
+
+
+def test_repository_index_migration_rejects_reparse_backup_parent(tmp_path: Path) -> None:
+    store = _repository_index_v1_store(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        store.migrate_empty_v1_to_v2(linked_parent / "backup.sqlite3")
+    assert not (outside / "backup.sqlite3").exists()
