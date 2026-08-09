@@ -47,6 +47,7 @@ from blackholememory.llm_gateway import is_local_endpoint
 from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
 from blackholememory.external_endpoint_policy import validate_public_https_endpoint
 from blackholememory.filesystem_boundaries import append_bytes_safely
+from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.runtime_endpoints import endpoint_url
 from blackholememory.caller_auth import configured_caller_token
@@ -2433,7 +2434,7 @@ class ChronicleLogger:
         self.task_id = safe_task_id
         self.base_dir = _repo_root() / ".runtime" / "logs" / "agents" / safe_task_id
         self.chronicle_path = self.base_dir / "chronicle.md"
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        assert_safe_path(self.base_dir, reject_hardlink_target=False)
         replace_bytes_safely(
             self.chronicle_path,
             (
@@ -2626,7 +2627,7 @@ class QuarantineGatewayNode:
         self.bhm = bhm_client
         self.chunk_size = chunk_size
         self.quarantine_file = quarantine_file or (_repo_root() / ".runtime" / "live-memory" / QUARANTINE_DEMO_FILE)
-        self.quarantine_file.parent.mkdir(parents=True, exist_ok=True)
+        assert_safe_path(self.quarantine_file.parent, reject_hardlink_target=False)
         if not self.quarantine_file.exists():
             self._atomic_write_json([])
 
