@@ -12,8 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
 from blackholememory.local_security_gate import evaluate_local_security_gate  # noqa: E402
 from blackholememory.local_security_gate import load_json_object  # noqa: E402
+
+
+def _write_report(path: Path | None, rendered: str) -> None:
+    if path is not None:
+        replace_bytes_safely(path.expanduser(), rendered.encode("utf-8"))
 
 
 def main() -> int:
@@ -40,9 +46,7 @@ def main() -> int:
         }
 
     rendered = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(rendered, encoding="utf-8")
+    _write_report(args.report, rendered)
     print(rendered, end="")
     if result.get("status") == "blocked":
         return 1
