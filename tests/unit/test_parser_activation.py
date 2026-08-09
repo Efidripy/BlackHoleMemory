@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from blackholememory.code_graph import SQLiteCodeGraphStore
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.parser_activation import PARSER_REGISTRY_DIGEST
 from blackholememory.parser_activation import ParserActivationError
 from blackholememory.parser_activation import activate_parser_v2
@@ -53,3 +54,37 @@ def test_online_backup_refuses_overwrite(tmp_path: Path) -> None:
     online_backup(source, target)
     with pytest.raises(ParserActivationError, match="backup already exists"):
         online_backup(source, target)
+
+
+def test_online_backup_rejects_hardlinked_target(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE marker(value TEXT)")
+    outside = tmp_path / "outside.sqlite3"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "backup.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        online_backup(source, target)
+    assert outside.read_bytes() == b"do-not-touch"
+
+
+def test_online_backup_rejects_reparse_parent(tmp_path: Path) -> None:
+    source = tmp_path / "source.sqlite3"
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE marker(value TEXT)")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        online_backup(source, linked_parent / "backup.sqlite3")
+    assert not (outside / "backup.sqlite3").exists()
