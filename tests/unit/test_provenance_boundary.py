@@ -4,6 +4,8 @@ import importlib.util
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from blackholememory.provenance_boundary import canonical_provenance_digest, scan_package_boundary
 
 
@@ -36,6 +38,22 @@ def test_package_boundary_rejects_src_in_directory_and_zip(tmp_path: Path) -> No
         handle.writestr("BlackHoleMemory/.src/foreign/SOURCE-MANIFEST.json", "{}")
     archive_report = scan_package_boundary(archive)
     assert archive_report["ok"] is False
+
+
+def test_package_boundary_rejects_reparse_directory_before_traversal(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked = tmp_path / "linked-package"
+    try:
+        linked.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    report = scan_package_boundary(linked)
+
+    assert report["ok"] is False
+    assert report["checked"] is False
+    assert "symlink/junction/reparse" in report["error"]
 
 
 def test_validator_script_is_importable() -> None:
