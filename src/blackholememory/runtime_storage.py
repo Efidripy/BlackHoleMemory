@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 from typing import Mapping
 
+from .filesystem_boundaries import FilesystemBoundaryError
+from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
 
 
@@ -149,6 +151,10 @@ def clear_memory_store_schema_cache() -> None:
 def _inspect_memory_store_schema_uncached(
     database_path: Path,
 ) -> tuple[bool, str]:
+    try:
+        database_path = assert_safe_path(database_path)
+    except FilesystemBoundaryError:
+        return False, "sqlite_schema_unreadable"
     uri = f"file:{database_path.as_posix()}?mode=ro"
     try:
         connection = sqlite3.connect(uri, uri=True, timeout=SQLITE_READINESS_PROBE_TIMEOUT_SECONDS)
@@ -208,7 +214,13 @@ def inspect_memory_store_schema(
     ``cache_ttl_seconds=0`` for tests or explicit forensic checks.
     """
 
-    database_path = Path(path).expanduser().resolve()
+    try:
+        raw_path = Path(path).expanduser()
+        assert_safe_path(raw_path)
+        database_path = raw_path.resolve()
+        assert_safe_path(database_path)
+    except FilesystemBoundaryError:
+        return False, "sqlite_schema_unreadable"
     key = str(database_path)
     ttl = MEMORY_STORE_HEALTH_CACHE_TTL_SECONDS if cache_ttl_seconds is None else max(0.0, float(cache_ttl_seconds))
     if not database_path.exists():
