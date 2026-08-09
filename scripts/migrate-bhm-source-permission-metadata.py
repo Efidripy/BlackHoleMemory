@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 REGISTRY_SCHEMA_V1 = "bhm.source-registry.v1"
 REGISTRY_SCHEMA_V2 = "bhm.source-registry.v2"
@@ -37,7 +39,7 @@ def _read(path: Path) -> tuple[str, str]:
 
 
 def _write(path: Path, text: str, newline: str) -> None:
-    path.write_bytes(text.replace("\n", newline).encode("utf-8"))
+    replace_bytes_safely(path, text.replace("\n", newline).encode("utf-8"))
 
 
 def _insert_permission_block(text: str, marker: str, indent: str) -> str:
