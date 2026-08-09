@@ -113,7 +113,11 @@ def build_provenance_boundary_report(
 ) -> dict[str, Any]:
     """Build a read-only provenance report suitable for an evidence receipt."""
 
-    root = repo_root.resolve()
+    # Keep the caller-supplied lexical root after admission.  Resolving here
+    # would follow a symlink/junction before the shared boundary gets a chance
+    # to reject it and could move Git/registry inspection outside the caller's
+    # provenance boundary.
+    root = assert_safe_path(repo_root, reject_hardlink_target=False)
     registry_path = root / "config" / "source-registry.json"
     source_root = root / ".src"
     registry_report = verify_registry(registry_path, source_root)
