@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
-
-import pytest
 
 from blackholememory import app as bhm_app
 from blackholememory import caller_auth
@@ -13,6 +13,8 @@ from blackholememory import ui_session as ui_session_module
 
 
 TEST_CALLER_TOKEN = "bhm-test-caller-token-0000000000000001"
+
+
 def _client(*, authorization: str = f"Bearer {TEST_CALLER_TOKEN}") -> TestClient:
     return TestClient(
         bhm_app.app,
@@ -151,6 +153,7 @@ def test_checkpoint_and_session_record_writes_require_and_forward_caller_auth(
 def test_scoped_caller_rejects_foreign_project_and_allows_alias(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args, **_kwargs: None)
     client = _client()
 
     forbidden = client.get("/bhm/memory", params={"id": "missing", "project": "e-github-workspace"})
@@ -516,6 +519,12 @@ def test_admin_import_snapshot_rejects_cross_project_link_endpoint(monkeypatch, 
 def test_json_body_is_replayed_after_project_authorization(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+
+    async def missing_memory(_operation, _handler, request):
+        assert request.project == "BlackHoleMemory"
+        raise HTTPException(status_code=404, detail="memory not found in live store")
+
+    monkeypatch.setattr(bhm_app, "_run_bounded_write", missing_memory)
     response = _client().post(
         "/bhm/memory/update",
         json={"id": "missing", "project": "BlackHoleMemory", "content": "updated"},
@@ -583,6 +592,12 @@ def test_scoped_chunked_body_is_rejected_before_unbounded_buffering(monkeypatch)
 
 def test_admin_route_requires_caller_then_admin_capability(monkeypatch) -> None:
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
+
+    async def missing_memory(_operation, _handler, request):
+        assert request.project == "blackholememory"
+        raise HTTPException(status_code=404, detail="memory not found in live store")
+
+    monkeypatch.setattr(bhm_app, "_run_bounded_write", missing_memory)
     no_caller = _client(authorization="").delete("/bhm/memory")
     caller_only = _client().delete("/bhm/memory")
     both = _client().request(
