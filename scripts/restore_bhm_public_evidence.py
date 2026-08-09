@@ -73,6 +73,19 @@ def sanitize(text: str) -> str:
     return BEARER_VALUE.sub(r"\1<redacted>", text)
 
 
+def sanitize_existing_ops(ops_root: Path) -> int:
+    changed = 0
+    for path in sorted(ops_root.glob("*")):
+        if not path.is_file() or path.suffix.lower() not in {".md", ".json", ".txt"}:
+            continue
+        current = path.read_text(encoding="utf-8")
+        normalized = sanitize(current)
+        if normalized != current:
+            replace_bytes_safely(path, normalized.encode("utf-8"))
+            changed += 1
+    return changed
+
+
 def restore(repo: Path, source: Path, *, raw_root: Path, missing_only: bool) -> dict[str, int]:
     repo = assert_safe_path(repo, reject_hardlink_target=False)
     source = assert_safe_path(source, reject_hardlink_target=False)
@@ -112,16 +125,7 @@ def main() -> int:
     raw_root = (args.raw_root or repo / ".local/evidence/recovery-20260725").resolve()
     result = restore(repo, args.source.resolve(), raw_root=raw_root, missing_only=not args.force)
     if args.sanitize_existing_ops:
-        changed = 0
-        for path in sorted((repo / ".docs/ops").glob("*")):
-            if not path.is_file() or path.suffix.lower() not in {".md", ".json", ".txt"}:
-                continue
-            current = path.read_text(encoding="utf-8")
-            normalized = sanitize(current)
-            if normalized != current:
-                path.write_text(normalized, encoding="utf-8", newline="\n")
-                changed += 1
-        result["sanitized_existing_ops"] = changed
+        result["sanitized_existing_ops"] = sanitize_existing_ops(repo / ".docs" / "ops")
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     return 0
 
