@@ -529,6 +529,42 @@ def test_detached_signer_rejects_junction_parent(tmp_path: Path) -> None:
     assert not signing_output.exists()
 
 
+def test_detached_signer_rejects_missing_output_parent_under_junction(tmp_path: Path) -> None:
+    archive = tmp_path / "BHM-Release-v1.8.0.zip"
+    key = tmp_path / "signer.pem"
+    target_dir = tmp_path / "target-dir"
+    junction = tmp_path / "junction"
+    archive.write_bytes(b"immutable release bytes")
+    _key(key)
+    target_dir.mkdir()
+    result = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(junction), str(target_dir)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return
+    signing_output = junction / "missing-parent" / "new.sig"
+    signed = subprocess.run(
+        [
+            sys.executable,
+            str(SIGN),
+            "--archive", str(archive),
+            "--private-key", str(key),
+            "--expected-version", "v1.8.0",
+            "--signer-id", "test-signer",
+            "--signature-out", str(signing_output),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert signed.returncode != 0
+    assert "symlink/reparse" in signed.stderr.lower()
+    assert not (target_dir / "missing-parent").exists()
+
+
 def test_detached_signer_rejects_private_key_under_junction_parent(tmp_path: Path) -> None:
     archive = tmp_path / "BHM-Release-v1.8.0.zip"
     key_target_dir = tmp_path / "key-target"

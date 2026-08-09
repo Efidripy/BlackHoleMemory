@@ -19,6 +19,9 @@ import os
 import re
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.filesystem_boundaries import assert_safe_path
+
 
 def sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
@@ -128,6 +131,18 @@ def validate_output_path(path: Path) -> None:
         if parent == current:
             break
         current = parent
+
+
+def validate_output_parent(path: Path) -> None:
+    """Admit a possibly-missing output parent with the script's CLI errors."""
+
+    try:
+        assert_safe_path(path, reject_hardlink_target=False)
+    except FilesystemBoundaryError as exc:
+        detail = str(exc).lower()
+        if "symlink" in detail or "junction" in detail or "reparse" in detail:
+            raise SystemExit(f"signing output path is a symlink/reparse point: {path}") from exc
+        raise SystemExit(f"unable to inspect signing output path: {path}") from exc
 
 
 def validate_signer_id(value: str) -> str:
@@ -270,7 +285,12 @@ def main() -> int:
     # Validate every destination before creating any sidecar so a pre-existing
     # or unsafe sibling cannot leave a partially published signature set.
     for output in (signature_out, public_key_out, receipt_out):
+        # Admit the parent before creating missing components.  The post-create
+        # check below closes the remaining mkdir race without ever accepting a
+        # pre-existing junction/reparse parent as a normal directory.
+        validate_output_parent(output.parent)
         output.parent.mkdir(parents=True, exist_ok=True)
+        validate_output_parent(output.parent)
         validate_output_path(output)
         if output.exists() or output.is_symlink():
             raise SystemExit(f"signing output already exists; refusing overwrite: {output}")
