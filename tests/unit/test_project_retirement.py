@@ -4,6 +4,8 @@ import sqlite3
 
 import pytest
 
+from blackholememory import project_retirement as project_retirement_module
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.project_retirement import ProjectRetirementError
 from blackholememory.project_retirement import apply_project_retirement
@@ -79,3 +81,35 @@ def test_protected_project_cannot_be_applied(tmp_path, monkeypatch):
 
     with pytest.raises(ProjectRetirementError, match="protected"):
         apply_project_retirement(database, "blackholememory", capability="secret")
+
+
+def test_retirement_backup_rejects_hardlinked_target(tmp_path):
+    source = tmp_path / "source.sqlite3"
+    SQLiteMemoryRepository(source).initialize()
+    outside = tmp_path / "outside.sqlite3"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "backup.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        project_retirement_module._backup_sqlite(source, target)
+    assert outside.read_bytes() == b"do-not-touch"
+
+
+def test_retirement_backup_rejects_reparse_parent(tmp_path):
+    source = tmp_path / "source.sqlite3"
+    SQLiteMemoryRepository(source).initialize()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        project_retirement_module._backup_sqlite(source, linked_parent / "backup.sqlite3")
+    assert not (outside / "backup.sqlite3").exists()

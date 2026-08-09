@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .filesystem_boundaries import assert_safe_path
 from .memory_repository import SQLiteMemoryRepository
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
@@ -54,6 +55,7 @@ def _safe_project(project: str) -> str:
 
 
 def _connect(path: Path, *, read_only: bool = False) -> sqlite3.Connection:
+    assert_safe_path(path)
     if read_only:
         connection = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     else:
@@ -138,7 +140,11 @@ def _capability_ok(capability: str) -> bool:
 
 
 def _backup_sqlite(source: Path, destination: Path) -> dict[str, Any]:
+    assert_safe_path(source)
+    assert_safe_path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(destination.parent, reject_hardlink_target=False)
+    assert_safe_path(destination)
     source_connection = _connect(source, read_only=True)
     try:
         destination_connection = sqlite3.connect(
@@ -166,7 +172,10 @@ def preview_project_retirement(database_path: Path | str, project: str) -> dict[
     """Return a read-only retirement plan; this function never creates schema."""
 
     project_id = _safe_project(project)
-    path = Path(database_path).expanduser().resolve()
+    path = Path(database_path).expanduser()
+    assert_safe_path(path)
+    path = path.resolve()
+    assert_safe_path(path)
     if not path.exists():
         raise ProjectRetirementError("authoritative SQLite database is unavailable")
     connection = _connect(path, read_only=True)
@@ -220,7 +229,10 @@ def apply_project_retirement(
         raise ProjectRetirementError("project is not present in the explicit retirement allowlist")
     if not _capability_ok(capability):
         raise ProjectRetirementError("project retirement capability is missing or invalid")
-    path = Path(database_path).expanduser().resolve()
+    path = Path(database_path).expanduser()
+    assert_safe_path(path)
+    path = path.resolve()
+    assert_safe_path(path)
     if not path.exists():
         raise ProjectRetirementError("authoritative SQLite database is unavailable")
 
@@ -247,7 +259,10 @@ def apply_project_retirement(
         backup_dir
         or os.getenv(PROJECT_RETIREMENT_BACKUP_DIR_ENV, "")
         or (path.parent / "retirement-backups")
-    ).expanduser().resolve()
+    ).expanduser()
+    assert_safe_path(root)
+    root = root.resolve()
+    assert_safe_path(root)
     try:
         root.relative_to(path.parent)
     except ValueError as exc:
