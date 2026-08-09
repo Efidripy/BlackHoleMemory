@@ -182,6 +182,23 @@ def test_mcp_integration_status_uses_current_http_contract(tmp_path, monkeypatch
     assert str(target) in detail
 
 
+def test_mcp_integration_status_detects_codex_toml(tmp_path, monkeypatch) -> None:
+    home = tmp_path / "Home"
+    target = home / ".codex" / "config.toml"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        '[mcp_servers.bhm]\nurl = "http://127.0.0.1:8000/mcp"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    ok, detail = launcher.mcp_integration_status()
+
+    assert ok is True
+    assert str(target) in detail
+
+
 def test_process_control_commands_use_a_bounded_timeout(monkeypatch) -> None:
     calls: list[tuple[list[str], dict]] = []
 
@@ -355,6 +372,114 @@ def test_post_json_keeps_caller_credential_in_authorization_header(monkeypatch) 
     assert request.get_header("Authorization") == f"Bearer {CALLER_TOKEN}"
     assert CALLER_TOKEN not in request.full_url
     assert CALLER_TOKEN.encode() not in request.data
+
+
+def test_post_json_binds_explicit_project_scope_to_body_and_header(monkeypatch) -> None:
+    captured: list[object] = []
+    monkeypatch.setattr(launcher, "_required_bhm_caller_token", lambda: CALLER_TOKEN)
+
+    def fake_urlopen(request, timeout: float):
+        captured.extend([request, timeout])
+        return _JsonResponse(b'{"memory_count": 1}')
+
+    monkeypatch.setattr(launcher, "open_local_url", fake_urlopen)
+
+    launcher.post_json(
+        f"{launcher.BHM_BASE_URL}/bhm/memory/usage-stats",
+        {"project": "blackholememory"},
+    )
+
+    request = captured[0]
+    assert request.get_header("X-bhm-caller-project") == "blackholememory"
+    assert request.get_header("X-bhm-caller-surface") == "launcher"
+    assert json.loads(request.data) == {"project": "blackholememory"}
+
+
+def test_get_json_allows_scoped_query_only_against_bhm_origin(monkeypatch) -> None:
+    captured: list[object] = []
+    monkeypatch.setattr(launcher, "_required_bhm_caller_token", lambda: CALLER_TOKEN)
+
+    def fake_urlopen(request, *, timeout: float, endpoint: str):
+        captured.extend([request, timeout, endpoint])
+        return _JsonResponse(b'{"status":"healthy"}')
+
+    monkeypatch.setattr(launcher, "open_local_url", fake_urlopen)
+
+    payload = launcher.get_json(
+        f"{launcher.BHM_BASE_URL}/bhm/health/slo?project=blackholememory",
+        project="blackholememory",
+    )
+
+    request = captured[0]
+    assert payload == {"status": "healthy"}
+    assert request.full_url.endswith("?project=blackholememory")
+    assert captured[2] == launcher.BHM_BASE_URL
+    assert request.get_header("X-bhm-caller-project") == "blackholememory"
+
+
+def test_fetch_telemetry_exposes_runtime_quality_without_silent_placeholders(monkeypatch) -> None:
+    calls: list[tuple[str, str, dict | None, str | None]] = []
+
+    def fake_safe(url: str, *, method: str, payload: dict | None, project: str | None, timeout: float = 0):
+        calls.append((url, method, payload, project))
+        if "usage-stats" in url:
+            data = {"memory_count": 12}
+        elif "link-graph-stats" in url:
+            data = {"link_count": 34, "node_count": 21}
+        elif "agent-activity-rollup" in url:
+            data = {"counts": {"session_records": 5, "observations": 8}}
+        elif "/profile" in url:
+            data = {"readiness": {"provider_warmup": {"ready": True, "phase": "ready"}}}
+        elif "/health/cutover" in url:
+            data = {"memory_store": {"ready": True}, "storage": {"ready": True}}
+        elif "/health/slo" in url:
+            data = {"status": "healthy", "observed": {"projection_pending": 0, "projection_failed": 0}}
+        elif "mcp-panel" in url:
+            data = {"connected": {"attached_count": 1}, "overall": {"state": "healthy"}}
+        else:
+            data = {}
+        return launcher.JsonRequestResult(ok=True, data=data, status_code=200)
+
+    monkeypatch.setattr(launcher, "safe_json_request", fake_safe)
+
+    telemetry = launcher.fetch_telemetry("blackholememory")
+
+    assert telemetry["memory_count"] == "12"
+    assert telemetry["provider_state"] == "READY"
+    assert telemetry["sqlite_state"] == "READY"
+    assert telemetry["qdrant_state"] == "READY"
+    assert telemetry["mcp_state"] == "HEALTHY · 1"
+    assert telemetry["projection_queue"] == "0 / 0"
+    assert telemetry["slo_state"] == "HEALTHY"
+    assert all(call[3] == "blackholememory" for call in calls)
+    assert all(call[2] == {"project": "blackholememory"} for call in calls if call[1] == "POST")
+
+
+def test_fetch_telemetry_surfaces_auth_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        launcher,
+        "safe_json_request",
+        lambda *_args, **_kwargs: launcher.JsonRequestResult(ok=False, data={}, status_code=401, error="AUTH"),
+    )
+
+    telemetry = launcher.fetch_telemetry("blackholememory")
+
+    assert telemetry["memory_count"] == "AUTH"
+    assert telemetry["provider_state"] == "AUTH"
+    assert telemetry["last_sys"] == "AUTH"
+
+
+def test_llm_api_status_requires_models_contract(monkeypatch) -> None:
+    monkeypatch.setattr(
+        launcher,
+        "open_local_url",
+        lambda *_args, **_kwargs: _JsonResponse(b'{"object":"list","data":[{"id":"model-a"}]}'),
+    )
+
+    status = launcher.llm_api_status(13666)
+
+    assert status.state == "Running"
+    assert "1 model" in status.detail
 
 
 def test_post_json_rejects_non_local_endpoint(monkeypatch) -> None:

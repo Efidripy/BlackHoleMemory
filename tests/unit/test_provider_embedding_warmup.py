@@ -4,6 +4,8 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from blackholememory import app as bhm_app
 
 
@@ -47,7 +49,7 @@ def test_embedding_warmup_probe_is_bounded_and_does_not_retain_vector(monkeypatc
         "encoding_format": "float",
     }
     assert captured["timeout"] == bhm_app._PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS
-    assert captured["read_limit"] == 129
+    assert captured["read_limit"] == bhm_app._PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES + 1
 
 
 def test_qwen_provider_warmup_disables_thinking(monkeypatch) -> None:
@@ -61,7 +63,7 @@ def test_qwen_provider_warmup_disables_thinking(monkeypatch) -> None:
             return False
 
         def read(self, limit):
-            return b"{}"
+            return b'{"choices":[{"message":{"role":"assistant","content":"pong"}}]}'
 
     def fake_urlopen(request, timeout):
         captured["payload"] = json.loads(request.data.decode("utf-8"))
@@ -83,6 +85,75 @@ def test_qwen_provider_warmup_disables_thinking(monkeypatch) -> None:
 
     assert captured["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
     assert captured["timeout"] == bhm_app._PROVIDER_WARMUP_TIMEOUT_SECONDS
+
+
+def test_provider_warmup_accepts_normal_completion_larger_than_128_bytes(monkeypatch) -> None:
+    body = json.dumps(
+        {
+            "id": "chatcmpl-warmup",
+            "object": "chat.completion",
+            "model": "qwen2.5-coder-7b-instruct",
+            "choices": [{"index": 0, "message": {"role": "assistant", "content": "pong"}}],
+            "padding": "x" * 512,
+        }
+    ).encode("utf-8")
+    assert len(body) > 128
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, limit: int):
+            return body[:limit]
+
+    monkeypatch.setattr(bhm_app, "open_local_url", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr(
+        bhm_app,
+        "settings",
+        SimpleNamespace(
+            mem0_llm_model="qwen2.5-coder-7b-instruct",
+            mem0_openai_base_url="http://127.0.0.1:13666/v1",
+            mem0_api_key="",
+        ),
+    )
+
+    bhm_app._post_provider_warmup_probe()
+
+
+def test_provider_warmup_rejects_invalid_or_oversized_completion(monkeypatch) -> None:
+    class _Response:
+        def __init__(self, body: bytes) -> None:
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, limit: int):
+            return self.body[:limit]
+
+    monkeypatch.setattr(
+        bhm_app,
+        "settings",
+        SimpleNamespace(
+            mem0_llm_model="qwen2.5-coder-7b-instruct",
+            mem0_openai_base_url="http://127.0.0.1:13666/v1",
+            mem0_api_key="",
+        ),
+    )
+    monkeypatch.setattr(bhm_app, "open_local_url", lambda *_args, **_kwargs: _Response(b'{"choices": []}'))
+    with pytest.raises(OSError, match="completion choice"):
+        bhm_app._post_provider_warmup_probe()
+
+    oversized = b"x" * (bhm_app._PROVIDER_WARMUP_MAX_RESPONSE_BYTES + 1)
+    monkeypatch.setattr(bhm_app, "open_local_url", lambda *_args, **_kwargs: _Response(oversized))
+    with pytest.raises(bhm_app.urllib.error.URLError, match="bounded limit"):
+        bhm_app._post_provider_warmup_probe()
 
 
 def test_semantic_provider_warmup_runs_embedding_probe_only_when_enabled(monkeypatch) -> None:

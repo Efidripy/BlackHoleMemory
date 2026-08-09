@@ -546,6 +546,10 @@ _PROVIDER_WARMUP_TIMEOUT_SECONDS = _env_float(
 _PROVIDER_WARMUP_INITIAL_DELAY_SECONDS = _env_float("BHM_PROVIDER_WARMUP_INITIAL_DELAY_SECONDS", 1.0, 0.1)
 _PROVIDER_WARMUP_MAX_DELAY_SECONDS = _env_float("BHM_PROVIDER_WARMUP_MAX_DELAY_SECONDS", 30.0, 1.0)
 _PROVIDER_READINESS_WAIT_SECONDS = _env_float("BHM_PROVIDER_READINESS_WAIT_SECONDS", 5.0, 0.0)
+_PROVIDER_WARMUP_MAX_RESPONSE_BYTES = min(
+    _env_int("BHM_PROVIDER_WARMUP_MAX_RESPONSE_BYTES", 16 * 1024, 512),
+    256 * 1024,
+)
 _PROVIDER_EMBEDDING_WARMUP_ENABLED = os.getenv("BHM_PROVIDER_EMBEDDING_WARMUP", "").lower() in {
     "1",
     "true",
@@ -562,6 +566,10 @@ _PROVIDER_EMBEDDING_WARMUP_RETRY_DELAY_SECONDS = _env_float(
     "BHM_PROVIDER_EMBEDDING_WARMUP_RETRY_DELAY_SECONDS",
     0.25,
     0.0,
+)
+_PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES = min(
+    _env_int("BHM_PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES", 256 * 1024, 1024),
+    256 * 1024,
 )
 _PROVIDER_MEMORY_WARMUP_ENABLED = os.getenv("BHM_PROVIDER_MEMORY_WARMUP", "").lower() in {
     "1",
@@ -715,7 +723,14 @@ def _post_provider_warmup_probe() -> None:
         method="POST",
     )
     with open_local_url(request, timeout=_PROVIDER_WARMUP_TIMEOUT_SECONDS) as response:
-        read_bounded_response(response, limit=128)
+        raw = read_bounded_response(response, limit=_PROVIDER_WARMUP_MAX_RESPONSE_BYTES)
+    try:
+        response_payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise OSError("provider warmup response is not valid JSON") from exc
+    choices = response_payload.get("choices") if isinstance(response_payload, dict) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise OSError("provider warmup response does not contain a completion choice")
 
 
 def _post_provider_embedding_warmup_probe() -> None:
@@ -741,9 +756,14 @@ def _post_provider_embedding_warmup_probe() -> None:
         method="POST",
     )
     with open_local_url(request, timeout=_PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS) as response:
-        # Do not expose or retain the returned embedding vector.  Reading a
-        # bounded prefix is enough to let urllib close the response cleanly.
-        read_bounded_response(response, limit=128)
+        raw = read_bounded_response(response, limit=_PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES)
+    try:
+        response_payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise OSError("provider embedding warmup response is not valid JSON") from exc
+    data = response_payload.get("data") if isinstance(response_payload, dict) else None
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        raise OSError("provider embedding warmup response does not contain embedding data")
 
 
 def _provider_memory_warmup_projects() -> list[str]:
@@ -8866,15 +8886,20 @@ def _agent_activity_rollup(project: str | None = None) -> dict:
         "handoffs": [item for item in _load_handoffs() if _project_matches(item.get("project"), project)],
         "tasks": [item for item in _load_tasks() if _project_matches(item.get("project"), project)],
         "session_records": [item for item in _load_session_records() if _project_matches(item.get("project"), project)],
-        "observations": [item for item in _load_observations() if _project_matches(item.get("project"), project)],
     }
+    with _OBSERVATION_STORE_LOCK:
+        observation_rollup = _observation_store().activity_rollup(project=project)
+    counts = {name: len(items) for name, items in artifacts.items()}
+    counts["observations"] = int(observation_rollup.get("count") or 0)
+    latest = {
+        name: max((item.get("updated_at") or item.get("created_at") or "" for item in items), default="")
+        for name, items in artifacts.items()
+    }
+    latest["observations"] = str(observation_rollup.get("latest") or "")
     return {
         "project": project,
-        "counts": {name: len(items) for name, items in artifacts.items()},
-        "latest": {
-            name: max((item.get("updated_at") or item.get("created_at") or "" for item in items), default="")
-            for name, items in artifacts.items()
-        },
+        "counts": counts,
+        "latest": latest,
     }
 
 

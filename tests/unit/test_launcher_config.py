@@ -79,3 +79,9 @@ def test_validation_rejects_unsafe_port_and_mode():
         validate_settings({"llm": {"mode": "local", "port": 0}})
     with pytest.raises(ValueError, match="mode"):
         validate_settings({"llm": {"mode": "unsafe", "port": 1234}})
+
+
+def test_validation_accepts_project_and_rejects_unsafe_project():
+    assert validate_settings({"project": "blackholememory"})["project"] == "blackholememory"
+    with pytest.raises(ValueError, match="project"):
+        validate_settings({"project": "../outside"})
