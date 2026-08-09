@@ -124,8 +124,7 @@ class SQLiteLangGraphCheckpointSaver(BaseCheckpointSaver[str]):
         # hardlinked authoritative SQLite file into an apparently disposable
         # alternate path.
         assert_safe_path(raw_database_path)
-        self.database_path = raw_database_path.resolve(strict=False)
-        assert_safe_path(self.database_path)
+        self.database_path = raw_database_path
         self.project = _text(project, name="project")
         self.caller_id = _text(caller_id, name="caller_id")
         self.task_id = _text(task_id, name="task_id")
@@ -167,6 +166,7 @@ class SQLiteLangGraphCheckpointSaver(BaseCheckpointSaver[str]):
             raise RuntimeError("langgraph_checkpoint_feature_disabled")
 
     def _connect(self) -> sqlite3.Connection:
+        assert_safe_path(self.database_path)
         connection = sqlite3.connect(
             self.database_path,
             timeout=self.busy_timeout_ms / 1000,
@@ -182,7 +182,10 @@ class SQLiteLangGraphCheckpointSaver(BaseCheckpointSaver[str]):
         with self._lock:
             if self._initialized:
                 return
+            assert_safe_path(self.database_path)
             self.database_path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.database_path.parent, reject_hardlink_target=False)
+            assert_safe_path(self.database_path)
             connection = self._connect()
             try:
                 connection.execute("PRAGMA journal_mode=WAL")
