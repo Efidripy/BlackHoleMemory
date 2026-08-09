@@ -176,15 +176,13 @@ def _safe_path(root: Path, relative: str) -> Path:
 
 
 def _admit_repository_root(root: Path) -> Path:
-    """Validate lexical root provenance before resolving it for source reads."""
+    """Validate lexical root provenance before source reads."""
 
     lexical_root = Path(root).expanduser()
-    assert_safe_path(lexical_root, reject_hardlink_target=False)
-    resolved_root = lexical_root.resolve()
-    assert_safe_path(resolved_root, reject_hardlink_target=False)
-    if not resolved_root.is_dir():
+    admitted_root = assert_safe_path(lexical_root, reject_hardlink_target=False)
+    if not admitted_root.is_dir():
         raise CodeSearchError("repository root is unavailable")
-    return resolved_root
+    return admitted_root
 
 
 def _matches_line(line: str, query: str, mode: str) -> bool:
