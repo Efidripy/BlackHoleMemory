@@ -107,9 +107,12 @@ class ObservationStore:
         with self._initialize_lock:
             if self._initialized:
                 return
+            assert_safe_path(self.path)
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.path.parent, reject_hardlink_target=False)
 
             def initialize_schema() -> None:
+                assert_safe_path(self.path)
                 with closing(self._connect()) as connection:
                     current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
                     if current_version not in {0, 1, OBSERVATION_STORE_SCHEMA_VERSION}:
