@@ -244,6 +244,44 @@ def test_repair_plan_writer_rejects_hardlink_target(tmp_path: Path) -> None:
     assert outside.read_text(encoding="utf-8") == "sentinel"
 
 
+def test_repair_rejects_reparse_repository_root(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    with pytest.raises(McpRepairError, match="unsafe filesystem boundary"):
+        _plan_path(linked_root, "mcp-repair-0123456789abcdef")
+
+
+def test_repair_rejects_symlinked_backup_directory(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_backup = (
+        repo_root.parent.parent
+        / "workspace"
+        / "runtime"
+        / "logs"
+        / "mcp-adapters"
+        / "backups"
+    )
+    try:
+        linked_backup.parent.mkdir(parents=True)
+        linked_backup.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    from blackholememory.mcp_repair import _safe_backup_dir
+
+    with pytest.raises(OSError, match="symlink/junction/reparse"):
+        _safe_backup_dir(repo_root, str(linked_backup / "attempt"))
+
+
 @pytest.mark.parametrize(
     ("route", "patch_name", "expected_code"),
     [
