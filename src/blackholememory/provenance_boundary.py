@@ -15,6 +15,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
+from .filesystem_boundaries import assert_safe_path
 from .source_registry import verify_registry
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 
@@ -66,13 +67,32 @@ def canonical_provenance_digest(source_results: Iterable[dict[str, Any]]) -> str
 def scan_package_boundary(path: Path) -> dict[str, Any]:
     """Check one release directory or ZIP for quarantined ``.src`` entries."""
 
-    resolved = path.resolve()
+    try:
+        resolved = assert_safe_path(path)
+    except OSError as exc:
+        return {
+            "path": str(path),
+            "checked": False,
+            "residue": [],
+            "error": str(exc),
+            "ok": False,
+        }
     residues: list[str] = []
     if resolved.is_dir():
-        for child in resolved.rglob("*"):
-            relative = child.relative_to(resolved).as_posix()
-            if ".src" in PurePosixPath(relative).parts:
-                residues.append(relative)
+        try:
+            for child in resolved.rglob("*"):
+                assert_safe_path(child)
+                relative = child.relative_to(resolved).as_posix()
+                if ".src" in PurePosixPath(relative).parts:
+                    residues.append(relative)
+        except OSError as exc:
+            return {
+                "path": str(resolved),
+                "checked": False,
+                "residue": sorted(set(residues)),
+                "error": str(exc),
+                "ok": False,
+            }
     elif resolved.is_file() and resolved.suffix.casefold() == ".zip":
         try:
             with zipfile.ZipFile(resolved) as archive:
