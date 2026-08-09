@@ -691,6 +691,7 @@ class LLMJobQueue:
         }
 
     def _connect(self) -> sqlite3.Connection:
+        assert_safe_path(self.path)
         connection = sqlite3.connect(
             self.path,
             timeout=LLM_JOB_QUEUE_BUSY_TIMEOUT_MS / 1_000,
