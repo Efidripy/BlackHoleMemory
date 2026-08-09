@@ -723,10 +723,10 @@ def resolve_dependency_provenance(root: str | Path, *, limit: int = MAX_LOCKFILE
     if not 1 <= int(limit) <= MAX_LOCKFILES:
         raise DependencyProvenanceError(f"limit must be between 1 and {MAX_LOCKFILES}")
     # lgtm [py/path-injection]
-    lexical_base = Path(root).expanduser()
-    assert_safe_path(lexical_base, reject_hardlink_target=False)
-    base = lexical_base.resolve()
-    assert_safe_path(base, reject_hardlink_target=False)
+    base = assert_safe_path(
+        Path(root).expanduser(),
+        reject_hardlink_target=False,
+    )
     if not base.is_dir():
         raise DependencyProvenanceError("repository root is not a directory")
     lockfiles: list[tuple[Path, str]] = []
@@ -790,10 +790,10 @@ def resolve_package_manifests(root: str | Path, *, limit: int = 64) -> dict[str,
     if not 1 <= int(limit) <= MAX_MANIFESTS:
         raise PackageResolutionError(f"limit must be between 1 and {MAX_MANIFESTS}")
     # lgtm [py/path-injection]
-    lexical_base = Path(root).expanduser()
-    assert_safe_path(lexical_base, reject_hardlink_target=False)
-    base = lexical_base.resolve()
-    assert_safe_path(base, reject_hardlink_target=False)
+    base = assert_safe_path(
+        Path(root).expanduser(),
+        reject_hardlink_target=False,
+    )
     if not base.is_dir():
         raise PackageResolutionError("repository root is not a directory")
     manifests: list[tuple[Path, str]] = []
