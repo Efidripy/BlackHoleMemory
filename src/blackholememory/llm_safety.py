@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from .filesystem_boundaries import FilesystemBoundaryError
+from .filesystem_boundaries import assert_safe_path
 from .observation_security import PayloadSanitizer
 
 
@@ -141,12 +143,27 @@ def build_proposal_envelope(
 
 
 def allowlisted_artifact_manifest(paths: Iterable[str | Path], roots: Iterable[str | Path]) -> list[dict[str, Any]]:
-    resolved_roots = tuple(Path(root).expanduser().resolve() for root in roots)
+    resolved_roots: list[Path] = []
+    for root in roots:
+        lexical_root = Path(root).expanduser()
+        try:
+            assert_safe_path(lexical_root, reject_hardlink_target=False)
+            resolved_root = lexical_root.resolve()
+            assert_safe_path(resolved_root, reject_hardlink_target=False)
+        except FilesystemBoundaryError as exc:
+            raise LLMSafetyViolation(f"artifact allowlist root crosses a filesystem boundary: {root}") from exc
+        resolved_roots.append(resolved_root)
     if not resolved_roots:
         raise LLMSafetyViolation("artifact allowlist cannot be empty")
     manifest: list[dict[str, Any]] = []
     for raw_path in paths:
-        path = Path(raw_path).expanduser().resolve()
+        lexical_path = Path(raw_path).expanduser()
+        try:
+            assert_safe_path(lexical_path)
+            path = lexical_path.resolve()
+            assert_safe_path(path)
+        except FilesystemBoundaryError as exc:
+            raise LLMSafetyViolation(f"artifact crosses a filesystem boundary: {raw_path}") from exc
         if not any(_is_relative_to(path, root) for root in resolved_roots):
             raise LLMSafetyViolation(f"artifact is outside allowlisted roots: {raw_path}")
         if (

@@ -63,6 +63,29 @@ def test_allowlisted_artifacts_are_digest_bound_and_sensitive_paths_fail(tmp_pat
         allowlisted_artifact_manifest([outside], [allowed])
 
 
+def test_allowlisted_artifacts_reject_reparse_roots_and_targets(tmp_path):
+    allowed = tmp_path / "artifacts"
+    allowed.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("print('outside')", encoding="utf-8")
+
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(allowed, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+    with pytest.raises(LLMSafetyViolation, match="filesystem boundary"):
+        allowlisted_artifact_manifest([], [linked_root])
+
+    linked_artifact = allowed / "linked.py"
+    try:
+        linked_artifact.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+    with pytest.raises(LLMSafetyViolation, match="filesystem boundary"):
+        allowlisted_artifact_manifest([linked_artifact], [allowed])
+
+
 def test_proposal_envelope_never_becomes_authority():
     proposal = build_proposal_envelope(
         job_id="job-1",
