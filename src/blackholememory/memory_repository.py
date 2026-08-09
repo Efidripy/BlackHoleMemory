@@ -27,6 +27,7 @@ from .domain import Lifecycle
 from .domain import Memory
 from .domain import MemoryLink
 from .domain import MemoryRevision
+from .filesystem_boundaries import assert_safe_path
 from .outbox import OutboxEvent
 from .outbox import OutboxLeaseLost
 from .outbox import OutboxStatus
@@ -221,6 +222,7 @@ class SQLiteMemoryRepository:
         self._initialized = False
 
     def _connect(self) -> sqlite3.Connection:
+        assert_safe_path(self.path)
         connection = sqlite3.connect(
             self.path,
             timeout=self.busy_timeout_ms / 1000,
@@ -241,7 +243,10 @@ class SQLiteMemoryRepository:
             if self._schema_is_ready_without_writes():
                 self._initialized = True
                 return
+            assert_safe_path(self.path)
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.path.parent, reject_hardlink_target=False)
+            assert_safe_path(self.path)
             connection = self._connect()
             try:
                 journal_mode = str(connection.execute("PRAGMA journal_mode=WAL").fetchone()[0]).casefold()
@@ -385,8 +390,10 @@ class SQLiteMemoryRepository:
     def _schema_is_ready_without_writes(self, *, fast: bool = False) -> bool:
         """Return whether an existing target is usable without touching it."""
 
+        assert_safe_path(self.path)
         if not self.path.exists():
             return False
+        assert_safe_path(self.path)
         uri = f"file:{self.path.resolve().as_posix()}?mode=ro"
         try:
             connection = sqlite3.connect(uri, uri=True, timeout=self.busy_timeout_ms / 1000)

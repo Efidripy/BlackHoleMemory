@@ -12,6 +12,7 @@ from blackholememory.llm_cache import LLMCacheStore
 from blackholememory.llm_job_queue import LLMJobQueue
 from blackholememory.llm_learning import LLMLearningStore
 from blackholememory.llm_long_tasks import LongTaskStore
+from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.observation_store import ObservationStore
 
 
@@ -77,7 +78,15 @@ def test_sqlite_backup_rejects_reparse_parent(tmp_path, store_factory) -> None:
 
 @pytest.mark.parametrize(
     "store_factory",
-    [ObservationStore, HookJobQueue, LLMJobQueue, LLMCacheStore, LLMLearningStore, LongTaskStore],
+    [
+        ObservationStore,
+        HookJobQueue,
+        LLMJobQueue,
+        LLMCacheStore,
+        LLMLearningStore,
+        LongTaskStore,
+        SQLiteMemoryRepository,
+    ],
 )
 def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, store_factory) -> None:
     outside = tmp_path / "outside"
@@ -96,7 +105,15 @@ def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, sto
 
 @pytest.mark.parametrize(
     "store_factory",
-    [ObservationStore, HookJobQueue, LLMJobQueue, LLMCacheStore, LLMLearningStore, LongTaskStore],
+    [
+        ObservationStore,
+        HookJobQueue,
+        LLMJobQueue,
+        LLMCacheStore,
+        LLMLearningStore,
+        LongTaskStore,
+        SQLiteMemoryRepository,
+    ],
 )
 def test_sqlite_store_rejects_hardlinked_target_before_initialization(tmp_path, store_factory) -> None:
     outside = tmp_path / "outside.sqlite3"
