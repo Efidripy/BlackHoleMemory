@@ -9978,7 +9978,7 @@ def _validate_admin_snapshot_ownership(payload: Mapping[str, Any]) -> None:
 
 def _admin_export(request: AdminExportRequest) -> dict:
     export_dir = settings.runtime_dir / "admin-exports"
-    export_dir.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(export_dir, reject_hardlink_target=False)
     project = _canonical_project(request.project) if request.project else None
     export_name = request.export_name or f"bhm-admin-export-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
     target = _admin_snapshot_path(export_name, require_leaf=True)
