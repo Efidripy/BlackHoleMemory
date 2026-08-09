@@ -183,6 +183,25 @@ def test_factory_rejects_reparse_source_before_copy(tmp_path: Path) -> None:
     assert outside.read_text(encoding="utf-8") == "VALUE = 'outside'\n"
 
 
+def test_factory_rejects_reparse_repository_root_before_resolution(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(repo, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    factory = SafePatchFactory(root=tmp_path / "quarantine")
+    with pytest.raises(SafePatchPathError, match="filesystem boundary"):
+        factory.prepare(
+            task_id="safe-patch-reparse-root",
+            repo_root=linked_root,
+            allowed_files=["src/demo.py"],
+            patch_text=PATCH,
+        )
+
+
 @pytest.mark.parametrize("path", [r"..\outside.py", r"C:\outside.py", r"\\server\share\outside.py"])
 def test_factory_rejects_portable_unsafe_allowlist_paths(tmp_path: Path, path: str) -> None:
     factory = SafePatchFactory(root=tmp_path / "quarantine")
