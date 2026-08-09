@@ -24,6 +24,7 @@ runtime/
 .tmp/
 artifacts/
 .pytest_cache/
+.coverage
 .ruff_cache/
 .uv-cache-final/
 .playwright-cli/
@@ -43,6 +44,9 @@ output/
 .workspace/
 .idea/
 .vscode/
+
+# Repository-local agent adapter; workspace AGENTS.md is the public canon.
+/AGENTS.md
 
 # Raw/private operational evidence; curated receipts under .docs/ops stay local.
 .docs/ops/raw/

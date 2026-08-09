@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
+from blackholememory import mcp_repair
 from blackholememory.mcp_repair import McpRepairError
 from blackholememory.mcp_repair import build_repair_preview
 from blackholememory.mcp_repair import build_reprobe
@@ -35,7 +36,19 @@ def _healthy_panel(*, attached: bool = False, transport_ready: bool = True) -> d
     }
 
 
-def test_preview_is_bhm_only_and_requires_native_probe_before_reload():
+def _healthy_adapters() -> tuple[list[dict], None, dict]:
+    return (
+        [
+            {"client": "codex", "reload_action": "restart-codex-client", "ok": True, "issues": []},
+            {"client": "claude", "reload_action": "restart-claude-client", "ok": True, "issues": []},
+        ],
+        None,
+        {},
+    )
+
+
+def test_preview_is_bhm_only_and_requires_native_probe_before_reload(monkeypatch):
+    monkeypatch.setattr(mcp_repair, "_adapter_snapshot", lambda *_args, **_kwargs: _healthy_adapters())
     result = build_repair_preview(repo_root=REPO_ROOT, panel=_healthy_panel())
 
     assert result["schema_version"] == "bhm.mcp.repair.v1"
@@ -51,7 +64,8 @@ def test_preview_is_bhm_only_and_requires_native_probe_before_reload():
     assert all("target" not in row and "path" not in row for row in result["adapters"])
 
 
-def test_preview_repairs_unavailable_transport_before_considering_reload():
+def test_preview_repairs_unavailable_transport_before_considering_reload(monkeypatch):
+    monkeypatch.setattr(mcp_repair, "_adapter_snapshot", lambda *_args, **_kwargs: _healthy_adapters())
     result = build_repair_preview(repo_root=REPO_ROOT, panel=_healthy_panel(transport_ready=False))
 
     assert result["plan"]["reconnect"]["status"] == "transport_repair_required"

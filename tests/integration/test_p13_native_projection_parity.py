@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from blackholememory.config import settings
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.mem0_adapter import global_collection_name
@@ -8,6 +10,20 @@ from blackholememory.native_projection_parity import build_native_projection_par
 from blackholememory.project_registry import get_default_project_registry
 
 
+def _has_seeded_live_projection() -> bool:
+    try:
+        client = get_qdrant_client()
+        names = {item.name for item in client.get_collections().collections}
+        required = {
+            global_collection_name(),
+            *(local_collection_name(item["id"]) for item in get_default_project_registry().report()["projects"]),
+        }
+        return required.issubset(names)
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(not _has_seeded_live_projection(), reason="seeded live Qdrant projection is local operational evidence")
 def test_live_active_collections_are_native_green_without_backfill_apply():
     scopes = [{"project": "global", "collection": global_collection_name()}]
     scopes.extend(

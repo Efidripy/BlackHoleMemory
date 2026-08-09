@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPERATOR = REPO_ROOT / "scripts" / "bhm-projection-operator.ps1"
+POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 
 
 def test_projection_operator_contract_is_bounded_and_fail_closed():
@@ -54,11 +58,12 @@ def test_projection_operator_does_not_enable_unbounded_worker_loop():
     assert "--loop --force" not in text
 
 
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
 def test_projection_operator_rejects_non_loopback_probe_before_network():
     script = OPERATOR
     completed = subprocess.run(
         [
-            "powershell",
+            POWERSHELL,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",

@@ -1554,7 +1554,8 @@ def test_hook_observation_uses_versioned_contract(monkeypatch):
         correlationId="task-contract-session",
         parentEventId="obs_workspace_parent_001",
         project="blackholememory",
-        cwd=str(WORKSPACE_ROOT),
+        # Relative fixture path avoids the intentional absolute-path redaction.
+        cwd="repo/BlackHoleMemory",
         timestamp="2026-07-11T10:15:00Z",
         source="workspace-agent-hook",
         payloadState="raw",

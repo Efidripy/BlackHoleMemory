@@ -1,12 +1,17 @@
 import base64
 import json
+import shutil
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_SCRIPTS = REPO_ROOT / "plugins" / "bhm-codex-connector" / "scripts"
 COMMON = (PLUGIN_SCRIPTS / "bhm-memory-common.ps1").read_text(encoding="utf-8")
+POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
+WORKSPACE_HELPER = Path(r"E:\GitHub\workspace\control\scripts\shared\mcp-rest-degraded.ps1")
 
 
 def _transport_for(attach: dict) -> dict:
@@ -20,7 +25,7 @@ function Get-ConnectorMcpAttachStatus {{ param([string]$BaseUrl) return $script:
 New-ConnectorTransportTruth -BaseUrl 'http://127.0.0.1:8000' -Operation 'fixture' | ConvertTo-Json -Depth 12 -Compress
 """
     completed = subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        [POWERSHELL or "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -34,7 +39,7 @@ New-ConnectorTransportTruth -BaseUrl 'http://127.0.0.1:8000' -Operation 'fixture
 def _probed_transport_for(scenario: dict, *, workspace: bool = False) -> dict:
     encoded = base64.b64encode(json.dumps(scenario).encode("utf-8")).decode("ascii")
     if workspace:
-        helper_path = str(Path(r"E:\GitHub\workspace\control\scripts\shared\mcp-rest-degraded.ps1")).replace("'", "''")
+        helper_path = str(WORKSPACE_HELPER).replace("'", "''")
         script = f"""
 . '{helper_path}'
 $raw = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encoded}'))
@@ -68,7 +73,7 @@ function Invoke-ConnectorJson {{
 New-ConnectorTransportTruth -BaseUrl 'http://127.0.0.1:8000' -Operation 'fixture' | ConvertTo-Json -Depth 12 -Compress
 """
     completed = subprocess.run(
-        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        [POWERSHELL or "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -142,8 +147,9 @@ def test_ritual_wrappers_do_not_spawn_native_mcp_as_a_fallback():
         assert "tools/call" not in text, name
 
 
+@pytest.mark.skipif(not WORKSPACE_HELPER.is_file(), reason="workspace-only bridge is unavailable in a public checkout")
 def test_workspace_bridge_has_the_same_contract_schema():
-    helper = Path(r"E:\GitHub\workspace\control\scripts\shared\mcp-rest-degraded.ps1")
+    helper = WORKSPACE_HELPER
     text = helper.read_text(encoding="utf-8")
     assert 'schema_version = "bhm.mcp.rest-degraded.v1"' in text
     assert '"MCP unavailable"' in text
@@ -152,6 +158,7 @@ def test_workspace_bridge_has_the_same_contract_schema():
     assert 'policy = "no-native-retry"' in text
 
 
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
 def test_idle_streamable_http_transport_does_not_require_blanket_reload():
     value = _transport_for(
         {
@@ -175,6 +182,7 @@ def test_idle_streamable_http_transport_does_not_require_blanket_reload():
     assert not value["recovery_action"].startswith("reload")
 
 
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
 def test_live_runtime_session_stays_unverified_from_rest_wrapper():
     value = _transport_for(
         {
@@ -194,6 +202,7 @@ def test_live_runtime_session_stays_unverified_from_rest_wrapper():
     assert value["recovery_action"].startswith("verify this client with a native BHM tool call")
 
 
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
 def test_plugin_and_workspace_transport_truth_are_exactly_equal_for_all_probe_modes():
     scenarios = (_scenario(http_attached=2), _scenario(), _scenario(http_fail=True))
     values = []
