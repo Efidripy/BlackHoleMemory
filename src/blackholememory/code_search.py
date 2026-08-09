@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from .filesystem_boundaries import FilesystemBoundaryError
+from .filesystem_boundaries import assert_safe_path
 
 CODE_SEARCH_SCHEMA_VERSION = "bhm.code-search.v1"
 CODE_SEARCH_SEMANTIC_FUSION_VERSION = "bhm.code-search.semantic-fusion.v1"
@@ -158,6 +160,8 @@ def _safe_path(root: Path, relative: str) -> Path:
     parts = normalized.split("/")
     if not normalized or normalized.startswith("/") or any(part in {"", ".", ".."} for part in parts):
         raise CodeSearchError(f"candidate escapes repository root: {relative}")
+    lexical_candidate = root.joinpath(*parts)
+    assert_safe_path(lexical_candidate)
     base = os.path.realpath(os.fspath(root))
     candidate_name = os.path.realpath(os.path.join(base, *parts))
     try:
@@ -166,7 +170,21 @@ def _safe_path(root: Path, relative: str) -> Path:
         contained = False
     if not contained:
         raise CodeSearchError(f"candidate escapes repository root: {relative}")
-    return Path(candidate_name)
+    candidate = Path(candidate_name)
+    assert_safe_path(candidate)
+    return candidate
+
+
+def _admit_repository_root(root: Path) -> Path:
+    """Validate lexical root provenance before resolving it for source reads."""
+
+    lexical_root = Path(root).expanduser()
+    assert_safe_path(lexical_root, reject_hardlink_target=False)
+    resolved_root = lexical_root.resolve()
+    assert_safe_path(resolved_root, reject_hardlink_target=False)
+    if not resolved_root.is_dir():
+        raise CodeSearchError("repository root is unavailable")
+    return resolved_root
 
 
 def _matches_line(line: str, query: str, mode: str) -> bool:
@@ -205,10 +223,7 @@ def search_repository_code(
     offset = max(0, min(int(offset), 10_000))
     snippet_max_chars = max(80, min(int(snippet_max_chars), MAX_SNIPPET_CHARS))
     # lgtm [py/path-injection]
-    root = root.resolve()
-    # lgtm [py/path-injection]
-    if not root.is_dir():
-        raise CodeSearchError("repository root is unavailable")
+    root = _admit_repository_root(root)
 
     ordered_files = sorted(files, key=lambda item: str(item.get("path") or ""))[:MAX_SCAN_FILES]
     matches: list[dict[str, Any]] = []
@@ -368,7 +383,9 @@ def get_repository_snippet(
         raise CodeSearchError("file exceeds snippet size budget")
     try:
         # lgtm [py/path-injection]
-        payload = _safe_path(root.resolve(), relative).read_bytes()
+        payload = _safe_path(_admit_repository_root(root), relative).read_bytes()
+    except FilesystemBoundaryError:
+        raise
     except (OSError, CodeSearchError) as exc:
         raise CodeSearchError("snippet source is unavailable") from exc
     if b"\x00" in payload[:4096]:
