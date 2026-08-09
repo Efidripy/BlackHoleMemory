@@ -83,6 +83,20 @@ def test_package_resolution_rejects_unbounded_manifest_limit(tmp_path: Path) -> 
         raise AssertionError("expected bounded limit rejection")
 
 
+@pytest.mark.parametrize("resolver", [resolve_package_manifests, resolve_dependency_provenance])
+def test_package_resolution_rejects_reparse_repository_root(tmp_path: Path, resolver) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        resolver(linked_root)
+
+
 def test_package_resolution_rejects_reparse_repository_root_before_traversal(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
