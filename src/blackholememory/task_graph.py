@@ -15,6 +15,8 @@ from collections import defaultdict, deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
 
@@ -178,8 +180,10 @@ def build_task_graph(
     summary = {"node_count": len(nodes_list), "edge_count": len(edges_list), "quarantine_count": len(quarantine), "conflict_count": conflict_count, "lease_expired_count": sum(1 for edge in edges_list if edge["relation"] == "claims" and edge["payload"].get("expired")), "ready_count": sum(1 for node in nodes_list if node["entity_type"] == "task" and node["payload"].get("ready")), "evidence_backed_close_count": sum(1 for node in nodes_list if node["entity_type"] == "task" and node["payload"].get("evidence_backed_close"))}
     if len(nodes_list) > TASK_GRAPH_MAX_NODES or len(edges_list) > TASK_GRAPH_MAX_EDGES:
         raise TaskGraphError("task graph bounds exceeded")
-    path = Path(database_path)
+    path = assert_safe_path(Path(database_path))
     path.parent.mkdir(parents=True, exist_ok=True)
+    assert_safe_path(path.parent, reject_hardlink_target=False)
+    assert_safe_path(path)
     connection = _connect_rw(path)
     now = _utc_now()
     try:
@@ -215,7 +219,7 @@ def query_task_graph(database_path: Path | str, *, project: str, operation: str 
     if not 1 <= int(limit) <= 128 or not 128 <= int(max_tokens) <= 16_384 or not 0 < float(time_budget_ms) <= 5_000:
         raise TaskGraphError("query bounds exceeded")
     project_name = _required_project(project)
-    path = Path(database_path)
+    path = assert_safe_path(Path(database_path))
     if not path.exists():
         raise TaskGraphError("task graph database unavailable")
     started = time.perf_counter()
@@ -355,6 +359,7 @@ def _initialize_schema(connection: sqlite3.Connection) -> None:
 
 
 def _connect_rw(path: Path) -> sqlite3.Connection:
+    assert_safe_path(path)
     connection = sqlite3.connect(str(path), timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     connection.row_factory = sqlite3.Row
     connection.execute(f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}")
@@ -362,6 +367,7 @@ def _connect_rw(path: Path) -> sqlite3.Connection:
 
 
 def _connect_ro(path: Path) -> sqlite3.Connection:
+    assert_safe_path(path)
     try:
         connection = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
     except sqlite3.Error as exc:

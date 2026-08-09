@@ -1,5 +1,6 @@
 import pytest
 
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.task_graph import TaskGraphError
 from blackholememory.task_graph import build_task_graph
 from blackholememory.task_graph import explain_task_graph
@@ -57,3 +58,33 @@ def test_task_graph_lkg_rollback_and_fixture_are_deterministic(tmp_path):
     second = simulate_conflict_recovery_fixture()
     assert first == second
     assert first["final"]["evidence_backed"] is True
+
+
+def test_task_graph_rejects_hardlinked_database_target(tmp_path):
+    tasks, claims, evidence, events = _fixture()
+    outside = tmp_path / "outside.sqlite3"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "tasks.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        build_task_graph(target, project="fixture", tasks=tasks, claims=claims, evidence=evidence, events=events)
+    assert outside.read_bytes() == b"do-not-touch"
+
+
+def test_task_graph_rejects_reparse_database_parent(tmp_path):
+    tasks, claims, evidence, events = _fixture()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        build_task_graph(linked_parent / "tasks.sqlite3", project="fixture", tasks=tasks, claims=claims, evidence=evidence, events=events)
+    assert not (outside / "tasks.sqlite3").exists()
