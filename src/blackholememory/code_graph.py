@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 
+from .filesystem_boundaries import assert_safe_path
 from .repository_index import _LANGUAGE_BY_SUFFIX
 from .repository_index import _SPECIAL_TEXT_NAMES
 from .repository_index import SQLiteRepositoryIndexStore
@@ -5372,11 +5373,14 @@ class SQLiteCodeGraphStore:
     """Durable code graph tables in the canonical SQLite database."""
 
     def __init__(self, database_path: str | Path) -> None:
-        self.path = Path(database_path).expanduser().resolve()
+        # Preserve lexical provenance until shared boundary admission; eager
+        # resolution would conceal symlink/junction and hardlink targets.
+        self.path = Path(database_path).expanduser()
         self._lock = threading.RLock()
         self._initialized = False
 
     def _connect(self, *, read_only: bool = False) -> sqlite3.Connection:
+        assert_safe_path(self.path)
         if read_only:
             connection = sqlite3.connect(f"file:{self.path.as_posix()}?mode=ro", uri=True, timeout=CODE_GRAPH_BUSY_TIMEOUT_MS / 1000)
         else:
@@ -5395,6 +5399,7 @@ class SQLiteCodeGraphStore:
         for operator/acceptance diagnostics.
         """
 
+        assert_safe_path(self.path)
         if not self.path.is_file():
             return {"database_exists": False, "schema_version": None, "ready": False, "tables": [], "missing_tables": sorted(_CODE_GRAPH_TABLES), "quick_check": None, "row_counts": {}}
         connection = self._connect(read_only=True)
@@ -5418,10 +5423,13 @@ class SQLiteCodeGraphStore:
         with self._lock:
             if self._initialized:
                 return
+            assert_safe_path(self.path)
             index_status = SQLiteRepositoryIndexStore(self.path).inspect_schema()
             if not index_status.get("ready"):
                 raise CodeGraphError("WI-01 repository-index schema must be ready before graph initialization")
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.path.parent, reject_hardlink_target=False)
+            assert_safe_path(self.path)
             connection = self._connect()
             try:
                 connection.execute("PRAGMA journal_mode=WAL")

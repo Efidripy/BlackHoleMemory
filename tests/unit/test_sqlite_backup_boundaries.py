@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from blackholememory.code_graph import SQLiteCodeGraphStore
 from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.hook_queue import HookJobQueue
@@ -89,6 +90,7 @@ def test_sqlite_backup_rejects_reparse_parent(tmp_path, store_factory) -> None:
         LongTaskStore,
         SQLiteMemoryRepository,
         SQLiteRepositoryIndexStore,
+        SQLiteCodeGraphStore,
     ],
 )
 def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, store_factory) -> None:
@@ -117,6 +119,7 @@ def test_sqlite_store_rejects_reparse_parent_before_initialization(tmp_path, sto
         LongTaskStore,
         SQLiteMemoryRepository,
         SQLiteRepositoryIndexStore,
+        SQLiteCodeGraphStore,
     ],
 )
 def test_sqlite_store_rejects_hardlinked_target_before_initialization(tmp_path, store_factory) -> None:
