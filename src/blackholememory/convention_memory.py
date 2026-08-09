@@ -21,6 +21,7 @@ from typing import Any, Mapping
 from .code_graph import CODE_GRAPH_EXTRACTOR_VERSION
 from .code_graph import CODE_GRAPH_SCHEMA_VERSION
 from .code_graph import SQLiteCodeGraphStore
+from .filesystem_boundaries import assert_safe_path
 from .repository_index import SQLiteRepositoryIndexStore
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
@@ -398,11 +399,14 @@ class SQLiteConventionMemoryStore:
     """Durable WI-04 cards in the canonical SQLite database."""
 
     def __init__(self, database_path: str | Path) -> None:
-        self.path = Path(database_path).expanduser().resolve()
+        # Preserve lexical provenance until the shared boundary check; eager
+        # resolution would conceal linked filesystem components.
+        self.path = Path(database_path).expanduser()
         self._lock = threading.RLock()
         self._initialized = False
 
     def _connect(self, *, read_only: bool = False) -> sqlite3.Connection:
+        assert_safe_path(self.path)
         if read_only:
             connection = sqlite3.connect(f"file:{self.path.as_posix()}?mode=ro", uri=True, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
         else:
@@ -413,6 +417,7 @@ class SQLiteConventionMemoryStore:
         return connection
 
     def inspect_schema(self) -> dict[str, Any]:
+        assert_safe_path(self.path)
         if not self.path.is_file():
             return {"database_exists": False, "schema_version": None, "ready": False, "tables": [], "missing_tables": sorted(_TABLES), "quick_check": None, "row_counts": {}}
         connection = self._connect(read_only=True)
@@ -436,11 +441,14 @@ class SQLiteConventionMemoryStore:
         with self._lock:
             if self._initialized:
                 return
+            assert_safe_path(self.path)
             if not SQLiteRepositoryIndexStore(self.path).inspect_schema().get("ready"):
                 raise ConventionMemoryError("WI-01 repository-index schema must be ready")
             if not SQLiteCodeGraphStore(self.path).inspect_schema().get("ready"):
                 raise ConventionMemoryError("WI-02 code-graph schema must be ready")
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.path.parent, reject_hardlink_target=False)
+            assert_safe_path(self.path)
             connection = self._connect()
             try:
                 connection.execute("PRAGMA journal_mode=WAL")
