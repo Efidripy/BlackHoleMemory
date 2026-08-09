@@ -18,6 +18,7 @@ from blackholememory.llm_long_tasks import LongTaskStore
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.observation_store import ObservationStore
 from blackholememory.repository_index import SQLiteRepositoryIndexStore
+from blackholememory.retention import sqlite_quick_check
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -157,6 +158,20 @@ def test_sqlite_store_revalidates_path_at_connection_boundary(tmp_path, store_fa
     with pytest.raises(FilesystemBoundaryError, match="hardlink"):
         store._connect()
     assert outside.read_bytes() == b"do-not-touch"
+
+
+def test_retention_quick_check_rejects_hardlinked_target(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.sqlite3"
+    with sqlite3.connect(outside) as connection:
+        connection.execute("CREATE TABLE marker(value TEXT)")
+    target = tmp_path / "target.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        sqlite_quick_check(target)
 
 
 def _repository_index_v1_store(tmp_path: Path) -> SQLiteRepositoryIndexStore:

@@ -506,16 +506,18 @@ def apply_retention_plan(
 
 
 def sha256_file(path: Path | str) -> str:
+    safe_path = assert_safe_path(path)
     digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
+    with safe_path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
 
 def sqlite_quick_check(path: Path | str) -> str:
+    safe_path = assert_safe_path(path)
     connection = sqlite3.connect(
-        str(path),
+        str(safe_path),
         timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
     )
     connection.execute(
