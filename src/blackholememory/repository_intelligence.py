@@ -55,10 +55,10 @@ def collect_repository_files(root: str | Path, paths: Sequence[str] | None = Non
     """Read an allowlisted, bounded source snapshot without writing anything."""
 
     # lgtm [py/path-injection]
-    lexical_base = Path(root).expanduser()
-    assert_safe_path(lexical_base, reject_hardlink_target=False)
-    base = lexical_base.resolve()
-    assert_safe_path(base, reject_hardlink_target=False)
+    base = assert_safe_path(
+        Path(root).expanduser(),
+        reject_hardlink_target=False,
+    )
     if not base.is_dir():
         raise RepositoryIntelligenceError(f"repository root is not a directory: {root}")
     selected: list[Path]
