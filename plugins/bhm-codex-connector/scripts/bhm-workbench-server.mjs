@@ -118,6 +118,19 @@ function json(res, status, data) {
   res.end(JSON.stringify(sanitizeResponse(data), null, 2));
 }
 
+function ownedRequestError(error) {
+  switch (error?.code) {
+    case "request_body_invalid":
+      return { status: 400, code: "request_body_invalid" };
+    case "request_body_too_large":
+      return { status: 413, code: "request_body_too_large" };
+    case "request_body_timeout":
+      return { status: 408, code: "request_body_timeout" };
+    default:
+      return { status: 500, code: "workbench_request_failed" };
+  }
+}
+
 function isLoopbackHostname(value) {
   const normalized = String(value || "").trim().toLowerCase().replace(/^\[|\]$/g, "");
   return normalized === "127.0.0.1" || normalized === "localhost" || normalized === "::1";
@@ -888,9 +901,8 @@ const server = http.createServer(async (req, res) => {
 
     return json(res, 404, { ok: false, error: "not_found", path: url.pathname });
   } catch (error) {
-    const code = error?.code || "workbench_request_failed";
-    const status = code === "request_body_invalid" ? 400 : code === "request_body_too_large" ? 413 : code === "request_body_timeout" ? 408 : 500;
-    return json(res, status, { ok: false, error: code });
+    const failure = ownedRequestError(error);
+    return json(res, failure.status, { ok: false, error: failure.code });
   }
 });
 

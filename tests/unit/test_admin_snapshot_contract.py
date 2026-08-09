@@ -102,6 +102,23 @@ def test_admin_export_rejects_linked_export_parent_before_creation(monkeypatch, 
     assert not (outside / "blocked.json").exists()
 
 
+def test_admin_snapshot_path_rejects_hardlinked_import_before_read(monkeypatch, tmp_path) -> None:
+    runtime_root = tmp_path / "runtime"
+    export_root = runtime_root / "admin-exports"
+    export_root.mkdir(parents=True)
+    outside = tmp_path / "outside.json"
+    outside.write_text('{"project":"blackholememory"}', encoding="utf-8")
+    snapshot = export_root / "snapshot.json"
+    try:
+        snapshot.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_root)
+
+    with pytest.raises(OSError, match="hardlink"):
+        bhm_app._admin_snapshot_path("snapshot.json")
+
+
 def test_admin_snapshot_rejects_cross_project_link_endpoints(monkeypatch) -> None:
     monkeypatch.setattr(
         bhm_app,

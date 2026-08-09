@@ -72,6 +72,55 @@ def test_collect_repository_files_rejects_reparse_repository_root_before_travers
         collect_repository_files(linked_root)
 
 
+def test_collect_repository_files_does_not_follow_file_links_outside_root(tmp_path):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("SECRET = 'outside'\n", encoding="utf-8")
+    linked = source_root / "linked.py"
+    try:
+        linked.symlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    assert collect_repository_files(source_root) == []
+    with pytest.raises(RepositoryIntelligenceError, match="unsafe repository path"):
+        collect_repository_files(source_root, ["linked.py"])
+
+
+def test_collect_repository_files_rejects_hardlinked_source(tmp_path):
+    source_root = tmp_path / "source"
+    source_root.mkdir()
+    outside = tmp_path / "outside.py"
+    outside.write_text("SECRET = 'outside'\n", encoding="utf-8")
+    hardlinked = source_root / "hardlinked.py"
+    try:
+        hardlinked.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    assert collect_repository_files(source_root) == []
+    with pytest.raises(RepositoryIntelligenceError, match="unsafe repository path"):
+        collect_repository_files(source_root, ["hardlinked.py"])
+
+
+def test_collect_repository_files_scopes_inventory_without_using_scope_as_path(tmp_path):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "first.py").write_text("FIRST = 1\n", encoding="utf-8")
+    (tmp_path / "src" / "second.py").write_text("SECOND = 2\n", encoding="utf-8")
+    (tmp_path / "other.py").write_text("OTHER = 3\n", encoding="utf-8")
+
+    files = collect_repository_files(
+        tmp_path,
+        ["second.py", "first.py"],
+        scope="src",
+    )
+
+    assert [item["path"] for item in files] == ["second.py", "first.py"]
+    with pytest.raises(RepositoryIntelligenceError, match="unsafe repository scope"):
+        collect_repository_files(tmp_path, scope="../outside")
+
+
 def test_issue_clusters_and_test_selection_are_not_requested_without_changes():
     preview = build_repository_intelligence_preview(_files(), project="demo", now=NOW)
 

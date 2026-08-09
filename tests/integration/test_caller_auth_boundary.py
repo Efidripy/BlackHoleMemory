@@ -954,7 +954,7 @@ def test_scoped_repository_intelligence_rejects_foreign_project_before_filesyste
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     probes: list[str] = []
 
-    def record_collect(root, paths):
+    def record_collect(root, paths, *, scope="."):
         probes.append(str(root))
         return []
 
@@ -979,7 +979,7 @@ def test_repository_intelligence_root_escape_is_rejected_before_collection(monke
     monkeypatch.setattr(bhm_app.settings, "repo_root", canonical)
     probes: list[str] = []
 
-    def record_collect(root, paths):
+    def record_collect(root, paths, *, scope="."):
         probes.append(str(root))
         return []
 
