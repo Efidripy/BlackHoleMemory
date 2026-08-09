@@ -324,11 +324,11 @@ def _env_bool(name: str, default: bool, environ: Mapping[str, str] | None) -> bo
 
 def _resolve_path(raw: str | None, default: Path, runtime_dir: Path) -> Path:
     if raw is None or not str(raw).strip():
-        return default.resolve()
+        return assert_safe_path(default)
     candidate = Path(str(raw).strip()).expanduser()
     if not candidate.is_absolute():
         candidate = runtime_dir / candidate
-    return candidate.resolve()
+    return assert_safe_path(candidate)
 
 
 def resolve_runtime_storage_mode(
@@ -351,7 +351,10 @@ def resolve_runtime_storage_config(
 ) -> RuntimeStorageConfig:
     """Resolve runtime paths and bounded worker settings without writing files."""
 
-    root = Path(runtime_dir or _DEFAULT_RUNTIME_DIR).expanduser().resolve()
+    root = assert_safe_path(
+        Path(runtime_dir or _DEFAULT_RUNTIME_DIR).expanduser(),
+        reject_hardlink_target=False,
+    )
     database_default = root / "live-memory" / "memories.sqlite3"
     worker = ProjectionWorkerConfig(
         enabled=_env_bool(PROJECTION_WORKER_ENABLED_ENV, False, environ),
