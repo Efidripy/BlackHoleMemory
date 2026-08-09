@@ -38,6 +38,7 @@ from blackholememory.mcp_doctor import _get_json
 from blackholememory.mcp_doctor import _http_mcp_request
 from blackholememory.mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.runtime_endpoints import endpoint_url
 
 
@@ -314,6 +315,10 @@ def _args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _write_report(path: Path, output: str) -> None:
+    replace_bytes_safely(path, (output + "\n").encode("utf-8"))
+
+
 def main() -> int:
     args = _args()
     report = validate_catalog_lifecycle(
@@ -329,8 +334,7 @@ def main() -> int:
         sort_keys=not args.compact,
     )
     if args.output is not None:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(output + "\n", encoding="utf-8")
+        _write_report(args.output, output)
     print(output)
     return 0 if report["ok"] else 1
 
