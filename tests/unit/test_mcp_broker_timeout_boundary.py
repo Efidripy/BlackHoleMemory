@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
 from blackholememory.resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
 from blackholememory.resource_limits import MCP_BROKER_WAKE_TIMEOUT_SECONDS
@@ -57,3 +60,37 @@ def test_windows_named_pipe_wake_uses_bounded_probe_and_closes_handle() -> None:
         "creation": 3,
         "closed": 42,
     }
+
+
+def test_single_instance_lock_rejects_hardlinked_target_before_open(tmp_path, monkeypatch) -> None:
+    from blackholememory.infra import mcp_broker
+
+    monkeypatch.setattr(mcp_broker.tempfile, "gettempdir", lambda: str(tmp_path))
+    outside = tmp_path / "outside.lock"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "broker.lock"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        mcp_broker._SingleInstanceLock("broker").acquire()
+    assert outside.read_bytes() == b"do-not-touch"
+
+
+def test_single_instance_lock_rejects_reparse_parent_before_creation(tmp_path, monkeypatch) -> None:
+    from blackholememory.infra import mcp_broker
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+    monkeypatch.setattr(mcp_broker.tempfile, "gettempdir", lambda: str(linked_parent))
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|reparse"):
+        mcp_broker._SingleInstanceLock("broker").acquire()
+    assert not (outside / "broker.lock").exists()

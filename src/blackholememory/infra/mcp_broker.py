@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..observation_security import redact_secret_text
+from ..filesystem_boundaries import assert_safe_path
 from ..mcp_protocol_contract import BHM_REMEMBER_ALLOWED_ARGUMENTS
 from ..mcp_protocol_contract import validate_bhm_remember_arguments
 from ..resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
@@ -37,7 +38,10 @@ class _SingleInstanceLock:
         self._file = None
 
     def acquire(self) -> None:
+        assert_safe_path(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        assert_safe_path(self.path.parent, reject_hardlink_target=False)
+        assert_safe_path(self.path)
         self._file = self.path.open("a+b")
         self._file.seek(0)
         self._file.write(b"\0")
