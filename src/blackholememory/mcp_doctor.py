@@ -24,6 +24,7 @@ from queue import Empty, Queue
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 
+from .filesystem_boundaries import assert_safe_path
 from .mcp_catalog_contract import CatalogContractError
 from .local_endpoint_policy import LocalEndpointError
 from .mcp_catalog_contract import build_catalog_contract
@@ -74,7 +75,9 @@ def _read_process_or_user_env_value(key: str) -> str | None:
 def _required_bhm_caller_token() -> str:
     token = _read_process_or_user_env_value("BHM_CALLER_TOKEN") or ""
     if len(token) < 32:
-        raise RuntimeError("BHM caller credential is unavailable; initialize BHM_CALLER_TOKEN")
+        raise RuntimeError(
+            "BHM caller credential is unavailable; initialize BHM_CALLER_TOKEN"
+        )
     return token
 
 
@@ -97,18 +100,31 @@ class DoctorConfig:
     timeout_seconds: float = 45.0
 
     def __post_init__(self) -> None:
-        base_url = validate_local_endpoint(str(self.base_url or DEFAULT_BASE_URL).strip())
+        base_url = validate_local_endpoint(
+            str(self.base_url or DEFAULT_BASE_URL).strip()
+        )
         parsed = urlsplit(base_url)
         if not parsed.scheme or not parsed.netloc:
             raise ValueError("base_url must be a local HTTP URL")
         if not 1.0 <= float(self.timeout_seconds) <= 120.0:
             raise ValueError("timeout_seconds must be between 1 and 120")
         object.__setattr__(self, "base_url", base_url)
-        object.__setattr__(self, "repo_root", Path(self.repo_root).resolve())
+        repo_root = assert_safe_path(
+            Path(self.repo_root).expanduser(), reject_hardlink_target=False
+        )
+        if not repo_root.is_dir():
+            raise ValueError("repo_root must be an existing directory")
+        object.__setattr__(self, "repo_root", repo_root)
         if self.manifest is not None:
-            object.__setattr__(self, "manifest", Path(self.manifest).resolve())
+            object.__setattr__(
+                self, "manifest", assert_safe_path(Path(self.manifest).expanduser())
+            )
         if self.codex_config is not None:
-            object.__setattr__(self, "codex_config", Path(self.codex_config).resolve())
+            object.__setattr__(
+                self,
+                "codex_config",
+                assert_safe_path(Path(self.codex_config).expanduser()),
+            )
 
     @property
     def resolved_manifest(self) -> Path:
@@ -116,7 +132,10 @@ class DoctorConfig:
 
     @property
     def resolved_codex_config(self) -> Path:
-        return self.codex_config or Path(os.environ.get("USERPROFILE", "")) / ".codex" / "config.toml"
+        return (
+            self.codex_config
+            or Path(os.environ.get("USERPROFILE", "")) / ".codex" / "config.toml"
+        )
 
 
 def _bounded_int(value: Any, *, minimum: int = 0, maximum: int = 1_000_000) -> int:
@@ -126,7 +145,9 @@ def _bounded_int(value: Any, *, minimum: int = 0, maximum: int = 1_000_000) -> i
         return minimum
 
 
-def _bounded_float(value: Any, *, minimum: float = 0.0, maximum: float = 3_600_000.0) -> float:
+def _bounded_float(
+    value: Any, *, minimum: float = 0.0, maximum: float = 3_600_000.0
+) -> float:
     try:
         return round(min(max(float(value), minimum), maximum), 3)
     except (TypeError, ValueError):
@@ -174,9 +195,18 @@ def _resolve_runtime_python(config: DoctorConfig) -> str:
     return sys.executable
 
 
-def _run_json_script(script: Path, args: list[str], *, config: DoctorConfig) -> tuple[dict[str, Any], int]:
+def _run_json_script(
+    script: Path, args: list[str], *, config: DoctorConfig
+) -> tuple[dict[str, Any], int]:
     """Run an existing read-only validator and retain only JSON stdout."""
 
+    admitted_script = assert_safe_path(script)
+    if not admitted_script.is_file():
+        return {
+            "ok": False,
+            "error_code": "validator_unavailable",
+            "writes_live_state": False,
+        }, 127
     environment = os.environ.copy()
     src_root = str(config.repo_root / "src")
     environment["PYTHONPATH"] = os.pathsep.join(
@@ -184,28 +214,52 @@ def _run_json_script(script: Path, args: list[str], *, config: DoctorConfig) -> 
     )
     try:
         completed = subprocess.run(
-            [_resolve_runtime_python(config), str(script), *args],
+            [_resolve_runtime_python(config), str(admitted_script), *args],
             cwd=config.repo_root,
             env=environment,
             capture_output=True,
             text=True,
-            timeout=max(min(float(config.timeout_seconds), PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS), 1.0),
+            timeout=max(
+                min(
+                    float(config.timeout_seconds),
+                    PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS,
+                ),
+                1.0,
+            ),
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error_code": "validator_timeout", "writes_live_state": False}, 124
+        return {
+            "ok": False,
+            "error_code": "validator_timeout",
+            "writes_live_state": False,
+        }, 124
     except OSError:
-        return {"ok": False, "error_code": "validator_unavailable", "writes_live_state": False}, 127
-    stdout = (completed.stdout or "").encode("utf-8", errors="replace")[:MAX_SCRIPT_BYTES].decode(
-        "utf-8", errors="replace"
+        return {
+            "ok": False,
+            "error_code": "validator_unavailable",
+            "writes_live_state": False,
+        }, 127
+    stdout = (
+        (completed.stdout or "")
+        .encode("utf-8", errors="replace")[:MAX_SCRIPT_BYTES]
+        .decode("utf-8", errors="replace")
     )
     try:
         payload = json.loads(stdout)
     except (TypeError, json.JSONDecodeError):
-        return {"ok": False, "error_code": "validator_invalid_json", "writes_live_state": False}, completed.returncode
+        return {
+            "ok": False,
+            "error_code": "validator_invalid_json",
+            "writes_live_state": False,
+        }, completed.returncode
     if not isinstance(payload, dict):
-        return {"ok": False, "error_code": "validator_non_object", "writes_live_state": False}, completed.returncode
+        return {
+            "ok": False,
+            "error_code": "validator_non_object",
+            "writes_live_state": False,
+        }, completed.returncode
     return payload, int(completed.returncode)
 
 
@@ -224,7 +278,9 @@ def _configured_sources(config: DoctorConfig) -> dict[str, Any]:
         config=config,
     )
     records: list[dict[str, Any]] = []
-    for item in payload.get("clients") if isinstance(payload.get("clients"), list) else []:
+    for item in (
+        payload.get("clients") if isinstance(payload.get("clients"), list) else []
+    ):
         if not isinstance(item, Mapping):
             continue
         records.append(
@@ -240,7 +296,11 @@ def _configured_sources(config: DoctorConfig) -> dict[str, Any]:
             }
         )
     records.sort(key=lambda item: item["client"])
-    aligned = bool(payload.get("ok") is True and records and all(item["aligned"] for item in records))
+    aligned = bool(
+        payload.get("ok") is True
+        and records
+        and all(item["aligned"] for item in records)
+    )
     return {
         "status": "aligned" if aligned else "drift_or_unavailable",
         "manifest_present": config.resolved_manifest.is_file(),
@@ -266,7 +326,9 @@ def _duplicate_fingerprints(config: DoctorConfig) -> dict[str, Any]:
         ],
         config=config,
     )
-    issues = [item for item in (payload.get("issues") or []) if isinstance(item, Mapping)]
+    issues = [
+        item for item in (payload.get("issues") or []) if isinstance(item, Mapping)
+    ]
     issue_codes = Counter(_safe_issue_code(item.get("code")) for item in issues)
     duplicate_fingerprints = sorted(
         {
@@ -294,26 +356,34 @@ def _duplicate_fingerprints(config: DoctorConfig) -> dict[str, Any]:
     return {
         "status": status,
         "fail_closed": bool(payload.get("fail_closed")),
-        "registration_count": _bounded_int(payload.get("registration_count"), maximum=256),
+        "registration_count": _bounded_int(
+            payload.get("registration_count"), maximum=256
+        ),
         "source_count": _bounded_int(len(payload.get("sources") or []), maximum=64),
         "issue_count": min(len(issues), MAX_ISSUES),
         "issue_counts": dict(list(sorted(issue_codes.items()))[:MAX_ISSUES]),
         "duplicate_fingerprint_count": len(duplicate_fingerprints),
         "duplicate_fingerprints": duplicate_fingerprints,
-        "alias_registration_count": _bounded_int(issue_codes.get("alias_registration", 0), maximum=64),
+        "alias_registration_count": _bounded_int(
+            issue_codes.get("alias_registration", 0), maximum=64
+        ),
         "active_conflict": active_conflict,
         "validator_returncode": returncode,
         "writes_live_state": bool(payload.get("writes_live_state", False)),
     }
 
 
-def _get_json(base_url: str, path: str, *, timeout_seconds: float) -> tuple[dict[str, Any] | None, str | None]:
+def _get_json(
+    base_url: str, path: str, *, timeout_seconds: float
+) -> tuple[dict[str, Any] | None, str | None]:
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}{path}",
         headers=_bhm_request_headers(path, accept="application/json"),
     )
     try:
-        with open_local_url(request, timeout=max(min(timeout_seconds, 15.0), 0.2)) as response:
+        with open_local_url(
+            request, timeout=max(min(timeout_seconds, 15.0), 0.2)
+        ) as response:
             try:
                 raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
             except LocalEndpointError:
@@ -331,9 +401,15 @@ def _get_json(base_url: str, path: str, *, timeout_seconds: float) -> tuple[dict
 
 
 def _runtime_snapshot(config: DoctorConfig) -> dict[str, Any]:
-    ready, ready_error = _get_json(config.base_url, "/health/ready", timeout_seconds=config.timeout_seconds)
-    cutover, cutover_error = _get_json(config.base_url, "/health/cutover", timeout_seconds=config.timeout_seconds)
-    slo, slo_error = _get_json(config.base_url, "/bhm/health/slo", timeout_seconds=config.timeout_seconds)
+    ready, ready_error = _get_json(
+        config.base_url, "/health/ready", timeout_seconds=config.timeout_seconds
+    )
+    cutover, cutover_error = _get_json(
+        config.base_url, "/health/cutover", timeout_seconds=config.timeout_seconds
+    )
+    slo, slo_error = _get_json(
+        config.base_url, "/bhm/health/slo", timeout_seconds=config.timeout_seconds
+    )
     memory_store = ready.get("memory_store") if isinstance(ready, Mapping) else {}
     mem0 = ready.get("mem0") if isinstance(ready, Mapping) else {}
     observed = slo.get("observed") if isinstance(slo, Mapping) else {}
@@ -343,30 +419,40 @@ def _runtime_snapshot(config: DoctorConfig) -> dict[str, Any]:
     cutover_ok = bool(cutover and cutover.get("ok") is True)
     slo_ok = bool(slo and slo.get("status") == "healthy" and slo.get("ok") is True)
     return {
-        "status": "healthy" if ready_ok and cutover_ok and slo_ok else "degraded" if reachable else "unreachable",
+        "status": "healthy"
+        if ready_ok and cutover_ok and slo_ok
+        else "degraded"
+        if reachable
+        else "unreachable",
         "reachable": reachable,
         "ready": ready_ok,
         "cutover": cutover_ok,
-        "slo": str(slo.get("status") if isinstance(slo, Mapping) else "unavailable")[:24],
+        "slo": str(slo.get("status") if isinstance(slo, Mapping) else "unavailable")[
+            :24
+        ],
         "slo_ok": slo_ok,
         "memory_store": str(
             (memory_store or {}).get("backend")
             or (mem0 or {}).get("memory_store_mode")
             or "unknown"
         )[:48],
-        "projection_pending": _bounded_int((observed or {}).get("projection_pending"), maximum=100_000),
-        "projection_failed": _bounded_int((observed or {}).get("projection_failed"), maximum=100_000),
+        "projection_pending": _bounded_int(
+            (observed or {}).get("projection_pending"), maximum=100_000
+        ),
+        "projection_failed": _bounded_int(
+            (observed or {}).get("projection_failed"), maximum=100_000
+        ),
         "outbox_pending": _bounded_int((outbox or {}).get("pending"), maximum=100_000),
         "outbox_failed": _bounded_int((outbox or {}).get("failed"), maximum=100_000),
         "error_codes": sorted(
-            code
-            for code in (ready_error, cutover_error, slo_error)
-            if code
+            code for code in (ready_error, cutover_error, slo_error) if code
         )[:8],
     }
 
 
-def _read_line(process: subprocess.Popen[bytes], timeout_seconds: float) -> dict[str, Any]:
+def _read_line(
+    process: subprocess.Popen[bytes], timeout_seconds: float
+) -> dict[str, Any]:
     if process.stdout is None:
         raise RuntimeError("wrapper_stdout_unavailable")
     result: Queue[str | BaseException] = Queue(maxsize=1)
@@ -418,17 +504,23 @@ def _read_stream_bounded(stream: Any, *, max_bytes: int) -> bytes:
 def _send(process: subprocess.Popen[bytes], payload: dict[str, Any]) -> None:
     if process.stdin is None:
         raise RuntimeError("wrapper_stdin_unavailable")
-    process.stdin.write((json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8"))
+    process.stdin.write(
+        (json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8")
+    )
     process.stdin.flush()
 
 
-def _close_process(process: subprocess.Popen[bytes], timeout_seconds: float) -> tuple[int, str]:
+def _close_process(
+    process: subprocess.Popen[bytes], timeout_seconds: float
+) -> tuple[int, str]:
     stderr_holder: list[bytes] = []
 
     def drain_stderr() -> None:
         if process.stderr is not None:
             try:
-                stderr_holder.append(_read_stream_bounded(process.stderr, max_bytes=MAX_SCRIPT_BYTES))
+                stderr_holder.append(
+                    _read_stream_bounded(process.stderr, max_bytes=MAX_SCRIPT_BYTES)
+                )
             except (OSError, ValueError):
                 pass
 
@@ -451,7 +543,9 @@ def _close_process(process: subprocess.Popen[bytes], timeout_seconds: float) -> 
         except (OSError, ValueError):
             pass
         thread.join(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
-    return int(code), (stderr_holder[0] if stderr_holder else b"").decode("utf-8", errors="replace")
+    return int(code), (stderr_holder[0] if stderr_holder else b"").decode(
+        "utf-8", errors="replace"
+    )
 
 
 def _readiness_from_stderr(raw: str) -> dict[str, Any]:
@@ -463,17 +557,28 @@ def _readiness_from_stderr(raw: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             continue
         if isinstance(payload, Mapping):
-            stages = payload.get("stages") if isinstance(payload.get("stages"), Mapping) else payload
+            stages = (
+                payload.get("stages")
+                if isinstance(payload.get("stages"), Mapping)
+                else payload
+            )
             return {
                 "api": str(stages.get("api") or "unknown")[:24],
                 "broker": str(stages.get("broker") or "unknown")[:24],
                 "protocol": str(stages.get("protocol") or "unknown")[:24],
                 "catalog": str(stages.get("catalog") or "unknown")[:24],
             }
-    return {"api": "unknown", "broker": "unknown", "protocol": "unknown", "catalog": "unknown"}
+    return {
+        "api": "unknown",
+        "broker": "unknown",
+        "protocol": "unknown",
+        "catalog": "unknown",
+    }
 
 
-def _stdio_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[str, Any]]:
+def _stdio_protocol_probe(
+    config: DoctorConfig,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     wrapper = config.repo_root / "scripts" / "retired-stdio-wrapper"
     client_id = f"mcp-doctor-{uuid.uuid4().hex[:10]}"
     process: subprocess.Popen[bytes] | None = None
@@ -522,7 +627,10 @@ def _stdio_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[st
             },
             config.timeout_seconds,
         )
-        _send(process, {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}})
+        _send(
+            process,
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+        )
         responses["tools/list"] = _request(
             process,
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
@@ -548,7 +656,9 @@ def _stdio_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[st
                 error_code = "probe_shutdown_timeout"
                 try:
                     process.kill()
-                    returncode = int(process.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS))
+                    returncode = int(
+                        process.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
+                    )
                 except (OSError, subprocess.TimeoutExpired):
                     returncode = None
     initialize = responses.get("initialize") or {}
@@ -560,10 +670,14 @@ def _stdio_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[st
     except CatalogContractError:
         error_code = "catalog_contract_invalid"
     initialize_ok = "result" in initialize and not bool(initialize.get("error"))
-    catalog_ok = "result" in catalog_response and not bool(catalog_response.get("error"))
+    catalog_ok = "result" in catalog_response and not bool(
+        catalog_response.get("error")
+    )
     shutdown_ok = "result" in shutdown and not bool(shutdown.get("error"))
     readiness = _readiness_from_stderr(stderr)
-    pipe_connected = readiness.get("broker") == "connected" or initialize_ok or catalog_ok
+    pipe_connected = (
+        readiness.get("broker") == "connected" or initialize_ok or catalog_ok
+    )
     inferred_readiness = False
     if readiness.get("api") == "unknown":
         readiness["api"] = "ready" if initialize_ok or catalog_ok else "unknown"
@@ -575,9 +689,17 @@ def _stdio_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[st
         readiness["protocol"] = "ready" if initialize_ok else "unknown"
         inferred_readiness = inferred_readiness or readiness["protocol"] == "ready"
     if readiness.get("catalog") == "unknown":
-        readiness["catalog"] = "ready" if catalog_ok and contract.get("usable") is True else "unknown"
+        readiness["catalog"] = (
+            "ready" if catalog_ok and contract.get("usable") is True else "unknown"
+        )
         inferred_readiness = inferred_readiness or readiness["catalog"] == "ready"
-    protocol_ok = bool(initialize_ok and catalog_ok and contract.get("usable") is True and shutdown_ok and returncode == 0)
+    protocol_ok = bool(
+        initialize_ok
+        and catalog_ok
+        and contract.get("usable") is True
+        and shutdown_ok
+        and returncode == 0
+    )
     if protocol_ok:
         error_code = "none"
     return (
@@ -631,7 +753,9 @@ def _http_mcp_request(
         headers["MCP-Protocol-Version"] = CURRENT_PROTOCOL_VERSION
     request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
-        with open_local_url(request, timeout=max(min(timeout_seconds, 15.0), 0.2)) as response:
+        with open_local_url(
+            request, timeout=max(min(timeout_seconds, 15.0), 0.2)
+        ) as response:
             try:
                 raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
             except LocalEndpointError as exc:
@@ -652,7 +776,9 @@ def _http_mcp_request(
     return status, payload, response_headers
 
 
-def _streamable_http_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[str, Any]]:
+def _streamable_http_protocol_probe(
+    config: DoctorConfig,
+) -> tuple[dict[str, Any], dict[str, Any]]:
     endpoint = f"{config.base_url.rstrip('/')}/mcp"
     started = time.perf_counter()
     initialize: dict[str, Any] = {}
@@ -672,16 +798,28 @@ def _streamable_http_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any
                 "params": {
                     "protocolVersion": CURRENT_PROTOCOL_VERSION,
                     "capabilities": {},
-                    "clientInfo": {"name": "BHM MCP Doctor", "version": PACKAGE_VERSION},
+                    "clientInfo": {
+                        "name": "BHM MCP Doctor",
+                        "version": PACKAGE_VERSION,
+                    },
                 },
             },
             timeout_seconds=config.timeout_seconds,
         )
         session_id = next(
-            (value for key, value in response_headers.items() if key.casefold() == "mcp-session-id"),
+            (
+                value
+                for key, value in response_headers.items()
+                if key.casefold() == "mcp-session-id"
+            ),
             "",
         )
-        initialize_ok = status == 200 and bool(session_id) and "result" in initialize and not initialize.get("error")
+        initialize_ok = (
+            status == 200
+            and bool(session_id)
+            and "result" in initialize
+            and not initialize.get("error")
+        )
         if not initialize_ok:
             raise ConnectionError("http_initialize_failed")
         notification_status, _, _ = _http_mcp_request(
@@ -698,7 +836,11 @@ def _streamable_http_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any
             timeout_seconds=config.timeout_seconds,
             session_id=session_id,
         )
-        catalog_ok = catalog_status == 200 and "result" in catalog_response and not catalog_response.get("error")
+        catalog_ok = (
+            catalog_status == 200
+            and "result" in catalog_response
+            and not catalog_response.get("error")
+        )
         delete_status, _, _ = _http_mcp_request(
             endpoint,
             None,
@@ -717,7 +859,9 @@ def _streamable_http_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any
     except CatalogContractError:
         if error_code == "none":
             error_code = "catalog_contract_invalid"
-    protocol_ok = bool(initialize_ok and catalog_ok and contract.get("usable") is True and shutdown_ok)
+    protocol_ok = bool(
+        initialize_ok and catalog_ok and contract.get("usable") is True and shutdown_ok
+    )
     if protocol_ok:
         error_code = "none"
     return (
@@ -731,7 +875,9 @@ def _streamable_http_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any
                 "api": "ready" if initialize_ok else "unknown",
                 "broker": "connected" if initialize_ok else "unknown",
                 "protocol": "ready" if initialize_ok else "unknown",
-                "catalog": "ready" if catalog_ok and contract.get("usable") is True else "unknown",
+                "catalog": "ready"
+                if catalog_ok and contract.get("usable") is True
+                else "unknown",
             },
             "readiness_inferred": False,
             "error_code": error_code,
@@ -743,7 +889,9 @@ def _streamable_http_protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any
             "initialize_ok": initialize_ok,
             "catalog_ok": catalog_ok,
             "shutdown_ok": shutdown_ok,
-            "protocol_version": str(((initialize.get("result") or {}).get("protocolVersion")) or "")[:32],
+            "protocol_version": str(
+                ((initialize.get("result") or {}).get("protocolVersion")) or ""
+            )[:32],
             "catalog": {
                 "usable": bool(contract.get("usable")),
                 "tool_count": _bounded_int(contract.get("tool_count"), maximum=128),
@@ -760,14 +908,20 @@ def _protocol_probe(config: DoctorConfig) -> tuple[dict[str, Any], dict[str, Any
     return _streamable_http_protocol_probe(config)
 
 
-def _request(process: subprocess.Popen[bytes], payload: dict[str, Any], timeout_seconds: float) -> dict[str, Any]:
+def _request(
+    process: subprocess.Popen[bytes], payload: dict[str, Any], timeout_seconds: float
+) -> dict[str, Any]:
     _send(process, payload)
     return _read_line(process, timeout_seconds)
 
 
 def _lease_snapshot(config: DoctorConfig) -> dict[str, Any]:
-    http_payload, http_error = _get_json(config.base_url, "/bhm/mcp/http/status", timeout_seconds=config.timeout_seconds)
-    http_sessions = http_payload.get("sessions") if isinstance(http_payload, Mapping) else None
+    http_payload, http_error = _get_json(
+        config.base_url, "/bhm/mcp/http/status", timeout_seconds=config.timeout_seconds
+    )
+    http_sessions = (
+        http_payload.get("sessions") if isinstance(http_payload, Mapping) else None
+    )
     http_sessions = http_sessions if isinstance(http_sessions, Mapping) else {}
     if http_payload is None:
         return {
@@ -797,14 +951,25 @@ def _lease_snapshot(config: DoctorConfig) -> dict[str, Any]:
 
 
 def _connection_snapshot(config: DoctorConfig) -> dict[str, Any]:
-    payload, error = _get_json(config.base_url, "/bhm/mcp/http/status", timeout_seconds=config.timeout_seconds)
+    payload, error = _get_json(
+        config.base_url, "/bhm/mcp/http/status", timeout_seconds=config.timeout_seconds
+    )
     if payload is None:
-        return {"status": "unavailable", "connection_count": 0, "state_counts": {}, "error_code": error}
-    sessions = payload.get("sessions") if isinstance(payload.get("sessions"), Mapping) else {}
+        return {
+            "status": "unavailable",
+            "connection_count": 0,
+            "state_counts": {},
+            "error_code": error,
+        }
+    sessions = (
+        payload.get("sessions") if isinstance(payload.get("sessions"), Mapping) else {}
+    )
     attached = _bounded_int(sessions.get("attached_count"), maximum=64)
     state_counts = {
         "attached": attached,
-        "detached": max(0, _bounded_int(sessions.get("total_sessions"), maximum=64) - attached),
+        "detached": max(
+            0, _bounded_int(sessions.get("total_sessions"), maximum=64) - attached
+        ),
     }
     return {
         "status": "attached" if attached else "detached",
@@ -861,7 +1026,11 @@ def choose_next_action(
             action = "drain the authoritative projection outbox, then rerun MCP Doctor"
         else:
             action = "inspect the breached BHM SLO checks, then rerun MCP Doctor"
-        return {"severity": "high", "reason_code": "runtime_slo_breached", "action": action}
+        return {
+            "severity": "high",
+            "reason_code": "runtime_slo_breached",
+            "action": action,
+        }
     if configured.get("status") != "aligned" or configured.get("writes_live_state"):
         return {
             "severity": "high",
@@ -880,12 +1049,16 @@ def choose_next_action(
             "reason_code": "protocol_handshake_failed",
             "action": "reload the current MCP client and repeat the bounded protocol handshake",
         }
-    catalog = protocol.get("catalog") if isinstance(protocol.get("catalog"), Mapping) else {}
+    catalog = (
+        protocol.get("catalog") if isinstance(protocol.get("catalog"), Mapping) else {}
+    )
     # P26 expands the canonical bounded `bhm` catalog with code-intelligence
     # tools.  The expected count is sourced from the same allowlist that
     # publishes the catalog; hard-coding the historical 12-tool count would
     # falsely report a healthy expanded catalog as broken.
-    if not catalog.get("usable") or _bounded_int(catalog.get("tool_count"), maximum=128) != len(CORE_TOOL_NAMES):
+    if not catalog.get("usable") or _bounded_int(
+        catalog.get("tool_count"), maximum=128
+    ) != len(CORE_TOOL_NAMES):
         return {
             "severity": "high",
             "reason_code": "catalog_unusable",
@@ -961,7 +1134,13 @@ def run_doctor(config: DoctorConfig | None = None) -> dict[str, Any]:
         duplicates=duplicates,
     )
     critical = next_action["severity"] in {"critical", "high"}
-    status = "failed" if critical else "warning" if next_action["severity"] == "medium" else "healthy"
+    status = (
+        "failed"
+        if critical
+        else "warning"
+        if next_action["severity"] == "medium"
+        else "healthy"
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "ok": not critical,

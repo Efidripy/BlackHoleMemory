@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import threading
 import time
+from pathlib import Path
 
 import pytest
 
@@ -24,9 +25,16 @@ def _state(**overrides):
         },
         "configured": {"status": "aligned", "writes_live_state": False},
         "pipe": {"connected": True},
-        "protocol": {"ok": True, "catalog": {"usable": True, "tool_count": len(CORE_TOOL_NAMES)}},
+        "protocol": {
+            "ok": True,
+            "catalog": {"usable": True, "tool_count": len(CORE_TOOL_NAMES)},
+        },
         "leases": {"status": "detached", "pending_count": 0},
-        "ownership": {"status": "clean", "invalid_record_count": 0, "orphaned_count": 0},
+        "ownership": {
+            "status": "clean",
+            "invalid_record_count": 0,
+            "orphaned_count": 0,
+        },
         "duplicates": {"status": "clean"},
     }
     for key, value in overrides.items():
@@ -76,7 +84,9 @@ def test_doctor_catalog_gate_requires_exact_core_tool_count():
 
 
 def test_doctor_ownership_probe_is_never_promoted_to_broad_kill():
-    state = _state(ownership={"status": "clean", "invalid_record_count": 0, "orphaned_count": 0})
+    state = _state(
+        ownership={"status": "clean", "invalid_record_count": 0, "orphaned_count": 0}
+    )
 
     action = choose_next_action(**state)
 
@@ -88,11 +98,47 @@ def test_doctor_config_rejects_external_base_url():
         doctor.DoctorConfig(base_url="https://api.example.com")
 
 
+def test_doctor_config_rejects_reparse_repository_root(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(target, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    with pytest.raises(OSError, match="symlink/junction/reparse"):
+        doctor.DoctorConfig(repo_root=linked_root)
+
+
+def test_doctor_validator_runner_rejects_linked_script_before_process_start(
+    tmp_path: Path, monkeypatch
+):
+    linked_script = tmp_path / "validator.py"
+    target = tmp_path / "target.py"
+    target.write_text("print('{}')\n", encoding="utf-8")
+    try:
+        linked_script.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+    config = doctor.DoctorConfig(repo_root=Path(__file__).resolve().parents[2])
+
+    def fail_run(*_args, **_kwargs):
+        raise AssertionError("validator process must not start")
+
+    monkeypatch.setattr(doctor.subprocess, "run", fail_run)
+
+    with pytest.raises(OSError, match="symlink/junction/reparse"):
+        doctor._run_json_script(linked_script, [], config=config)
+
+
 def test_doctor_health_headers_match_runtime_auth_boundary(monkeypatch):
     monkeypatch.setattr(doctor, "_required_bhm_caller_token", lambda: "t" * 43)
 
     anonymous = doctor._bhm_request_headers("/health/ready", accept="application/json")
-    protected = doctor._bhm_request_headers("/health/cutover", accept="application/json")
+    protected = doctor._bhm_request_headers(
+        "/health/cutover", accept="application/json"
+    )
 
     assert "Authorization" not in anonymous
     assert protected["Authorization"] == "Bearer " + ("t" * 43)
@@ -139,7 +185,11 @@ def test_doctor_get_json_uses_bounded_local_transport(monkeypatch):
 
 
 def test_doctor_get_json_fails_closed_on_oversized_response(monkeypatch):
-    monkeypatch.setattr(doctor, "open_local_url", lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)))
+    monkeypatch.setattr(
+        doctor,
+        "open_local_url",
+        lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)),
+    )
 
     payload, error = doctor._get_json(
         "http://127.0.0.1:8000",
@@ -152,7 +202,11 @@ def test_doctor_get_json_fails_closed_on_oversized_response(monkeypatch):
 
 
 def test_doctor_mcp_request_fails_closed_on_oversized_response(monkeypatch):
-    monkeypatch.setattr(doctor, "open_local_url", lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)))
+    monkeypatch.setattr(
+        doctor,
+        "open_local_url",
+        lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)),
+    )
 
     with pytest.raises(ValueError, match="response_too_large"):
         doctor._http_mcp_request(
