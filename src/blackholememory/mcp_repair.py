@@ -55,6 +55,14 @@ def _new_repair_id() -> str:
     return f"mcp-repair-{uuid.uuid4().hex[:16]}"
 
 
+def _admit_repo_root(repo_root: Path) -> Path:
+    try:
+        root = assert_safe_path(Path(repo_root).expanduser(), reject_hardlink_target=False)
+    except OSError as exc:
+        raise McpRepairError("BHM repository root crosses an unsafe filesystem boundary") from exc
+    return root
+
+
 def _normalize_clients(clients: Any) -> list[str]:
     if clients is None:
         return list(SUPPORTED_CLIENTS)
@@ -89,7 +97,7 @@ def _scope(clients: list[str]) -> dict[str, Any]:
 
 
 def _plan_root(repo_root: Path) -> Path:
-    return Path(repo_root).resolve() / ".runtime" / "mcp-repair" / "plans"
+    return _admit_repo_root(repo_root) / ".runtime" / "mcp-repair" / "plans"
 
 
 def _plan_path(repo_root: Path, repair_id: str) -> Path:
@@ -126,7 +134,7 @@ def _read_plan(repo_root: Path, repair_id: str) -> dict[str, Any] | None:
 
 
 def _backup_root(repo_root: Path) -> Path:
-    return Path(repo_root).resolve().parent.parent / "workspace" / "runtime" / "logs" / "mcp-adapters" / "backups"
+    return _admit_repo_root(repo_root).parent.parent / "workspace" / "runtime" / "logs" / "mcp-adapters" / "backups"
 
 
 def _safe_backup_dir(repo_root: Path, value: Any) -> Path | None:
@@ -135,18 +143,16 @@ def _safe_backup_dir(repo_root: Path, value: Any) -> Path | None:
         return None
     if not Path(raw).is_absolute():
         raise McpRepairError("rollback backup must use an absolute path")
-    root_name = os.path.realpath(os.fspath(_backup_root(repo_root)))
-    candidate_name = os.path.realpath(os.path.expanduser(raw))
+    root = _backup_root(repo_root)
+    candidate = Path(os.path.abspath(os.path.expanduser(raw)))
+    assert_safe_path(root, reject_hardlink_target=False)
+    assert_safe_path(candidate, reject_hardlink_target=False)
     try:
-        contained = os.path.commonpath((root_name, candidate_name)) == root_name
+        contained = os.path.normcase(os.path.commonpath((os.fspath(root), os.fspath(candidate)))) == os.path.normcase(os.fspath(root))
     except ValueError as exc:
         raise McpRepairError("rollback backup is outside the BHM adapter backup root") from exc
     if not contained:
         raise McpRepairError("rollback backup is outside the BHM adapter backup root")
-    root = Path(root_name)
-    assert_safe_path(root, reject_hardlink_target=False)
-    candidate = Path(candidate_name)
-    assert_safe_path(candidate, reject_hardlink_target=False)
     if candidate.exists() and not candidate.is_dir():
         raise McpRepairError("rollback backup path is not a directory")
     return candidate
@@ -161,8 +167,8 @@ def _sha256_file(path: Path) -> str:
 
 
 def _contained_path(root: Path, candidate: Path) -> bool:
-    root_name = os.path.realpath(os.fspath(root))
-    candidate_name = os.path.realpath(os.fspath(candidate))
+    root_name = os.path.normcase(os.path.abspath(os.fspath(root)))
+    candidate_name = os.path.normcase(os.path.abspath(os.fspath(candidate)))
     try:
         return os.path.commonpath((root_name, candidate_name)) == root_name
     except ValueError as exc:
@@ -217,7 +223,8 @@ def _validate_backup_scope(repo_root: Path, backup_dir: Path, clients: list[str]
 
 
 def _load_generator(repo_root: Path) -> Any:
-    script = Path(repo_root).resolve() / "scripts" / "generate-bhm-mcp-adapters.py"
+    script = _admit_repo_root(repo_root) / "scripts" / "generate-bhm-mcp-adapters.py"
+    script = assert_safe_path(script)
     if not script.is_file():
         raise McpRepairError("BHM adapter generator is unavailable")
     cache_key = str(script)
@@ -237,11 +244,12 @@ def _load_generator(repo_root: Path) -> Any:
 
 
 def _adapter_context(repo_root: Path, clients: list[str]) -> tuple[Any, dict[str, Any]]:
+    repo_root = _admit_repo_root(repo_root)
     generator = _load_generator(repo_root)
-    manifest_path = Path(repo_root).resolve() / "config" / "mcp-registration.json"
+    manifest_path = assert_safe_path(repo_root / "config" / "mcp-registration.json")
     try:
-        _manifest, contract = generator._contract(manifest_path, Path(repo_root).resolve())
-        adapters = generator._adapters(_manifest, contract, Path(repo_root).resolve())
+        _manifest, contract = generator._contract(manifest_path, repo_root)
+        adapters = generator._adapters(_manifest, contract, repo_root)
     except (OSError, KeyError, ValueError, TypeError) as exc:
         raise McpRepairError("BHM adapter contract is unavailable") from exc
     selected: dict[str, Any] = {}
@@ -271,7 +279,7 @@ def _issue_code(value: Any) -> str:
 
 def _adapter_record(generator: Any, adapter: Any, repo_root: Path) -> dict[str, Any]:
     try:
-        raw = generator._check_adapter(adapter, repo_root=Path(repo_root).resolve())
+        raw = generator._check_adapter(adapter, repo_root=_admit_repo_root(repo_root))
     except Exception:  # pragma: no cover - defensive boundary around a local tool
         raw = {"ok": False, "exists": False, "issues": ["adapter_check_failed"]}
     return {
