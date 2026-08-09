@@ -36,18 +36,22 @@ class _TrackedConnection:
 
 
 def test_advanced_search_does_not_freeze_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    main_thread_id = threading.get_ident()
+    worker_thread_ids: list[int] = []
+
     async def ready() -> None:
         return None
 
     def blocking_search(request: bhm_app.MemoryAdvancedSearchRequest) -> tuple[list[dict], int]:
         del request
+        worker_thread_ids.append(threading.get_ident())
         time.sleep(0.15)
         return [], 0
 
     monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", ready)
     monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", blocking_search)
 
-    async def exercise() -> tuple[float, int]:
+    async def exercise() -> int:
         ticks: list[float] = []
         started = time.perf_counter()
 
@@ -72,12 +76,11 @@ def test_advanced_search_does_not_freeze_event_loop(monkeypatch: pytest.MonkeyPa
             with pytest.raises(asyncio.CancelledError):
                 await ticker_task
 
-        gaps = [later - earlier for earlier, later in zip(ticks, ticks[1:])]
-        return max(gaps, default=0.0), len(ticks)
+        return len(ticks)
 
-    max_gap, tick_count = asyncio.run(exercise())
+    tick_count = asyncio.run(exercise())
     assert tick_count >= 10
-    assert max_gap < 0.08
+    assert worker_thread_ids and all(worker_id != main_thread_id for worker_id in worker_thread_ids)
     assert bhm_app._READ_BACKPRESSURE_ACTIVE == 0
     assert bhm_app._READ_BACKPRESSURE_WAITING == 0
 
