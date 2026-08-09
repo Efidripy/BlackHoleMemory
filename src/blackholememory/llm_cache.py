@@ -25,6 +25,7 @@ from .llm_safety import LLMSafetyViolation
 from .llm_safety import PROPOSAL_AUTHORITY
 from .llm_safety import sanitize_llm_value
 from .llm_safety import scan_prompt_injection
+from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
 
@@ -284,9 +285,12 @@ class LLMCacheStore:
         with self._initialize_lock:
             if self._initialized:
                 return
+            assert_safe_path(self.path)
             self.path.parent.mkdir(parents=True, exist_ok=True)
+            assert_safe_path(self.path.parent, reject_hardlink_target=False)
 
             def create_schema() -> None:
+                assert_safe_path(self.path)
                 with closing(self._connect()) as connection:
                     current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
                     if current_version not in {0, LLM_CACHE_SCHEMA_VERSION}:
