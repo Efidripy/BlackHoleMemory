@@ -12,6 +12,7 @@ from blackholememory.code_graph import PARSER_REGISTRY
 from blackholememory.code_graph import PARSER_REGISTRY_DIGEST
 from blackholememory.code_graph import SQLiteCodeGraphStore
 from blackholememory.code_graph import build_code_graph
+from blackholememory.code_graph import extract_code_graph
 from blackholememory.code_graph import parser_capability_matrix
 from blackholememory.code_graph import _LANGUAGE_BY_SUFFIX
 from blackholememory.code_graph import _SPECIAL_TEXT_NAMES
@@ -20,6 +21,7 @@ from blackholememory.code_graph import verify_code_graph_snapshot
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import index_repository
 from blackholememory.repository_index import probe_repository_state
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path, str, str]:
@@ -1884,6 +1886,19 @@ def test_hash_drift_fails_closed_without_replacing_current_graph(tmp_path: Path)
     current = SQLiteCodeGraphStore(database).current_snapshot("demo", root_id)
     assert current is not None
     assert current["graph_snapshot_id"] == first["graph_snapshot_id"]
+
+
+def test_extract_code_graph_rejects_reparse_snapshot_root_before_traversal(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        extract_code_graph({"root_id": "root", "root_path": str(linked_root), "files": []})
 
 
 def test_metadata_fts_search_is_durable_and_source_free(tmp_path: Path) -> None:
