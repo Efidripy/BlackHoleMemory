@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from blackholememory.mcp_panel import build_mcp_panel_snapshot
 from blackholememory.mcp_panel import load_configured_sources
 
@@ -486,3 +488,22 @@ def test_configured_source_scan_is_presence_only(tmp_path: Path):
     assert all(item["configured"] for item in result["sources"])
     assert all("target" not in item and "path" not in item for item in result["sources"])
     assert result["writes_live_state"] is False
+
+
+def test_configured_source_scan_fails_closed_for_reparse_manifest(tmp_path: Path):
+    repo_root = tmp_path / "repo"
+    config_root = repo_root / "config"
+    config_root.mkdir(parents=True)
+    target = tmp_path / "manifest.json"
+    target.write_text('{"adapter_contract":{"clients":{}}}', encoding="utf-8")
+    manifest = config_root / "mcp-registration.json"
+    try:
+        manifest.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    result = load_configured_sources(repo_root)
+
+    assert result["status"] == "unavailable"
+    assert result["manifest_present"] is False
+    assert result["sources"] == []
