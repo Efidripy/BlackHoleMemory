@@ -17,6 +17,7 @@ from blackholememory.runtime_storage import resolve_runtime_storage_mode
 from blackholememory.runtime_storage import runtime_storage_state
 from blackholememory.resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
 from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
 def test_memory_store_mode_fails_closed_to_sqlite_authoritative():
@@ -58,6 +59,22 @@ def test_schema_probe_rejects_reparse_parent(tmp_path):
         False,
         "sqlite_schema_unreadable",
     )
+
+
+def test_runtime_config_rejects_reparse_memory_store_path(tmp_path):
+    source = tmp_path / "source.sqlite3"
+    SQLiteMemoryRepository(source).initialize()
+    linked_database = tmp_path / "linked.sqlite3"
+    try:
+        linked_database.symlink_to(source)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"file symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        resolve_runtime_storage_config(
+            runtime_dir=tmp_path,
+            environ={"BHM_MEMORY_STORE_PATH": str(linked_database)},
+        )
 
 
 def test_shadow_state_is_degraded_until_sqlite_target_exists(tmp_path):
