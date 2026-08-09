@@ -26,6 +26,8 @@ from typing import Any, Sequence
 
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 from .resource_limits import PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS
+from .filesystem_boundaries import FilesystemBoundaryError
+from .filesystem_boundaries import assert_safe_path
 
 
 SAFE_PATCH_SCHEMA_VERSION = "bhm.llm.safe-patch.v1"
@@ -118,7 +120,13 @@ class SafePatchFactory:
 
     def __init__(self, *, root: Path | str | None = None) -> None:
         configured = str(root or os.getenv(SAFE_PATCH_ROOT_ENV) or "").strip()
-        self.root = Path(configured).expanduser().resolve() if configured else Path(tempfile.gettempdir()).resolve() / "bhm-safe-patches"
+        lexical_root = Path(configured).expanduser() if configured else Path(tempfile.gettempdir()) / "bhm-safe-patches"
+        try:
+            assert_safe_path(lexical_root, reject_hardlink_target=False)
+            self.root = lexical_root.resolve()
+            assert_safe_path(self.root, reject_hardlink_target=False)
+        except FilesystemBoundaryError as exc:
+            raise SafePatchPathError(f"safe patch root crosses a filesystem boundary: {lexical_root}") from exc
         self.root.mkdir(parents=True, exist_ok=True)
 
     def prepare(
@@ -130,7 +138,13 @@ class SafePatchFactory:
         patch_text: str,
     ) -> SafePatchPlan:
         normalized_task = _safe_identifier(task_id, "task_id")
-        repository = Path(repo_root).expanduser().resolve()
+        lexical_repository = Path(repo_root).expanduser()
+        try:
+            assert_safe_path(lexical_repository, reject_hardlink_target=False)
+            repository = lexical_repository.resolve()
+            assert_safe_path(repository, reject_hardlink_target=False)
+        except FilesystemBoundaryError as exc:
+            raise SafePatchPathError(f"repository root crosses a filesystem boundary: {lexical_repository}") from exc
         if not repository.is_dir():
             raise SafePatchError(f"repository root does not exist: {repository}")
         paths = _normalize_allowed_files(allowed_files)
