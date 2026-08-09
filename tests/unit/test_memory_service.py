@@ -136,3 +136,33 @@ def test_service_does_not_initialize_an_empty_authoritative_target(tmp_path):
 
     with pytest.raises(MemoryServiceNotReady, match="schema is missing"):
         service.load_records()
+
+
+def test_service_rejects_hardlinked_authoritative_target(tmp_path):
+    outside = tmp_path / "outside.sqlite3"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "memories.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    service = SQLiteMemoryService(target, allow_create=True)
+    with pytest.raises(MemoryServiceNotReady, match="not ready"):
+        service.upsert_records([_record()])
+    assert outside.read_bytes() == b"do-not-touch"
+
+
+def test_service_rejects_reparse_authoritative_parent(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    service = SQLiteMemoryService(linked_parent / "memories.sqlite3", allow_create=True)
+    with pytest.raises(MemoryServiceNotReady, match="not ready"):
+        service.load_records()
+    assert not (outside / "memories.sqlite3").exists()

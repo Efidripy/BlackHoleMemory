@@ -19,6 +19,7 @@ from .domain import Memory
 from .domain import MemoryRevision
 from .domain import Lifecycle
 from .domain import content_sha256
+from .filesystem_boundaries import assert_safe_path
 from .memory_repository import MemoryRepositoryError
 from .memory_repository import MEMORY_STORE_SCHEMA_VERSION
 from .memory_repository import SQLiteMemoryRepository
@@ -78,16 +79,20 @@ class SQLiteMemoryService:
     """Expose canonical record operations over the SQLite repository."""
 
     def __init__(self, path: Path | str, *, allow_create: bool = False) -> None:
-        self.path = Path(path).expanduser().resolve()
+        # Preserve lexical provenance until the shared fail-closed boundary
+        # admits the path; resolving first would conceal linked components.
+        self.path = Path(path).expanduser()
         self.allow_create = allow_create
         self.repository = SQLiteMemoryRepository(self.path)
         self.lifecycle = MemoryLifecycleService(self.repository)
 
     def _ensure_ready(self, *, verify_integrity: bool = True) -> None:
-        if not self.path.exists() and not self.allow_create:
-            raise MemoryServiceNotReady(f"SQLite memory store does not exist: {self.path}")
         try:
+            assert_safe_path(self.path)
+            if not self.path.exists() and not self.allow_create:
+                raise MemoryServiceNotReady(f"SQLite memory store does not exist: {self.path}")
             if self.path.exists() and not self.allow_create:
+                assert_safe_path(self.path)
                 uri = f"file:{self.path.as_posix()}?mode=ro"
                 with sqlite3.connect(
                     uri,
@@ -152,6 +157,7 @@ class SQLiteMemoryService:
             f"WHERE lifecycle = 'active' AND project IN ({placeholders}) "
             "AND upsert_key LIKE ?"
         )
+        assert_safe_path(self.path)
         with sqlite3.connect(
             self.path,
             timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
@@ -282,6 +288,7 @@ class SQLiteMemoryService:
         """Return bounded transactional-outbox counts for health/SLO views."""
 
         self._ensure_ready(verify_integrity=False)
+        assert_safe_path(self.path)
         with sqlite3.connect(
             self.path,
             timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
