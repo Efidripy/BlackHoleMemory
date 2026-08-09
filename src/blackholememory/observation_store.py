@@ -446,6 +446,35 @@ class ObservationStore:
             return records
         return records
 
+    def activity_rollup(self, *, project: str | None = None) -> dict[str, Any]:
+        """Return count/latest metadata without materializing observation JSON."""
+
+        if not self.path.exists():
+            return {"count": 0, "latest": ""}
+        self.initialize()
+        params: list[Any] = []
+        clauses = ["s.lifecycle <> 'purged'"]
+        if project:
+            clauses.append("e.project = ?")
+            params.append(project)
+        where = f"WHERE {' AND '.join(clauses)}"
+        with closing(self._connect()) as connection:
+            row = connection.execute(
+                f"""
+                SELECT
+                    COUNT(*) AS count,
+                    COALESCE(MAX(NULLIF(e.occurred_at, '')), '') AS latest
+                FROM observation_events AS e
+                JOIN observation_state AS s ON s.event_id = e.event_id
+                {where}
+                """,
+                params,
+            ).fetchone()
+        return {
+            "count": int(row["count"] or 0),
+            "latest": str(row["latest"] or ""),
+        }
+
     def archive(
         self,
         event_ids: Sequence[str],

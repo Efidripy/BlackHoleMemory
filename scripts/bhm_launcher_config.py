@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 from dataclasses import dataclass
@@ -13,6 +14,9 @@ from typing import Any
 
 from bhm_runtime_endpoints import endpoint_port
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+
+
+_PROJECT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
 
 @dataclass(frozen=True)
@@ -35,6 +39,10 @@ def validate_settings(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("launcher settings root must be an object")
     candidate = dict(payload)
+    project = candidate.get("project")
+    if project is not None:
+        if not isinstance(project, str) or project != project.strip() or not _PROJECT_RE.fullmatch(project):
+            raise ValueError("launcher settings project must be a simple project id")
     llm = candidate.get("llm")
     if llm is not None:
         if not isinstance(llm, dict):

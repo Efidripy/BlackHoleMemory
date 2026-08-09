@@ -19,14 +19,16 @@ import subprocess
 import sys
 import threading
 import time
+import tomllib
 import urllib.error
 import urllib.request
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 from bhm_launcher_readiness import MAX_HTTP_BYTES
 from bhm_launcher_readiness import LocalEndpointError
@@ -239,6 +241,7 @@ QDRANT_IMAGE = "qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713
 BHM_API_HEALTH_URL = endpoint_url("bhm_api", "/health/ready")
 BHM_BASE_URL = endpoint_url("bhm_api")
 DEFAULT_LLM_PORT = endpoint_port("llm_default")
+DEFAULT_LAUNCHER_PROJECT = "blackholememory"
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 
@@ -275,6 +278,12 @@ _LAST_TELEMETRY: dict[str, str] = {
     "node_count": "--",
     "sessions": "--",
     "observations": "--",
+    "sqlite_state": "--",
+    "qdrant_state": "--",
+    "provider_state": "--",
+    "mcp_state": "--",
+    "projection_queue": "--",
+    "slo_state": "--",
     "last_sys": "--",
 }
 
@@ -283,6 +292,14 @@ _LAST_TELEMETRY: dict[str, str] = {
 class ServiceStatus:
     state: str
     detail: str
+
+
+@dataclass(frozen=True)
+class JsonRequestResult:
+    ok: bool
+    data: dict[str, Any]
+    status_code: int | None = None
+    error: str = ""
 
 
 class LauncherUiSessionError(RuntimeError):
@@ -660,24 +677,85 @@ def _required_bhm_caller_token() -> str:
     return token
 
 
-def post_json(url: str, payload: dict | None = None, timeout: float = TELEMETRY_TIMEOUT) -> dict:
-    data = json.dumps(payload or {"project": None}).encode("utf-8")
+def validate_launcher_project(value: str) -> str:
+    project = str(value or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", project):
+        raise ValueError("project must be a simple project id")
+    return project
+
+
+def resolve_launcher_project(settings: dict[str, Any] | None = None) -> str:
+    configured = (settings or {}).get("project")
+    candidates = [
+        configured,
+        _read_process_or_user_env_value("BHM_CALLER_DEFAULT_PROJECT"),
+    ]
+    allowed = _read_process_or_user_env_value("BHM_CALLER_PROJECTS") or ""
+    allowed_projects = [item.strip() for item in allowed.split(",") if item.strip() and item.strip() != "*"]
+    if len(allowed_projects) == 1:
+        candidates.append(allowed_projects[0])
+    candidates.append(DEFAULT_LAUNCHER_PROJECT)
+    for candidate in candidates:
+        try:
+            return validate_launcher_project(str(candidate or ""))
+        except ValueError:
+            continue
+    return DEFAULT_LAUNCHER_PROJECT
+
+
+def _caller_headers(*, project: str | None = None) -> dict[str, str]:
+    headers = {
+        "Authorization": f"Bearer {_required_bhm_caller_token()}",
+        "Content-Type": "application/json",
+        "User-Agent": "BHM-Control-Deck",
+        "X-BHM-Caller-Surface": "launcher",
+    }
+    if project:
+        headers["X-BHM-Caller-Project"] = validate_launcher_project(project)
+    return headers
+
+
+def request_json(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    project: str | None = None,
+    timeout: float = TELEMETRY_TIMEOUT,
+) -> dict[str, Any]:
+    normalized_method = method.upper()
+    data = None
+    if normalized_method != "GET":
+        data = json.dumps(payload if payload is not None else {"project": project}).encode("utf-8")
     request = urllib.request.Request(
         url,
         data=data,
-        headers={
-            "Authorization": f"Bearer {_required_bhm_caller_token()}",
-            "Content-Type": "application/json",
-            "User-Agent": "BHM-Control-Deck",
-        },
-        method="POST",
+        headers=_caller_headers(project=project),
+        method=normalized_method,
     )
-    try:
-        with open_local_url(request, timeout=timeout) as response:
-            raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
-    except LocalEndpointError:
-        raise
-    return json.loads(raw.decode("utf-8"))
+    # The endpoint policy validates the configured origin separately from a
+    # target that carries query parameters.  Query-free calls keep the simpler
+    # validation path used by existing launcher probes.
+    open_kwargs: dict[str, Any] = {"timeout": timeout}
+    if urlsplit(url).query:
+        open_kwargs["endpoint"] = BHM_BASE_URL
+    with open_local_url(request, **open_kwargs) as response:
+        raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
+    decoded = json.loads(raw.decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise ValueError("local JSON response must be an object")
+    return decoded
+
+
+def post_json(url: str, payload: dict | None = None, timeout: float = TELEMETRY_TIMEOUT) -> dict:
+    request_payload = payload if payload is not None else {"project": None}
+    raw_project = request_payload.get("project") if isinstance(request_payload, dict) else None
+    project = str(raw_project) if raw_project else None
+    return request_json(url, method="POST", payload=request_payload, project=project, timeout=timeout)
+
+
+def get_json(url: str, *, project: str | None = None, timeout: float = TELEMETRY_TIMEOUT) -> dict[str, Any]:
+    return request_json(url, method="GET", project=project, timeout=timeout)
 
 
 def _is_bhm_human_ui_url(url: str) -> bool:
@@ -755,23 +833,101 @@ def safe_post_json(url: str, payload: dict | None = None, timeout: float = TELEM
         return {}
 
 
-def fetch_telemetry() -> dict[str, str]:
+def safe_json_request(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: dict[str, Any] | None = None,
+    project: str | None = None,
+    timeout: float = TELEMETRY_TIMEOUT,
+) -> JsonRequestResult:
+    try:
+        data = request_json(url, method=method, payload=payload, project=project, timeout=timeout)
+        return JsonRequestResult(ok=True, data=data, status_code=200)
+    except urllib.error.HTTPError as exc:
+        code = int(exc.code)
+        label = "AUTH" if code in {401, 403} else f"HTTP {code}"
+        append_launcher_log(f"TELEMETRY REQUEST FAILED: path={urlsplit(url).path}; status={label}")
+        return JsonRequestResult(ok=False, data={}, status_code=code, error=label)
+    except (LocalEndpointError, OSError, ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+        label = "OFFLINE" if isinstance(exc, (OSError, urllib.error.URLError)) else "INVALID"
+        append_launcher_log(
+            f"TELEMETRY REQUEST FAILED: path={urlsplit(url).path}; error={exc.__class__.__name__}"
+        )
+        return JsonRequestResult(ok=False, data={}, error=label)
+
+
+def _result_error_label(results: list[JsonRequestResult]) -> str:
+    if any(result.status_code in {401, 403} for result in results):
+        return "AUTH"
+    if any(result.error == "INVALID" for result in results):
+        return "INVALID"
+    return "OFFLINE"
+
+
+def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     global _LAST_TELEMETRY
-    memory = safe_post_json(f"{BHM_BASE_URL}/bhm/memory/usage-stats")
-    graph = safe_post_json(f"{BHM_BASE_URL}/bhm/link-graph-stats")
-    activity = safe_post_json(f"{BHM_BASE_URL}/bhm/agent-activity-rollup")
-    counts = activity.get("counts") if isinstance(activity.get("counts"), dict) else {}
-    current = {
-        "memory_count": str(memory.get("memory_count", "--")),
-        "link_count": str(graph.get("link_count", memory.get("link_count", "--"))),
-        "node_count": str(graph.get("node_count", "--")),
-        "sessions": str(counts.get("session_records", "--")),
-        "observations": str(counts.get("observations", "--")),
-        "last_sys": datetime.now().strftime("%H:%M:%S"),
+    project_name = validate_launcher_project(project or resolve_launcher_project())
+    encoded_project = urlencode({"project": project_name})
+    requests = {
+        "memory": (f"{BHM_BASE_URL}/bhm/memory/usage-stats", "POST", {"project": project_name}),
+        "graph": (f"{BHM_BASE_URL}/bhm/link-graph-stats", "POST", {"project": project_name}),
+        "activity": (f"{BHM_BASE_URL}/bhm/agent-activity-rollup", "POST", {"project": project_name}),
+        "profile": (f"{BHM_BASE_URL}/bhm/profile?{encoded_project}", "GET", None),
+        "cutover": (f"{BHM_BASE_URL}/health/cutover?{encoded_project}", "GET", None),
+        "slo": (f"{BHM_BASE_URL}/bhm/health/slo?{encoded_project}", "GET", None),
+        "mcp": (f"{BHM_BASE_URL}/bhm/telemetry/mcp-panel?{encoded_project}", "GET", None),
     }
-    for key, value in current.items():
-        if value == "--" and _LAST_TELEMETRY.get(key, "--") != "--":
-            current[key] = _LAST_TELEMETRY[key]
+
+    def execute(item: tuple[str, tuple[str, str, dict[str, Any] | None]]) -> tuple[str, JsonRequestResult]:
+        key, (url, method, payload) = item
+        return key, safe_json_request(url, method=method, payload=payload, project=project_name)
+
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="bhm-launcher-telemetry") as pool:
+        results = dict(pool.map(execute, requests.items()))
+
+    memory = results["memory"].data
+    graph = results["graph"].data
+    activity = results["activity"].data
+    profile = results["profile"].data
+    cutover = results["cutover"].data
+    slo = results["slo"].data
+    mcp = results["mcp"].data
+    counts = activity.get("counts") if isinstance(activity.get("counts"), dict) else {}
+    warmup = ((profile.get("readiness") or {}).get("provider_warmup") or {}) if isinstance(profile, dict) else {}
+    memory_store = cutover.get("memory_store") if isinstance(cutover.get("memory_store"), dict) else {}
+    storage = cutover.get("storage") if isinstance(cutover.get("storage"), dict) else {}
+    observed = slo.get("observed") if isinstance(slo.get("observed"), dict) else {}
+    connected = mcp.get("connected") if isinstance(mcp.get("connected"), dict) else {}
+    mcp_overall = mcp.get("overall") if isinstance(mcp.get("overall"), dict) else {}
+    error_label = _result_error_label(list(results.values()))
+
+    def value_or_error(result_key: str, value: Any) -> str:
+        return str(value) if results[result_key].ok and value not in {None, ""} else results[result_key].error or error_label
+
+    provider_state = "READY" if warmup.get("ready") else str(warmup.get("phase") or results["profile"].error or error_label).upper()
+    sqlite_state = "READY" if memory_store.get("ready") else str(memory_store.get("readiness") or results["cutover"].error or error_label).upper()
+    qdrant_state = "READY" if storage.get("ready") else str(storage.get("readiness") or results["cutover"].error or error_label).upper()
+    attached_count = int(connected.get("attached_count") or 0)
+    mcp_state = str(mcp_overall.get("state") or results["mcp"].error or error_label).upper()
+    if attached_count:
+        mcp_state = f"{mcp_state} · {attached_count}"
+    projection_pending = int(observed.get("projection_pending") or 0)
+    projection_failed = int(observed.get("projection_failed") or 0)
+    current = {
+        "memory_count": value_or_error("memory", memory.get("memory_count")),
+        "link_count": value_or_error("graph", graph.get("link_count", memory.get("link_count"))),
+        "node_count": value_or_error("graph", graph.get("node_count")),
+        "sessions": value_or_error("activity", counts.get("session_records")),
+        "observations": value_or_error("activity", counts.get("observations")),
+        "sqlite_state": sqlite_state,
+        "qdrant_state": qdrant_state,
+        "provider_state": provider_state,
+        "mcp_state": mcp_state,
+        "projection_queue": f"{projection_pending} / {projection_failed}" if results["slo"].ok else results["slo"].error or error_label,
+        "slo_state": str(slo.get("status") or results["slo"].error or error_label).upper(),
+        "last_sys": datetime.now().strftime("%H:%M:%S") if any(result.ok for result in results.values()) else error_label,
+    }
     _LAST_TELEMETRY = current
     return current
 
@@ -785,6 +941,26 @@ def tcp_status(port: int, timeout: float = LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS, h
             return ServiceStatus("Running", f"{target_host}:{port}")
     except OSError as exc:
         return ServiceStatus("Stopped", compact_error(exc))
+
+
+def llm_api_status(port: int, timeout: float = LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS) -> ServiceStatus:
+    if not 1 <= port <= 65535:
+        return ServiceStatus("Error", "Invalid port")
+    host = endpoint_parts("llm_default")[0]
+    url = f"http://{host}:{port}/v1/models"
+    request = urllib.request.Request(url, headers={"User-Agent": "BHM-Control-Deck"}, method="GET")
+    try:
+        with open_local_url(request, timeout=timeout) as response:
+            raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
+        payload = json.loads(raw.decode("utf-8"))
+        models = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(models, list):
+            return ServiceStatus("Error", "Models response is invalid")
+        return ServiceStatus("Running", f"API ready · {len(models)} model(s)")
+    except urllib.error.HTTPError as exc:
+        return ServiceStatus("Error", f"HTTP {exc.code}")
+    except (LocalEndpointError, OSError, ValueError, UnicodeDecodeError):
+        return ServiceStatus("Stopped", f"{host}:{port} API unavailable")
 
 
 def remote_status(url: str) -> ServiceStatus:
@@ -976,9 +1152,18 @@ def mcp_integration_status() -> tuple[bool, str]:
                 configured.append(str(target))
         except (OSError, json.JSONDecodeError, AttributeError):
             continue
+    codex_target = home / ".codex" / "config.toml"
+    try:
+        if codex_target.is_file() and codex_target.stat().st_size <= 256 * 1024:
+            data = tomllib.loads(codex_target.read_text(encoding="utf-8"))
+            server = ((data.get("mcp_servers") or {}).get(MCP_SERVER_NAME) or {})
+            if expected_url is not None and server.get("url") == expected_url:
+                configured.append(str(codex_target))
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError, AttributeError):
+        pass
     if configured:
         return True, "Configured in:\n" + "\n".join(configured)
-    return False, "Not found in Claude/Cursor MCP configs"
+    return False, "Not found in Codex/Claude/Cursor MCP configs"
 
 
 def find_codex_plugin_source() -> Path:
@@ -1142,12 +1327,17 @@ class MonitorThread(QThread):
         self._llm_mode = "local"
         self._llm_port = DEFAULT_LLM_PORT
         self._remote_url = ""
+        self._project = DEFAULT_LAUNCHER_PROJECT
         self._next_telemetry_at = 0.0
 
     def set_llm_config(self, mode: str, port: int, remote_url: str) -> None:
         self._llm_mode = "remote" if mode == "remote" else "local"
         self._llm_port = port
         self._remote_url = remote_url
+
+    def set_project(self, project: str) -> None:
+        self._project = validate_launcher_project(project)
+        self._next_telemetry_at = 0.0
 
     def stop(self) -> None:
         self._running = False
@@ -1159,14 +1349,14 @@ class MonitorThread(QThread):
                 "api": http_status(BHM_API_HEALTH_URL),
                 "llm": remote_status(self._remote_url)
                 if self._llm_mode == "remote"
-                else tcp_status(self._llm_port),
+                else llm_api_status(self._llm_port),
             }
             self.statuses_signal.emit(statuses)
 
             now = time.time()
             if now >= self._next_telemetry_at:
                 self._next_telemetry_at = now + TELEMETRY_SECONDS
-                self.telemetry_signal.emit(fetch_telemetry())
+                self.telemetry_signal.emit(fetch_telemetry(self._project))
 
             for _ in range(REFRESH_SECONDS * 10):
                 if not self._running:
@@ -1551,7 +1741,7 @@ class IntegrationsWindow(QFrame):
         title = QLabel("BHM MCP Server")
         title.setObjectName("CardTitle")
         layout.addWidget(title)
-        desc = QLabel("Claude/Cursor MCP config for local BlackHoleMemory context.")
+        desc = QLabel("Codex/Claude/Cursor MCP config for local BlackHoleMemory context.")
         desc.setObjectName("Muted")
         desc.setWordWrap(True)
         layout.addWidget(desc)
@@ -1682,8 +1872,9 @@ class MetricCard(QFrame):
     def __init__(self, title: str, accent: str = COLOR_CYAN) -> None:
         super().__init__()
         self.setObjectName("MetricCard")
-        self.setMinimumHeight(88)
+        self.setMinimumHeight(76)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.accent = accent
         self.value = QLabel("--")
         self.value.setObjectName("MetricValue")
         self.value.setStyleSheet(f"color: {accent};")
@@ -1697,7 +1888,17 @@ class MetricCard(QFrame):
         layout.addStretch(1)
 
     def set_value(self, value: str) -> None:
-        self.value.setText(value)
+        text = str(value)
+        upper = text.upper()
+        color = self.accent
+        if any(marker in upper for marker in ("AUTH", "OFFLINE", "INVALID", "BREACHED", "ERROR")):
+            color = COLOR_RED
+        elif any(marker in upper for marker in ("RETRYING", "WARMING", "DEGRADED", "WARNING", "DETACHED")):
+            color = COLOR_YELLOW
+        elif any(marker in upper for marker in ("READY", "HEALTHY", "ATTACHED")):
+            color = COLOR_GREEN
+        self.value.setStyleSheet(f"color: {color};")
+        self.value.setText(text)
 
 
 class ServiceCard(QFrame):
@@ -1990,6 +2191,7 @@ class DashboardScreen(QWidget):
         self.logs_window = LogsWindow()
         self.integrations_window = IntegrationsWindow()
         self.settings = load_launcher_settings()
+        self._project = resolve_launcher_project(self.settings)
         llm_settings = self.settings.get("llm") if isinstance(self.settings.get("llm"), dict) else {}
         self._llm_mode = "remote" if llm_settings.get("mode") == "remote" else "local"
         try:
@@ -2057,6 +2259,15 @@ class DashboardScreen(QWidget):
         title = QLabel("DASHBOARD")
         title.setObjectName("LinkTag")
         header.addWidget(title)
+        project_label = QLabel("PROJECT")
+        project_label.setObjectName("FieldLabel")
+        header.addWidget(project_label)
+        self.project_input = QLineEdit(self._project)
+        self.project_input.setObjectName("LlmInput")
+        self.project_input.setFixedSize(170, 32)
+        self.project_input.setToolTip("Project scope used for protected launcher telemetry")
+        self.project_input.editingFinished.connect(self.on_project_changed)
+        header.addWidget(self.project_input)
         header.addStretch(1)
         buttons = [
             ("Logs", self.show_logs, "GhostButton"),
@@ -2099,13 +2310,19 @@ class DashboardScreen(QWidget):
             ("node_count", "Graph Nodes", COLOR_GREEN),
             ("sessions", "Sessions", COLOR_CYAN),
             ("observations", "Observations", COLOR_PINK),
-            ("last_sys", "Last sys_status", COLOR_GREEN),
+            ("sqlite_state", "SQLite Authority", COLOR_GREEN),
+            ("qdrant_state", "Qdrant Projection", COLOR_CYAN),
+            ("provider_state", "Provider Warm-up", COLOR_YELLOW),
+            ("mcp_state", "MCP Transport", COLOR_CYAN),
+            ("projection_queue", "Projection P/F", COLOR_PINK),
+            ("slo_state", "BHM SLO", COLOR_GREEN),
+            ("last_sys", "Last Refresh", COLOR_GREEN),
         ]
         for index, (key, title, accent) in enumerate(metrics):
             card = MetricCard(title, accent)
             self.metric_cards[key] = card
-            grid.addWidget(card, index // 3, index % 3)
-            grid.setColumnStretch(index % 3, 1)
+            grid.addWidget(card, index // 4, index % 4)
+            grid.setColumnStretch(index % 4, 1)
         return grid
 
     def show_logs(self) -> None:
@@ -2126,6 +2343,7 @@ class DashboardScreen(QWidget):
         self.monitor = MonitorThread()
         self.monitor.statuses_signal.connect(self.apply_statuses)
         self.monitor.telemetry_signal.connect(self.apply_telemetry)
+        self.monitor.set_project(self._project)
         self.apply_llm_config()
         self.monitor.start()
 
@@ -2162,6 +2380,26 @@ class DashboardScreen(QWidget):
         self._llm_remote_url = remote_url
         self.settings = candidate_settings
         self.apply_llm_config()
+
+    def on_project_changed(self) -> None:
+        try:
+            project = validate_launcher_project(self.project_input.text())
+        except ValueError as exc:
+            self.project_input.setText(self._project)
+            QMessageBox.warning(self, "BHM Control Deck", compact_error(exc))
+            return
+        candidate_settings = dict(self.settings)
+        candidate_settings["project"] = project
+        try:
+            save_launcher_settings(candidate_settings)
+        except (OSError, ValueError, TypeError) as exc:
+            self.project_input.setText(self._project)
+            QMessageBox.warning(self, "BHM Control Deck", f"Не удалось сохранить project scope: {compact_error(exc)}")
+            return
+        self._project = project
+        self.settings = candidate_settings
+        if self.monitor:
+            self.monitor.set_project(project)
 
     def apply_statuses(self, statuses: dict) -> None:
         for key, status in statuses.items():
