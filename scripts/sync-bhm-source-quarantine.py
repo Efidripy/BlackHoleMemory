@@ -8,6 +8,7 @@ import json
 import sys
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.source_registry import SourceRegistryError, load_registry, sync_source, verify_registry
 
 
@@ -20,6 +21,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verify-only", action="store_true")
     parser.add_argument("--report", type=Path)
     return parser.parse_args()
+
+
+def _write_report(path: Path, result: dict[str, object]) -> None:
+    replace_bytes_safely(
+        path,
+        (json.dumps(result, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
 
 
 def main() -> int:
@@ -55,8 +63,7 @@ def main() -> int:
             "writes_live_state": False,
         }
         if args.report:
-            args.report.parent.mkdir(parents=True, exist_ok=True)
-            args.report.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            _write_report(args.report, result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["ok"] else 1
     except (OSError, ValueError, SourceRegistryError) as exc:
