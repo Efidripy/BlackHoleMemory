@@ -12,6 +12,9 @@ import sys
 import tomllib
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 def digest_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -19,6 +22,22 @@ def digest_file(path: Path) -> str:
 
 def normalized(value: str) -> str:
     return "-".join(str(value).strip().lower().replace("_", "-").replace(".", "-").split("-"))
+
+
+def _safe_release_root(root: Path | str) -> Path:
+    candidate = assert_safe_path(root, reject_hardlink_target=False)
+    if not candidate.is_dir():
+        raise SystemExit(f"release root is not a directory: {candidate}")
+    return candidate
+
+
+def _safe_release_output(root: Path, output: Path | str) -> Path:
+    candidate = assert_safe_path(output)
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise SystemExit(f"build-input output escapes release root: {candidate}") from exc
+    return candidate
 
 
 def installed_file_digest(distribution: metadata.Distribution) -> str:
@@ -40,6 +59,8 @@ def capture(
     launcher: Path | None,
     uv_version: str,
 ) -> dict[str, object]:
+    root = _safe_release_root(root)
+    output = _safe_release_output(root, output)
     if not re.fullmatch(r"[0-9a-fA-F]{64}", source_snapshot_sha256):
         raise SystemExit("source_snapshot_sha256 must be a 64-hex tracked source digest")
     lock_path = root / "uv.lock"
@@ -81,7 +102,10 @@ def capture(
         "launcher_sha256": digest_file(launcher) if launcher and launcher.is_file() else "",
         "packages": sorted(packages, key=lambda item: (str(item["name"]), str(item["version"]))),
     }
-    output.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    replace_bytes_safely(
+        output,
+        (json.dumps(receipt, ensure_ascii=False, indent=2) + "\n").encode("utf-8"),
+    )
     return receipt
 
 
@@ -95,8 +119,8 @@ def main() -> int:
     parser.add_argument("--uv-version", default="unknown")
     args = parser.parse_args()
     result = capture(
-        args.root.resolve(),
-        args.output.resolve(),
+        args.root,
+        args.output,
         source_revision=args.source_revision,
         source_snapshot_sha256=args.source_snapshot_sha256,
         launcher=args.launcher.resolve() if args.launcher else None,

@@ -7,6 +7,9 @@ import hashlib
 import json
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 TRUST_METADATA_FILES = {
     "release-manifest.json",
@@ -14,6 +17,13 @@ TRUST_METADATA_FILES = {
     "provenance.json",
     "release-trust.json",
 }
+
+
+def _safe_release_root(root: Path | str) -> Path:
+    candidate = assert_safe_path(root, reject_hardlink_target=False)
+    if not candidate.is_dir():
+        raise SystemExit(f"release root is not a directory: {candidate}")
+    return candidate
 
 
 def sha256(path: Path) -> str:
@@ -25,7 +35,7 @@ def sha256(path: Path) -> str:
 
 
 def build_manifest(root: Path, expected_version: str) -> dict[str, object]:
-    root = root.resolve()
+    root = _safe_release_root(root)
     expected = str(expected_version).lstrip("v")
     version_path = root / "config" / "version-manifest.json"
     if not version_path.exists():
@@ -53,10 +63,11 @@ def build_manifest(root: Path, expected_version: str) -> dict[str, object]:
 
 
 def write_manifest(root: Path, manifest: dict[str, object]) -> None:
-    (root / "release-manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=False) + "\n",
-        encoding="utf-8",
-        newline="\n",
+    root = _safe_release_root(root)
+    payload = (json.dumps(manifest, ensure_ascii=False, indent=2, sort_keys=False) + "\n").encode("utf-8")
+    replace_bytes_safely(
+        root / "release-manifest.json",
+        payload,
     )
 
 
@@ -66,9 +77,8 @@ def main() -> int:
     parser.add_argument("--expected-version", required=True)
     args = parser.parse_args()
 
-    root = args.root.resolve()
-    manifest = build_manifest(root, args.expected_version)
-    write_manifest(root, manifest)
+    manifest = build_manifest(args.root, args.expected_version)
+    write_manifest(args.root, manifest)
     print(json.dumps({"ok": True, "release_version": manifest["release_version"], "file_count": manifest["file_count"]}, ensure_ascii=False))
     return 0
 
