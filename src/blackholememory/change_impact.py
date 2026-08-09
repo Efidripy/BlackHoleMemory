@@ -57,9 +57,7 @@ def _path(value: Any) -> str:
 def _git_context(repo_root: str | os.PathLike[str]) -> tuple[Path, dict[str, str]]:
     # lgtm [py/path-injection]
     lexical_root = Path(repo_root).expanduser()
-    assert_safe_path(lexical_root, reject_hardlink_target=False)
-    root = lexical_root.resolve()
-    assert_safe_path(root, reject_hardlink_target=False)
+    root = assert_safe_path(lexical_root, reject_hardlink_target=False)
     if not root.is_dir():
         raise ChangeImpactError("repository root must be a directory")
     environment = {
