@@ -520,9 +520,18 @@ def validate_source_slug(value: Any) -> str:
 
 
 def _source_root(source_root: Path, slug: str) -> Path:
-    root = source_root.resolve()
-    candidate = (root / slug).resolve()
-    if root != candidate and root not in candidate.parents:
+    try:
+        root = assert_safe_path(source_root, reject_hardlink_target=False)
+        candidate = assert_safe_path(
+            root / validate_source_slug(slug), reject_hardlink_target=False
+        )
+    except OSError as exc:
+        raise SourceRegistryError(
+            "source quarantine crosses an unsafe filesystem boundary"
+        ) from exc
+    try:
+        candidate.relative_to(root)
+    except ValueError:
         raise SourceRegistryError(f"source slug escapes quarantine root: {slug}")
     return candidate
 

@@ -14,6 +14,7 @@ from blackholememory.source_registry import (
     git_tree_sha256,
     load_registry,
     _assert_owned_tree_target,
+    _source_root,
     sync_source,
     verify_registry,
 )
@@ -70,6 +71,19 @@ def test_source_cleanup_guard_rejects_escape_and_reparse_paths(tmp_path: Path) -
 
     with pytest.raises(SourceRegistryError, match="symlink/junction/reparse"):
         _assert_owned_tree_target(link, owner_root)
+
+
+def test_source_root_rejects_reparse_quarantine_root(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-src"
+    try:
+        linked_root.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows host")
+
+    with pytest.raises(SourceRegistryError, match="unsafe filesystem boundary"):
+        _source_root(linked_root, "fixture-source")
 
 
 def test_source_registry_manifest_write_rejects_hardlink_target(tmp_path: Path) -> None:
