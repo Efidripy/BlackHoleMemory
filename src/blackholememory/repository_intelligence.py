@@ -13,6 +13,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
 from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import FilesystemBoundaryError
+from .filesystem_boundaries import FilesystemReadLimitError
+from .filesystem_boundaries import read_bytes_safely
 
 REPOSITORY_INTELLIGENCE_SCHEMA_VERSION = "bhm.llm.repository-intelligence.v1"
 REPOSITORY_INTELLIGENCE_MAX_FILES = 64
@@ -51,47 +54,62 @@ def _bounded_files(base: Path, *, max_entries: int = REPOSITORY_INTELLIGENCE_MAX
             yield Path(raw_dir) / name
 
 
-def collect_repository_files(root: str | Path, paths: Sequence[str] | None = None) -> list[dict[str, Any]]:
+def collect_repository_files(
+    root: str | Path,
+    paths: Sequence[str] | None = None,
+    *,
+    scope: str = ".",
+) -> list[dict[str, Any]]:
     """Read an allowlisted, bounded source snapshot without writing anything."""
 
-    # lgtm [py/path-injection]
     base = assert_safe_path(
         Path(root).expanduser(),
         reject_hardlink_target=False,
     )
     if not base.is_dir():
         raise RepositoryIntelligenceError(f"repository root is not a directory: {root}")
-    selected: list[Path]
-    if paths:
-        selected = []
-        for raw_path in paths[:REPOSITORY_INTELLIGENCE_MAX_FILES]:
-            path = _resolve_under_root(base, raw_path)
-            # lgtm [py/path-injection]
-            if path.is_file():
-                selected.append(path)
-    else:
-        selected = []
-        for path in _bounded_files(base):
-            if path.is_file() and path.suffix.casefold() in _ALLOWED_SUFFIXES and not _blocked(path, base):
-                selected.append(path)
-                if len(selected) >= REPOSITORY_INTELLIGENCE_MAX_FILES:
-                    break
-    result: list[dict[str, Any]] = []
-    for path in selected:
+    normalized_scope = _normalize_scope(scope)
+    requested = (
+        [_normalize_path(raw_path) for raw_path in paths[:REPOSITORY_INTELLIGENCE_MAX_FILES]]
+        if paths
+        else []
+    )
+    requested_set = set(requested)
+    collected: dict[str, dict[str, Any]] = {}
+    unsafe_requested: set[str] = set()
+    for path in _bounded_files(base):
+        relative = path.relative_to(base).as_posix()
+        display_path = _path_under_scope(relative, normalized_scope)
+        if display_path is None or (requested_set and display_path not in requested_set):
+            continue
         if path.suffix.casefold() not in _ALLOWED_SUFFIXES or _blocked(path, base):
             continue
         try:
-            payload = path.read_bytes()
-        except OSError:
+            safe_path = assert_safe_path(path)
+            payload = read_bytes_safely(
+                safe_path,
+                max_bytes=REPOSITORY_INTELLIGENCE_MAX_FILE_BYTES,
+            )
+        except FilesystemReadLimitError:
             continue
-        if len(payload) > REPOSITORY_INTELLIGENCE_MAX_FILE_BYTES:
+        except (FilesystemBoundaryError, OSError):
+            if display_path in requested_set:
+                unsafe_requested.add(display_path)
             continue
         try:
             content = payload.decode("utf-8")
         except UnicodeDecodeError:
             continue
-        result.append({"path": path.relative_to(base).as_posix(), "content": content})
-    return result
+        collected[display_path] = {"path": display_path, "content": content}
+        if not requested and len(collected) >= REPOSITORY_INTELLIGENCE_MAX_FILES:
+            break
+    if unsafe_requested:
+        raise RepositoryIntelligenceError(
+            f"unsafe repository path: {sorted(unsafe_requested)[0]}"
+        )
+    if requested:
+        return [collected[path] for path in requested if path in collected]
+    return list(collected.values())
 
 
 def build_repository_intelligence_preview(
@@ -473,17 +491,27 @@ def _normalize_path(value: Any) -> str:
     return path.as_posix()
 
 
-def _resolve_under_root(root: Path, value: Any) -> Path:
-    relative = _normalize_path(value)
-    root_name = os.path.realpath(os.fspath(root))
-    target_name = os.path.realpath(os.path.join(root_name, relative.replace("/", os.sep)))
-    try:
-        contained = os.path.commonpath((root_name, target_name)) == root_name
-    except ValueError as exc:
-        raise RepositoryIntelligenceError(f"path escapes repository root: {value}") from exc
-    if not contained:
-        raise RepositoryIntelligenceError(f"path escapes repository root: {value}")
-    return Path(target_name)
+def _normalize_scope(value: Any) -> str:
+    raw = str(value or ".").strip().replace("\\", "/")
+    if raw in {"", "."}:
+        return ""
+    path = PurePosixPath(raw)
+    if path.is_absolute() or re.match(r"^[A-Za-z]:", raw) or ".." in path.parts:
+        raise RepositoryIntelligenceError(f"unsafe repository scope: {value}")
+    normalized = path.as_posix().strip("/")
+    if not normalized or normalized == ".":
+        return ""
+    return normalized
+
+
+def _path_under_scope(relative: str, scope: str) -> str | None:
+    if not scope:
+        return relative
+    prefix = f"{scope}/"
+    if not relative.startswith(prefix):
+        return None
+    display = relative[len(prefix):]
+    return display or None
 
 
 def _blocked(path: Path, root: Path) -> bool:

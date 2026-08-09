@@ -241,6 +241,24 @@ def test_reprobe_is_read_only():
     assert result["writes_live_state"] is False
 
 
+@pytest.mark.parametrize(
+    "repair_id",
+    [
+        "../mcp-repair-0123456789abcdef",
+        "mcp-repair-0123456789abcdeg",
+        "mcp-repair-0123456789ABCDEF",
+        "mcp-repair-0123456789abcdef.json",
+        "mcp-repair-01234567/9abcdef",
+    ],
+)
+def test_repair_plan_path_rejects_noncanonical_ids_before_filesystem_use(
+    tmp_path: Path,
+    repair_id: str,
+) -> None:
+    with pytest.raises(McpRepairError, match="invalid repair_id"):
+        _plan_path(tmp_path / "repo", repair_id)
+
+
 def test_repair_plan_writer_rejects_hardlink_target(tmp_path: Path) -> None:
     repo_root = tmp_path / "repo"
     plan_id = "mcp-repair-0123456789abcdef"

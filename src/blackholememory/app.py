@@ -20,7 +20,7 @@ import uuid
 from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Literal, Mapping
 
 from fastapi import FastAPI
@@ -89,6 +89,8 @@ from .embedding_reuse import search_with_precomputed_embedding
 from .embedding_cache import EmbeddingCache
 from .embedding_cache import embed_query_with_cache
 from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import FilesystemReadLimitError
+from .filesystem_boundaries import read_bytes_safely
 from .filesystem_boundaries import replace_bytes_safely
 from .graph import build_graph
 from .galaxy import GalaxyOptions
@@ -2338,7 +2340,7 @@ async def usage_telemetry_guard(request: Request, call_next):
 
 
 def _json_store_lock(path: Path) -> threading.RLock:
-    key = str(path.resolve())
+    key = os.path.normcase(os.path.abspath(os.fspath(path)))
     with _JSON_STORE_LOCKS_LOCK:
         lock = _JSON_STORE_LOCKS.get(key)
         if lock is None:
@@ -9781,21 +9783,25 @@ def _integrity_repair_strict(request: IntegrityRepairStrictRequest) -> dict:
 
 
 def _admin_snapshot_path(value: str | Path, *, require_leaf: bool = False) -> Path:
-    root = settings.runtime_dir / "admin-exports"
+    root = assert_safe_path(
+        settings.runtime_dir / "admin-exports",
+        reject_hardlink_target=False,
+    )
     try:
-        return resolve_under_root(root, value, require_leaf=require_leaf)
+        candidate = resolve_under_root(root, value, require_leaf=require_leaf)
     except SecurityBoundaryError as exc:
         raise HTTPException(status_code=400, detail="admin snapshot path must remain under admin-exports") from exc
+    return assert_safe_path(candidate)
 
 
 def _load_admin_snapshot_payload(path: Path) -> dict[str, Any]:
     """Read one bounded, object-shaped admin snapshot and fail closed."""
 
     try:
-        if path.stat().st_size > MAX_ADMIN_SNAPSHOT_BYTES:
-            raise HTTPException(status_code=413, detail={"code": "admin_snapshot_too_large"})
-        raw = path.read_text(encoding="utf-8")
+        raw = read_bytes_safely(path, max_bytes=MAX_ADMIN_SNAPSHOT_BYTES).decode("utf-8")
         payload = json.loads(raw)
+    except FilesystemReadLimitError as exc:
+        raise HTTPException(status_code=413, detail={"code": "admin_snapshot_too_large"}) from exc
     except HTTPException:
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -12307,16 +12313,33 @@ async def bhm_llm_retrieval_lab_preview(request: RetrievalLabPreviewRequest) -> 
     return preview
 
 
+def _repository_intelligence_scope(raw_root: str) -> str:
+    """Normalize a request scope without turning it into a filesystem path."""
+
+    raw = str(raw_root or ".").strip().replace("\\", "/")
+    path = PurePosixPath(raw)
+    if (
+        not raw
+        or len(raw) > 240
+        or "\x00" in raw
+        or path.is_absolute()
+        or re.match(r"^[A-Za-z]:", raw)
+        or ".." in path.parts
+    ):
+        raise HTTPException(status_code=422, detail={"error": "repository_root_outside_allowlist"})
+    return "." if path.as_posix() == "." else path.as_posix().strip("/")
+
+
 @app.post("/bhm/llm/repository-intelligence/preview")
 def bhm_llm_repository_intelligence_preview(request: RepositoryIntelligencePreviewRequest) -> dict[str, Any]:
     """Analyze a bounded repository snapshot without writing source or Git state."""
 
     source_files = request.files
     if source_files is None:
-        base = Path(settings.repo_root).resolve()
-        candidate_root = _resolve_bounded_repository_root(request.root, base)
+        base = Path(settings.repo_root)
+        scope = _repository_intelligence_scope(request.root)
         try:
-            source_files = collect_repository_files(candidate_root, request.paths)
+            source_files = collect_repository_files(base, request.paths, scope=scope)
         except RepositoryIntelligenceError as exc:
             raise HTTPException(
                 status_code=422,

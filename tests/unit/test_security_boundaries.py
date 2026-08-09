@@ -6,6 +6,9 @@ import pytest
 
 from blackholememory import app as bhm_app
 from blackholememory.filesystem_boundaries import append_bytes_safely
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.filesystem_boundaries import FilesystemReadLimitError
+from blackholememory.filesystem_boundaries import read_bytes_safely
 from blackholememory.security_boundaries import SecurityBoundaryError
 from blackholememory.security_boundaries import compile_bounded_regex
 from blackholememory.security_boundaries import resolve_under_root
@@ -94,6 +97,32 @@ def test_append_writer_creates_and_appends_regular_file(tmp_path: Path) -> None:
     append_bytes_safely(target, b"one\n")
     append_bytes_safely(target, b"two\n")
     assert target.read_bytes() == b"one\ntwo\n"
+
+
+def test_bounded_reader_preserves_regular_files_and_enforces_limit(tmp_path: Path) -> None:
+    target = tmp_path / "snapshot.json"
+    target.write_bytes(b'{"ok":true}')
+
+    assert read_bytes_safely(target, max_bytes=32) == b'{"ok":true}'
+    with pytest.raises(FilesystemReadLimitError, match="byte limit"):
+        read_bytes_safely(target, max_bytes=4)
+
+
+def test_bounded_reader_rejects_symlink_and_hardlink_targets(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(b"secret")
+    linked = tmp_path / "linked.json"
+    hardlinked = tmp_path / "hardlinked.json"
+    try:
+        linked.symlink_to(outside)
+        hardlinked.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"linked files unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|reparse"):
+        read_bytes_safely(linked)
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        read_bytes_safely(hardlinked)
 
 
 def test_compile_bounded_regex_preserves_simple_filters_and_rejects_nested_repetition() -> None:

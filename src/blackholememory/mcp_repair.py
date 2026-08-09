@@ -107,13 +107,15 @@ def _plan_path(repo_root: Path, repair_id: str) -> Path:
 
 
 def _write_plan(repo_root: Path, repair_id: str, payload: Mapping[str, Any]) -> None:
+    plan_root = _plan_root(repo_root)
     path = _plan_path(repo_root, repair_id)
+    if path.parent != plan_root:
+        raise McpRepairError("repair plan escaped the canonical plan root")
     encoded = (json.dumps(dict(payload), ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
     with _PLAN_LOCK:
         replace_bytes_safely(path, encoded)
-        # lgtm [py/path-injection]
         plans = []
-        for item in path.parent.glob("mcp-repair-*.json"):
+        for item in plan_root.glob("mcp-repair-*.json"):
             assert_safe_path(item)
             plans.append(item)
         plans.sort(key=lambda item: item.stat().st_mtime, reverse=True)

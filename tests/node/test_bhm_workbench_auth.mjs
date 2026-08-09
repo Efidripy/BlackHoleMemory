@@ -109,4 +109,22 @@ test("Workbench rejects caller confusion before route execution", async (t) => {
   });
   assert.equal(valid.status, 404);
   assert.equal(JSON.parse(valid.body).error, "not_found");
+
+  const malformed = await request(port, "/api/preflight", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${capability}`,
+      "Content-Type": "application/json",
+      Origin: `http://127.0.0.1:${port}`,
+      "Sec-Fetch-Site": "same-origin",
+    },
+    body: "{",
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal(malformed.headers["content-type"], "application/json; charset=utf-8");
+  assert.equal(malformed.headers["x-content-type-options"], "nosniff");
+  assert.deepEqual(JSON.parse(malformed.body), {
+    ok: false,
+    error: "request_body_invalid",
+  });
 });

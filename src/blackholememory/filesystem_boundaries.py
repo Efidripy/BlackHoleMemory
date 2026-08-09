@@ -12,6 +12,10 @@ class FilesystemBoundaryError(OSError):
     """Raised when a path crosses an unexpected local filesystem boundary."""
 
 
+class FilesystemReadLimitError(FilesystemBoundaryError):
+    """Raised when a bounded descriptor read exceeds its byte budget."""
+
+
 def assert_safe_path(path: Path | str, *, reject_hardlink_target: bool = True) -> Path:
     """Inspect existing components without following reparse points."""
 
@@ -109,6 +113,53 @@ def append_bytes_safely(path: Path | str, payload: bytes) -> Path:
     return target
 
 
+def read_bytes_safely(path: Path | str, *, max_bytes: int | None = None) -> bytes:
+    """Read one regular file without following a raced linked target.
+
+    The descriptor is opened read-only, compared with a fresh ``lstat`` before
+    any bytes are consumed, and read through the descriptor under an optional
+    hard byte limit. This keeps callers from validating one path and reading a
+    different file after a symlink or hardlink swap.
+    """
+
+    if max_bytes is not None and max_bytes < 0:
+        raise ValueError("max_bytes must be non-negative")
+    target = assert_safe_path(path)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(target, flags)
+    try:
+        opened = os.fstat(descriptor)
+        assert_safe_path(target)
+        current = target.lstat()
+        if not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(current.st_mode):
+            raise FilesystemBoundaryError(f"filesystem target is not a regular file: {target}")
+        if int(getattr(opened, "st_nlink", 1)) > 1 or int(getattr(current, "st_nlink", 1)) > 1:
+            raise FilesystemBoundaryError(f"filesystem target is a hardlink: {target}")
+        if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+            raise FilesystemBoundaryError(f"filesystem target changed during read: {target}")
+        if max_bytes is not None and int(opened.st_size) > max_bytes:
+            raise FilesystemReadLimitError(f"filesystem read exceeds byte limit: {target}")
+        chunks: list[bytes] = []
+        total = 0
+        while True:
+            remaining = None if max_bytes is None else max_bytes - total
+            read_size = 64 * 1024 if remaining is None else min(64 * 1024, remaining + 1)
+            chunk = os.read(descriptor, max(1, read_size))
+            if not chunk:
+                break
+            total += len(chunk)
+            if max_bytes is not None and total > max_bytes:
+                raise FilesystemReadLimitError(f"filesystem read exceeds byte limit: {target}")
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
 def replace_bytes_safely(path: Path | str, payload: bytes) -> Path:
     """Atomically replace a regular target after boundary checks.
 
@@ -146,7 +197,9 @@ def replace_bytes_safely(path: Path | str, payload: bytes) -> Path:
 __all__ = [
     "append_bytes_safely",
     "FilesystemBoundaryError",
+    "FilesystemReadLimitError",
     "assert_safe_path",
+    "read_bytes_safely",
     "replace_bytes_safely",
     "write_bytes_exclusive",
 ]
