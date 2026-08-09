@@ -77,10 +77,14 @@ $sourceConfig = Get-Content -Raw -LiteralPath $sourceConfigPath -Encoding UTF8 |
 Add-Check -Id "source-routing" -Ok ([string]$sourceConfig.version_manifest -eq "config/version-manifest.json") -Path $sourceConfigPath -Expected "config/version-manifest.json"
 
 $workspaceRoot = Split-Path -Parent (Split-Path -Parent $repoRoot)
+$userProfile = [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
+if ([string]::IsNullOrWhiteSpace($userProfile)) {
+    $userProfile = (Get-Location).Path
+}
 $generatedPluginPaths = @(
     (Join-Path $workspaceRoot "workspace\tools\codex-plugins\plugins\bhm-codex-connector\.codex-plugin\plugin.json"),
-    (Join-Path $env:USERPROFILE ".codex\plugins\local\bhm-codex-connector\.codex-plugin\plugin.json"),
-    (Join-Path $env:USERPROFILE (".codex\plugins\cache\bhm-marketplace\bhm-codex-connector\{0}\.codex-plugin\plugin.json" -f [string]$components.plugin))
+    (Join-Path $userProfile ".codex\plugins\local\bhm-codex-connector\.codex-plugin\plugin.json"),
+    (Join-Path $userProfile (".codex\plugins\cache\bhm-marketplace\bhm-codex-connector\{0}\.codex-plugin\plugin.json" -f [string]$components.plugin))
 )
 $generatedIndex = 0
 foreach ($path in $generatedPluginPaths) {
@@ -89,6 +93,11 @@ foreach ($path in $generatedPluginPaths) {
     if (Test-Path -LiteralPath $path) {
         $generated = Get-Content -Raw -LiteralPath $path -Encoding UTF8 | ConvertFrom-Json
         $ok = [string]$generated.version -eq [string]$components.plugin
+    }
+    else {
+        # Generated plugin copies are machine-local outputs, not public source.
+        # Public CI remains hermetic while validating any copies that are present.
+        $ok = $true
     }
     Add-Check -Id ("generated-plugin-{0}" -f $generatedIndex) -Ok $ok -Path $path -Expected ([string]$components.plugin)
 }
