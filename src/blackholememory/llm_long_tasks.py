@@ -825,6 +825,7 @@ class LongTaskStore:
         }
 
     def _connect(self) -> sqlite3.Connection:
+        assert_safe_path(self.path)
         connection = sqlite3.connect(
             self.path,
             timeout=LLM_LONG_TASK_BUSY_TIMEOUT_MS / 1_000,

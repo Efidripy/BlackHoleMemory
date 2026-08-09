@@ -140,6 +140,25 @@ def test_sqlite_store_rejects_hardlinked_target_before_initialization(tmp_path, 
     assert outside.read_bytes() == b"do-not-touch"
 
 
+@pytest.mark.parametrize(
+    "store_factory",
+    [HookJobQueue, LLMJobQueue, LLMCacheStore, LLMLearningStore, LongTaskStore],
+)
+def test_sqlite_store_revalidates_path_at_connection_boundary(tmp_path, store_factory) -> None:
+    outside = tmp_path / "outside.sqlite3"
+    outside.write_bytes(b"do-not-touch")
+    target = tmp_path / "store.sqlite3"
+    try:
+        target.hardlink_to(outside)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"hardlinks unavailable: {exc}")
+
+    store = store_factory(target)
+    with pytest.raises(FilesystemBoundaryError, match="hardlink"):
+        store._connect()
+    assert outside.read_bytes() == b"do-not-touch"
+
+
 def _repository_index_v1_store(tmp_path: Path) -> SQLiteRepositoryIndexStore:
     database = tmp_path / "memories.sqlite3"
     SQLiteMemoryRepository(database).initialize()

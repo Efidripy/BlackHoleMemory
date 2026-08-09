@@ -494,6 +494,7 @@ class LLMLearningStore:
         }
 
     def _connect(self) -> sqlite3.Connection:
+        assert_safe_path(self.path)
         connection = sqlite3.connect(self.path, timeout=SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS)
         connection.row_factory = sqlite3.Row
         connection.execute(f"PRAGMA busy_timeout={int(SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS * 1000)}")

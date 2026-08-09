@@ -882,6 +882,7 @@ class HookJobQueue:
         raise HookQueueError("unreachable SQLite hook queue retry state")
 
     def _connect(self) -> sqlite3.Connection:
+        assert_safe_path(self.path)
         connection = sqlite3.connect(
             str(self.path),
             timeout=HOOK_QUEUE_BUSY_TIMEOUT_MS / 1000,
