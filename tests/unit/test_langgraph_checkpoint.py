@@ -142,6 +142,27 @@ def test_disposable_database_rejects_symlink_alias(tmp_path: Path) -> None:
         )
 
 
+def test_disposable_database_rejects_reparse_parent_before_schema_creation(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_parent = tmp_path / "linked-parent"
+    try:
+        linked_parent.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(OSError, match="symlink|junction|reparse"):
+        SQLiteLangGraphCheckpointSaver(
+            linked_parent / "disposable-checkpoints.sqlite3",
+            project="p",
+            caller_id="c",
+            task_id="t",
+            session_id="s",
+            enabled=True,
+        )
+    assert not (outside / "disposable-checkpoints.sqlite3").exists()
+
+
 def test_round_trip_parent_chain_and_reopen(tmp_path: Path) -> None:
     saver = _saver(tmp_path)
     root = saver.put(_config(), _checkpoint("0001", 1), {"step": 1}, {"value": "0001"})
