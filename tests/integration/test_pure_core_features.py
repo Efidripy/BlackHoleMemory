@@ -581,6 +581,12 @@ def test_mcp_gateway_admin_tool_requires_capability(monkeypatch):
 
 def test_admin_rest_route_requires_capability(monkeypatch):
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "unit-admin-capability")
+
+    async def missing_memory(_operation, _handler, request):
+        assert request.project == "blackholememory"
+        raise HTTPException(status_code=404, detail="memory not found in live store")
+
+    monkeypatch.setattr(bhm_app, "_run_bounded_write", missing_memory)
     client = TestClient(bhm_app.app)
 
     payload = {"id": "missing", "project": "blackholememory"}
