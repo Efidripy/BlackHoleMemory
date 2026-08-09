@@ -10796,6 +10796,7 @@ def _load_galaxy_code_project_nodes_sync(project: str | None, limit: int) -> lis
     """
 
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+    assert_safe_path(database_path)
     accepted = _project_aliases(project) if project else set()
     nodes: list[dict[str, Any]] = []
     with sqlite3.connect(
