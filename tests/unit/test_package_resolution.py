@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from blackholememory.package_resolution import resolve_dependency_provenance
 from blackholememory.package_resolution import resolve_package_manifests
 from blackholememory.package_resolution_receipt import build_package_resolution_receipt
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
 def test_package_resolution_is_bounded_and_metadata_only(tmp_path: Path) -> None:
@@ -78,6 +81,20 @@ def test_package_resolution_rejects_unbounded_manifest_limit(tmp_path: Path) -> 
         assert "between 1 and 64" in str(exc)
     else:
         raise AssertionError("expected bounded limit rejection")
+
+
+def test_package_resolution_rejects_reparse_repository_root_before_traversal(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    for resolver in (resolve_dependency_provenance, resolve_package_manifests):
+        with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+            resolver(linked_root)
 
 
 def test_package_resolution_reads_pubspec_runtime_and_development_sections(tmp_path: Path) -> None:
