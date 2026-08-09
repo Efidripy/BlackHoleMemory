@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -32,6 +33,37 @@ def test_safe_patch_process_cleanup_uses_registry_timeout() -> None:
     assert "communicate(timeout=2.0)" not in source
     assert "timeout=2.0" not in source
     assert PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS == 2.0
+
+
+def test_safe_patch_hung_cleanup_never_calls_unbounded_communicate(monkeypatch, tmp_path: Path) -> None:
+    calls: list[dict[str, object]] = []
+
+    class HungProcess:
+        pid = 4242
+
+        def communicate(self, **kwargs):
+            calls.append(kwargs)
+            raise subprocess.TimeoutExpired("hung", float(kwargs.get("timeout") or 0))
+
+        def kill(self) -> None:
+            calls.append({"kill": True})
+
+    monkeypatch.setattr(safe_patch_factory.subprocess, "Popen", lambda *args, **kwargs: HungProcess())
+    monkeypatch.setattr(safe_patch_factory, "_terminate_process_group", lambda _pid: True)
+
+    result = safe_patch_factory._run_command(
+        [sys.executable, "-c", "pass"],
+        cwd=tmp_path,
+        timeout=0.1,
+        process_group=True,
+    )
+
+    assert result["timed_out"] is True
+    assert result["cleanup_timed_out"] is True
+    communicate_calls = [call for call in calls if "timeout" in call]
+    assert communicate_calls
+    assert all(call["timeout"] is not None for call in communicate_calls)
+    assert not any(call == {} for call in calls)
 
 
 def test_factory_applies_only_to_quarantine_and_collects_ast_diff_and_sandbox(tmp_path: Path):
