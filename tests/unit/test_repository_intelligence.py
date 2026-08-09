@@ -8,6 +8,7 @@ from blackholememory.repository_intelligence import RepositoryIntelligenceError
 from blackholememory.repository_intelligence import build_repository_intelligence_preview
 from blackholememory.repository_intelligence import collect_repository_files
 from blackholememory.repository_intelligence import verify_repository_intelligence_digest
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
 NOW = datetime(2026, 7, 14, tzinfo=timezone.utc)
@@ -56,6 +57,19 @@ def test_collect_repository_files_is_allowlisted_and_bounded(tmp_path):
     assert [item["path"] for item in files] == ["src/main.py"]
     with pytest.raises(RepositoryIntelligenceError):
         collect_repository_files(tmp_path, ["../outside.py"])
+
+
+def test_collect_repository_files_rejects_reparse_repository_root_before_traversal(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    linked_root = tmp_path / "linked-root"
+    try:
+        linked_root.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"directory symlinks unavailable: {exc}")
+
+    with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
+        collect_repository_files(linked_root)
 
 
 def test_issue_clusters_and_test_selection_are_not_requested_without_changes():
