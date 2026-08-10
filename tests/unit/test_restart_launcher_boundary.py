@@ -60,3 +60,20 @@ def test_restart_script_escapes_paths_as_literal_powershell_values(tmp_path: Pat
     assert "operator''s repo" in script
     assert "-RedirectStandardOutput '" in script
     assert "-RedirectStandardError '" in script
+
+
+def test_restart_script_preserves_authoritative_contract_without_touching_dependencies(tmp_path: Path) -> None:
+    repo_root, runtime_dir = _fixture_paths(tmp_path)
+    paths = app._prepare_detached_restart_paths(repo_root, runtime_dir, log_suffix="fixture")
+    script = app._build_detached_restart_script(
+        repo_root=paths[0],
+        start_script=paths[1],
+        stdout_log=paths[2],
+        stderr_log=paths[3],
+        launcher_log=paths[4],
+    )
+
+    assert '"-Authoritative"' in script
+    assert "start-qdrant.ps1" not in script
+    assert "docker compose" not in script.lower()
+    assert "lm studio" not in script.lower()

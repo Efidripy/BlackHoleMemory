@@ -5159,7 +5159,8 @@ Start-Process -FilePath "powershell.exe" -ArgumentList @(
   "Bypass",
   "-File",
   {_powershell_literal(start_script)},
-  "-SkipInstall"
+  "-SkipInstall",
+  "-Authoritative"
 ) -WorkingDirectory {_powershell_literal(repo_root)} -WindowStyle Hidden -RedirectStandardOutput {_powershell_literal(stdout_log)} -RedirectStandardError {_powershell_literal(stderr_log)}
 "launcher_done $(Get-Date -Format o)" | Add-Content -LiteralPath {_powershell_literal(launcher_log)} -Encoding UTF8
 """

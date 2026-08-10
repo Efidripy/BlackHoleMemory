@@ -51,6 +51,22 @@ def test_authoritative_launcher_does_not_enable_projection_worker():
     assert 'BHM_PROJECTION_WORKER_ENABLED = "true"' not in text
 
 
+def test_service_authoritative_switch_sets_complete_writer_gate_contract():
+    text = SERVICE.read_text(encoding="utf-8")
+    authoritative_block = text[
+        text.index("if ($Authoritative)") : text.index("# Semantic fusion is never implicit")
+    ]
+
+    for marker in (
+        'BHM_MEMORY_STORE_MODE = "sqlite-authoritative"',
+        'BHM_FALLBACK_MODE = "explicit"',
+        'BHM_PROJECTION_WORKER_ENABLED = "false"',
+        'BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"',
+        'BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = "true"',
+    ):
+        assert marker in authoritative_block
+
+
 def test_service_inherits_operator_capability_from_user_scope_without_logging_it():
     text = SERVICE.read_text(encoding="utf-8")
     assert "BHM_ADMIN_CAPABILITY" in text
