@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import asyncio
 import base64
+import copy
 import ctypes
 import hashlib
 import importlib.util
@@ -7988,6 +7989,100 @@ def _batch_upsert_memories(request: BatchUpsertMemoriesRequest) -> dict:
         require_project=False,
     )
     project = project or _canonical_project(None)
+    request_payload = request.model_dump(mode="json")
+    request_digest = hashlib.sha256(
+        json.dumps(request_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    operation_id = f"mutation_{request_digest[:24]}"
+    keys = [item.upsert_key for item in request.items]
+    if len(keys) != len(set(keys)):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "batch_duplicate_upsert_key"},
+        )
+
+    if _memory_store_is_authoritative():
+        service = _memory_service()
+        now = _utc_now_iso()
+        pending: list[dict] = []
+        results: list[dict] = []
+        upserted_ids: dict[str, str] = {}
+        for item in request.items:
+            existing = service.get_record_by_upsert_key(project, item.upsert_key)
+            user_metadata = _user_memory_metadata(item.metadata)
+            if existing is None:
+                metadata = initial_decay_metadata(
+                    {
+                        "raw_title": _build_memory_title(item.content),
+                        "confidence": None,
+                        "files": item.files or [],
+                        "upsert_key": item.upsert_key,
+                        **user_metadata,
+                    },
+                    created_at=now,
+                )
+                record = {
+                    "source_system": "bhm",
+                    "source_id": f"mem_bhm_{uuid.uuid4().hex[:16]}",
+                    "project": project,
+                    "agent_id": "workspace",
+                    "memory_type": item.type,
+                    "content": item.content,
+                    "summary": None,
+                    "tags": item.concepts or [],
+                    "session_refs": [],
+                    "created_at": now,
+                    "updated_at": now,
+                    "metadata": metadata,
+                }
+                _sync_mem0_record(record)
+                pending.append(record)
+                action = "created"
+            else:
+                existing_metadata = dict(existing.get("metadata") or {})
+                unchanged = (
+                    existing.get("memory_type") == item.type
+                    and existing.get("content") == item.content
+                    and list(existing.get("tags") or []) == list(item.concepts or [])
+                    and list(existing_metadata.get("files") or []) == list(item.files or [])
+                    and all(existing_metadata.get(key) == value for key, value in user_metadata.items())
+                )
+                if unchanged:
+                    record = existing
+                    action = "unchanged"
+                else:
+                    record = copy.deepcopy(existing)
+                    metadata = record.setdefault("metadata", {})
+                    metadata.update(user_metadata)
+                    metadata["raw_title"] = _build_memory_title(item.content)
+                    metadata["files"] = item.files or []
+                    metadata["upsert_key"] = item.upsert_key
+                    record["project"] = project
+                    record["memory_type"] = item.type
+                    record["content"] = item.content
+                    record["tags"] = item.concepts or []
+                    record["updated_at"] = now
+                    _append_memory_changelog(
+                        record,
+                        "batch_upsert",
+                        {"operation_id": operation_id},
+                    )
+                    _sync_mem0_record(record)
+                    pending.append(record)
+                    action = "updated"
+            upserted_ids[item.upsert_key] = record["source_id"]
+            results.append({"action": action, "memory": _serialize_memory_record(record)})
+        if pending:
+            service.upsert_records(pending)
+        return {
+            "items": results,
+            "count": len(results),
+            "upserted_ids": upserted_ids,
+            "operation_id": operation_id,
+            "request_digest": request_digest,
+            "committed": True,
+        }
+
     results = []
     upserted_ids: dict[str, str] = {}
     for item in request.items:
@@ -8004,7 +8099,14 @@ def _batch_upsert_memories(request: BatchUpsertMemoriesRequest) -> dict:
         )
         upserted_ids[item.upsert_key] = record["source_id"]
         results.append({"action": action, "memory": _serialize_memory_record(record)})
-    return {"items": results, "count": len(results), "upserted_ids": upserted_ids}
+    return {
+        "items": results,
+        "count": len(results),
+        "upserted_ids": upserted_ids,
+        "operation_id": operation_id,
+        "request_digest": request_digest,
+        "committed": True,
+    }
 
 
 def _batch_attach_source_refs(request: BatchAttachSourceRefsRequest) -> dict:
