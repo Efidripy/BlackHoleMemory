@@ -911,12 +911,14 @@ class SQLiteMemoryRepository:
         updated: list[dict[str, Any]] = []
         with self._write_transaction() as connection:
             rows = connection.execute(
-                "SELECT * FROM memories WHERE project = ? AND lifecycle <> 'tombstoned' "
-                "ORDER BY memory_id",
+                self._joined_memory_query(
+                    " WHERE m.project = ? AND m.lifecycle <> 'tombstoned' "
+                    "ORDER BY m.memory_id"
+                ),
                 (project_id,),
             ).fetchall()
             for row in rows:
-                memory = self._memory_row_to_model(connection, row)
+                memory = self._joined_memory_row_to_model(row)
                 payload = memory.to_dict()
                 metadata = dict(memory.metadata)
                 metadata["previous_lifecycle"] = memory.lifecycle.value

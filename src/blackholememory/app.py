@@ -5214,10 +5214,12 @@ def _spawn_detached_restart_launcher() -> int:
         launcher_log=launcher_log,
     )
     encoded_script = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-    # Do not route the restart through ``cmd.exe /c start /min``.  ``/min``
-    # only minimizes the console and can still flash a visible PowerShell
-    # window during a BHM restart.  Spawn PowerShell directly as a detached,
-    # no-console child and keep all output handles closed.
+    # Route the handoff through ``cmd.exe /c start``. A direct PowerShell
+    # child can remain attached to the Windows Job Object that owns the
+    # service and is then terminated together with the old BHM process. The
+    # shell ``start`` boundary is the durable Windows detach point; ``/b``
+    # keeps it windowless while the encoded payload avoids path/credential
+    # interpolation in the command line.
     startupinfo = None
     creationflags = (
         _WINDOWS_DETACHED_PROCESS
@@ -5231,6 +5233,12 @@ def _spawn_detached_restart_launcher() -> int:
         startupinfo.wShowWindow = subprocess.SW_HIDE
     process = subprocess.Popen(
         [
+            "cmd.exe",
+            "/d",
+            "/c",
+            "start",
+            "",
+            "/b",
             "powershell.exe",
             "-NoProfile",
             "-ExecutionPolicy",
