@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import threading
 from pathlib import Path
 
 import pytest
@@ -77,3 +78,23 @@ def test_restart_script_preserves_authoritative_contract_without_touching_depend
     assert "start-qdrant.ps1" not in script
     assert "docker compose" not in script.lower()
     assert "lm studio" not in script.lower()
+
+
+def test_restart_exit_is_delayed_until_after_launcher_handoff(monkeypatch) -> None:
+    started = threading.Event()
+    captured: dict[str, object] = {}
+
+    class FakeThread:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def start(self):
+            started.set()
+
+    monkeypatch.setattr(app.threading, "Thread", FakeThread)
+    app._schedule_process_exit(delay_seconds=0.1)
+
+    assert started.is_set()
+    assert captured["daemon"] is True
+    assert captured["name"] == "bhm-restart-exit"
+    assert callable(captured["target"])
