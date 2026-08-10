@@ -18,6 +18,10 @@ from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
 from .local_endpoint_policy import MAX_RESPONSE_BYTES
 from .local_endpoint_policy import validate_local_endpoint
 from .resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
 
 MemoryMetadata = _memory_contracts.MemoryMetadata
 MetadataActionability = _memory_contracts.MetadataActionability
@@ -92,7 +96,7 @@ def _read_process_or_user_env_value(key: str) -> str | None:
     return str(value or "").strip() or None
 
 
-def _client() -> httpx.Client:
+def _client(*, timeout: float | None = None) -> httpx.Client:
     # The MCP compatibility bridge is local-only. Validate the configured
     # origin before constructing an authenticated client so a malformed or
     # remote BHM_MCP_BASE_URL can never receive the caller bearer token.
@@ -114,7 +118,7 @@ def _client() -> httpx.Client:
         headers["x-bhm-admin-capability"] = admin_capability
     return httpx.Client(
         base_url=base_url,
-        timeout=float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS),
+        timeout=float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS if timeout is None else timeout),
         headers=headers,
         follow_redirects=False,
         trust_env=False,
@@ -221,7 +225,18 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
-    with _client() as client:
+    timeout: float | None = None
+    if path == "/bhm/code-tools":
+        operation = str(body.get("operation") or "").casefold()
+        if operation == "status":
+            timeout = float(BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS)
+        elif operation in {"index", "watch"}:
+            timeout = float(
+                BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS
+                if body.get("graph_only") or (body.get("build_graph") and not body.get("defer_graph"))
+                else BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
+            )
+    with _client(timeout=timeout) as client:
         response = client.post(path, json=body)
         response.raise_for_status()
         return _bounded_json_response(response)
@@ -1864,7 +1879,12 @@ def _public_code_tool(
     root: str = ".",
     apply: bool = False,
     build_graph: bool = True,
+    defer_graph: bool = False,
+    graph_only: bool = False,
     force_refresh: bool = False,
+    max_files_per_run: int = BHM_INDEX_MAX_FILES_PER_RUN,
+    expected_job_id: str | None = None,
+    expected_state_digest: str | None = None,
     query: str = "",
     graph_operation: str = "symbol",
     depth: int = 2,
@@ -1904,7 +1924,12 @@ def _public_code_tool(
             "root": root,
             "apply": apply,
             "build_graph": build_graph,
+            "defer_graph": defer_graph,
+            "graph_only": graph_only,
             "force_refresh": force_refresh,
+            "max_files_per_run": max_files_per_run,
+            "expected_job_id": expected_job_id,
+            "expected_state_digest": expected_state_digest,
             "query": query,
             "graph_operation": graph_operation,
             "depth": depth,
@@ -1939,9 +1964,34 @@ def _public_code_tool(
     )
 
 
-@mcp.tool(name="bhm_index_repository", description="Index an allowlisted repository and optionally build its BHM code graph. Read-only plan by default; set apply=true explicitly to publish SQLite snapshots. force_refresh is an explicit operator epoch for stale semantic freshness and never runs implicitly.")
-def bhm_index_repository(project: str = DEFAULT_PROJECT, root: str = ".", apply: bool = False, build_graph: bool = True, force_refresh: bool = False) -> dict[str, Any]:
-    return _public_code_tool("index", project=project, root=root, apply=apply, build_graph=build_graph, force_refresh=force_refresh)
+@mcp.tool(name="bhm_index_repository", description="Run a bounded resumable repository-index slice. Read-only plan by default; set apply=true explicitly. Graph construction is deferred by default and may be completed with graph_only=true plus the completed snapshot_id.")
+def bhm_index_repository(
+    project: str = DEFAULT_PROJECT,
+    root: str = ".",
+    apply: bool = False,
+    build_graph: bool = True,
+    force_refresh: bool = False,
+    max_files_per_run: int = BHM_INDEX_MAX_FILES_PER_RUN,
+    expected_job_id: str | None = None,
+    expected_state_digest: str | None = None,
+    defer_graph: bool = True,
+    graph_only: bool = False,
+    snapshot_id: str | None = None,
+) -> dict[str, Any]:
+    return _public_code_tool(
+        "index",
+        project=project,
+        root=root,
+        apply=apply,
+        build_graph=build_graph,
+        defer_graph=defer_graph,
+        graph_only=graph_only,
+        force_refresh=force_refresh,
+        max_files_per_run=max_files_per_run,
+        expected_job_id=expected_job_id,
+        expected_state_digest=expected_state_digest,
+        snapshot_id=snapshot_id,
+    )
 
 
 @mcp.tool(name="bhm_index_status", description="Get authoritative repository-index and code-graph freshness for an allowlisted repository.")
@@ -1954,9 +2004,9 @@ def bhm_list_projects() -> dict[str, Any]:
     return _public_code_tool("projects")
 
 
-@mcp.tool(name="bhm_watch_repository", description="Run an explicit bounded repository watcher/index cycle; no background daemon is started and apply must be explicit.")
-def bhm_watch_repository(project: str = DEFAULT_PROJECT, root: str = ".", apply: bool = False, cycles: int = 1, interval_seconds: float = 0.0, build_graph: bool = True) -> dict[str, Any]:
-    return _public_code_tool("watch", project=project, root=root, apply=apply, cycles=cycles, interval_seconds=interval_seconds, build_graph=build_graph)
+@mcp.tool(name="bhm_watch_repository", description="Run an explicit bounded repository watcher/index cycle; no background daemon is started and apply must be explicit. Graph construction is deferred by default.")
+def bhm_watch_repository(project: str = DEFAULT_PROJECT, root: str = ".", apply: bool = False, cycles: int = 1, interval_seconds: float = 0.0, build_graph: bool = True, defer_graph: bool = True) -> dict[str, Any]:
+    return _public_code_tool("watch", project=project, root=root, apply=apply, cycles=cycles, interval_seconds=interval_seconds, build_graph=build_graph, defer_graph=defer_graph)
 
 
 @mcp.tool(name="bhm_search_graph", description="Search the bounded BHM code graph by symbol/path/name without returning raw source.")

@@ -29,6 +29,10 @@ from blackholememory.resource_limits import SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECON
 from blackholememory.resource_limits import MCP_SESSION_ADMISSION_TIMEOUT_SECONDS
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
 from blackholememory.resource_limits import BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS
 from blackholememory.resource_limits import EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_HTTP_TIMEOUT_SECONDS
@@ -89,6 +93,10 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert PROCESS_EXECUTION_GPU_SNAPSHOT_TIMEOUT_SECONDS == 2
     assert PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS == 5
     assert BHM_INTERNAL_HTTP_TIMEOUT_SECONDS == 15
+    assert BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS == 60
+    assert BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS == 90
+    assert BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS == 30
+    assert BHM_INDEX_MAX_FILES_PER_RUN == 666
     assert BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS == 3
     assert EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS == 20
     assert LLM_HTTP_TIMEOUT_SECONDS == 120
@@ -106,6 +114,7 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS == 45
     assert any(item.key == "process.execution_timeout" for item in RESOURCE_LIMITS)
     assert any(item.key == "mcp.session_admission_timeout" for item in RESOURCE_LIMITS)
+    assert any(item.key == "repository.index_max_files_per_run" for item in RESOURCE_LIMITS)
 
 
 def test_resource_limit_snapshot_is_deterministic_and_honest_about_open_families() -> None:

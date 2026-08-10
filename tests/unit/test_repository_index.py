@@ -6,12 +6,14 @@ from pathlib import Path
 
 import pytest
 
+from blackholememory import repository_index as repository_index_module
 from blackholememory.repository_index import RepositoryIndexInjectedFailure
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import RepositoryWatcher
 from blackholememory.repository_index import SQLiteRepositoryIndexStore
 from blackholememory.repository_index import index_repository
 from blackholememory.repository_index import probe_repository_state
+from blackholememory.repository_index import repository_root_id
 from blackholememory.repository_index import RepositoryRootError
 from blackholememory.repository_index import verify_repository_snapshot
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
@@ -49,6 +51,17 @@ def _repository(tmp_path: Path) -> Path:
     _git(root, "add", "-f", ".")
     _git(root, "commit", "-m", "fixture")
     return root
+
+
+def test_repository_root_id_matches_probe_without_enumeration(monkeypatch, tmp_path: Path) -> None:
+    root = _repository(tmp_path)
+    expected = probe_repository_state(root, project="demo").root_id
+
+    def fail_enumeration(_root: Path):
+        raise AssertionError("repository enumeration must not run")
+
+    monkeypatch.setattr(repository_index_module, "_enumerate_repository_paths", fail_enumeration)
+    assert repository_root_id(root) == expected
 
 
 def _source() -> RepositorySourceProvenance:

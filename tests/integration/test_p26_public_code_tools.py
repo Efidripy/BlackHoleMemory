@@ -544,3 +544,70 @@ def test_force_refresh_is_apply_only_index_epoch_and_requires_graph(monkeypatch,
     assert payload["index"]["snapshot"]["source"]["refresh_nonce"].startswith("operator-refresh-")
     assert payload["graph"]["repository_snapshot_id"] == payload["index"]["snapshot"]["snapshot_id"]
     assert payload["execution"]["force_refresh"] is True
+
+
+def test_mcp_style_bounded_index_resumes_and_builds_graph_from_completed_snapshot(monkeypatch, tmp_path: Path) -> None:
+    root, runtime_dir = _prepare(tmp_path)
+    monkeypatch.setattr(bhm_app.settings, "repo_root", root)
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+    client = TestClient(bhm_app.app)
+    before = client.post("/bhm/code-tools", json={"operation": "status", "project": "demo", "root": "repo"}).json()
+    old_snapshot_id = before["index"]["current_snapshot"]["snapshot_id"]
+    (root / "module.py").write_text("def keep():\n    return 42\n", encoding="utf-8")
+
+    first = client.post(
+        "/bhm/code-tools",
+        json={
+            "operation": "index",
+            "project": "demo",
+            "root": "repo",
+            "apply": True,
+            "build_graph": True,
+            "defer_graph": True,
+            "force_refresh": True,
+            "max_files_per_run": 1,
+        },
+    )
+    assert first.status_code == 200
+    first_payload = first.json()
+    assert first_payload["index"]["status"] == "running"
+    assert first_payload["graph"] is None
+    assert first_payload["graph_status"] == "blocked_index_incomplete"
+    assert first_payload["index_next"]["force_refresh"] is False
+    assert first_payload["index_next"]["project"] == "demo"
+    assert first_payload["index_next"]["root"] == str(root.resolve())
+
+    stale_graph = client.post(
+        "/bhm/code-tools",
+        json={
+            "operation": "index",
+            "project": "demo",
+            "root": "repo",
+            "apply": True,
+            "graph_only": True,
+            "snapshot_id": old_snapshot_id,
+        },
+    )
+    assert stale_graph.status_code == 409
+    assert stale_graph.json()["detail"]["error"] == "index_incomplete_or_snapshot_stale"
+
+    job_id = first_payload["index"]["job_id"]
+    current_payload = first_payload
+    for _ in range(8):
+        if current_payload["index"]["status"] == "completed":
+            break
+        resumed = client.post("/bhm/code-tools", json=current_payload["index_next"])
+        assert resumed.status_code == 200
+        current_payload = resumed.json()
+        assert current_payload["index"]["job_id"] == job_id
+    assert current_payload["index"]["status"] == "completed"
+    assert current_payload["graph_status"] == "pending"
+    assert current_payload["graph_next"]["snapshot_id"] == current_payload["index"]["snapshot_id"]
+    assert current_payload["graph_next"]["project"] == "demo"
+    assert current_payload["graph_next"]["root"] == str(root.resolve())
+
+    graph = client.post("/bhm/code-tools", json=current_payload["graph_next"])
+    assert graph.status_code == 200
+    graph_payload = graph.json()
+    assert graph_payload["action"] == "graph"
+    assert graph_payload["graph"]["repository_snapshot_id"] == current_payload["index"]["snapshot_id"]

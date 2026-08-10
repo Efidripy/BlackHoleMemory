@@ -57,6 +57,24 @@ http://127.0.0.1:8000/mcp
 REST/MCP clients should use the shared [BHM error taxonomy](error-taxonomy.md)
 instead of parsing free-form error messages.
 
+### Bounded repository indexing
+
+`bhm_index_repository` выполняет не более 666 файлов за один MCP-вызов и
+возвращает устойчивый `job_id`, progress и `index_next`. Если `status=running`,
+повторите вызов с полями из `index_next`; forced refresh продолжается с
+`force_refresh=false`, чтобы не создать новый epoch.
+Continuation fields also include `expected_job_id` and `expected_state_digest`; pass them
+unchanged so a repository mutation between slices fails closed instead of silently
+starting a different job.
+
+Построение code graph намеренно отделено от индексного slice. После
+`status=completed` ответ содержит `graph_next` с точным `snapshot_id`.
+Передайте этот receipt обратно в `bhm_index_repository`; `graph_only=true`
+fail-closed отклонит незавершённый или устаревший snapshot. MCP использует
+operation-specific deadlines: 60 секунд для bounded index, 90 секунд для graph
+и 30 секунд для status; общий 15-секундный timeout остальных внутренних
+вызовов не меняется.
+
 ## Принцип безопасности
 
 Операции изменения кода и данных proposal-only по умолчанию. Деструктивные

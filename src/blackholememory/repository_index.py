@@ -602,7 +602,18 @@ def _sha256_json(value: Any) -> str:
     return _sha256_bytes(_canonical_json(value).encode("utf-8"))
 
 
-def _run_git(root: Path, args: Sequence[str], *, allow_failure: bool = False) -> subprocess.CompletedProcess[str]:
+def _run_git(
+    root: Path,
+    args: Sequence[str],
+    *,
+    allow_failure: bool = False,
+    deadline: float | None = None,
+) -> subprocess.CompletedProcess[str]:
+    timeout = PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
+    if deadline is not None:
+        timeout = min(timeout, max(0.1, deadline - time.monotonic()))
+        if deadline <= time.monotonic():
+            raise RepositoryIndexError("repository probe deadline exceeded")
     completed = subprocess.run(
         ["git", "-C", str(root), *args],
         check=False,
@@ -610,7 +621,7 @@ def _run_git(root: Path, args: Sequence[str], *, allow_failure: bool = False) ->
         text=True,
         encoding="utf-8",
         errors="replace",
-        timeout=PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS,
+        timeout=timeout,
     )
     if completed.returncode != 0 and not allow_failure:
         detail = completed.stderr.strip() or completed.stdout.strip()
@@ -618,8 +629,8 @@ def _run_git(root: Path, args: Sequence[str], *, allow_failure: bool = False) ->
     return completed
 
 
-def _git_path_list(root: Path, args: Sequence[str]) -> list[str]:
-    output = _run_git(root, args).stdout
+def _git_path_list(root: Path, args: Sequence[str], *, deadline: float | None = None) -> list[str]:
+    output = _run_git(root, args, deadline=deadline).stdout
     return sorted({item for item in output.split("\0") if item})
 
 
@@ -707,21 +718,23 @@ def _kind_for_path(relative: str) -> str:
 
 def _enumerate_repository_paths(
     root: Path,
+    *,
+    deadline: float | None = None,
 ) -> tuple[list[tuple[str, str]], bool, str | None, str | None, bytes, set[str]]:
-    is_git = _run_git(root, ["rev-parse", "--is-inside-work-tree"], allow_failure=True).stdout.strip() == "true"
+    is_git = _run_git(root, ["rev-parse", "--is-inside-work-tree"], allow_failure=True, deadline=deadline).stdout.strip() == "true"
     if is_git:
-        tracked = _git_path_list(root, ["ls-files", "-z", "--cached"])
-        untracked = _git_path_list(root, ["ls-files", "-z", "--others", "--exclude-standard"])
+        tracked = _git_path_list(root, ["ls-files", "-z", "--cached"], deadline=deadline)
+        untracked = _git_path_list(root, ["ls-files", "-z", "--others", "--exclude-standard"], deadline=deadline)
         origins = {path: "tracked" for path in tracked}
         origins.update({path: "untracked" for path in untracked})
-        head_result = _run_git(root, ["rev-parse", "--verify", "HEAD"], allow_failure=True)
+        head_result = _run_git(root, ["rev-parse", "--verify", "HEAD"], allow_failure=True, deadline=deadline)
         head = head_result.stdout.strip() if head_result.returncode == 0 else None
-        branch_result = _run_git(root, ["branch", "--show-current"], allow_failure=True)
+        branch_result = _run_git(root, ["branch", "--show-current"], allow_failure=True, deadline=deadline)
         branch = branch_result.stdout.strip() or None
-        status = _run_git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).stdout.encode("utf-8")
+        status = _run_git(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"], deadline=deadline).stdout.encode("utf-8")
         changed = set(untracked)
         if head:
-            changed.update(_git_path_list(root, ["diff", "--name-only", "-z", "HEAD", "--"]))
+            changed.update(_git_path_list(root, ["diff", "--name-only", "-z", "HEAD", "--"], deadline=deadline))
         else:
             changed.update(tracked)
         return sorted(origins.items()), True, head, branch, status, changed
@@ -746,6 +759,7 @@ def probe_repository_state(
     project: str = "blackholememory",
     limits: RepositoryIndexLimits | None = None,
     observed_at: str | None = None,
+    probe_timeout_seconds: float | None = None,
 ) -> RepositoryState:
     """Collect a bounded metadata-only state used by polling and crash-resume."""
 
@@ -759,11 +773,14 @@ def probe_repository_state(
         raise RepositoryRootError(f"repository root is not a directory: {root}")
     safe_project = _clip(project, 120).strip() or "blackholememory"
     root_id = f"repo_{_sha256_bytes(os.path.normcase(str(base)).encode('utf-8'))[:24]}"
-    rows, is_git, head, branch, git_status, git_changed_paths = _enumerate_repository_paths(base)
+    deadline = time.monotonic() + float(probe_timeout_seconds) if probe_timeout_seconds is not None else None
+    rows, is_git, head, branch, git_status, git_changed_paths = _enumerate_repository_paths(base, deadline=deadline)
     candidates: list[RepositoryCandidate] = []
     skips: list[RepositorySkip] = []
     candidate_bytes = 0
     for raw_relative, origin in rows:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RepositoryIndexError("repository probe deadline exceeded")
         try:
             relative = _normalize_relative_path(raw_relative)
         except RepositoryRootError:
@@ -834,6 +851,18 @@ def probe_repository_state(
         prefiltered_skips=tuple(skips),
         observed_at=observed_at or _utc_now(),
     )
+
+
+def repository_root_id(root: str | Path) -> str:
+    """Return the stable repository id without enumerating or probing files."""
+
+    try:
+        base = assert_safe_path(Path(root).expanduser())
+    except FilesystemBoundaryError as exc:
+        raise RepositoryRootError(f"repository root crosses a filesystem boundary: {root}") from exc
+    if not base.is_dir():
+        raise RepositoryRootError(f"repository root is not a directory: {root}")
+    return f"repo_{_sha256_bytes(os.path.normcase(str(base)).encode('utf-8'))[:24]}"
 
 
 def _read_candidate(root: Path, candidate: RepositoryCandidate) -> tuple[dict[str, Any] | None, RepositorySkip | None]:
@@ -2255,13 +2284,18 @@ def index_repository(
     max_files_per_run: int | None = None,
     fail_before_publish: bool = False,
     force_refresh: bool = False,
+    expected_job_id: str | None = None,
+    expected_state_digest: str | None = None,
+    probe_timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Build or resume one staged repository snapshot."""
 
     started = time.perf_counter()
     active_limits = limits or RepositoryIndexLimits()
     active_source = source or RepositorySourceProvenance()
-    state = probe_repository_state(root, project=project, limits=active_limits)
+    state = probe_repository_state(root, project=project, limits=active_limits, probe_timeout_seconds=probe_timeout_seconds)
+    if expected_state_digest and str(state.state_digest) != str(expected_state_digest):
+        raise RepositoryIndexError("repository state changed; restart the index slice")
     store = SQLiteRepositoryIndexStore(database_path)
     store.initialize()
     previous_snapshot = store.current_snapshot(state.project, state.root_id, include_files=True)
@@ -2271,6 +2305,8 @@ def index_repository(
     }
     refresh_nonce = f"operator-refresh-{time.time_ns()}" if force_refresh else None
     job = store.begin_or_resume_job(state, active_source, force_refresh_nonce=refresh_nonce)
+    if expected_job_id and str(job.get("job_id")) != str(expected_job_id):
+        raise RepositoryIndexError("repository index continuation job changed; restart the index slice")
     if not force_refresh and job["status"] == "completed" and job.get("snapshot_id"):
         snapshot = store.snapshot(str(job["snapshot_id"]), include_files=False)
         current = store.current_snapshot(state.project, state.root_id, include_files=False)
@@ -2599,8 +2635,9 @@ def repository_index_status(
     *,
     project: str = "blackholememory",
     limits: RepositoryIndexLimits | None = None,
+    probe_timeout_seconds: float | None = None,
 ) -> dict[str, Any]:
-    state = probe_repository_state(root, project=project, limits=limits)
+    state = probe_repository_state(root, project=project, limits=limits, probe_timeout_seconds=probe_timeout_seconds)
     store = SQLiteRepositoryIndexStore(database_path)
     if not store.path.exists():
         return {
@@ -2636,6 +2673,7 @@ __all__ = [
     "SQLiteRepositoryIndexStore",
     "index_repository",
     "probe_repository_state",
+    "repository_root_id",
     "repository_index_status",
     "verify_repository_snapshot",
 ]
