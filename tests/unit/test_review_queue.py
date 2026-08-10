@@ -114,6 +114,35 @@ def test_review_queue_marks_contradiction_pair_and_resolves_idempotently(monkeyp
     )["items"] == []
 
 
+def test_review_queue_commits_selected_records_once(monkeypatch):
+    records = _install_review_store(monkeypatch)
+    writes = 0
+
+    def save(items):
+        nonlocal writes
+        writes += 1
+        records[:] = copy.deepcopy(items)
+        return Path("memories.sqlite3")
+
+    monkeypatch.setattr(bhm_app, "_save_live_memories", save)
+    queue = bhm_app._memory_review_queue(
+        bhm_app.MemoryReviewQueueRequest(project="blackholememory", limit=20)
+    )
+    contradiction = next(item for item in queue["items"] if item["kind"] == "contradiction")
+
+    result = bhm_app._review_queue_apply(
+        bhm_app.ReviewQueueApplyRequest(
+            project="blackholememory",
+            queue_ids=[contradiction["queue_id"]],
+            auto_redact_secrets=False,
+        )
+    )
+
+    assert result["count"] == 1
+    assert writes == 1
+    assert {record["metadata"]["review_status"] for record in records} == {"needs_review"}
+
+
 def test_triage_queue_exposes_stable_status_and_unknown_selection_is_reported(monkeypatch):
     _install_review_store(monkeypatch)
     triage = bhm_app._memory_triage_queue(
