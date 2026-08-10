@@ -13,6 +13,9 @@ from blackholememory import bhm_mcp
 from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
 from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_HTTP_TIMEOUT_SECONDS
 
 
@@ -157,3 +160,45 @@ def test_mcp_rest_client_rejects_remote_base_url_before_authenticated_transport(
 
     with pytest.raises(LocalEndpointError, match="loopback/private"):
         bhm_mcp._get("/health/ready")
+
+
+def test_mcp_code_tools_use_operation_specific_timeouts(monkeypatch) -> None:
+    captured: list[float] = []
+
+    class FakeResponse:
+        headers: dict[str, str] = {}
+        content = b"{}"
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return {"ok": True}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured.append(float(kwargs["timeout"]))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def post(self, path: str, *, json=None):
+            return FakeResponse()
+
+    monkeypatch.setattr(bhm_mcp, "_read_process_or_user_env_value", lambda _key: "t" * 32)
+    monkeypatch.setattr(bhm_mcp.httpx, "Client", FakeClient)
+
+    bhm_mcp._post("/bhm/remember", {})
+    bhm_mcp._post("/bhm/code-tools", {"operation": "status"})
+    bhm_mcp._post("/bhm/code-tools", {"operation": "index", "build_graph": True, "defer_graph": True})
+    bhm_mcp._post("/bhm/code-tools", {"operation": "index", "graph_only": True})
+
+    assert captured == [
+        float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS),
+        float(BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS),
+        float(BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS),
+        float(BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS),
+    ]

@@ -57,6 +57,9 @@ from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 from .resource_limits import PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
 from .resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
 from .resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
+from .resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
 from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
 from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
@@ -345,6 +348,7 @@ from .resolution_quality_receipt import build_resolution_quality_receipt
 from .bicep_module_resolution import BICEP_MODULE_RESOLUTION_SCHEMA_VERSION
 from .bicep_module_resolution import build_bicep_module_resolution
 from .repository_index import probe_repository_state
+from .repository_index import repository_root_id
 from .repository_index import repository_index_status
 from .qa_incident_factory import QA_INCIDENT_FEATURES
 from .qa_incident_factory import QA_INCIDENT_MAX_ARTIFACTS
@@ -2762,7 +2766,12 @@ class PublicCodeToolRequest(BaseModel):
     root: StrictStr = Field(default=".", min_length=1, max_length=512)
     apply: StrictBool = False
     build_graph: StrictBool = True
+    defer_graph: StrictBool = False
+    graph_only: StrictBool = False
     force_refresh: StrictBool = False
+    max_files_per_run: StrictInt = Field(default=BHM_INDEX_MAX_FILES_PER_RUN, ge=1, le=BHM_INDEX_MAX_FILES_PER_RUN)
+    expected_job_id: StrictStr | None = Field(default=None, min_length=1, max_length=120)
+    expected_state_digest: StrictStr | None = Field(default=None, min_length=1, max_length=128)
     query: StrictStr = Field(default="", max_length=480)
     graph_operation: Literal[tuple(sorted(CODE_GRAPH_QUERY_OPERATIONS))] = "symbol"
     edge_kinds: list[StrictStr] = Field(default_factory=list, max_length=16)
@@ -12461,6 +12470,12 @@ def _public_code_contract_digest() -> str:
             "arbitrary_sql": False,
             "second_namespace": False,
         },
+        "indexing": {
+            "max_files_per_run": BHM_INDEX_MAX_FILES_PER_RUN,
+            "resumable": True,
+            "graph_deferred_by_default_for_mcp": True,
+            "graph_requires_completed_snapshot_id": True,
+        },
         "code_search": {
             "semantic_fusion": {
                 "readiness_gate": {
@@ -12562,7 +12577,7 @@ def _resolve_bounded_repository_root(raw_root: str, base: Path) -> Path:
 
 
 def _public_code_root_id(project: str, root: Path) -> str:
-    return str(probe_repository_state(root, project=project).root_id)
+    return repository_root_id(root)
 
 
 def _public_code_projects(
@@ -12677,6 +12692,8 @@ async def bhm_public_code_tools(
             status_code=422,
             detail={"error": "force_refresh_requires_build_graph"},
         )
+    if request.graph_only and (operation != "index" or not request.apply):
+        raise HTTPException(status_code=422, detail={"error": "graph_only_requires_index_apply"})
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
     principal = getattr(getattr(http_request, "state", None), "bhm_caller_principal", None)
     if operation == "projects":
@@ -13009,17 +13026,34 @@ async def bhm_public_code_tools(
                 debounce_seconds=request.debounce_seconds,
                 index_on_change=True,
             )
+            index_events = [event.get("index") for event in watched.get("events") or [] if event.get("index")]
+            latest_index = index_events[-1] if index_events else None
             graph = None
-            if any(event.get("index") for event in watched.get("events") or []):
+            if any(event.get("index") for event in watched.get("events") or []) and not request.defer_graph:
                 graph = await _run_bounded_write(
                     "code.watch.build_graph",
                     build_code_graph,
                     database_path,
                     project=project,
                     root_id=root_id,
+                    repository_snapshot_id=str((latest_index or {}).get("snapshot_id") or "") or None,
                 )
         except (RepositoryIndexError, CodeGraphError, ValueError) as exc:
             raise HTTPException(status_code=422, detail={"error": "code_watch_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
+        index_complete = bool((latest_index or {}).get("gates", {}).get("complete_snapshot_only"))
+        graph_status = "ready" if graph is not None else ("pending" if request.build_graph and index_complete else ("blocked_index_incomplete" if request.build_graph and latest_index else "not_requested"))
+        graph_next = None
+        if graph_status == "pending":
+            graph_next = {
+                "operation": "index",
+                "project": project,
+                "root": str(root),
+                "apply": True,
+                "build_graph": True,
+                "defer_graph": True,
+                "graph_only": True,
+                "snapshot_id": latest_index.get("snapshot_id"),
+            }
         return {
             "schema_version": "bhm.public-code-tools.v1",
             "contract_digest": _public_code_contract_digest(),
@@ -13028,6 +13062,9 @@ async def bhm_public_code_tools(
             "root_id": root_id,
             "watch": watched,
             "graph": graph,
+            "graph_status": graph_status,
+            "graph_deferred": graph_status == "pending",
+            "graph_next": graph_next,
             "starts_background_daemon": False,
             "execution": {"writes_sqlite_state": True, "writes_qdrant": False, "raw_source_returned": False, "force_refresh": request.force_refresh},
             "provenance": {"source": "local-operator", "authority": "sqlite-authoritative", "source_persisted": False},
@@ -13060,14 +13097,15 @@ async def bhm_public_code_tools(
             "provenance": {"source": "sqlite-authoritative", "root_allowlist": "repos-root"},
         }
     if operation == "index":
-        status = await _run_bounded_read(
-            "code.index.plan",
-            repository_index_status,
-            root,
-            database_path,
-            project=project,
-        )
         if not request.apply:
+            status = await _run_bounded_read(
+                "code.index.plan",
+                repository_index_status,
+                root,
+                database_path,
+                project=project,
+                probe_timeout_seconds=max(1.0, BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS - 5),
+            )
             return {
                 "schema_version": "bhm.public-code-tools.v1",
                 "contract_digest": _public_code_contract_digest(),
@@ -13082,6 +13120,47 @@ async def bhm_public_code_tools(
                 "execution": {"writes_sqlite_state": False, "raw_source_returned": False},
                 "provenance": {"source": "local-operator", "license": "operator-owned", "evidence_class": "E0"},
             }
+        if request.graph_only:
+            if not request.snapshot_id:
+                raise HTTPException(status_code=422, detail={"error": "repository_snapshot_id_required"})
+            index_store = SQLiteRepositoryIndexStore(database_path)
+            index_status = await _run_bounded_read(
+                "code.graph.repository_status",
+                index_store.status,
+                project,
+                root_id,
+            )
+            current_index = index_status.get("current_snapshot") or {}
+            latest_job = index_status.get("latest_job") or {}
+            if (
+                str(latest_job.get("status") or "") != "completed"
+                or str(current_index.get("snapshot_id") or "") != request.snapshot_id
+                or str(latest_job.get("snapshot_id") or "") != request.snapshot_id
+            ):
+                raise HTTPException(status_code=409, detail={"error": "index_incomplete_or_snapshot_stale"})
+            try:
+                graph = await _run_bounded_write(
+                    "code.graph.build",
+                    build_code_graph,
+                    database_path,
+                    project=project,
+                    root_id=root_id,
+                    repository_snapshot_id=request.snapshot_id,
+                )
+            except (CodeGraphError, ValueError) as exc:
+                raise HTTPException(status_code=422, detail={"error": "code_graph_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
+            return {
+                "schema_version": "bhm.public-code-tools.v1",
+                "contract_digest": _public_code_contract_digest(),
+                "operation": operation,
+                "action": "graph",
+                "project": project,
+                "root_id": root_id,
+                "index": None,
+                "graph": graph,
+                "execution": {"writes_sqlite_state": True, "writes_qdrant": False, "raw_source_returned": False, "graph_only": True},
+                "provenance": {"source": "sqlite-authoritative", "authority": "sqlite-authoritative", "source_persisted": False},
+            }
         try:
             indexed = await _run_bounded_write(
                 "code.index",
@@ -13091,20 +13170,32 @@ async def bhm_public_code_tools(
                 project=project,
                 source=RepositorySourceProvenance(source_url=f"local://{root.name}", owner="operator"),
                 force_refresh=request.force_refresh,
+                max_files_per_run=request.max_files_per_run,
+                expected_job_id=request.expected_job_id,
+                expected_state_digest=request.expected_state_digest,
+                probe_timeout_seconds=max(1.0, BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS - 5),
             )
-            graph = (
-                await _run_bounded_write(
+            graph = None
+            if request.build_graph and not request.defer_graph and indexed.get("gates", {}).get("complete_snapshot_only"):
+                graph = await _run_bounded_write(
                     "code.index.build_graph",
                     build_code_graph,
                     database_path,
                     project=project,
                     root_id=root_id,
+                    repository_snapshot_id=str(indexed.get("snapshot_id") or "") or None,
                 )
-                if request.build_graph
-                else None
-            )
         except (RepositoryIndexError, CodeGraphError, ValueError) as exc:
             raise HTTPException(status_code=422, detail={"error": "code_index_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
+        index_complete = bool(indexed.get("gates", {}).get("complete_snapshot_only"))
+        if graph is not None:
+            graph_status = "ready"
+        elif request.build_graph and index_complete:
+            graph_status = "pending"
+        elif request.build_graph:
+            graph_status = "blocked_index_incomplete"
+        else:
+            graph_status = "not_requested"
         return {
             "schema_version": "bhm.public-code-tools.v1",
             "contract_digest": _public_code_contract_digest(),
@@ -13114,6 +13205,21 @@ async def bhm_public_code_tools(
             "root_id": root_id,
             "index": indexed,
             "graph": graph,
+            "graph_status": graph_status,
+            "graph_deferred": graph_status == "pending",
+            "index_next": {
+                "operation": "index",
+                "project": project,
+                "root": str(root),
+                "apply": True,
+                "build_graph": request.build_graph,
+                "defer_graph": request.defer_graph,
+                "force_refresh": False,
+                "max_files_per_run": request.max_files_per_run,
+                "expected_job_id": indexed.get("job_id"),
+                "expected_state_digest": (indexed.get("state") or {}).get("state_digest"),
+            } if not index_complete else None,
+            "graph_next": {"operation": "index", "project": project, "root": str(root), "apply": True, "graph_only": True, "snapshot_id": indexed.get("snapshot_id")} if graph_status == "pending" else None,
             "execution": {"writes_sqlite_state": True, "writes_qdrant": False, "raw_source_returned": False, "force_refresh": request.force_refresh},
             "provenance": {"source": "local-operator", "license": "operator-owned", "evidence_class": "E0"},
         }

@@ -13,6 +13,18 @@
 4. Не переносите в Git диагностические логи и raw receipts. Их место — в
    локальной `.local/`-зоне.
 
+## `bhm_index_repository` возвращает timeout
+
+Не запускайте повторную force-refresh индексацию вслепую. Сначала вызовите
+`bhm_index_status`: завершённый snapshot мог быть опубликован уже после старого
+client timeout. В актуальном контракте индекс выполняется bounded slices по 666
+файлов и возвращает `index_next`; code graph строится отдельным `graph_next`
+только для завершённого snapshot. Если `index_next` присутствует, продолжайте
+именно этим receipt — он сохраняет project/root и сбрасывает `force_refresh`,
+не создавая дублирующий epoch. Receipt также фиксирует `expected_job_id` и
+`expected_state_digest`; если дерево изменилось между срезами, BHM отклонит
+продолжение и потребует начать новый индексный epoch.
+
 ## Launcher без GUI-зависимостей
 
 Launcher можно безопасно проверить в headless-среде без запуска окна:

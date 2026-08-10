@@ -54,6 +54,10 @@ LLM_REFLECTION_TIMEOUT_SECONDS = 30
 LLM_INVENTORY_HTTP_TIMEOUT_SECONDS = 20
 LLM_SECURITY_REVIEW_TIMEOUT_SECONDS = 90
 BHM_INTERNAL_HTTP_TIMEOUT_SECONDS = 15
+BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS = 60
+BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS = 90
+BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS = 30
+BHM_INDEX_MAX_FILES_PER_RUN = 666
 BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS = 3
 EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS = 20
 QDRANT_SDK_TIMEOUT_SECONDS = 10
@@ -121,6 +125,10 @@ RESOURCE_LIMITS: tuple[ResourceLimit, ...] = (
     ResourceLimit("llm.inventory_http_timeout", "llm", LLM_INVENTORY_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.LLM_INVENTORY_HTTP_TIMEOUT_SECONDS"),
     ResourceLimit("llm.security_review_timeout", "llm", LLM_SECURITY_REVIEW_TIMEOUT_SECONDS, "seconds", "resource_limits.LLM_SECURITY_REVIEW_TIMEOUT_SECONDS"),
     ResourceLimit("outbound.bhm_internal_timeout", "outbound-http", BHM_INTERNAL_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_INTERNAL_HTTP_TIMEOUT_SECONDS"),
+    ResourceLimit("outbound.bhm_code_index_timeout", "outbound-http", BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS"),
+    ResourceLimit("outbound.bhm_code_graph_timeout", "outbound-http", BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS"),
+    ResourceLimit("outbound.bhm_code_status_timeout", "outbound-http", BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS"),
+    ResourceLimit("repository.index_max_files_per_run", "repository-index", BHM_INDEX_MAX_FILES_PER_RUN, "files", "resource_limits.BHM_INDEX_MAX_FILES_PER_RUN"),
     ResourceLimit("outbound.bhm_speculative_search_timeout", "outbound-http", BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS"),
     ResourceLimit("outbound.external_search_timeout", "outbound-http", EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS"),
     ResourceLimit("qdrant.sdk_timeout", "qdrant-sdk", QDRANT_SDK_TIMEOUT_SECONDS, "seconds", "resource_limits.QDRANT_SDK_TIMEOUT_SECONDS"),
@@ -233,6 +241,10 @@ __all__ = [
     "LLM_INVENTORY_HTTP_TIMEOUT_SECONDS",
     "LLM_SECURITY_REVIEW_TIMEOUT_SECONDS",
     "BHM_INTERNAL_HTTP_TIMEOUT_SECONDS",
+    "BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS",
+    "BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS",
+    "BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS",
+    "BHM_INDEX_MAX_FILES_PER_RUN",
     "BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS",
     "EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS",
     "QDRANT_SDK_TIMEOUT_SECONDS",
