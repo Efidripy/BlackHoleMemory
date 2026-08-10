@@ -120,6 +120,8 @@ _SPECIAL_TEXT_NAMES = {
     "build",
     "build.bazel",
     "workspace",
+    "license",
+    "license.txt",
 }
 _ALLOWED_SUFFIXES = {
     ".py",
@@ -144,6 +146,18 @@ _ALLOWED_SUFFIXES = {
     ".hh",
     ".hpp",
     ".cs",
+    ".cshtml",
+    ".razor",
+    ".csproj",
+    ".fsproj",
+    ".vbproj",
+    ".props",
+    ".targets",
+    ".sln",
+    ".slnx",
+    ".http",
+    ".rest",
+    ".conf",
     ".fs",
     ".fsx",
     ".rb",
@@ -276,6 +290,18 @@ _LANGUAGE_BY_SUFFIX = {
     ".hh": "cpp",
     ".hpp": "cpp",
     ".cs": "csharp",
+    ".cshtml": "html",
+    ".razor": "html",
+    ".csproj": "xml",
+    ".fsproj": "xml",
+    ".vbproj": "xml",
+    ".props": "xml",
+    ".targets": "xml",
+    ".sln": "text",
+    ".slnx": "xml",
+    ".http": "text",
+    ".rest": "text",
+    ".conf": "config",
     ".fs": "fsharp",
     ".fsx": "fsharp",
     ".rb": "ruby",
@@ -701,6 +727,8 @@ def _language_for_path(relative: str) -> str:
         return "hcl"
     if name in {"build", "build.bazel", "workspace"}:
         return "starlark"
+    if name in {"license", "license.txt"}:
+        return "markdown"
     return _LANGUAGE_BY_SUFFIX.get(Path(name).suffix.casefold(), "text")
 
 
@@ -709,11 +737,43 @@ def _kind_for_path(relative: str) -> str:
     name = PurePosixPath(lowered).name
     if lowered.startswith("tests/") or "/tests/" in lowered or name.startswith("test_") or name.endswith("_test.go"):
         return "test"
-    if lowered.startswith("docs/") or Path(name).suffix.casefold() in {".md", ".mdx", ".rst"}:
+    if lowered.startswith("docs/") or name in {"license", "license.txt"} or Path(name).suffix.casefold() in {".md", ".mdx", ".rst"}:
         return "documentation"
     if Path(name).suffix.casefold() in {".json", ".jsonc", ".yaml", ".yml", ".toml", ".ini", ".cfg"}:
         return "configuration"
     return "source"
+
+
+def _coverage_relevant_skip(path: str, reason: str) -> bool:
+    """Return whether an excluded file belongs in truthful source coverage.
+
+    Coverage deliberately excludes generated/vendor/security-boundary material
+    and obvious non-source assets.  Unknown repository files remain relevant by
+    default so a new source/project format cannot silently improve the reported
+    coverage percentage merely because the indexer does not recognize it.
+    """
+
+    normalized = PurePosixPath(str(path).replace("\\", "/"))
+    name = normalized.name.casefold()
+    suffix = Path(name).suffix.casefold()
+    if str(reason) in {
+        "blocked-directory",
+        "generated",
+        "database-payload",
+        "secret-path",
+        "unsafe-path",
+        "filesystem-boundary",
+    }:
+        return False
+    if name in {".gitignore", ".gitattributes", ".gitmodules", ".gitkeep", "thumbs.db", "desktop.ini"}:
+        return False
+    if suffix in {
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".bmp", ".tiff",
+        ".svg", ".pdf", ".zip", ".7z", ".gz", ".tar", ".woff", ".woff2",
+        ".ttf", ".otf", ".mp3", ".mp4", ".mov", ".avi", ".webm",
+    }:
+        return False
+    return True
 
 
 def _enumerate_repository_paths(
@@ -2141,6 +2201,7 @@ def _build_snapshot_summary(files: Sequence[Mapping[str, Any]], skips: Sequence[
     languages: dict[str, int] = {}
     kinds: dict[str, int] = {}
     skip_reasons: dict[str, int] = {}
+    relevant_skip_reasons: dict[str, int] = {}
     for item in files:
         language = str(item["language"])
         kind = str(item["file_kind"])
@@ -2149,8 +2210,18 @@ def _build_snapshot_summary(files: Sequence[Mapping[str, Any]], skips: Sequence[
     for item in skips:
         reason = str(item["reason"])
         skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
+        if _coverage_relevant_skip(str(item.get("path") or ""), reason):
+            relevant_skip_reasons[reason] = relevant_skip_reasons.get(reason, 0) + 1
+    relevant_skipped_count = sum(relevant_skip_reasons.values())
+    repository_file_count = len(files) + relevant_skipped_count
     return {
         "file_count": len(files),
+        "repository_file_count": repository_file_count,
+        "indexed_relevant_file_count": len(files),
+        "relevant_skipped_count": relevant_skipped_count,
+        "coverage_ratio": round(len(files) / max(repository_file_count, 1), 6),
+        "coverage_complete": relevant_skipped_count == 0,
+        "relevant_skip_reasons": dict(sorted(relevant_skip_reasons.items())),
         "total_bytes": sum(int(item["size_bytes"]) for item in files),
         "total_lines": sum(int(item["line_count"]) for item in files),
         "skipped_count": len(skips),

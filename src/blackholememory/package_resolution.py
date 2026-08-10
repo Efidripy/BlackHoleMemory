@@ -62,6 +62,8 @@ _LOCKFILE_NAMES = {
     "go.sum": "go",
     "gemfile.lock": "ruby",
     "package.resolved": "swift",
+    "packages.lock.json": "nuget",
+    "project.assets.json": "nuget",
 }
 _NAME_RE = re.compile(r"^[A-Za-z0-9_@./:+-]{1,180}$")
 _REQ_RE = re.compile(r"^[A-Za-z0-9_.@/-]+")
@@ -500,6 +502,45 @@ def _parse_pubspec(payload: bytes, manifest: str, ecosystem: str) -> list[dict[s
     return rows
 
 
+def _parse_nuget_project(payload: bytes, manifest: str, ecosystem: str) -> list[dict[str, Any]]:
+    """Extract literal ``PackageReference`` identities without MSBuild evaluation."""
+
+    try:
+        text = payload.decode("utf-8")
+    except UnicodeDecodeError:
+        return []
+    text = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    rows: list[dict[str, Any]] = []
+    pattern = re.compile(
+        r"<PackageReference\b(?P<attrs>[^>]{0,2000}?)(?:/\s*>|>(?P<body>.*?)</PackageReference\s*>)",
+        re.IGNORECASE | re.DOTALL,
+    )
+    attribute_pattern = re.compile(
+        r"\b(?P<name>Include|Update|Version|PrivateAssets)\s*=\s*[\"'](?P<value>[^\"']{0,500})[\"']",
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(text):
+        attrs = {
+            str(item.group("name") or "").casefold(): str(item.group("value") or "").strip()
+            for item in attribute_pattern.finditer(str(match.group("attrs") or ""))
+        }
+        body = str(match.group("body") or "")
+        package_name = attrs.get("include") or attrs.get("update") or ""
+        if not package_name or "$" in package_name:
+            continue
+        version = attrs.get("version")
+        if version is None:
+            version_match = re.search(r"<Version>\s*([^<]{1,500})\s*</Version>", body, re.IGNORECASE)
+            version = str(version_match.group(1)).strip() if version_match else None
+        private_assets = attrs.get("privateassets")
+        if private_assets is None:
+            private_match = re.search(r"<PrivateAssets>\s*([^<]{1,120})\s*</PrivateAssets>", body, re.IGNORECASE)
+            private_assets = str(private_match.group(1)).strip() if private_match else ""
+        kind = "development" if str(private_assets or "").casefold() == "all" else "runtime"
+        _add(rows, name=package_name, ecosystem=ecosystem, manifest=manifest, kind=kind, constraint=version)
+    return rows
+
+
 def _parse_manifest(payload: bytes, manifest: str, ecosystem: str) -> list[dict[str, Any]]:
     if Path(manifest).name.casefold() == "go.mod":
         return _parse_gomod(payload, manifest, ecosystem)
@@ -511,6 +552,8 @@ def _parse_manifest(payload: bytes, manifest: str, ecosystem: str) -> list[dict[
         return _parse_toml(payload, manifest, ecosystem)
     if Path(manifest).name.casefold() == "pom.xml":
         return _parse_maven(payload, manifest, ecosystem)
+    if Path(manifest).suffix.casefold() == ".csproj":
+        return _parse_nuget_project(payload, manifest, ecosystem)
     if Path(manifest).name.casefold() in {"build.gradle", "build.gradle.kts"}:
         return _parse_gradle(payload, manifest, ecosystem)
     if manifest.casefold().endswith("pubspec.yaml"):
@@ -544,13 +587,24 @@ def _lockfile_identity(value: Any, ecosystem: str) -> str:
                 text = text[:separator]
         elif "@" in text:
             text = text.split("@", 1)[0]
+    elif ecosystem == "nuget" and "/" in text:
+        package, selector = text.rsplit("/", 1)
+        if package and re.fullmatch(r"[0-9][A-Za-z0-9_.+-]{0,119}", selector):
+            text = package
     elif ecosystem in {"rust", "ruby", "python", "swift"} and " " in text:
         text = text.split(None, 1)[0]
     text = text.rstrip(":").strip()
     return _safe_name(text)
 
 
-def _lock_row(name: Any, *, ecosystem: str, manifest: str, unresolved: bool = False) -> dict[str, Any] | None:
+def _lock_row(
+    name: Any,
+    *,
+    ecosystem: str,
+    manifest: str,
+    unresolved: bool = False,
+    transitive: bool = True,
+) -> dict[str, Any] | None:
     identity = _lockfile_identity(name, ecosystem)
     if not identity:
         return None
@@ -558,8 +612,8 @@ def _lock_row(name: Any, *, ecosystem: str, manifest: str, unresolved: bool = Fa
         "name": identity,
         "ecosystem": ecosystem,
         "manifest": manifest,
-        "dependency_kind": "transitive",
-        "transitive": True,
+        "dependency_kind": "transitive" if transitive else "direct",
+        "transitive": bool(transitive),
         "resolution_status": "unresolved" if unresolved else "resolved",
     }
 
@@ -624,6 +678,45 @@ def _parse_package_resolved(payload: bytes, manifest: str, ecosystem: str) -> li
                 stack.extend((child, depth + 1) for child in value.values() if isinstance(child, (Mapping, list)))
         elif isinstance(value, list) and depth < MAX_JSON_DEPTH:
             stack.extend((child, depth + 1) for child in value if isinstance(child, (Mapping, list)))
+    return rows
+
+
+def _parse_nuget_lock(payload: bytes, manifest: str, ecosystem: str) -> list[dict[str, Any]]:
+    """Extract NuGet identities from packages.lock.json or project.assets.json."""
+
+    try:
+        data = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+        return []
+    if not isinstance(data, Mapping):
+        return []
+    rows: list[dict[str, Any]] = []
+    name = Path(manifest).name.casefold()
+    if name == "packages.lock.json":
+        frameworks = data.get("dependencies")
+        if isinstance(frameworks, Mapping):
+            for dependencies in frameworks.values():
+                if not isinstance(dependencies, Mapping):
+                    continue
+                for package_name, metadata in dependencies.items():
+                    is_direct = isinstance(metadata, Mapping) and str(metadata.get("type") or "").casefold() == "direct"
+                    row = _lock_row(
+                        package_name,
+                        ecosystem=ecosystem,
+                        manifest=manifest,
+                        transitive=not is_direct,
+                    )
+                    if row:
+                        rows.append(row)
+        return rows
+    libraries = data.get("libraries")
+    if isinstance(libraries, Mapping):
+        for package_key, metadata in libraries.items():
+            if isinstance(metadata, Mapping) and str(metadata.get("type") or "package").casefold() != "package":
+                continue
+            row = _lock_row(package_key, ecosystem=ecosystem, manifest=manifest)
+            if row:
+                rows.append(row)
     return rows
 
 
@@ -708,6 +801,8 @@ def _parse_lockfile(payload: bytes, manifest: str, ecosystem: str) -> list[dict[
         return _parse_package_lock(payload, manifest, ecosystem)
     if name == "package.resolved":
         return _parse_package_resolved(payload, manifest, ecosystem)
+    if name in {"packages.lock.json", "project.assets.json"}:
+        return _parse_nuget_lock(payload, manifest, ecosystem)
     return _parse_lock_lines(payload, manifest, ecosystem)
 
 
@@ -802,6 +897,8 @@ def resolve_package_manifests(root: str | Path, *, limit: int = 64) -> dict[str,
             continue
         name = path.name.casefold()
         ecosystem = _MANIFEST_NAMES.get(name)
+        if ecosystem is None and path.suffix.casefold() == ".csproj":
+            ecosystem = "nuget"
         if ecosystem is None and name.startswith("requirements-") and name.endswith(".txt"):
             ecosystem = "python"
         if ecosystem is None and path.suffix.casefold() == ".gemspec":
