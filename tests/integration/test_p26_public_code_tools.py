@@ -146,6 +146,8 @@ def test_public_code_tools_cover_schema_search_and_coverage_without_source(monke
     assert coverage.status_code == 200
     assert coverage.json()["contract_digest"] == schema.json()["contract_digest"]
     assert coverage.json()["coverage"]["errors"] == 0
+    assert coverage.json()["coverage"]["complete"] is True
+    assert coverage.json()["coverage"]["relevant_skipped_count"] == 0
     assert coverage.json()["parser_capabilities"]["languages"]
     assert architecture.status_code == 200
     assert architecture.json()["contract_digest"] == schema.json()["contract_digest"]
@@ -240,6 +242,43 @@ def test_public_code_tools_cover_schema_search_and_coverage_without_source(monke
     assert trace_graph.json()["schema_version"] == "bhm.code-graph.explain.v1"
     assert trace_graph.json()["path_explain_quality_receipt"]["schema_version"] == "bhm.code-graph.path-explain-quality-receipt.v1"
     assert trace_graph.json()["path_explain_quality_receipt"]["execution"]["raw_source_returned"] is False
+
+
+def test_public_coverage_fails_closed_for_relevant_unsupported_files(monkeypatch, tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "module.py").write_text("def keep():\n    return 1\n", encoding="utf-8")
+    (root / "future.xaml").write_text("<Application />\n", encoding="utf-8")
+    runtime_dir = tmp_path / "runtime"
+    database = runtime_dir / "live-memory" / "memories.sqlite3"
+    source = RepositorySourceProvenance(
+        owner="fixture",
+        source_url="local://coverage-fail-closed",
+        license="MIT",
+        evidence_class="E0",
+    )
+    indexed = index_repository(root, database, project="demo", source=source)
+    state = probe_repository_state(root, project="demo")
+    build_code_graph(
+        database,
+        project="demo",
+        root_id=state.root_id,
+        repository_snapshot_id=indexed["snapshot_id"],
+    )
+    monkeypatch.setattr(bhm_app.settings, "repo_root", root)
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+
+    response = TestClient(bhm_app.app).post(
+        "/bhm/code-tools",
+        json={"operation": "coverage", "project": "demo", "root": "repo"},
+    )
+
+    assert response.status_code == 200
+    coverage = response.json()["coverage"]
+    assert coverage["relevant_skipped_count"] == 1
+    assert coverage["repository_file_count"] == 2
+    assert coverage["index_coverage_ratio"] == 0.5
+    assert coverage["complete"] is False
 
 
 def test_public_type_references_returns_bounded_proposal_metadata(monkeypatch, tmp_path: Path) -> None:

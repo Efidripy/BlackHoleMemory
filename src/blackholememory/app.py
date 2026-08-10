@@ -169,7 +169,6 @@ from .runtime_storage import MemoryStoreMode
 from .runtime_storage import runtime_storage_state as memory_runtime_storage_state
 from .runtime_storage import resolve_runtime_storage_config
 from .memory_service import MemoryServiceNotReady
-from .memory_service import MemoryServiceValidationError
 from .memory_service import SQLiteMemoryService
 from .memory_search_service import MemorySearchDependencies
 from .memory_search_service import MemorySearchService
@@ -4141,20 +4140,7 @@ async def _semantic_readiness_receipt(
 
 def _save_live_memories(items: list[dict]) -> Path:
     try:
-        service = _memory_service()
-        current = {
-            str(record.get("source_id")): record
-            for record in service.load_records()
-            if record.get("source_id")
-        }
-        changed: list[dict] = []
-        for record in items:
-            source_id = str(record.get("source_id") or "").strip()
-            if not source_id:
-                raise MemoryServiceValidationError("SQLite memory record missing source_id")
-            if current.get(source_id) != record:
-                changed.append(record)
-        return service.upsert_records(changed)
+        return _memory_service().upsert_records(items)
     except MemoryServiceNotReady as exc:
         raise StorageNotReady(str(exc)) from exc
 
@@ -4295,6 +4281,14 @@ def _effective_search_project(project: str | None) -> str:
 
 
 def _find_live_memory(memory_id: str, project: str | None = None) -> dict | None:
+    try:
+        scoped_project = _canonical_project(project) if project else None
+        record = _memory_service().get_record(memory_id, project=scoped_project)
+        if record is not None:
+            _emit_memory_pulse(record.get("source_id"), str(record.get("project") or ""))
+            return record
+    except MemoryServiceNotReady:
+        pass
     accepted_projects = _project_aliases(project)
     for item in _load_live_memories():
         if item.get("source_id") != memory_id:
@@ -4307,6 +4301,16 @@ def _find_live_memory(memory_id: str, project: str | None = None) -> dict | None
 
 
 def _replace_live_memory(record: dict) -> None:
+    source_id = str(record.get("source_id") or "").strip()
+    if not source_id:
+        raise HTTPException(status_code=422, detail="memory source_id is required")
+    try:
+        project = _canonical_project(record.get("project")) if record.get("project") else None
+        if _memory_service().get_record(source_id, project=project) is not None:
+            _memory_service().upsert_records([record])
+            return
+    except MemoryServiceNotReady:
+        pass
     live_records = _load_live_memories()
     for index, item in enumerate(live_records):
         if item.get("source_id") != record.get("source_id"):
@@ -4789,6 +4793,15 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
 
 
 def _find_live_memory_by_upsert_key(project: str, upsert_key: str) -> dict | None:
+    try:
+        record = _memory_service().get_record_by_upsert_key(
+            _canonical_project(project),
+            upsert_key,
+        )
+        if record is not None:
+            return record
+    except MemoryServiceNotReady:
+        pass
     accepted_projects = _project_aliases(project)
     for item in _load_live_memories():
         metadata = item.get("metadata") or {}
@@ -13881,6 +13894,14 @@ async def bhm_public_code_tools(
         parsed = int(parse_status.get("parsed") or 0)
         metadata_only = int(parse_status.get("metadata-only") or 0)
         errors = int(parse_status.get("error") or 0)
+        repository_file_count = int(summary.get("repository_file_count") or file_count)
+        relevant_skipped_count = int(summary.get("relevant_skipped_count") or 0)
+        index_coverage_ratio = float(
+            summary.get("index_coverage_ratio")
+            if summary.get("index_coverage_ratio") is not None
+            else file_count / max(repository_file_count, 1)
+        )
+        index_coverage_complete = bool(summary.get("index_coverage_complete", True))
         return {
             "schema_version": "bhm.public-code-tools.v1",
             "contract_digest": _public_code_contract_digest(),
@@ -13889,7 +13910,22 @@ async def bhm_public_code_tools(
             "root_id": root_id,
             "index_fresh": bool(index_status.get("fresh")),
             "graph_snapshot_id": graph.get("graph_snapshot_id"),
-            "coverage": {"file_count": file_count, "parsed": parsed, "metadata_only": metadata_only, "errors": errors, "parse_rate": round(parsed / max(file_count, 1), 6), "complete": bool(current and index_status.get("fresh") and errors == 0)},
+            "coverage": {
+                "file_count": file_count,
+                "repository_file_count": repository_file_count,
+                "relevant_skipped_count": relevant_skipped_count,
+                "index_coverage_ratio": round(index_coverage_ratio, 6),
+                "parsed": parsed,
+                "metadata_only": metadata_only,
+                "errors": errors,
+                "parse_rate": round(parsed / max(file_count, 1), 6),
+                "complete": bool(
+                    current
+                    and index_status.get("fresh")
+                    and errors == 0
+                    and index_coverage_complete
+                ),
+            },
             "language_inventory_digest": LANGUAGE_INVENTORY_DIGEST,
             "parser_capabilities": parser_capability_matrix(),
             "summary": summary,
