@@ -8970,10 +8970,7 @@ def _schema_upgrade_all(request: SchemaUpgradeAllRequest) -> dict:
     return {"project": project, "upgraded": upgraded}
 
 
-def _memory_redact(request: MemoryRedactRequest) -> dict:
-    record = _find_live_memory(request.id, request.project)
-    if record is None:
-        raise HTTPException(status_code=404, detail="memory not found")
+def _redact_memory_record(record: dict, request: MemoryRedactRequest) -> tuple[dict, int, bool]:
     original = record.get("content") or ""
     redaction_kinds: list[str] = []
     if request.patterns:
@@ -9004,7 +9001,8 @@ def _memory_redact(request: MemoryRedactRequest) -> dict:
         redaction_kinds.extend(sorted(set(redaction.kinds)))
     metadata = record.setdefault("metadata", {})
     removed_legacy_plaintext = metadata.pop("content_before_redaction", None) is not None
-    if replacements or removed_legacy_plaintext:
+    changed = bool(replacements or removed_legacy_plaintext)
+    if changed:
         metadata["redacted_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         metadata["redaction_count"] = replacements
         metadata["redaction_kinds"] = redaction_kinds
@@ -9021,6 +9019,15 @@ def _memory_redact(request: MemoryRedactRequest) -> dict:
                 "removed_legacy_plaintext": removed_legacy_plaintext,
             },
         )
+    return record, replacements, changed
+
+
+def _memory_redact(request: MemoryRedactRequest) -> dict:
+    record = _find_live_memory(request.id, request.project)
+    if record is None:
+        raise HTTPException(status_code=404, detail="memory not found")
+    record, replacements, changed = _redact_memory_record(copy.deepcopy(record), request)
+    if changed:
         _replace_live_memory(record)
     return {"memory": _serialize_memory_record(record), "replacements": replacements}
 
@@ -9747,25 +9754,54 @@ def _review_queue_apply(request: ReviewQueueApplyRequest) -> dict:
         {str(value).strip() for value in request.queue_ids if str(value).strip()}
         - {str(item.get("queue_id")) for item in queue}
     )
+    selected_memory_ids = list(
+        dict.fromkeys(
+            str(value)
+            for item in queue
+            for value in item.get("memory_ids") or []
+            if str(value)
+        )
+    )
+    canonical_project = _canonical_project(request.project) if request.project else None
+    authoritative = _memory_store_is_authoritative()
+    if authoritative:
+        baseline_records = _memory_service().get_records(
+            selected_memory_ids,
+            project=canonical_project,
+        )
+    else:
+        baseline_records = [
+            item
+            for item in _load_live_memories()
+            if item.get("source_id") in selected_memory_ids
+            and _project_matches(item.get("project"), canonical_project)
+        ]
+    records_by_id = {
+        str(record.get("source_id")): copy.deepcopy(record)
+        for record in baseline_records
+        if record.get("source_id")
+    }
+    changed_ids: set[str] = set()
     for item in queue:
         memory_ids = [str(value) for value in item.get("memory_ids") or []]
-        records = [
-            _find_live_memory(memory_id, request.project)
-            for memory_id in memory_ids
-        ]
-        records = [record for record in records if record is not None]
+        records = [records_by_id[memory_id] for memory_id in memory_ids if memory_id in records_by_id]
         if not records:
             continue
         before_statuses = [_review_status(record) for record in records]
         redacted_ids: list[str] = []
         if request.auto_redact_secrets:
             for record in records:
-                redacted = _memory_redact(MemoryRedactRequest(id=record["source_id"], project=record.get("project")))
-                if redacted.get("replacements", 0):
+                _record, replacements, changed = _redact_memory_record(
+                    record,
+                    MemoryRedactRequest(id=record["source_id"], project=record.get("project")),
+                )
+                if changed:
+                    changed_ids.add(str(record["source_id"]))
+                if replacements:
                     redacted_ids.append(record["source_id"])
         updated_records: list[dict] = []
         for memory_id in memory_ids:
-            record = _find_live_memory(memory_id, request.project)
+            record = records_by_id.get(memory_id)
             if record is None:
                 continue
             metadata = record.setdefault("metadata", {})
@@ -9792,7 +9828,7 @@ def _review_queue_apply(request: ReviewQueueApplyRequest) -> dict:
                 },
             )
             record["updated_at"] = now
-            _replace_live_memory(record)
+            changed_ids.add(memory_id)
             updated_records.append(record)
         if effective_status and all(status == effective_status for status in before_statuses) and not redacted_ids:
             action = "already_" + effective_status
@@ -9810,6 +9846,17 @@ def _review_queue_apply(request: ReviewQueueApplyRequest) -> dict:
                 "memories": [_serialize_memory_record(record) for record in updated_records],
             }
         )
+    if changed_ids:
+        changed_records = [records_by_id[memory_id] for memory_id in selected_memory_ids if memory_id in changed_ids]
+        if authoritative:
+            _memory_service().upsert_records(changed_records)
+        else:
+            replacements = {record["source_id"]: record for record in changed_records}
+            merged_records = [
+                replacements.get(str(record.get("source_id")), record)
+                for record in _load_live_memories()
+            ]
+            _save_live_memories(merged_records)
     return {
         "project": request.project,
         "status": effective_status,
