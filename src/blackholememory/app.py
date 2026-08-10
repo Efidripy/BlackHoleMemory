@@ -5249,6 +5249,28 @@ def _spawn_detached_restart_launcher() -> int:
     return int(process.pid or 0)
 
 
+def _schedule_process_exit(*, delay_seconds: float = 3.0) -> None:
+    """Exit only after the detached launcher has crossed its startup delay.
+
+    Exiting inside the request handler can terminate the just-created launcher
+    before its 1.3 second handoff delay elapses on Windows.  A short daemon
+    timer lets the HTTP response flush and the launcher create the authoritative
+    service child before the old BHM process exits.
+    """
+
+    bounded_delay = max(2.0, min(float(delay_seconds), 10.0))
+
+    def _exit_after_delay() -> None:
+        time.sleep(bounded_delay)
+        os._exit(0)
+
+    threading.Thread(
+        target=_exit_after_delay,
+        daemon=True,
+        name="bhm-restart-exit",
+    ).start()
+
+
 def _register_infra_pid(pid: int | str | None) -> None:
     try:
         normalized = int(pid or 0)
@@ -15581,7 +15603,7 @@ async def bhm_infra_restart() -> dict:
     await _MEMORY_PULSE_BUS.broadcast({"event": "system_cooldown", "timeout": 3000})
     launcher_pid = _spawn_detached_restart_launcher()
     print(f"[INFO] BHM restart launcher detached: pid={launcher_pid}", flush=True)
-    os._exit(0)
+    _schedule_process_exit()
     return {"ok": True, "launcher_pid": launcher_pid, "boot_report": pending}
 
 
