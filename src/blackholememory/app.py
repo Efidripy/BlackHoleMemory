@@ -5862,6 +5862,11 @@ def _remember_live_memory(request: RememberRequest) -> dict:
         "metadata": metadata,
     }
 
+    if _memory_store_is_authoritative():
+        _sync_mem0_record(record)
+        _save_live_memories([record])
+        return record
+
     live_records = _load_live_memories()
     live_records.append(record)
     _sync_mem0_record(record)
@@ -5871,6 +5876,44 @@ def _remember_live_memory(request: RememberRequest) -> dict:
 
 
 def _update_live_memory(request: MemoryUpdateRequest) -> dict:
+    if _memory_store_is_authoritative():
+        item = _find_live_memory(request.id, request.project)
+        if item is None:
+            raise HTTPException(status_code=404, detail="memory not found in live store")
+        item = copy.deepcopy(item)
+        now = _utc_now_iso()
+        canonical_project = _canonical_project(request.project) if request.project else None
+        if canonical_project:
+            item["project"] = canonical_project
+        if request.type:
+            item["memory_type"] = request.type
+        if request.content is not None:
+            item["content"] = request.content
+            item.setdefault("metadata", {})["raw_title"] = _build_memory_title(request.content)
+        if request.concepts is not None:
+            item["tags"] = request.concepts
+        if request.files is not None:
+            item.setdefault("metadata", {})["files"] = request.files
+        if request.metadata_patch is not None:
+            item.setdefault("metadata", {}).update(_user_memory_metadata(request.metadata_patch))
+        item["updated_at"] = now
+        item["metadata"] = ensure_decay_metadata(
+            item.setdefault("metadata", {}),
+            fallback_at=item.get("created_at") or now,
+        )
+        _append_memory_changelog(
+            item,
+            "update",
+            {
+                "type": request.type,
+                "content_changed": request.content is not None,
+                "metadata_changed": request.metadata_patch is not None,
+            },
+        )
+        _update_mem0_record(item)
+        _save_live_memories([item])
+        return item
+
     live_records = _load_live_memories()
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     canonical_project = _canonical_project(request.project) if request.project else None
@@ -5918,6 +5961,21 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
 
 
 def _archive_live_memory(request: MemoryArchiveRequest) -> dict:
+    if _memory_store_is_authoritative():
+        item = _find_live_memory(request.id, request.project)
+        if item is None:
+            raise HTTPException(status_code=404, detail="memory not found in live store")
+        item = copy.deepcopy(item)
+        now = _utc_now_iso()
+        metadata = item.setdefault("metadata", {})
+        metadata["archived_at"] = now
+        metadata["archive_reason"] = request.reason
+        item["updated_at"] = now
+        _append_memory_changelog(item, "archive", {"reason": request.reason})
+        _save_live_memories([item])
+        _emit_memory_pulse(item.get("source_id"), str(item.get("project") or ""))
+        return item
+
     live_records = _load_live_memories()
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     accepted_projects = _project_aliases(request.project)
@@ -5970,6 +6028,15 @@ def _upsert_live_memory(request: MemoryUpsertRequest) -> tuple[str, dict]:
         )
     )
     updated.setdefault("metadata", {})["upsert_key"] = request.upsert_key
+    if _memory_store_is_authoritative():
+        _save_live_memories([updated])
+        if metadata_patch is not None:
+            updated.setdefault("metadata", {}).update(metadata_patch)
+        updated["metadata"] = ensure_decay_metadata(
+            updated["metadata"],
+            fallback_at=updated.get("created_at") or updated.get("updated_at"),
+        )
+        return "updated", updated
     live_records = _load_live_memories()
     for item in live_records:
         if item.get("source_id") == updated.get("source_id"):
