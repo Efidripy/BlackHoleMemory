@@ -6757,16 +6757,16 @@ def _upsert_project_map(request: ProjectMapUpsertRequest) -> tuple[str, dict]:
     return action, project_map
 
 
-def _merge_memories(request: MemoryMergeRequest) -> dict:
-    if request.source_id == request.target_id:
-        raise HTTPException(status_code=400, detail="source_id and target_id must differ")
-    source = _find_live_memory(request.source_id, request.project)
-    target = _find_live_memory(request.target_id, request.project)
-    if source is None:
-        raise HTTPException(status_code=404, detail="source memory not found")
-    if target is None:
-        raise HTTPException(status_code=404, detail="target memory not found")
-
+def _merge_memory_records(
+    source: dict,
+    target: dict,
+    *,
+    archive_source: bool,
+    target_id: str,
+    now: str | None = None,
+) -> tuple[dict, dict]:
+    source = copy.deepcopy(source)
+    target = copy.deepcopy(target)
     source_metadata = dict(source.get("metadata") or {})
     target_metadata = target.setdefault("metadata", {})
     source_files = set(source_metadata.get("files") or [])
@@ -6789,25 +6789,37 @@ def _merge_memories(request: MemoryMergeRequest) -> dict:
     target_metadata["merged_from"] = sorted(
         set(target_metadata.get("merged_from") or []) | {source.get("source_id")}
     )
-    target["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    _replace_live_memory(target)
+    timestamp = now or _utc_now_iso()
+    target["updated_at"] = timestamp
 
-    if request.archive_source:
-        source = _archive_live_memory(
-            MemoryArchiveRequest(
-                id=request.source_id,
-                project=request.project,
-                reason=f"merged_into:{request.target_id}",
-            )
-        )
-        source.setdefault("metadata", {})["merged_into"] = request.target_id
-        _replace_live_memory(source)
+    if archive_source:
+        source_metadata = source.setdefault("metadata", {})
+        source_metadata["archived_at"] = timestamp
+        source_metadata["archive_reason"] = f"merged_into:{target_id}"
+        source_metadata["merged_into"] = target_id
+        source["updated_at"] = timestamp
+        _append_memory_changelog(source, "archive", {"reason": f"merged_into:{target_id}"})
 
-    return {
-        "target": target,
-        "source": source,
-        "archived_source": request.archive_source,
-    }
+    return target, source
+
+
+def _merge_memories(request: MemoryMergeRequest) -> dict:
+    if request.source_id == request.target_id:
+        raise HTTPException(status_code=400, detail="source_id and target_id must differ")
+    source = _find_live_memory(request.source_id, request.project)
+    target = _find_live_memory(request.target_id, request.project)
+    if source is None:
+        raise HTTPException(status_code=404, detail="source memory not found")
+    if target is None:
+        raise HTTPException(status_code=404, detail="target memory not found")
+    target, source = _merge_memory_records(
+        source,
+        target,
+        archive_source=request.archive_source,
+        target_id=request.target_id,
+    )
+    _save_live_memories([target, source])
+    return {"target": target, "source": source, "archived_source": request.archive_source}
 
 
 def _detect_duplicates(request: MemoryDetectRequest) -> list[dict]:
@@ -10381,16 +10393,49 @@ def _overlap_cleanup_apply(request: OverlapCleanupApplyRequest) -> dict:
     project = _canonical_project(request.project) if request.project else None
     duplicates = _detect_duplicates(MemoryDetectRequest(project=project, limit=request.limit, include_archived=False))
     merged = []
-    seen_sources = set()
+    used_ids: set[str] = set()
+    plan: list[tuple[str, str]] = []
     for item in duplicates:
         source_id = item["right_id"]
         target_id = item["left_id"]
-        if source_id in seen_sources or target_id in seen_sources:
+        if source_id in used_ids or target_id in used_ids:
             continue
-        result = _merge_memories(MemoryMergeRequest(project=project, source_id=source_id, target_id=target_id, archive_source=request.archive_sources))
-        merged.append(result)
-        seen_sources.add(source_id)
-    return {"project": project, "count": len(merged), "items": merged}
+        plan.append((source_id, target_id))
+        used_ids.update((source_id, target_id))
+
+    if not plan:
+        return {"project": project, "count": 0, "items": [], "committed": True}
+
+    planned_ids = [memory_id for pair in plan for memory_id in pair]
+    canonical_project = _canonical_project(project) if project else None
+    if _memory_store_is_authoritative():
+        records = _memory_service().get_records(planned_ids, project=canonical_project)
+    else:
+        records = [
+            item
+            for item in _load_live_memories()
+            if item.get("source_id") in planned_ids
+            and _project_matches(item.get("project"), canonical_project)
+        ]
+    by_id = {str(record.get("source_id")): record for record in records}
+    changed: list[dict] = []
+    for source_id, target_id in plan:
+        source = by_id.get(source_id)
+        target = by_id.get(target_id)
+        if source is None or target is None:
+            raise HTTPException(status_code=404, detail="overlap cleanup memory not found")
+        target, source = _merge_memory_records(
+            source,
+            target,
+            archive_source=request.archive_sources,
+            target_id=target_id,
+        )
+        by_id[target_id] = target
+        by_id[source_id] = source
+        changed.extend((target, source))
+        merged.append({"target": target, "source": source, "archived_source": request.archive_sources})
+    _save_live_memories(changed)
+    return {"project": project, "count": len(merged), "items": merged, "committed": True}
 
 
 def _resolve_slot(project: str, label: str) -> dict | None:
