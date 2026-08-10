@@ -2048,6 +2048,12 @@ async def _app_lifespan(_app: FastAPI):
             "sqlite-authoritative memory mode is not ready: "
             f"{memory_store.reason}"
         )
+    if memory_store.configured_mode == MemoryStoreMode.SQLITE_AUTHORITATIVE.value:
+        # The repository's first write intentionally runs an integrity-complete
+        # SQLite initializer.  Complete that bounded gate before readiness is
+        # advertised so the first MCP mutation cannot commit after the default
+        # client deadline without returning its receipt.
+        await asyncio.to_thread(_initialize_authoritative_memory_service)
     await _wait_for_required_storage_ready()
     collection_report = await asyncio.to_thread(ensure_memory_collections, settings.qdrant_collection)
     print(
@@ -3896,6 +3902,10 @@ def _memory_service() -> SQLiteMemoryService:
             service = SQLiteMemoryService(config.database_path)
             _MEMORY_SERVICES[key] = service
         return service
+
+
+def _initialize_authoritative_memory_service() -> None:
+    _memory_service().repository.initialize()
 
 
 def _slot_store_path() -> Path:

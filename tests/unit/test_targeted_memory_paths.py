@@ -71,3 +71,22 @@ def test_save_live_memories_delegates_atomic_diffing_to_service(monkeypatch) -> 
 
     assert result == Path("memories.sqlite3")
     assert service.saved == [items]
+
+
+def test_authoritative_startup_completes_repository_write_gate(monkeypatch) -> None:
+    initialized = 0
+
+    class Repository:
+        @staticmethod
+        def initialize():
+            nonlocal initialized
+            initialized += 1
+
+    class Service:
+        repository = Repository()
+
+    monkeypatch.setattr(bhm_app, "_memory_service", Service)
+
+    bhm_app._initialize_authoritative_memory_service()
+
+    assert initialized == 1
