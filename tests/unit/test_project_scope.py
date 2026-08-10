@@ -301,3 +301,35 @@ def test_refresh_all_requires_explicit_scope_or_aggregate(monkeypatch):
     assert result["aggregate"] is True
     assert result["projects"] == ["blackholememory", "e-github-workspace"]
     assert refreshed == result["projects"]
+
+
+def test_rebuild_project_summary_keeps_canonical_discoverability_with_custom_key(monkeypatch):
+    captured = {}
+    for name in (
+        "_get_project_map",
+        "_get_latest_checkpoint",
+        "_get_task_context",
+        "_get_risk_register",
+        "_get_validation_snapshot",
+    ):
+        monkeypatch.setattr(bhm_app, name, lambda _project: None)
+
+    def fake_upsert(request):
+        captured["request"] = request
+        return "created", {"source_id": "summary-1", "project": request.project}
+
+    monkeypatch.setattr(bhm_app, "_upsert_live_memory", fake_upsert)
+    monkeypatch.setattr(bhm_app, "_serialize_memory_record", lambda record: record)
+
+    result = bhm_app._rebuild_project_summary(
+        bhm_app.RebuildProjectSummaryRequest(
+            project="BlackHoleMemory",
+            upsert_key="custom-summary-key",
+        )
+    )
+
+    request = captured["request"]
+    assert request.project == "blackholememory"
+    assert request.upsert_key == "project-summary:blackholememory"
+    assert result["canonical_upsert_key"] == request.upsert_key
+    assert result["requested_upsert_key"] == "custom-summary-key"

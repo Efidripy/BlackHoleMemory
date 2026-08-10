@@ -3229,6 +3229,12 @@ class AdrCreateRequest(BaseModel):
     upsert_key: str | None = None
 
 
+class AdrSupersedeRequest(BaseModel):
+    project: str
+    old_id: str
+    new_id: str
+
+
 class HandoffCreateRequest(BaseModel):
     project: str
     title: str
@@ -8086,32 +8092,34 @@ def _repair_live_indexes(request: RepairLiveIndexesRequest) -> dict:
 
 
 def _rebuild_project_summary(request: RebuildProjectSummaryRequest) -> dict:
+    canonical_project = _canonical_project(request.project)
+    canonical_upsert_key = f"project-summary:{canonical_project}"
     project_map = None
     try:
-        project_map = _get_project_map(request.project)
+        project_map = _get_project_map(canonical_project)
     except HTTPException:
         pass
     latest_checkpoint = None
     try:
-        latest_checkpoint = _get_latest_checkpoint(request.project)
+        latest_checkpoint = _get_latest_checkpoint(canonical_project)
     except HTTPException:
         pass
     task_context = None
     try:
-        task_context = _get_task_context(request.project)
+        task_context = _get_task_context(canonical_project)
     except HTTPException:
         pass
     risk_register = None
     try:
-        risk_register = _get_risk_register(request.project)
+        risk_register = _get_risk_register(canonical_project)
     except HTTPException:
         pass
     validation_snapshot = None
     try:
-        validation_snapshot = _get_validation_snapshot(request.project)
+        validation_snapshot = _get_validation_snapshot(canonical_project)
     except HTTPException:
         pass
-    lines = [f"{request.project} project summary:"]
+    lines = [f"{canonical_project} project summary:"]
     if project_map:
         lines.append(f"project_map: {project_map.get('title')}")
     if latest_checkpoint:
@@ -8124,15 +8132,20 @@ def _rebuild_project_summary(request: RebuildProjectSummaryRequest) -> dict:
         lines.append(f"validation: {validation_snapshot.get('overall_status')}")
     action, record = _upsert_live_memory(
         MemoryUpsertRequest(
-            upsert_key=request.upsert_key or f"project-summary:{request.project}",
-            project=request.project,
+            upsert_key=canonical_upsert_key,
+            project=canonical_project,
             type="architecture",
             content="\n".join(lines),
             concepts=["project-summary", "bhm"],
             files=[],
         )
     )
-    return {"action": action, "memory": _serialize_memory_record(record)}
+    return {
+        "action": action,
+        "memory": _serialize_memory_record(record),
+        "canonical_upsert_key": canonical_upsert_key,
+        "requested_upsert_key": request.upsert_key,
+    }
 
 
 def _entity_extract(request: EntityExtractRequest) -> dict:
@@ -16043,8 +16056,14 @@ def bhm_adr_list(project: str | None = None, limit: int = 20, offset: int = 0) -
 
 
 @app.post("/bhm/adr/supersede")
-async def bhm_adr_supersede(project: str, old_id: str, new_id: str) -> dict:
-    result = await _run_bounded_write("bhm.adr.supersede", _adr_supersede, project, old_id, new_id)
+async def bhm_adr_supersede(request: AdrSupersedeRequest) -> dict:
+    result = await _run_bounded_write(
+        "bhm.adr.supersede",
+        _adr_supersede,
+        request.project,
+        request.old_id,
+        request.new_id,
+    )
     return {
         "success": True,
         "old": _serialize_adr_record(result["old"]),
