@@ -6797,52 +6797,79 @@ def _merge_memories(request: MemoryMergeRequest) -> dict:
 
 
 def _detect_duplicates(request: MemoryDetectRequest) -> list[dict]:
-    records = [
+    limit = max(min(request.limit, 200), 1)
+    records = sorted(
+        [
         item for item in _load_live_memories()
         if _memory_matches_filters(item, project=request.project, include_archived=request.include_archived)
-    ]
+        ],
+        key=lambda item: (str(item.get("project") or ""), str(item.get("source_id") or "")),
+    )
+    derived: dict[str, dict[str, Any]] = {}
+    exact_content: dict[tuple[str, str], list[dict]] = {}
+    title_and_files: dict[tuple[str, str, tuple[str, ...]], list[dict]] = {}
+    titles: dict[tuple[str, str], list[dict]] = {}
+    files_and_prefix: dict[tuple[str, tuple[str, ...], str], list[dict]] = {}
+    for item in records:
+        memory_id = str(item.get("source_id") or "")
+        project = str(item.get("project") or "")
+        metadata = item.get("metadata") or {}
+        title = str(metadata.get("raw_title") or "").strip()
+        normalized_title = title.casefold()
+        text = _normalized_text(item.get("content"))
+        files = tuple(sorted(str(value) for value in metadata.get("files") or []))
+        derived[memory_id] = {
+            "record": item,
+            "title": title,
+            "display_title": title or _build_memory_title(item.get("content") or ""),
+        }
+        if text:
+            exact_content.setdefault((project, text), []).append(item)
+        if normalized_title:
+            titles.setdefault((project, normalized_title), []).append(item)
+            if files:
+                title_and_files.setdefault((project, normalized_title, files), []).append(item)
+        if files and text[:120]:
+            files_and_prefix.setdefault((project, files, text[:120]), []).append(item)
+
     candidates: list[dict] = []
-    for left_index, left in enumerate(records):
-        for right in records[left_index + 1:]:
-            if left.get("project") != right.get("project"):
-                continue
-            left_title = ((left.get("metadata") or {}).get("raw_title") or "").strip()
-            right_title = ((right.get("metadata") or {}).get("raw_title") or "").strip()
-            left_text = _normalized_text(left.get("content"))
-            right_text = _normalized_text(right.get("content"))
-            left_files = set((left.get("metadata") or {}).get("files") or [])
-            right_files = set((right.get("metadata") or {}).get("files") or [])
+    seen_pairs: set[tuple[str, str]] = set()
+    candidate_budget = max(limit * 4, 200)
 
-            score = 0.0
-            reason = ""
-            if left_text and left_text == right_text:
-                score = 1.0
-                reason = "identical_content"
-            elif left_title and left_title.lower() == right_title.lower() and left_files == right_files and left_files:
-                score = 0.92
-                reason = "same_title_same_files"
-            elif left_title and left_title.lower() == right_title.lower():
-                score = 0.82
-                reason = "same_title"
-            elif left_files and right_files and left_files == right_files and left_text[:120] == right_text[:120]:
-                score = 0.78
-                reason = "same_files_similar_prefix"
+    def add_bucket_pairs(buckets: Mapping[Any, list[dict]], score: float, reason: str) -> None:
+        for key in sorted(buckets, key=repr):
+            bucket = sorted(buckets[key], key=lambda item: str(item.get("source_id") or ""))
+            for left_index, left in enumerate(bucket):
+                left_id = str(left.get("source_id") or "")
+                for right in bucket[left_index + 1:]:
+                    right_id = str(right.get("source_id") or "")
+                    pair = (left_id, right_id)
+                    if pair in seen_pairs:
+                        continue
+                    seen_pairs.add(pair)
+                    candidates.append(
+                        {
+                            "left_id": left_id,
+                            "right_id": right_id,
+                            "project": left.get("project"),
+                            "score": score,
+                            "reason": reason,
+                            "left_title": derived[left_id]["display_title"],
+                            "right_title": derived[right_id]["display_title"],
+                        }
+                    )
+                    if len(candidates) >= candidate_budget:
+                        return
 
-            if score <= 0:
-                continue
-            candidates.append(
-                {
-                    "left_id": left.get("source_id"),
-                    "right_id": right.get("source_id"),
-                    "project": left.get("project"),
-                    "score": score,
-                    "reason": reason,
-                    "left_title": left_title or _build_memory_title(left.get("content") or ""),
-                    "right_title": right_title or _build_memory_title(right.get("content") or ""),
-                }
-            )
+    add_bucket_pairs(exact_content, 1.0, "identical_content")
+    if len(candidates) < candidate_budget:
+        add_bucket_pairs(title_and_files, 0.92, "same_title_same_files")
+    if len(candidates) < candidate_budget:
+        add_bucket_pairs(titles, 0.82, "same_title")
+    if len(candidates) < candidate_budget:
+        add_bucket_pairs(files_and_prefix, 0.78, "same_files_similar_prefix")
     candidates.sort(key=lambda item: (item.get("score") or 0.0, item.get("left_title") or ""), reverse=True)
-    return candidates[: max(min(request.limit, 200), 1)]
+    return candidates[:limit]
 
 
 def _memory_content_sha256(record: dict) -> str:
