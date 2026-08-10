@@ -30,7 +30,7 @@ from .code_graph_capabilities import build_parser_capability_matrix
 CODE_GRAPH_SCHEMA_VERSION = "bhm.code-graph.v1"
 PARSER_CAPABILITY_SCHEMA_VERSION = "bhm.code-graph.capabilities.v1"
 CODE_GRAPH_STORE_SCHEMA_VERSION = 1
-CODE_GRAPH_EXTRACTOR_VERSION = "bhm.code-graph.extractor.v36"
+CODE_GRAPH_EXTRACTOR_VERSION = "bhm.code-graph.extractor.v37"
 CODE_GRAPH_BUSY_TIMEOUT_MS = 5_000
 CODE_GRAPH_MAX_FILE_BYTES = 2 * 1024 * 1024
 CODE_GRAPH_MAX_PARSER_LINE_CHARS = 16 * 1024
@@ -61,7 +61,7 @@ PARSER_REGISTRY: dict[str, dict[str, str]] = {
     "scala": {"parser_id": "scala-regex", "version": "bhm.scala-regex.v1"},
     "c": {"parser_id": "c-regex", "version": "bhm.c-regex.v1"},
     "cpp": {"parser_id": "cpp-regex", "version": "bhm.cpp-regex.v1"},
-    "csharp": {"parser_id": "csharp-regex", "version": "bhm.csharp-regex.v1"},
+    "csharp": {"parser_id": "csharp-regex", "version": "bhm.csharp-regex.v2"},
     "ruby": {"parser_id": "ruby-regex", "version": "bhm.ruby-regex.v1"},
     "php": {"parser_id": "php-regex", "version": "bhm.php-regex.v1"},
     "perl": {"parser_id": "perl-regex", "version": "bhm.perl-regex.v1"},
@@ -804,13 +804,26 @@ def _extract_generic_structural(
         # bindings and expressions are intentionally outside this bounded
         # regex parser's contract.
         import_pattern = re.compile(r"^\s*import\s+(?:\{[^}]{0,240}\}\s+from\s+)?[\"']([^\"']{1,300})[\"']")
+    elif language == "csharp":
+        # C# ``using`` declarations end in a semicolon.  Resource-management
+        # statements (``using var`` / ``using (...)``) are executable code and
+        # must not be projected as imports.
+        import_pattern = re.compile(
+            r"^\s*(?:global\s+)?using\s+(?:static\s+)?(?:(?P<alias>[A-Za-z_][\w]*)\s*=\s*)?(?P<module>[A-Za-z_][\w.]*)\s*;\s*(?://.*)?$"
+        )
     else:
         import_pattern = re.compile(r"^\s*(?:import|using|use|require|library|source|#\s*include)\s*[<\"]?([^>\"'\s(]+)[>\"]?")
     for index, line in enumerate(lines, start=1):
         match = import_pattern.match(line)
         if match:
-            module = str(match.group(1)).strip()
-            draft.imports[path].append({"module": module, "line": index, "alias": module.rsplit("/", 1)[-1]})
+            if language == "csharp":
+                module = str(match.group("module") or "").strip()
+                alias = str(match.group("alias") or module.rsplit(".", 1)[-1]).strip()
+            else:
+                module = str(match.group(1)).strip()
+                alias = module.rsplit("/", 1)[-1]
+            if module:
+                draft.imports[path].append({"module": module, "line": index, "alias": alias})
 
     declaration_patterns = [
         re.compile(r"^\s*(?:pub\s+)?(?:async\s+)?(?:func|fn)\s+([A-Za-z_][\w]*)"),
@@ -824,6 +837,15 @@ def _extract_generic_structural(
         re.compile(r"^\s*(?:type|interface|input|enum|union|scalar|schema|directive|query|mutation|subscription)\s+([A-Za-z_][\w]*)", re.IGNORECASE),
         re.compile(r"^\s*(?:message|service|enum|oneof|rpc)\s+([A-Za-z_][\w]*)", re.IGNORECASE),
     ]
+    if language == "csharp":
+        declaration_patterns = [
+            re.compile(
+                r"^\s*(?:(?:public|private|protected|internal|abstract|sealed|static|partial|readonly|ref|unsafe|new|file)\s+)*"
+                r"(?:class|interface|struct|record(?:\s+(?:class|struct))?)\s+([A-Za-z_][\w]*)"
+                r"(?:\s*<[^>{;]{1,240}>)?\s*(?:\:\s*([^\{;]+?))?\s*(?:where\b|\{|$)"
+            ),
+            *declaration_patterns,
+        ]
     if language == "solidity":
         # Reuse the generic declaration extractor, adding only conservative
         # Solidity identities. No grammar, ABI, inheritance, modifier or
@@ -866,6 +888,11 @@ def _extract_generic_structural(
             )
         )
         draft.add_edge("contains", file_key, key, line=index)
+        if language == "csharp" and match.lastindex and match.lastindex >= 2 and match.group(2):
+            for raw_base in str(match.group(2)).split(",")[:16]:
+                base_name = re.sub(r"<.*>", "", raw_base).strip().split()[-1]
+                if re.fullmatch(r"[A-Za-z_][\w.]*", base_name):
+                    draft.inheritances.append({"source_key": key, "name": base_name, "line": index})
         if kind == "test":
             draft.test_symbols.add(key)
         if language != "solidity":
@@ -886,6 +913,45 @@ def _extract_generic_structural(
                         "edge_kind": "async_calls" if re.search(r"\bawait\s*$", block[: call.start()].splitlines()[-1], re.IGNORECASE) else "calls",
                     }
                 )
+    if language == "csharp":
+        route_pattern = re.compile(
+            r"\b[A-Za-z_][\w]*\.Map(?P<method>Get|Post|Put|Patch|Delete|Options|Head)\s*\(\s*@?\"(?P<path>(?:\\.|[^\"\\]){1,500})\"",
+            re.IGNORECASE,
+        )
+        for route_match in route_pattern.finditer(content):
+            method = str(route_match.group("method") or "GET").upper()
+            route_path = str(route_match.group("path") or "")
+            line_number = content.count("\n", 0, route_match.start()) + 1
+            handler_name = f"minimal_api_handler_{method.casefold()}_{line_number}"
+            handler_key = _symbol_node_key(draft.root_id, path, handler_name, "function")
+            if handler_key not in draft.nodes:
+                draft.add_node(
+                    _node(
+                        root_id=draft.root_id,
+                        stable_key=handler_key,
+                        kind="function",
+                        path=path,
+                        name=handler_name,
+                        qualified_name=handler_name,
+                        language=language,
+                        start_line=line_number,
+                        end_line=_brace_end(lines, line_number),
+                        signature=f"Map{method}({route_path})",
+                        content_sha256=file_hash,
+                        parser_version=parser_version,
+                        attributes={"inline_route_handler": True, "framework": "aspnet-minimal-api"},
+                    )
+                )
+                draft.add_edge("contains", file_key, handler_key, line=line_number)
+            draft.routes.append(
+                {
+                    "method": method,
+                    "path": _clip(route_path, 500),
+                    "handler_key": handler_key,
+                    "handler_name": handler_name,
+                    "line": line_number,
+                }
+            )
     return "parsed", None
 
 
@@ -5360,8 +5426,17 @@ def extract_code_graph(
     graph_core = {"repository_snapshot_id": snapshot.get("snapshot_id"), "graph_input_digest": snapshot.get("graph_input_digest"), "parser_registry_digest": PARSER_REGISTRY_DIGEST, "nodes_digest": nodes_digest, "edges_digest": edges_digest, "parse_digest": parse_digest}
     graph_digest = _sha256(_canonical_json(graph_core))
     status_counts = Counter(str(item["status"]) for item in parse_items)
+    repository_summary = dict(snapshot.get("summary") or {})
+    relevant_skipped_count = int(repository_summary.get("relevant_skipped_count") or 0)
+    repository_file_count = int(repository_summary.get("repository_file_count") or len(files))
     summary = {
         "file_count": len(files),
+        "repository_file_count": repository_file_count,
+        "indexed_relevant_file_count": int(repository_summary.get("indexed_relevant_file_count") or len(files)),
+        "relevant_skipped_count": relevant_skipped_count,
+        "index_coverage_ratio": round(len(files) / max(repository_file_count, 1), 6),
+        "index_coverage_complete": relevant_skipped_count == 0,
+        "relevant_skip_reasons": dict(repository_summary.get("relevant_skip_reasons") or {}),
         "node_count": len(node_items),
         "edge_count": len(edge_items),
         "node_kinds": dict(sorted(Counter(str(item["node_kind"]) for item in node_items).items())),
