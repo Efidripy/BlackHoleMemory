@@ -10,7 +10,11 @@ from blackholememory.outbox import OutboxStatus
 from blackholememory.resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
 
-def _record(memory_id: str = "mem_bhm_service_001") -> dict:
+def _record(
+    memory_id: str = "mem_bhm_service_001",
+    *,
+    upsert_key: str | None = None,
+) -> dict:
     return {
         "source_system": "bhm",
         "source_id": memory_id,
@@ -22,7 +26,11 @@ def _record(memory_id: str = "mem_bhm_service_001") -> dict:
         "session_refs": [],
         "created_at": "2026-07-13T12:00:00Z",
         "updated_at": "2026-07-13T12:00:00Z",
-        "metadata": {"raw_title": "Service contract", "custom": {"keep": True}},
+        "metadata": {
+            "raw_title": "Service contract",
+            "custom": {"keep": True},
+            "upsert_key": upsert_key,
+        },
         "custom_top_level": {"source": "test"},
     }
 
@@ -120,6 +128,68 @@ def test_service_validates_all_input_before_mutation(tmp_path):
         service.upsert_records([_record(), _record()])
 
     assert service.repository.list_memories(include_archived=True, include_tombstoned=True) == []
+
+
+def test_service_targeted_record_lookups_do_not_require_full_store_load(tmp_path, monkeypatch):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    first = _record("mem_bhm_targeted_a", upsert_key="targeted:a")
+    second = _record("mem_bhm_targeted_b", upsert_key="targeted:b")
+    service.upsert_records([first, second])
+
+    monkeypatch.setattr(
+        service,
+        "load_records",
+        lambda: (_ for _ in ()).throw(AssertionError("full store load used")),
+    )
+
+    assert service.get_record("mem_bhm_targeted_a")["source_id"] == "mem_bhm_targeted_a"
+    assert {item["source_id"] for item in service.get_records(["mem_bhm_targeted_b"])} == {
+        "mem_bhm_targeted_b"
+    }
+    assert service.get_record_by_upsert_key("blackholememory", "targeted:a")["source_id"] == (
+        "mem_bhm_targeted_a"
+    )
+
+
+def test_service_bulk_upsert_rolls_back_on_second_outbox_failure(tmp_path, monkeypatch):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    original_append = service.repository._append_memory_event
+    calls = 0
+
+    def fail_second(connection, memory, *, inserted):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("synthetic second-item failure")
+        return original_append(connection, memory, inserted=inserted)
+
+    monkeypatch.setattr(service.repository, "_append_memory_event", fail_second)
+
+    with pytest.raises(RuntimeError, match="second-item failure"):
+        service.upsert_records([_record("mem_bhm_rollback_a"), _record("mem_bhm_rollback_b")])
+
+    assert service.repository.list_memories(include_archived=True, include_tombstoned=True) == []
+    assert service.repository.list_outbox() == []
+
+
+def test_service_bulk_noop_does_not_append_revisions_or_outbox(tmp_path):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    records = [_record("mem_bhm_noop_a"), _record("mem_bhm_noop_b")]
+    service.upsert_records(records)
+    initial = service.load_records()
+    initial_revisions = {
+        item["source_id"]: item["metadata"]["revision_id"]
+        for item in initial
+    }
+
+    service.upsert_records(initial)
+    repeated = service.load_records()
+
+    assert {
+        item["source_id"]: item["metadata"]["revision_id"]
+        for item in repeated
+    } == initial_revisions
+    assert len(service.repository.list_outbox()) == 2
 
 
 def test_service_missing_authoritative_target_is_not_ready(tmp_path):

@@ -12,7 +12,9 @@ import hashlib
 import sqlite3
 import threading
 import time
+from collections.abc import Iterable
 from collections.abc import Iterator
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -93,9 +95,26 @@ class MemoryRepository(Protocol):
         expected_revision_id: str | None = None,
     ) -> SaveMemoryResult: ...
 
+    def save_memories_atomic(
+        self,
+        memories: Iterable[Memory],
+        *,
+        expected_revision_ids: Mapping[str, str | None] | None = None,
+    ) -> list[SaveMemoryResult]: ...
+
     def tombstone_project(self, project: str, *, reason: str = "project_retirement") -> dict[str, Any]: ...
 
     def get_memory(self, memory_id: str, *, project: str | None = None) -> Memory | None: ...
+
+    def get_memories(self, memory_ids: Iterable[str], *, project: str | None = None) -> list[Memory]: ...
+
+    def get_memory_by_upsert_key(
+        self,
+        project: str,
+        upsert_key: str,
+        *,
+        include_archived: bool = False,
+    ) -> Memory | None: ...
 
     def list_memories(
         self,
@@ -576,14 +595,28 @@ class SQLiteMemoryRepository:
         )
         return event_id
 
-    def _memory_row_to_model(self, connection: sqlite3.Connection, row: sqlite3.Row) -> Memory:
-        revision_row = connection.execute(
-            "SELECT * FROM memory_revisions WHERE revision_id = ?",
-            (row["current_revision_id"],),
-        ).fetchone()
-        if revision_row is None:
+    @staticmethod
+    def _joined_memory_query(where: str = "") -> str:
+        return (
+            "SELECT m.*, "
+            "r.revision_id AS joined_revision_id, "
+            "r.memory_id AS joined_revision_memory_id, "
+            "r.content AS joined_revision_content, "
+            "r.content_sha256 AS joined_revision_content_sha256, "
+            "r.created_at AS joined_revision_created_at, "
+            "r.created_by AS joined_revision_created_by, "
+            "r.metadata_json AS joined_revision_metadata_json "
+            "FROM memories AS m "
+            "LEFT JOIN memory_revisions AS r ON r.revision_id = m.current_revision_id"
+            f"{where}"
+        )
+
+    def _joined_memory_row_to_model(self, row: sqlite3.Row) -> Memory:
+        revision_id = str(row["joined_revision_id"])
+        revision_memory_id = str(row["joined_revision_memory_id"])
+        if revision_id != str(row["current_revision_id"]) or revision_memory_id != str(row["memory_id"]):
             raise MemoryRepositoryIntegrityError(
-                f"memory {row['memory_id']} references missing revision {row['current_revision_id']}"
+                f"memory {row['memory_id']} references invalid revision {row['current_revision_id']}"
             )
         return Memory.from_dict(
             {
@@ -599,11 +632,155 @@ class SQLiteMemoryRepository:
                 "upsert_key": row["upsert_key"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
-                "current_revision": self._revision_row_to_model(revision_row).to_dict(),
+                "current_revision": {
+                    "revision_id": revision_id,
+                    "memory_id": revision_memory_id,
+                    "content": str(row["joined_revision_content"]),
+                    "content_sha256": str(row["joined_revision_content_sha256"]),
+                    "created_at": str(row["joined_revision_created_at"]),
+                    "created_by": row["joined_revision_created_by"],
+                    "metadata": _json_loads(
+                        str(row["joined_revision_metadata_json"]),
+                        "revision.metadata",
+                    ),
+                },
                 "provenance": _json_loads(str(row["provenance_json"]), "memory.provenance"),
                 "metadata": _json_loads(str(row["metadata_json"]), "memory.metadata"),
                 "extra": _json_loads(str(row["extra_json"]), "memory.extra"),
             }
+        )
+
+    def _save_memory_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        memory: Memory,
+        *,
+        expected_revision_id: str | None = None,
+    ) -> SaveMemoryResult:
+        existing = connection.execute(
+            "SELECT current_revision_id FROM memories WHERE memory_id = ?",
+            (memory.id,),
+        ).fetchone()
+        inserted = existing is None
+        current_revision_id = str(existing["current_revision_id"]) if existing else None
+        if (
+            not inserted
+            and expected_revision_id is not None
+            and current_revision_id != expected_revision_id
+        ):
+            raise MemoryRevisionConflict(
+                f"memory {memory.id} changed: expected revision {expected_revision_id}, "
+                f"found {current_revision_id}"
+            )
+
+        deduplicated = False
+        stored_revision = connection.execute(
+            "SELECT * FROM memory_revisions WHERE revision_id = ?",
+            (memory.current_revision.revision_id,),
+        ).fetchone()
+        if stored_revision is not None:
+            if (
+                str(stored_revision["memory_id"]) != memory.id
+                or str(stored_revision["content_sha256"]) != memory.current_revision.content_sha256
+                or str(stored_revision["content"]) != memory.current_revision.content
+            ):
+                raise MemoryRepositoryIntegrityError(
+                    f"revision id collision: {memory.current_revision.revision_id}"
+                )
+            memory = memory.model_copy(
+                update={"current_revision": self._revision_row_to_model(stored_revision)}
+            )
+            revision_inserted = False
+        else:
+            duplicate_hash = connection.execute(
+                "SELECT * FROM memory_revisions "
+                "WHERE memory_id = ? AND content_sha256 = ?",
+                (memory.id, memory.current_revision.content_sha256),
+            ).fetchone()
+            if duplicate_hash is not None:
+                if str(duplicate_hash["content"]) != memory.current_revision.content:
+                    raise MemoryRepositoryIntegrityError(
+                        "content hash collision for memory "
+                        f"{memory.id}: {memory.current_revision.content_sha256}"
+                    )
+                memory = memory.model_copy(
+                    update={"current_revision": self._revision_row_to_model(duplicate_hash)}
+                )
+                revision_inserted = False
+                deduplicated = True
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO memory_revisions(
+                        revision_id, memory_id, content, content_sha256,
+                        created_at, created_by, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        memory.current_revision.revision_id,
+                        memory.id,
+                        memory.current_revision.content,
+                        memory.current_revision.content_sha256,
+                        memory.current_revision.created_at,
+                        memory.current_revision.created_by,
+                        _json_dumps(memory.current_revision.metadata, "revision.metadata"),
+                    ),
+                )
+                revision_inserted = True
+
+        values = (
+            memory.id,
+            memory.project,
+            memory.memory_type,
+            memory.lifecycle.value,
+            memory.title,
+            memory.summary,
+            _json_dumps(list(memory.tags), "memory.tags"),
+            _json_dumps(list(memory.files), "memory.files"),
+            _json_dumps(list(memory.session_refs), "memory.session_refs"),
+            memory.upsert_key,
+            memory.created_at,
+            memory.updated_at,
+            _json_dumps(memory.provenance.to_dict(), "memory.provenance"),
+            _json_dumps(memory.metadata, "memory.metadata"),
+            _json_dumps(memory.extra, "memory.extra"),
+            memory.current_revision.revision_id,
+        )
+        if inserted:
+            connection.execute(
+                """
+                INSERT INTO memories(
+                    memory_id, project, memory_type, lifecycle, title, summary,
+                    tags_json, files_json, session_refs_json, upsert_key,
+                    created_at, updated_at, provenance_json, metadata_json,
+                    extra_json, current_revision_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                values,
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE memories SET
+                    project = ?, memory_type = ?, lifecycle = ?, title = ?, summary = ?,
+                    tags_json = ?, files_json = ?, session_refs_json = ?, upsert_key = ?,
+                    created_at = ?, updated_at = ?, provenance_json = ?, metadata_json = ?,
+                    extra_json = ?, current_revision_id = ?
+                WHERE memory_id = ?
+                """,
+                values[1:] + (memory.id,),
+            )
+        outbox_event_id = self._append_memory_event(
+            connection,
+            memory,
+            inserted=inserted,
+        )
+        return SaveMemoryResult(
+            memory=memory,
+            inserted=inserted,
+            revision_inserted=revision_inserted,
+            outbox_event_id=outbox_event_id,
+            deduplicated=deduplicated,
         )
 
     def save_memory(
@@ -615,146 +792,105 @@ class SQLiteMemoryRepository:
         """Atomically persist an aggregate and its current immutable revision."""
 
         with self._write_transaction() as connection:
-            existing = connection.execute(
-                "SELECT current_revision_id FROM memories WHERE memory_id = ?",
-                (memory.id,),
-            ).fetchone()
-            inserted = existing is None
-            current_revision_id = str(existing["current_revision_id"]) if existing else None
-            if (
-                not inserted
-                and expected_revision_id is not None
-                and current_revision_id != expected_revision_id
-            ):
-                raise MemoryRevisionConflict(
-                    f"memory {memory.id} changed: expected revision {expected_revision_id}, "
-                    f"found {current_revision_id}"
-                )
-
-            deduplicated = False
-            stored_revision = connection.execute(
-                "SELECT * FROM memory_revisions WHERE revision_id = ?",
-                (memory.current_revision.revision_id,),
-            ).fetchone()
-            if stored_revision is not None:
-                if (
-                    str(stored_revision["memory_id"]) != memory.id
-                    or str(stored_revision["content_sha256"]) != memory.current_revision.content_sha256
-                    or str(stored_revision["content"]) != memory.current_revision.content
-                ):
-                    raise MemoryRepositoryIntegrityError(
-                        f"revision id collision: {memory.current_revision.revision_id}"
-                    )
-                memory = memory.model_copy(
-                    update={"current_revision": self._revision_row_to_model(stored_revision)}
-                )
-                revision_inserted = False
-            else:
-                duplicate_hash = connection.execute(
-                    "SELECT * FROM memory_revisions "
-                    "WHERE memory_id = ? AND content_sha256 = ?",
-                    (memory.id, memory.current_revision.content_sha256),
-                ).fetchone()
-                if duplicate_hash is not None:
-                    if str(duplicate_hash["content"]) != memory.current_revision.content:
-                        raise MemoryRepositoryIntegrityError(
-                            "content hash collision for memory "
-                            f"{memory.id}: {memory.current_revision.content_sha256}"
-                        )
-                    memory = memory.model_copy(
-                        update={"current_revision": self._revision_row_to_model(duplicate_hash)}
-                    )
-                    revision_inserted = False
-                    deduplicated = True
-                else:
-                    connection.execute(
-                        """
-                        INSERT INTO memory_revisions(
-                            revision_id, memory_id, content, content_sha256,
-                            created_at, created_by, metadata_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            memory.current_revision.revision_id,
-                            memory.id,
-                            memory.current_revision.content,
-                            memory.current_revision.content_sha256,
-                            memory.current_revision.created_at,
-                            memory.current_revision.created_by,
-                            _json_dumps(memory.current_revision.metadata, "revision.metadata"),
-                        ),
-                    )
-                    revision_inserted = True
-
-            values = (
-                memory.id,
-                memory.project,
-                memory.memory_type,
-                memory.lifecycle.value,
-                memory.title,
-                memory.summary,
-                _json_dumps(list(memory.tags), "memory.tags"),
-                _json_dumps(list(memory.files), "memory.files"),
-                _json_dumps(list(memory.session_refs), "memory.session_refs"),
-                memory.upsert_key,
-                memory.created_at,
-                memory.updated_at,
-                _json_dumps(memory.provenance.to_dict(), "memory.provenance"),
-                _json_dumps(memory.metadata, "memory.metadata"),
-                _json_dumps(memory.extra, "memory.extra"),
-                memory.current_revision.revision_id,
-            )
-            if inserted:
-                connection.execute(
-                    """
-                    INSERT INTO memories(
-                        memory_id, project, memory_type, lifecycle, title, summary,
-                        tags_json, files_json, session_refs_json, upsert_key,
-                        created_at, updated_at, provenance_json, metadata_json,
-                        extra_json, current_revision_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    values,
-                )
-            else:
-                connection.execute(
-                    """
-                    UPDATE memories SET
-                        project = ?, memory_type = ?, lifecycle = ?, title = ?, summary = ?,
-                        tags_json = ?, files_json = ?, session_refs_json = ?, upsert_key = ?,
-                        created_at = ?, updated_at = ?, provenance_json = ?, metadata_json = ?,
-                        extra_json = ?, current_revision_id = ?
-                    WHERE memory_id = ?
-                    """,
-                    values[1:] + (memory.id,),
-                )
-            outbox_event_id = self._append_memory_event(
+            return self._save_memory_in_transaction(
                 connection,
                 memory,
-                inserted=inserted,
+                expected_revision_id=expected_revision_id,
             )
-            return SaveMemoryResult(
-                memory=memory,
-                inserted=inserted,
-                revision_inserted=revision_inserted,
-                outbox_event_id=outbox_event_id,
-                deduplicated=deduplicated,
-            )
+
+    def save_memories_atomic(
+        self,
+        memories: Iterable[Memory],
+        *,
+        expected_revision_ids: Mapping[str, str | None] | None = None,
+    ) -> list[SaveMemoryResult]:
+        """Persist a bounded memory batch and all outbox events in one transaction."""
+
+        items = list(memories)
+        ids = [memory.id for memory in items]
+        if len(ids) != len(set(ids)):
+            raise MemoryRepositoryIntegrityError("atomic memory batch contains duplicate memory ids")
+        if len(items) > 10_000:
+            raise ValueError("atomic memory batch exceeds 10000 items")
+        expected = dict(expected_revision_ids or {})
+        with self._write_transaction() as connection:
+            return [
+                self._save_memory_in_transaction(
+                    connection,
+                    memory,
+                    expected_revision_id=expected.get(memory.id),
+                )
+                for memory in items
+            ]
 
     def get_memory(self, memory_id: str, *, project: str | None = None) -> Memory | None:
         connection = self._read_connection()
         try:
             if project is None:
                 row = connection.execute(
-                    "SELECT * FROM memories WHERE memory_id = ?",
+                    self._joined_memory_query(" WHERE m.memory_id = ?"),
                     (memory_id,),
                 ).fetchone()
             else:
                 row = connection.execute(
-                    "SELECT * FROM memories WHERE memory_id = ? AND project = ?",
+                    self._joined_memory_query(" WHERE m.memory_id = ? AND m.project = ?"),
                     (memory_id, project),
                 ).fetchone()
-            return self._memory_row_to_model(connection, row) if row is not None else None
+            return self._joined_memory_row_to_model(row) if row is not None else None
+        finally:
+            connection.close()
+
+    def get_memories(self, memory_ids: Iterable[str], *, project: str | None = None) -> list[Memory]:
+        ids = tuple(dict.fromkeys(str(memory_id).strip() for memory_id in memory_ids if str(memory_id).strip()))
+        if not ids:
+            return []
+        if len(ids) > 10_000:
+            raise ValueError("memory id lookup exceeds 10000 items")
+        connection = self._read_connection()
+        try:
+            found: dict[str, Memory] = {}
+            for start in range(0, len(ids), 900):
+                batch = ids[start : start + 900]
+                placeholders = ",".join("?" for _ in batch)
+                where = f" WHERE m.memory_id IN ({placeholders})"
+                parameters: tuple[Any, ...] = batch
+                if project is not None:
+                    where += " AND m.project = ?"
+                    parameters += (project,)
+                rows = connection.execute(
+                    self._joined_memory_query(where),
+                    parameters,
+                ).fetchall()
+                for row in rows:
+                    memory = self._joined_memory_row_to_model(row)
+                    found[memory.id] = memory
+            return [found[memory_id] for memory_id in ids if memory_id in found]
+        finally:
+            connection.close()
+
+    def get_memory_by_upsert_key(
+        self,
+        project: str,
+        upsert_key: str,
+        *,
+        include_archived: bool = False,
+    ) -> Memory | None:
+        project_id = str(project or "").strip()
+        key = str(upsert_key or "").strip()
+        if not project_id or not key:
+            return None
+        lifecycle_clause = "" if include_archived else " AND m.lifecycle = 'active'"
+        connection = self._read_connection()
+        try:
+            row = connection.execute(
+                self._joined_memory_query(
+                    " WHERE m.project = ? AND m.upsert_key = ?"
+                    + lifecycle_clause
+                    + " ORDER BY m.updated_at DESC, m.memory_id LIMIT 1"
+                ),
+                (project_id, key),
+            ).fetchone()
+            return self._joined_memory_row_to_model(row) if row is not None else None
         finally:
             connection.close()
 
@@ -818,20 +954,21 @@ class SQLiteMemoryRepository:
         clauses: list[str] = []
         parameters: list[Any] = []
         if project is not None:
-            clauses.append("project = ?")
+            clauses.append("m.project = ?")
             parameters.append(project)
         if not include_archived:
-            clauses.append("lifecycle = 'active'")
+            clauses.append("m.lifecycle = 'active'")
         elif not include_tombstoned:
-            clauses.append("lifecycle <> 'tombstoned'")
+            clauses.append("m.lifecycle <> 'tombstoned'")
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         connection = self._read_connection()
         try:
             rows = connection.execute(
-                "SELECT * FROM memories" + where + " ORDER BY updated_at DESC, memory_id LIMIT ? OFFSET ?",
+                self._joined_memory_query(where)
+                + " ORDER BY m.updated_at DESC, m.memory_id LIMIT ? OFFSET ?",
                 (*parameters, limit, offset),
             ).fetchall()
-            return [self._memory_row_to_model(connection, row) for row in rows]
+            return [self._joined_memory_row_to_model(row) for row in rows]
         finally:
             connection.close()
 

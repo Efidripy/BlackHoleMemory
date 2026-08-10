@@ -197,6 +197,33 @@ class SQLiteMemoryService:
         memory = self.repository.get_memory(str(memory_id), project=project)
         return memory.to_record() if memory is not None else None
 
+    def get_records(
+        self,
+        memory_ids: Iterable[str],
+        *,
+        project: str | None = None,
+    ) -> list[dict[str, Any]]:
+        self._ensure_ready(verify_integrity=False)
+        return [
+            memory.to_record()
+            for memory in self.repository.get_memories(memory_ids, project=project)
+        ]
+
+    def get_record_by_upsert_key(
+        self,
+        project: str,
+        upsert_key: str,
+        *,
+        include_archived: bool = False,
+    ) -> dict[str, Any] | None:
+        self._ensure_ready(verify_integrity=False)
+        memory = self.repository.get_memory_by_upsert_key(
+            str(project),
+            str(upsert_key),
+            include_archived=include_archived,
+        )
+        return memory.to_record() if memory is not None else None
+
     def upsert_records(self, records: Iterable[Mapping[str, Any]]) -> Path:
         self._ensure_ready()
         source_records = list(records)
@@ -218,8 +245,14 @@ class SQLiteMemoryService:
         except Exception as exc:
             raise MemoryServiceValidationError(f"invalid memory record: {type(exc).__name__}") from exc
 
+        existing_by_id = {
+            memory.id: memory
+            for memory in self.repository.get_memories(memory.id for memory in memories)
+        }
+        pending: list[Memory] = []
+        expected_revision_ids: dict[str, str | None] = {}
         for memory in memories:
-            existing = self.repository.get_memory(memory.id)
+            existing = existing_by_id.get(memory.id)
             if existing is not None:
                 if memory.current_revision.content_sha256 == existing.current_revision.content_sha256:
                     memory = memory.model_copy(update={"current_revision": existing.current_revision})
@@ -240,12 +273,13 @@ class SQLiteMemoryService:
                     memory = memory.model_copy(update={"current_revision": revision})
                 if _storage_comparison_payload(memory) == _storage_comparison_payload(existing):
                     continue
-                self.repository.save_memory(
-                    memory,
-                    expected_revision_id=existing.current_revision.revision_id,
-                )
-            else:
-                self.repository.save_memory(memory)
+                expected_revision_ids[memory.id] = existing.current_revision.revision_id
+            pending.append(memory)
+        if pending:
+            self.repository.save_memories_atomic(
+                pending,
+                expected_revision_ids=expected_revision_ids,
+            )
         return self.path
 
     def tombstone(

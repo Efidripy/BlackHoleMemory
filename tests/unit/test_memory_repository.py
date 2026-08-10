@@ -17,6 +17,7 @@ def _memory(
     content: str = "repository contract",
     lifecycle: str = "active",
     updated_at: str = "2026-07-13T10:00:00Z",
+    upsert_key: str | None = None,
 ) -> Memory:
     return Memory.from_record(
         {
@@ -30,7 +31,11 @@ def _memory(
             "session_refs": [],
             "created_at": "2026-07-13T09:00:00Z",
             "updated_at": updated_at,
-            "metadata": {"raw_title": "Repository contract", "lifecycle": lifecycle},
+            "metadata": {
+                "raw_title": "Repository contract",
+                "lifecycle": lifecycle,
+                "upsert_key": upsert_key,
+            },
         }
     )
 
@@ -126,6 +131,82 @@ def test_repository_allows_same_content_hash_for_different_memories(tmp_path):
     assert second_result.revision_inserted is True
     assert second_result.deduplicated is False
     assert len(repository.list_memories(include_archived=True, include_tombstoned=True)) == 2
+
+
+def test_repository_targeted_lookup_uses_ids_and_active_upsert_key(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    active = _memory(memory_id="mem_bhm_lookup_active", upsert_key="lookup:key")
+    archived = _memory(
+        memory_id="mem_bhm_lookup_archived",
+        lifecycle="archived",
+        upsert_key="lookup:archived",
+    )
+    unrelated = _memory(memory_id="mem_bhm_lookup_other", upsert_key="other:key")
+    repository.save_memories_atomic([active, archived, unrelated])
+
+    selected = repository.get_memories([unrelated.id, active.id], project="blackholememory")
+
+    assert {memory.id for memory in selected} == {active.id, unrelated.id}
+    assert repository.get_memories([active.id], project="other-project") == []
+    assert repository.get_memory_by_upsert_key("blackholememory", "lookup:key") == active
+    assert repository.get_memory_by_upsert_key("blackholememory", "lookup:archived") is None
+    assert (
+        repository.get_memory_by_upsert_key(
+            "blackholememory",
+            "lookup:archived",
+            include_archived=True,
+        )
+        == archived
+    )
+
+
+def test_repository_atomic_batch_rolls_back_memories_revisions_and_outbox(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    first = _memory(memory_id="mem_bhm_atomic_first")
+    collision = _memory(memory_id="mem_bhm_atomic_collision", content="different content").model_copy(
+        update={
+            "current_revision": MemoryRevision(
+                revision_id=first.current_revision.revision_id,
+                memory_id="mem_bhm_atomic_collision",
+                content="different content",
+                content_sha256="",
+                created_at="2026-07-13T10:00:00Z",
+            )
+        }
+    )
+
+    with pytest.raises(MemoryRepositoryIntegrityError, match="revision id collision"):
+        repository.save_memories_atomic([first, collision])
+
+    assert repository.list_memories(include_archived=True, include_tombstoned=True) == []
+    assert repository.list_outbox() == []
+
+
+def test_repository_atomic_batch_writes_one_outbox_event_per_memory(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    first = _memory(memory_id="mem_bhm_atomic_a")
+    second = _memory(memory_id="mem_bhm_atomic_b")
+
+    results = repository.save_memories_atomic([first, second])
+
+    assert [result.memory.id for result in results] == [first.id, second.id]
+    assert all(result.inserted for result in results)
+    assert len(repository.list_outbox()) == 2
+
+
+def test_repository_list_materializes_current_revisions_from_one_join(tmp_path, monkeypatch):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    first = _memory(memory_id="mem_bhm_join_a")
+    second = _memory(memory_id="mem_bhm_join_b")
+    repository.save_memories_atomic([first, second])
+
+    def fail_n_plus_one(*_args, **_kwargs):
+        raise AssertionError("list_memories performed a per-row revision lookup")
+
+    monkeypatch.setattr(repository, "_revision_row_to_model", fail_n_plus_one)
+
+    assert {memory.id for memory in repository.list_memories()} == {first.id, second.id}
+    assert repository.get_memory(first.id) == first
 
 
 def test_repository_reuses_revision_without_outbox_collision_for_metadata_update(tmp_path):
