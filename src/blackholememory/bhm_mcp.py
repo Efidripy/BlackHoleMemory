@@ -249,6 +249,13 @@ def _delete(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return _bounded_json_response(response)
 
 
+def _delete_json(path: str, body: dict[str, Any]) -> dict[str, Any]:
+    with _client() as client:
+        response = client.request("DELETE", path, json=body)
+        response.raise_for_status()
+        return _bounded_json_response(response)
+
+
 @mcp.tool(name="bhm_health", description="Check BHM readiness, cutover state, and native BHM health.")
 def bhm_health() -> dict[str, Any]:
     return {
@@ -485,8 +492,8 @@ def bhm_forget_preview(
     return _post(
         "/bhm/forget/preview",
         {
-            "memory_ids": _parse_csv(memory_ids_csv),
-            "upsert_keys": _parse_csv(upsert_keys_csv),
+            "memory_ids": _parse_csv(memory_ids_csv) or [],
+            "upsert_keys": _parse_csv(upsert_keys_csv) or [],
             "project": project,
             "operation": operation,
             "reason": reason,
@@ -512,8 +519,8 @@ def bhm_forget_apply(
         "/bhm/forget/apply",
         {
             "preview_digest": preview_digest,
-            "memory_ids": _parse_csv(memory_ids_csv),
-            "upsert_keys": _parse_csv(upsert_keys_csv),
+            "memory_ids": _parse_csv(memory_ids_csv) or [],
+            "upsert_keys": _parse_csv(upsert_keys_csv) or [],
             "project": project,
             "operation": operation,
             "reason": reason,
@@ -633,7 +640,7 @@ def bhm_link_memories(
 
 @mcp.tool(name="bhm_unlink_memories", description="Delete an explicit directed link between two live BHM memories.")
 def bhm_unlink_memories(source_id: str, target_id: str, relation: str, project: str) -> dict[str, Any]:
-    return _delete(
+    return _delete_json(
         "/bhm/memory/link",
         {
             "source_id": source_id,
@@ -843,7 +850,7 @@ def bhm_memory_lint(id: str, project: str | None = None) -> dict[str, Any]:
 
 @mcp.tool(name="bhm_delete_memory", description="Delete a live BHM memory entry by id from the canonical live store.")
 def bhm_delete_memory(id: str, project: str | None = None) -> dict[str, Any]:
-    return _delete("/bhm/memory", {"id": id, "project": project})
+    return _delete_json("/bhm/memory", {"id": id, "project": project})
 
 
 @mcp.tool(name="bhm_get_memories_by_concept", description="List live BHM memories that contain a required concept/tag.")
@@ -1242,7 +1249,7 @@ def bhm_query_suggestions(project: str | None = None) -> dict[str, Any]:
 
 @mcp.tool(name="bhm_delete_memory_hard", description="Hard-delete a live BHM memory and remove dependent canonical artifact references.")
 def bhm_delete_memory_hard(id: str, project: str | None = None) -> dict[str, Any]:
-    return _delete("/bhm/memory/hard", {"id": id, "project": project})
+    return _delete_json("/bhm/memory/hard", {"id": id, "project": project})
 
 
 @mcp.tool(name="bhm_source_refs_detach", description="Detach selected canonical source references from a live BHM memory.")
