@@ -239,6 +239,43 @@ def test_expired_schema_cache_refreshes_in_background(tmp_path, monkeypatch):
     assert refreshed.wait(1.0)
     clear_memory_store_schema_cache()
 
+
+def test_changed_database_signature_refreshes_without_blocking_readiness(tmp_path, monkeypatch):
+    config = resolve_runtime_storage_config(runtime_dir=tmp_path, environ={})
+    config.database_path.parent.mkdir(parents=True)
+    config.database_path.write_bytes(b"schema-placeholder")
+    clear_memory_store_schema_cache()
+
+    refreshed = threading.Event()
+    calls = 0
+
+    def fake_uncached(_path):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            refreshed.set()
+            time.sleep(0.15)
+        return True, "sqlite_schema_valid"
+
+    monkeypatch.setattr(runtime_storage, "_inspect_memory_store_schema_uncached", fake_uncached)
+    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=60) == (
+        True,
+        "sqlite_schema_valid",
+    )
+    config.database_path.write_bytes(b"schema-placeholder-after-write")
+
+    started = time.perf_counter()
+    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=60) == (
+        True,
+        "sqlite_schema_valid",
+    )
+    elapsed = time.perf_counter() - started
+
+    assert elapsed < 0.1
+    assert refreshed.wait(1.0)
+    clear_memory_store_schema_cache()
+
+
 def test_worker_limits_are_bounded_and_invalid_values_fail_closed(tmp_path):
     config = resolve_runtime_storage_config(
         runtime_dir=tmp_path,

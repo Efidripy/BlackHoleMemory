@@ -38,8 +38,9 @@ MEMORY_STORE_WRITER_OFFLINE_CONFIRMED_ENV = "BHM_MEMORY_STORE_WRITER_OFFLINE_CON
 # A full SQLite quick_check is intentionally retained as the integrity proof,
 # but repeating it for every health/readiness request makes a live database
 # block the API for several seconds on Windows.  Keep a short, process-local
-# cache and single-flight the probe.  The cache is invalidated when the main
-# database file changes and is never used by write or migration paths.
+# cache and single-flight the probe. Normal writes change the main database
+# signature, so readiness serves the last verified result while a daemon
+# refresh checks the new signature. Write and migration paths never use it.
 MEMORY_STORE_HEALTH_CACHE_TTL_SECONDS = 15.0
 _SCHEMA_CHECK_CACHE: dict[str, tuple[float, tuple[int, int], tuple[bool, str]]] = {}
 _SCHEMA_CHECK_LOCK = threading.Lock()
@@ -237,14 +238,14 @@ def inspect_memory_store_schema(
     now = time.monotonic()
     with _SCHEMA_CHECK_LOCK:
         cached = _SCHEMA_CHECK_CACHE.get(key)
-        if cached is not None:
+        if cached is not None and ttl > 0 and cached[2][0] is True:
             checked_at, cached_signature, cached_result = cached
-            if ttl > 0 and cached_signature == signature:
-                if now - checked_at < ttl:
-                    return cached_result
-                # Serve the last verified result while one daemon refresh runs;
-                # this keeps health/MCP responsive at cache expiry without
-                # dropping the periodic full integrity proof.
+            refresh_required = cached_signature != signature or now - checked_at >= ttl
+            if refresh_required:
+                # Serve the last verified result while one daemon refresh runs.
+                # A SQLite commit changes mtime/size on every normal write; a
+                # synchronous quick_check here would make readiness block behind
+                # the write it is supposed to observe.
                 if key not in _SCHEMA_CHECK_REFRESHING:
                     _SCHEMA_CHECK_REFRESHING.add(key)
                     threading.Thread(
@@ -253,10 +254,10 @@ def inspect_memory_store_schema(
                         daemon=True,
                         name="bhm-sqlite-health-refresh",
                     ).start()
-                return cached_result
+            return cached_result
 
-        # The first probe, or a changed database signature, remains
-        # synchronous and fail-closed.  Holding the lock single-flights the
+        # The first probe and recovery from a cached invalid result remain
+        # synchronous and fail-closed. Holding the lock single-flights the
         # expensive quick_check for concurrent readiness requests.
         result = _inspect_memory_store_schema_uncached(database_path)
         if ttl > 0:
