@@ -71,7 +71,7 @@ starting a different job.
 `status=completed` ответ содержит `graph_next` с точным `snapshot_id`.
 Передайте этот receipt обратно в `bhm_index_repository`; `graph_only=true`
 fail-closed отклонит незавершённый или устаревший snapshot. MCP использует
-operation-specific deadlines: 60 секунд для bounded index, 90 секунд для graph
+operation-specific deadlines: 60 секунд для bounded index, 120 секунд для graph
 и 30 секунд для status; общий 15-секундный timeout остальных внутренних
 вызовов не меняется.
 
