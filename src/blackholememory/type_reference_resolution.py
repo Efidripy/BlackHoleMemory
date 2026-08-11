@@ -17,7 +17,8 @@ from typing import Any, Mapping, Sequence
 
 TYPE_REFERENCE_RESOLUTION_SCHEMA_VERSION = "bhm.type-reference-resolution.v2"
 MAX_TYPE_REFERENCE_ITEMS = 256
-_SYMBOL_KINDS = {"class", "interface", "trait", "struct", "record", "enum", "type", "module", "function", "method", "object"}
+_SYMBOL_KINDS = {"class", "interface", "trait", "struct", "record", "enum", "type", "namespace", "module", "function", "method", "object"}
+_NAMESPACE_KINDS = {"namespace"}
 _ALIAS_RE = re.compile(r"\b(?:type|typedef|alias)\s+([A-Za-z_$][\w$.:]*)\s*=\s*([A-Za-z_$][\w$.:<>\[\], |?]*)")
 _IMPLEMENTS_RE = re.compile(r"\bimplements\s+([A-Za-z_$][\w$.:]*(?:\s*,\s*[A-Za-z_$][\w$.:]*)*)", re.IGNORECASE)
 _EXTENDS_RE = re.compile(r"\bextends\s+([A-Za-z_$][\w$.:]*(?:\s*,\s*[A-Za-z_$][\w$.:]*)*)", re.IGNORECASE)
@@ -38,13 +39,22 @@ def _target_candidates(
     by_qualified: Mapping[str, list[Mapping[str, Any]]],
 ) -> list[Mapping[str, Any]]:
     raw = str(name or "").strip()
-    candidates = list(by_qualified.get(raw, []))
-    candidates.extend(by_name.get(_simple_name(raw), []))
+    exact = list(by_qualified.get(raw, []))
+    candidates = exact if exact else list(by_name.get(_simple_name(raw), []))
     unique: dict[str, Mapping[str, Any]] = {}
     for item in candidates:
-        key = str(item.get("node_id") or item.get("stable_key") or "")
+        node_kind = str(item.get("node_kind") or "")
+        qualified = str(item.get("qualified_name") or "").strip()
+        if node_kind in _NAMESPACE_KINDS and qualified:
+            # A namespace may be declared in several files, but those physical
+            # declarations represent one logical binding target.
+            key = f"{node_kind}:{qualified}"
+        else:
+            key = str(item.get("node_id") or item.get("stable_key") or "")
         if key:
-            unique[key] = item
+            current = unique.get(key)
+            if current is None or str(item.get("node_id") or item.get("stable_key") or "") < str(current.get("node_id") or current.get("stable_key") or ""):
+                unique[key] = item
     return [unique[key] for key in sorted(unique)]
 
 
@@ -146,8 +156,8 @@ def build_type_reference_resolution(
         candidate_count = min(len(candidates), 16)
         row["candidate_count"] = candidate_count
         row["candidate_digest"] = _candidate_digest(candidates)
-        row["resolution_status"] = "resolved" if not unresolved else ("ambiguous" if candidate_count > 1 or target_id else "unresolved")
-        row["resolution_reason"] = "indexed_match" if not unresolved else ("multiple_candidates" if candidate_count > 1 or target_id else "target_not_indexed")
+        row["resolution_status"] = "resolved" if not unresolved else ("ambiguous" if candidate_count > 1 else "unresolved")
+        row["resolution_reason"] = "indexed_match" if not unresolved else ("multiple_candidates" if candidate_count > 1 else "target_not_resolved")
         if module_qualified:
             row["module_qualified"] = str(module_qualified)[:240]
         proposals.append(
@@ -190,8 +200,38 @@ def build_type_reference_resolution(
             continue
         attributes = edge.get("attributes") if isinstance(edge.get("attributes"), Mapping) else {}
         module_name = str((target or {}).get("name") or attributes.get("module") or "")
+        namespace_candidates = [
+            candidate
+            for candidate in _target_candidates(module_name, by_name, by_qualified)
+            if str(candidate.get("node_kind") or "") in _NAMESPACE_KINDS
+            and str(candidate.get("qualified_name") or "").strip() == module_name.strip()
+        ]
+        exact_namespace = namespace_candidates[0] if len(namespace_candidates) == 1 else None
+        if exact_namespace is not None:
+            target = exact_namespace
         target_name = module_name
-        add(source, target, target_name=target_name, relation_kind="import_reference", confidence=float(edge.get("confidence") or 0.0), unresolved=bool(edge.get("unresolved")) or not target or str((target or {}).get("node_kind") or "").startswith("external"), evidence_class="indexed-import", candidates=[target] if target else [], module_qualified=module_name)
+        import_unresolved = bool(edge.get("unresolved")) or not target or str((target or {}).get("node_kind") or "").startswith("external")
+        evidence_class = "indexed-import"
+        binding_scope = ""
+        import_candidates: Sequence[Mapping[str, Any]] = [target] if target else []
+        if exact_namespace is not None:
+            import_unresolved = False
+            evidence_class = "indexed-exact-namespace"
+            binding_scope = "internal-namespace"
+            import_candidates = namespace_candidates
+        add(
+            source,
+            target,
+            target_name=target_name,
+            relation_kind="import_reference",
+            confidence=0.95 if exact_namespace is not None else float(edge.get("confidence") or 0.0),
+            unresolved=import_unresolved,
+            evidence_class=evidence_class,
+            binding_scope=binding_scope,
+            target_module=module_name if exact_namespace is not None else "",
+            candidates=import_candidates,
+            module_qualified=module_name,
+        )
 
         # Resolve an import to declarations in the already-indexed target
         # file.  This is a graph-only binding: no import execution, compiler,

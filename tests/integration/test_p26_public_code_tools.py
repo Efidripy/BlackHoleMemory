@@ -1,13 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import os
 from pathlib import Path
+import threading
 
 from fastapi.testclient import TestClient
+import httpx
 
 from blackholememory import app as bhm_app
 from blackholememory.code_graph import build_code_graph
+from blackholememory.repository_index import RepositoryIndexError
 from blackholememory.repository_index import RepositorySourceProvenance
+from blackholememory.repository_index import SQLiteRepositoryIndexStore
 from blackholememory.repository_index import index_repository
 from blackholememory.repository_index import probe_repository_state
 
@@ -650,3 +656,152 @@ def test_mcp_style_bounded_index_resumes_and_builds_graph_from_completed_snapsho
     graph_payload = graph.json()
     assert graph_payload["action"] == "graph"
     assert graph_payload["graph"]["repository_snapshot_id"] == current_payload["index"]["snapshot_id"]
+
+
+def test_graph_only_defers_slow_build_deduplicates_and_reports_completion(monkeypatch, tmp_path: Path) -> None:
+    root, runtime_dir = _prepare(tmp_path)
+    database = runtime_dir / "live-memory" / "memories.sqlite3"
+    (root / "module.py").write_text("def keep():\n    return 84\n", encoding="utf-8")
+    indexed = index_repository(
+        root,
+        database,
+        project="demo",
+        source=RepositorySourceProvenance(
+            owner="fixture",
+            source_url="local://p26-deferred",
+            license="MIT",
+            evidence_class="E0",
+        ),
+        force_refresh=True,
+    )
+    release = threading.Event()
+    started = threading.Event()
+    call_count = 0
+    call_count_lock = threading.Lock()
+
+    def slow_build(*args, **kwargs):
+        nonlocal call_count
+        with call_count_lock:
+            call_count += 1
+        started.set()
+        assert release.wait(5.0), "slow graph fixture was not released"
+        return build_code_graph(*args, **kwargs)
+
+    async def exercise() -> None:
+        monkeypatch.setattr(bhm_app.settings, "repo_root", root)
+        monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+        monkeypatch.setattr(bhm_app, "build_code_graph", slow_build)
+        monkeypatch.setattr(bhm_app, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 0.01)
+        monkeypatch.setattr(bhm_app, "_GRAPH_BUILD_OPERATIONS", {})
+        monkeypatch.setattr(bhm_app, "_GRAPH_BUILD_OPERATIONS_LOCK", asyncio.Lock())
+        transport = httpx.ASGITransport(app=bhm_app.app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://127.0.0.1:8000",
+            headers={"Authorization": f"Bearer {os.environ['BHM_CALLER_TOKEN']}"},
+        ) as client:
+            request = {
+                "operation": "index",
+                "project": "demo",
+                "root": "repo",
+                "apply": True,
+                "graph_only": True,
+                "snapshot_id": indexed["snapshot_id"],
+            }
+            request_started = asyncio.get_running_loop().time()
+            first = await client.post("/bhm/code-tools", json=request)
+            request_elapsed = asyncio.get_running_loop().time() - request_started
+            assert first.status_code == 200
+            assert request_elapsed < 0.5
+            first_payload = first.json()
+            assert first_payload["graph"] is None
+            assert first_payload["graph_status"] == "running"
+            assert first_payload["graph_operation"]["status"] == "running"
+            operation_id = first_payload["graph_operation"]["operation_id"]
+            assert started.wait(1.0)
+
+            repeated = await client.post("/bhm/code-tools", json=request)
+            assert repeated.status_code == 200
+            repeated_payload = repeated.json()
+            assert repeated_payload["graph_operation"]["operation_id"] == operation_id
+            assert repeated_payload["graph_operation"]["status"] == "running"
+            assert call_count == 1
+
+            release.set()
+            status_payload = None
+            for _ in range(100):
+                status = await client.post(
+                    "/bhm/code-tools",
+                    json={"operation": "status", "project": "demo", "root": "repo"},
+                )
+                assert status.status_code == 200
+                status_payload = status.json()
+                graph_operation = status_payload.get("graph_operation") or {}
+                if graph_operation.get("status") == "completed":
+                    break
+                await asyncio.sleep(0.02)
+
+            assert status_payload is not None
+            assert status_payload["graph_operation"]["operation_id"] == operation_id
+            assert status_payload["graph_operation"]["status"] == "completed"
+            assert status_payload["graph"]["repository_snapshot_id"] == indexed["snapshot_id"]
+            assert status_payload["index"]["current_snapshot"]["snapshot_id"] == indexed["snapshot_id"]
+            assert call_count == 1
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+
+
+def test_coverage_probe_timeout_is_retryable_and_fail_closed(monkeypatch, tmp_path: Path) -> None:
+    root, runtime_dir = _prepare(tmp_path)
+    captured: dict[str, object] = {}
+
+    def timed_out_status(*args, **kwargs):
+        captured.update(kwargs)
+        raise RepositoryIndexError("repository probe deadline exceeded")
+
+    monkeypatch.setattr(bhm_app.settings, "repo_root", root)
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+    monkeypatch.setattr(bhm_app, "repository_index_status", timed_out_status)
+    client = TestClient(bhm_app.app)
+
+    response = client.post(
+        "/bhm/code-tools",
+        json={"operation": "coverage", "project": "demo", "root": "repo"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert captured["fast_schema"] is True
+    assert captured["probe_timeout_seconds"] == bhm_app.BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS
+    assert payload["index_fresh"] is None
+    assert payload["freshness_status"] == "probe_timeout"
+    assert payload["retryable"] is True
+    assert payload["coverage"]["complete"] is False
+    assert payload["index"] is None
+
+
+def test_project_catalog_uses_fast_schema_probe(monkeypatch, tmp_path: Path) -> None:
+    root, runtime_dir = _prepare(tmp_path)
+    original = SQLiteRepositoryIndexStore.inspect_schema
+    observed: list[bool] = []
+
+    def inspect_schema(store, *, fast=False):
+        observed.append(bool(fast))
+        return original(store, fast=fast)
+
+    monkeypatch.setattr(bhm_app.settings, "repo_root", root)
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+    monkeypatch.setattr(SQLiteRepositoryIndexStore, "inspect_schema", inspect_schema)
+    client = TestClient(bhm_app.app)
+
+    response = client.post(
+        "/bhm/code-tools",
+        json={"operation": "projects", "project": "demo", "root": "repo"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert observed == [True]

@@ -193,11 +193,15 @@ def test_mcp_code_tools_use_operation_specific_timeouts(monkeypatch) -> None:
 
     bhm_mcp._post("/bhm/remember", {})
     bhm_mcp._post("/bhm/code-tools", {"operation": "status"})
+    bhm_mcp._post("/bhm/code-tools", {"operation": "coverage"})
+    bhm_mcp._post("/bhm/code-tools", {"operation": "projects"})
     bhm_mcp._post("/bhm/code-tools", {"operation": "index", "build_graph": True, "defer_graph": True})
     bhm_mcp._post("/bhm/code-tools", {"operation": "index", "graph_only": True})
 
     assert captured == [
         float(BHM_INTERNAL_HTTP_TIMEOUT_SECONDS),
+        float(BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS),
+        float(BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS),
         float(BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS),
         float(BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS),
         float(BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS),

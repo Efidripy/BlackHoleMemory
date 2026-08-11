@@ -40,9 +40,14 @@ def _type_quality(result: Mapping[str, Any] | None) -> dict[str, Any]:
     relation_counts = Counter(str(row.get("relation_kind") or "unknown")[:64] for row in rows)
     resolved = ambiguous = unresolved = 0
     for row in rows:
-        if not bool(row.get("unresolved")):
+        resolution_status = str(row.get("resolution_status") or "").strip().casefold()
+        if resolution_status == "resolved" or (not resolution_status and not bool(row.get("unresolved"))):
             resolved += 1
-        elif str(row.get("target_node_id") or "").strip():
+        elif resolution_status == "ambiguous" or (
+            not resolution_status
+            and bool(row.get("unresolved"))
+            and _bounded_count(row.get("candidate_count")) > 1
+        ):
             ambiguous += 1
         else:
             unresolved += 1

@@ -26,6 +26,6 @@ def test_every_integration_test_has_one_domain():
     # surfaces now present in the current test tree.
     # Keep this exact inventory aligned with the checked-in integration
     # surface so newly added tests cannot bypass domain ownership silently.
-    assert len(assignments) == 261
+    assert len(assignments) == 264
     assert set(assignments) == set(DOMAIN_NAMES)
     assert all(assignments.count(domain) > 0 for domain in DOMAIN_NAMES)

@@ -60,6 +60,8 @@ from .resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
 from .resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
 from .resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
 from .resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_GRAPH_SOFT_WAIT_SECONDS
 from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
 from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
 from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
@@ -323,6 +325,7 @@ from .trace_graph import validate_trace_graph
 from .service_trace_receipt import SERVICE_TRACE_RECEIPT_SCHEMA_VERSION
 from .service_trace_receipt import build_service_trace_receipt
 from .repository_index import RepositoryIndexError
+from .repository_index import REPOSITORY_INDEX_SCHEMA_VERSION
 from .repository_index import DEFAULT_WATCH_MAX_INFLIGHT_JOBS
 from .repository_index import MAX_WATCH_MAX_INFLIGHT_JOBS
 from .repository_index import RepositorySourceProvenance
@@ -491,6 +494,9 @@ _READ_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_READS)
 _READ_BACKPRESSURE_LOCK = asyncio.Lock()
 _READ_BACKPRESSURE_ACTIVE = 0
 _READ_BACKPRESSURE_WAITING = 0
+_GRAPH_BUILD_OPERATIONS: dict[str, dict[str, Any]] = {}
+_GRAPH_BUILD_OPERATIONS_LOCK = asyncio.Lock()
+_GRAPH_BUILD_OPERATION_LIMIT = 128
 _HOOK_QUEUE_CAPACITY = _env_int("BHM_HOOK_QUEUE_CAPACITY", 128, 1)
 _HOOK_QUEUE_MAX_ATTEMPTS = _env_int("BHM_HOOK_QUEUE_MAX_ATTEMPTS", 3, 1)
 _HOOK_COMPACT_WORKERS = _env_int("BHM_HOOK_COMPACT_WORKERS", 1, 1)
@@ -1174,6 +1180,167 @@ async def _bounded_write(operation: str):
 async def _run_bounded_write(operation: str, func, *args, **kwargs):
     async with _bounded_write(operation):
         return await run_in_threadpool(func, *args, **kwargs)
+
+
+def _graph_build_operation_id(project: str, root_id: str, snapshot_id: str) -> str:
+    payload = json.dumps(
+        {
+            "project": project,
+            "root_id": root_id,
+            "repository_snapshot_id": snapshot_id,
+            "parser_registry_digest": PARSER_REGISTRY_DIGEST,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"graph_build_{hashlib.sha256(payload).hexdigest()[:24]}"
+
+
+def _public_graph_build_operation(record: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "bhm.code-graph-operation.v1",
+        "operation_id": record["operation_id"],
+        "status": record["status"],
+        "project": record["project"],
+        "root_id": record["root_id"],
+        "repository_snapshot_id": record["repository_snapshot_id"],
+        "parser_registry_digest": PARSER_REGISTRY_DIGEST,
+        "started_at": record["started_at"],
+        "updated_at": record["updated_at"],
+        "error": record.get("error"),
+        "retryable": bool(record.get("retryable", False)),
+        "poll_next": {
+            "operation": "status",
+            "project": record["project"],
+            "root": record["root"],
+        },
+    }
+
+
+async def _run_graph_build_operation(record: dict[str, Any], database_path: Path) -> None:
+    try:
+        result = await _run_bounded_write(
+            "code.graph.build.deferred",
+            build_code_graph,
+            database_path,
+            project=str(record["project"]),
+            root_id=str(record["root_id"]),
+            repository_snapshot_id=str(record["repository_snapshot_id"]),
+        )
+    except asyncio.CancelledError:
+        async with _GRAPH_BUILD_OPERATIONS_LOCK:
+            record["status"] = "cancelled"
+            record["retryable"] = True
+            record["updated_at"] = _utc_now_iso()
+        raise
+    except Exception as exc:
+        _LOGGER.exception("Deferred code graph build failed: %s", record["operation_id"])
+        async with _GRAPH_BUILD_OPERATIONS_LOCK:
+            record["status"] = "failed"
+            record["error"] = _safe_exception_text(exc, fallback="code graph build failed")
+            record["retryable"] = True
+            record["updated_at"] = _utc_now_iso()
+    else:
+        async with _GRAPH_BUILD_OPERATIONS_LOCK:
+            record["status"] = "completed"
+            record["result"] = result
+            record["retryable"] = False
+            record["updated_at"] = _utc_now_iso()
+
+
+async def _get_or_start_graph_build_operation(
+    *,
+    database_path: Path,
+    project: str,
+    root_id: str,
+    root: Path,
+    snapshot_id: str,
+) -> dict[str, Any]:
+    operation_id = _graph_build_operation_id(project, root_id, snapshot_id)
+    async with _GRAPH_BUILD_OPERATIONS_LOCK:
+        existing = _GRAPH_BUILD_OPERATIONS.get(operation_id)
+        if existing is not None and existing.get("status") in {"running", "completed"}:
+            return existing
+        if len(_GRAPH_BUILD_OPERATIONS) >= _GRAPH_BUILD_OPERATION_LIMIT:
+            finished = sorted(
+                (
+                    item
+                    for item in _GRAPH_BUILD_OPERATIONS.values()
+                    if item.get("status") != "running"
+                ),
+                key=lambda item: str(item.get("updated_at") or ""),
+            )
+            for stale in finished[: max(len(_GRAPH_BUILD_OPERATIONS) - _GRAPH_BUILD_OPERATION_LIMIT + 1, 0)]:
+                _GRAPH_BUILD_OPERATIONS.pop(str(stale["operation_id"]), None)
+        now = _utc_now_iso()
+        record: dict[str, Any] = {
+            "operation_id": operation_id,
+            "status": "running",
+            "project": project,
+            "root_id": root_id,
+            "root": str(root),
+            "repository_snapshot_id": snapshot_id,
+            "started_at": now,
+            "updated_at": now,
+            "retryable": False,
+        }
+        _GRAPH_BUILD_OPERATIONS[operation_id] = record
+        record["task"] = asyncio.create_task(
+            _run_graph_build_operation(record, database_path),
+            name=operation_id,
+        )
+        return record
+
+
+async def _latest_graph_build_operation(
+    project: str,
+    root_id: str,
+    snapshot_id: str | None = None,
+) -> dict[str, Any] | None:
+    async with _GRAPH_BUILD_OPERATIONS_LOCK:
+        matches = [
+            record
+            for record in _GRAPH_BUILD_OPERATIONS.values()
+            if record.get("project") == project
+            and record.get("root_id") == root_id
+            and (snapshot_id is None or record.get("repository_snapshot_id") == snapshot_id)
+        ]
+        if not matches:
+            return None
+        latest = max(matches, key=lambda item: str(item.get("updated_at") or ""))
+        return _public_graph_build_operation(latest)
+
+
+def _graph_build_result_from_snapshot(
+    graph_snapshot: Mapping[str, Any],
+    *,
+    project: str,
+    root_id: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": CODE_GRAPH_SCHEMA_VERSION,
+        "ok": True,
+        "action": "build",
+        "project": project,
+        "root_id": root_id,
+        "repository_snapshot_id": graph_snapshot.get("repository_snapshot_id"),
+        "graph_snapshot_id": graph_snapshot.get("graph_snapshot_id"),
+        "graph_digest": graph_snapshot.get("graph_digest"),
+        "nodes_digest": graph_snapshot.get("nodes_digest"),
+        "edges_digest": graph_snapshot.get("edges_digest"),
+        "summary": graph_snapshot.get("summary") or {},
+        "graph": dict(graph_snapshot),
+        "execution": {
+            "writes_sqlite_state": False,
+            "writes_memory_rows": False,
+            "writes_qdrant": False,
+            "writes_retrieval": False,
+            "model_started": False,
+            "public_mcp": False,
+            "deduplicated": True,
+        },
+    }
 
 
 def _read_backpressure_headers() -> dict[str, str]:
@@ -12953,7 +13120,7 @@ def _public_code_projects(
     allowed_projects: frozenset[str] | None = None,
 ) -> dict[str, Any]:
     store = SQLiteRepositoryIndexStore(database_path)
-    schema = store.inspect_schema()
+    schema = store.inspect_schema(fast=True)
     if not schema.get("ready"):
         return {
             "schema_version": "bhm.public-code-tools.v1",
@@ -13438,19 +13605,61 @@ async def bhm_public_code_tools(
             "provenance": {"source": "local-operator", "authority": "sqlite-authoritative", "source_persisted": False},
         }
     if operation == "status":
-        status = await _run_bounded_read(
-            "code.index.status",
-            repository_index_status,
-            root,
-            database_path,
-            project=project,
-        )
+        try:
+            status = await _run_bounded_read(
+                "code.index.status",
+                repository_index_status,
+                root,
+                database_path,
+                project=project,
+                probe_timeout_seconds=BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS,
+                fast_schema=True,
+            )
+        except RepositoryIndexError as exc:
+            if "deadline exceeded" not in str(exc).casefold():
+                raise
+            status = await _run_bounded_read(
+                "code.index.status.fallback",
+                SQLiteRepositoryIndexStore(database_path).status,
+                project,
+                root_id,
+                fast_schema=True,
+            )
+            status.update(
+                {
+                    "current_state": None,
+                    "fresh": None,
+                    "freshness_status": "probe_timeout",
+                    "retryable": True,
+                }
+            )
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).casefold() and "busy" not in str(exc).casefold():
+                raise
+            status = {
+                "schema_version": REPOSITORY_INDEX_SCHEMA_VERSION,
+                "database_path": str(database_path),
+                "project": project,
+                "root_id": root_id,
+                "current_snapshot": None,
+                "latest_job": None,
+                "current_state": None,
+                "fresh": None,
+                "freshness_status": "sqlite_busy",
+                "retryable": True,
+            }
         graph_current = await _run_bounded_read(
             "code.graph.status",
             _current_code_graph_snapshot,
             database_path,
             project,
             root_id,
+        )
+        current_index = status.get("current_snapshot") or {}
+        graph_operation = await _latest_graph_build_operation(
+            project,
+            root_id,
+            str(current_index.get("snapshot_id") or "") or None,
         )
         return {
             "schema_version": "bhm.public-code-tools.v1",
@@ -13461,6 +13670,7 @@ async def bhm_public_code_tools(
             "root": str(root),
             "index": status,
             "graph": graph_current,
+            "graph_operation": graph_operation,
             "execution": {"writes_sqlite_state": False, "raw_source_returned": False},
             "provenance": {"source": "sqlite-authoritative", "root_allowlist": "repos-root"},
         }
@@ -13473,6 +13683,7 @@ async def bhm_public_code_tools(
                 database_path,
                 project=project,
                 probe_timeout_seconds=max(1.0, BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS - 5),
+                fast_schema=True,
             )
             return {
                 "schema_version": "bhm.public-code-tools.v1",
@@ -13497,6 +13708,7 @@ async def bhm_public_code_tools(
                 index_store.status,
                 project,
                 root_id,
+                fast_schema=True,
             )
             current_index = index_status.get("current_snapshot") or {}
             latest_job = index_status.get("latest_job") or {}
@@ -13506,17 +13718,71 @@ async def bhm_public_code_tools(
                 or str(latest_job.get("snapshot_id") or "") != request.snapshot_id
             ):
                 raise HTTPException(status_code=409, detail={"error": "index_incomplete_or_snapshot_stale"})
-            try:
-                graph = await _run_bounded_write(
-                    "code.graph.build",
-                    build_code_graph,
-                    database_path,
+            current_graph = await _run_bounded_read(
+                "code.graph.current_before_build",
+                _current_code_graph_snapshot,
+                database_path,
+                project,
+                root_id,
+            )
+            if (
+                current_graph
+                and str(current_graph.get("repository_snapshot_id") or "") == request.snapshot_id
+                and str(current_graph.get("parser_registry_digest") or "") == PARSER_REGISTRY_DIGEST
+            ):
+                graph = _graph_build_result_from_snapshot(current_graph, project=project, root_id=root_id)
+            else:
+                graph_operation_record = await _get_or_start_graph_build_operation(
+                    database_path=database_path,
                     project=project,
                     root_id=root_id,
-                    repository_snapshot_id=request.snapshot_id,
+                    root=root,
+                    snapshot_id=request.snapshot_id,
                 )
-            except (CodeGraphError, ValueError) as exc:
-                raise HTTPException(status_code=422, detail={"error": "code_graph_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
+                task = graph_operation_record.get("task")
+                if isinstance(task, asyncio.Task) and not task.done():
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(task),
+                            timeout=float(BHM_CODE_GRAPH_SOFT_WAIT_SECONDS),
+                        )
+                    except asyncio.TimeoutError:
+                        pass
+                if graph_operation_record.get("status") == "completed":
+                    graph = dict(graph_operation_record.get("result") or {})
+                elif graph_operation_record.get("status") == "failed":
+                    raise HTTPException(
+                        status_code=503,
+                        detail={
+                            "error": "code_graph_build_failed",
+                            "detail": graph_operation_record.get("error") or "code graph build failed",
+                            "retryable": True,
+                        },
+                        headers={"Retry-After": "5"},
+                    )
+                else:
+                    public_operation = _public_graph_build_operation(graph_operation_record)
+                    return {
+                        "schema_version": "bhm.public-code-tools.v1",
+                        "contract_digest": _public_code_contract_digest(),
+                        "operation": operation,
+                        "action": "graph",
+                        "project": project,
+                        "root_id": root_id,
+                        "index": None,
+                        "graph": None,
+                        "graph_status": public_operation["status"],
+                        "graph_operation": public_operation,
+                        "poll_next": public_operation["poll_next"],
+                        "execution": {
+                            "writes_sqlite_state": True,
+                            "writes_qdrant": False,
+                            "raw_source_returned": False,
+                            "graph_only": True,
+                            "deferred": True,
+                        },
+                        "provenance": {"source": "sqlite-authoritative", "authority": "sqlite-authoritative", "source_persisted": False},
+                    }
             return {
                 "schema_version": "bhm.public-code-tools.v1",
                 "contract_digest": _public_code_contract_digest(),
@@ -13526,6 +13792,8 @@ async def bhm_public_code_tools(
                 "root_id": root_id,
                 "index": None,
                 "graph": graph,
+                "graph_status": "ready",
+                "graph_operation": await _latest_graph_build_operation(project, root_id, request.snapshot_id),
                 "execution": {"writes_sqlite_state": True, "writes_qdrant": False, "raw_source_returned": False, "graph_only": True},
                 "provenance": {"source": "sqlite-authoritative", "authority": "sqlite-authoritative", "source_persisted": False},
             }
@@ -14194,13 +14462,6 @@ async def bhm_public_code_tools(
             "execution": {"writes_sqlite_state": False, "raw_source_returned": False, "arbitrary_sql": False},
         }
     if operation == "coverage":
-        index_status = await _run_bounded_read(
-            "code.coverage.index",
-            repository_index_status,
-            root,
-            database_path,
-            project=project,
-        )
         graph = current or {}
         summary = dict(graph.get("summary") or {})
         parse_status = dict(summary.get("parse_status") or {})
@@ -14216,13 +14477,44 @@ async def bhm_public_code_tools(
             else file_count / max(repository_file_count, 1)
         )
         index_coverage_complete = bool(summary.get("index_coverage_complete", True))
+        freshness_status = "fresh"
+        retryable = False
+        try:
+            index_status = await _run_bounded_read(
+                "code.coverage.index",
+                repository_index_status,
+                root,
+                database_path,
+                project=project,
+                probe_timeout_seconds=BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS,
+                fast_schema=True,
+            )
+            index_fresh: bool | None = bool(index_status.get("fresh"))
+            if not index_fresh:
+                freshness_status = "stale"
+        except RepositoryIndexError as exc:
+            if "deadline exceeded" not in str(exc).casefold():
+                raise
+            index_status = None
+            index_fresh = None
+            freshness_status = "probe_timeout"
+            retryable = True
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).casefold() and "busy" not in str(exc).casefold():
+                raise
+            index_status = None
+            index_fresh = None
+            freshness_status = "sqlite_busy"
+            retryable = True
         return {
             "schema_version": "bhm.public-code-tools.v1",
             "contract_digest": _public_code_contract_digest(),
             "operation": operation,
             "project": project,
             "root_id": root_id,
-            "index_fresh": bool(index_status.get("fresh")),
+            "index_fresh": index_fresh,
+            "freshness_status": freshness_status,
+            "retryable": retryable,
             "graph_snapshot_id": graph.get("graph_snapshot_id"),
             "coverage": {
                 "file_count": file_count,
@@ -14235,7 +14527,7 @@ async def bhm_public_code_tools(
                 "parse_rate": round(parsed / max(file_count, 1), 6),
                 "complete": bool(
                     current
-                    and index_status.get("fresh")
+                    and index_fresh is True
                     and errors == 0
                     and index_coverage_complete
                 ),
@@ -14243,6 +14535,7 @@ async def bhm_public_code_tools(
             "language_inventory_digest": LANGUAGE_INVENTORY_DIGEST,
             "parser_capabilities": parser_capability_matrix(),
             "summary": summary,
+            "index": index_status,
             "execution": {"writes_sqlite_state": False, "raw_source_returned": False},
         }
     if operation == "architecture":
