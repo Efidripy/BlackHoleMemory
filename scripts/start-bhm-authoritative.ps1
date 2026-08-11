@@ -305,6 +305,14 @@ if ($ForceRestart -and $initial.reachable) {
   $initial = Get-ContractSnapshot -BaseUrl $BaseUrl
 }
 if ($initial.authoritative) {
+  $projectionSidecarScript = Join-Path $repoRoot 'scripts\start-bhm-projection-sidecar.ps1'
+  if (Test-Path -LiteralPath $projectionSidecarScript) {
+    try {
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $projectionSidecarScript -Action Start -NoWait | Out-Null
+    } catch {
+      Write-Warning "Projection sidecar start failed; BHM remains authoritative: $($_.Exception.Message)"
+    }
+  }
   [pscustomobject]@{
     ok = $true
     action = 'already-authoritative'
@@ -377,6 +385,19 @@ if (-not $result.ok) {
     error = $result.error
   } | ConvertTo-Json -Depth 4
   exit 1
+}
+
+# Keep the Qdrant projection current in a separate, explicit sidecar. The
+# authoritative BHM process remains worker-disabled; the sidecar consumes only
+# SQLite outbox events in sqlite-shadow mode and never changes Qdrant/LM Studio
+# lifecycle.
+$projectionSidecarScript = Join-Path $repoRoot 'scripts\start-bhm-projection-sidecar.ps1'
+if (Test-Path -LiteralPath $projectionSidecarScript) {
+  try {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $projectionSidecarScript -Action Start -NoWait | Out-Null
+  } catch {
+    Write-Warning "Projection sidecar start failed; BHM remains authoritative: $($_.Exception.Message)"
+  }
 }
 
 [pscustomobject]@{

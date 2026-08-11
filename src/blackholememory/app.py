@@ -5179,6 +5179,7 @@ def _build_detached_restart_script(
 ) -> str:
     """Build the detached restart script without interpolating raw paths."""
 
+    sidecar_script = repo_root / "scripts" / "start-bhm-projection-sidecar.ps1"
     return f"""
 $ErrorActionPreference = "Stop"
 Start-Sleep -Milliseconds 1300
@@ -5192,6 +5193,18 @@ Start-Process -FilePath "powershell.exe" -ArgumentList @(
   "-SkipInstall",
   "-Authoritative"
 ) -WorkingDirectory {_powershell_literal(repo_root)} -WindowStyle Hidden -RedirectStandardOutput {_powershell_literal(stdout_log)} -RedirectStandardError {_powershell_literal(stderr_log)}
+if (Test-Path -LiteralPath {_powershell_literal(sidecar_script)}) {{
+  Start-Process -FilePath "powershell.exe" -ArgumentList @(
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    {_powershell_literal(sidecar_script)},
+    "-Action",
+    "Start",
+    "-NoWait"
+  ) -WorkingDirectory {_powershell_literal(repo_root)} -WindowStyle Hidden
+}}
 "launcher_done $(Get-Date -Format o)" | Add-Content -LiteralPath {_powershell_literal(launcher_log)} -Encoding UTF8
 """
 
