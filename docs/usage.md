@@ -80,10 +80,19 @@ starting a different job.
 Построение code graph намеренно отделено от индексного slice. После
 `status=completed` ответ содержит `graph_next` с точным `snapshot_id`.
 Передайте этот receipt обратно в `bhm_index_repository`; `graph_only=true`
-fail-closed отклонит незавершённый или устаревший snapshot. MCP использует
-operation-specific deadlines: 60 секунд для bounded index, 120 секунд для graph
-и 30 секунд для status; общий 15-секундный timeout остальных внутренних
-вызовов не меняется.
+fail-closed отклонит незавершённый или устаревший snapshot. Быстрый graph build
+по-прежнему возвращает готовый graph в том же ответе. Если построение занимает
+больше 20 секунд, BHM возвращает `graph_operation.status=running` и `poll_next`;
+опрос через `bhm_index_status` показывает `running`, `completed` или `failed`.
+Повтор того же `graph_next` дедуплицируется по project/root/snapshot/parser digest
+и не запускает второй build. Внутренние operation-specific deadlines остаются
+60 секунд для bounded index, 120 секунд для graph и 30 секунд для status/coverage,
+но deferred receipt укладывает native MCP-вызов в его 30-секундную границу.
+
+`bhm_index_status` и `bhm_check_index_coverage` используют быстрый schema probe и
+пятисекундный repository probe. При временной занятости SQLite или превышении
+probe budget они возвращают явный `freshness_status` и `retryable=true`, а не
+маскируют состояние общим upstream timeout.
 
 ## Принцип безопасности
 

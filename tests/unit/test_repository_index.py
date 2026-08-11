@@ -146,6 +146,22 @@ def test_force_refresh_publishes_new_epoch_without_source_or_qdrant_writes(tmp_p
     assert snapshot["source"]["refresh_nonce"].startswith("operator-refresh-")
 
 
+def test_non_force_index_keeps_newest_force_refresh_epoch_current(tmp_path: Path) -> None:
+    root = _repository(tmp_path)
+    database = tmp_path / "index.sqlite3"
+
+    first = index_repository(root, database, project="demo", source=_source())
+    refreshed = index_repository(root, database, project="demo", source=_source(), force_refresh=True)
+    repeated = index_repository(root, database, project="demo", source=_source())
+
+    assert refreshed["snapshot_id"] != first["snapshot_id"]
+    assert repeated["snapshot_id"] == refreshed["snapshot_id"]
+    assert repeated["job_id"] == refreshed["job_id"]
+    assert repeated["metrics"]["deduplicated"] is True
+    assert repeated["metrics"]["pointer_repaired"] is False
+    assert SQLiteRepositoryIndexStore(database).current_snapshot("demo", repeated["root_id"])["snapshot_id"] == refreshed["snapshot_id"]
+
+
 def test_deduplicated_completed_job_repairs_stale_current_pointer(tmp_path: Path) -> None:
     root = _repository(tmp_path)
     database = tmp_path / "index.sqlite3"

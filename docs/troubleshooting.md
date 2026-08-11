@@ -25,6 +25,13 @@ client timeout. В актуальном контракте индекс выпо
 `expected_state_digest`; если дерево изменилось между срезами, BHM отклонит
 продолжение и потребует начать новый индексный epoch.
 
+Если `graph_next` возвращает `graph_operation.status=running`, не запускайте
+параллельный build. Передайте `poll_next` в `bhm_index_status`; повторный
+`graph_next` безопасен и вернёт тот же `operation_id`. Состояния
+`freshness_status=probe_timeout` и `freshness_status=sqlite_busy` означают
+временную деградацию read probe: повторите status/coverage после `Retry-After`,
+не создавая новый force-refresh epoch.
+
 ## Launcher без GUI-зависимостей
 
 Launcher можно безопасно проверить в headless-среде без запуска окна:

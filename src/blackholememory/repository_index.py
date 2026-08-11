@@ -1505,7 +1505,6 @@ class SQLiteRepositoryIndexStore:
                     # one batch.  Resume that running epoch instead of creating
                     # a fresh job that can accidentally republish its prior
                     # snapshot and digest.
-                    completed_row = row
                     running_row = connection.execute(
                         """
                         SELECT * FROM repository_index_jobs
@@ -1520,7 +1519,24 @@ class SQLiteRepositoryIndexStore:
                         row = running_row
                         job_id = str(row["job_id"])
                     else:
+                        # A forced refresh creates a distinct immutable job for
+                        # the same repository state.  Prefer the newest
+                        # completed epoch so a later non-force call cannot
+                        # republish the older deterministic job and move the
+                        # authoritative current pointer backwards.
+                        completed_row = connection.execute(
+                            """
+                            SELECT * FROM repository_index_jobs
+                            WHERE project = ? AND root_id = ? AND state_digest = ?
+                              AND config_digest = ? AND status = 'completed'
+                            ORDER BY completed_at DESC, updated_at DESC, job_id DESC
+                            LIMIT 1
+                            """,
+                            (state.project, state.root_id, state.state_digest, state.config_digest),
+                        ).fetchone()
                         row = completed_row
+                        if row is not None:
+                            job_id = str(row["job_id"])
                 if row is None:
                     connection.execute(
                         """
@@ -2101,8 +2117,8 @@ class SQLiteRepositoryIndexStore:
                 connection.close()
         return self.snapshot(snapshot_id, include_files=False)
 
-    def status(self, project: str, root_id: str) -> dict[str, Any]:
-        schema = self.inspect_schema()
+    def status(self, project: str, root_id: str, *, fast_schema: bool = False) -> dict[str, Any]:
+        schema = self.inspect_schema(fast=fast_schema)
         if not schema["ready"]:
             return {
                 "schema_version": REPOSITORY_INDEX_SCHEMA_VERSION,
@@ -2707,6 +2723,7 @@ def repository_index_status(
     project: str = "blackholememory",
     limits: RepositoryIndexLimits | None = None,
     probe_timeout_seconds: float | None = None,
+    fast_schema: bool = False,
 ) -> dict[str, Any]:
     state = probe_repository_state(root, project=project, limits=limits, probe_timeout_seconds=probe_timeout_seconds)
     store = SQLiteRepositoryIndexStore(database_path)
@@ -2720,11 +2737,15 @@ def repository_index_status(
             "latest_job": None,
             "current_state": state.summary(),
             "fresh": False,
+            "freshness_status": "missing",
+            "retryable": False,
         }
-    status = store.status(state.project, state.root_id)
+    status = store.status(state.project, state.root_id, fast_schema=fast_schema)
     current = status.get("current_snapshot")
     status["current_state"] = state.summary()
     status["fresh"] = bool(current) and str(current["state_digest"]) == state.state_digest
+    status["freshness_status"] = "fresh" if status["fresh"] else "stale"
+    status["retryable"] = False
     return status
 
 

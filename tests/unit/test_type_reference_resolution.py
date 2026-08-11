@@ -21,7 +21,10 @@ def test_type_reference_resolution_is_bounded_deterministic_and_unresolved_visib
     assert first["execution"]["read_only"] is True
     assert first["execution"]["raw_source_returned"] is False
     assert {item["relation_kind"] for item in first["proposals"]} == {"inherits", "implements", "type_alias", "import_reference"}
-    assert any(item["unresolved"] and item["relation_kind"] == "import_reference" for item in first["proposals"])
+    external_import = next(item for item in first["proposals"] if item["relation_kind"] == "import_reference")
+    assert external_import["unresolved"] is True
+    assert external_import["resolution_status"] == "unresolved"
+    assert external_import["resolution_reason"] == "target_not_resolved"
     assert all("signature" not in item and "source" not in item for item in first["proposals"])
 
 
@@ -108,3 +111,38 @@ def test_type_reference_resolution_binds_qualified_package_aliases_without_promo
     assert row["proposal_only"] is True
     assert result["execution"]["writes_sqlite_state"] is False
     assert result["execution"]["compiler_or_lsp"] is False
+
+
+def test_type_reference_resolution_binds_repeated_csharp_namespace_declarations_once() -> None:
+    nodes = [
+        {"node_id": "program", "node_kind": "file", "name": "Program.cs", "path": "src/Jmaka.Api/Program.cs"},
+        {"node_id": "external-services", "node_kind": "external_module", "name": "Jmaka.Api.Services", "qualified_name": "Jmaka.Api.Services", "attributes": {"external": True}},
+        {"node_id": "namespace-a", "node_kind": "namespace", "name": "Jmaka.Api.Services", "qualified_name": "Jmaka.Api.Services", "path": "src/Jmaka.Api/Services/FfmpegJobQueueService.cs"},
+        {"node_id": "namespace-b", "node_kind": "namespace", "name": "Jmaka.Api.Services", "qualified_name": "Jmaka.Api.Services", "path": "src/Jmaka.Api/Services/ImagePipelineService.cs"},
+        {"node_id": "queue", "node_kind": "class", "name": "FfmpegJobQueueService", "qualified_name": "FfmpegJobQueueService", "path": "src/Jmaka.Api/Services/FfmpegJobQueueService.cs"},
+        {"node_id": "images", "node_kind": "class", "name": "ImagePipelineService", "qualified_name": "ImagePipelineService", "path": "src/Jmaka.Api/Services/ImagePipelineService.cs"},
+    ]
+    edges = [
+        {
+            "edge_kind": "imports",
+            "source_node_id": "program",
+            "target_node_id": "external-services",
+            "confidence": 0.75,
+            "unresolved": True,
+            "attributes": {"module": "Jmaka.Api.Services", "alias": "Services"},
+        }
+    ]
+
+    result = build_type_reference_resolution(nodes, edges, max_items=32)
+
+    imports = [item for item in result["proposals"] if item["relation_kind"] == "import_reference"]
+    assert len(imports) == 1
+    row = imports[0]
+    assert row["target_node_id"] == "namespace-a"
+    assert row["binding_scope"] == "internal-namespace"
+    assert row["evidence_class"] == "indexed-exact-namespace"
+    assert row["candidate_count"] == 1
+    assert row["resolution_status"] == "resolved"
+    assert row["unresolved"] is False
+    assert not any(item["relation_kind"] == "package_symbol_reference" for item in result["proposals"])
+    assert result["unresolved_count"] == 0

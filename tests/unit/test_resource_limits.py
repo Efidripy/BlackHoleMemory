@@ -32,6 +32,8 @@ from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_CODE_GRAPH_SOFT_WAIT_SECONDS
 from blackholememory.resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
 from blackholememory.resource_limits import BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS
 from blackholememory.resource_limits import EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS
@@ -96,6 +98,8 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS == 60
     assert BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS == 120
     assert BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS == 30
+    assert BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS == 5
+    assert BHM_CODE_GRAPH_SOFT_WAIT_SECONDS == 20
     assert BHM_INDEX_MAX_FILES_PER_RUN == 666
     assert BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS == 3
     assert EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS == 20

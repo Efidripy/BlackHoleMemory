@@ -228,7 +228,7 @@ def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
     timeout: float | None = None
     if path == "/bhm/code-tools":
         operation = str(body.get("operation") or "").casefold()
-        if operation == "status":
+        if operation in {"status", "coverage", "projects"}:
             timeout = float(BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS)
         elif operation in {"index", "watch"}:
             timeout = float(
