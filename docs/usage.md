@@ -8,13 +8,23 @@ Qdrant используется как восстанавливаемая vector
 ## Authority and projection
 
 SQLite is the authoritative store. In the canonical authoritative runtime the
-projection worker is intentionally disabled by the SQLite authority guard;
-this is a protection boundary, not a runtime failure. Qdrant remains a
-rebuildable read projection and must not become a second source of truth.
-The compatibility-sidecar boundary is documented in
+in-process projection worker is intentionally disabled by the SQLite authority
+guard; this is a protection boundary, not a runtime failure. A separate,
+launcher-managed projection sidecar continuously consumes the transactional
+outbox in `sqlite-shadow` mode and writes only the rebuildable Qdrant
+projection. Qdrant must never become a second source of truth. The
+compatibility-sidecar boundary is documented in
 [`docs/architecture-authority.md`](architecture-authority.md).
 
-When an operator needs to reconcile a backlog, use the bounded operator flow:
+The sidecar is started automatically by the authoritative launcher. Its status
+and bounded logs are local runtime artifacts:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-bhm-projection-sidecar.ps1 -Action Status
+```
+
+If the sidecar was stopped or a bounded backlog needs recovery, use the
+operator flow:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\bhm-projection-operator.ps1 -Action drain -MaxCycles 32

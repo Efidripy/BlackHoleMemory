@@ -25,6 +25,9 @@ for compatibility, but a sidecar-only update is not a valid BHM state change.
   response reports whether a bounded Qdrant payload update was scheduled.
 - Qdrant reconciliation is deterministic and rollback-aware; it consumes
   SQLite state and never promotes an orphan vector to authority.
+- The launcher-managed projection sidecar may claim and acknowledge only
+  transactional outbox leases in `sqlite-shadow` mode; it is not an
+  authoritative memory writer and must not be folded into the API process.
 - Authoritative runtime readiness requires SQLite schema/parity checks, while
   Qdrant degradation is reported separately.
 

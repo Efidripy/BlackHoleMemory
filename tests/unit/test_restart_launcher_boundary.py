@@ -75,6 +75,7 @@ def test_restart_script_preserves_authoritative_contract_without_touching_depend
     )
 
     assert '"-Authoritative"' in script
+    assert "start-bhm-projection-sidecar.ps1" in script
     assert "start-qdrant.ps1" not in script
     assert "docker compose" not in script.lower()
     assert "lm studio" not in script.lower()
