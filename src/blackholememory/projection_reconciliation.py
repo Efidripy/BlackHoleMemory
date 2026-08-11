@@ -18,6 +18,8 @@ from .domain import Lifecycle
 from .memory_repository import MemoryRepository
 from .qdrant_projector import QdrantProjector
 from .qdrant_projector import deterministic_point_id
+from .qdrant_projector import projection_payload_digest
+from .qdrant_projector import projection_payload_digest_from_payload
 
 
 QDRANT_QUARANTINE_COLLECTION_PREFIX = "bhm_quarantine_projection_"
@@ -57,6 +59,8 @@ class ReconciliationEntry:
     reason: str
     desired_revision_id: str | None = None
     observed_revision_id: str | None = None
+    desired_payload_digest: str | None = None
+    observed_payload_digest: str | None = None
     observed_payload: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -68,6 +72,8 @@ class ReconciliationEntry:
             "reason": self.reason,
             "desired_revision_id": self.desired_revision_id,
             "observed_revision_id": self.observed_revision_id,
+            "desired_payload_digest": self.desired_payload_digest,
+            "observed_payload_digest": self.observed_payload_digest,
             "observed_payload": self.observed_payload,
         }
 
@@ -390,6 +396,18 @@ def build_projection_reconciliation_plan(
                 if isinstance(observed_payload, Mapping) and observed_payload.get("revision_id")
                 else None
             )
+            desired_digest = projection_payload_digest(memory, collection_name)
+            observed_marker = (
+                str(observed_payload.get("projection_payload_digest"))
+                if isinstance(observed_payload, Mapping)
+                and observed_payload.get("projection_payload_digest")
+                else None
+            )
+            observed_digest = (
+                projection_payload_digest_from_payload(observed_payload)
+                if isinstance(observed_payload, Mapping)
+                else None
+            )
             if memory.lifecycle is Lifecycle.TOMBSTONED:
                 action = ReconciliationAction.DELETE if observed else ReconciliationAction.NOOP
                 reason = "tombstone cleanup" if observed else "tombstone already absent"
@@ -399,9 +417,11 @@ def build_projection_reconciliation_plan(
             elif (
                 observed_revision != memory.current_revision.revision_id
                 or str(observed_payload.get("lifecycle")) != memory.lifecycle.value
+                or observed_marker != desired_digest
+                or observed_digest != desired_digest
             ):
                 action = ReconciliationAction.UPSERT
-                reason = "projection stale"
+                reason = "projection payload stale"
             else:
                 action = ReconciliationAction.NOOP
                 reason = "projection matches"
@@ -414,6 +434,8 @@ def build_projection_reconciliation_plan(
                     reason=reason,
                     desired_revision_id=memory.current_revision.revision_id,
                     observed_revision_id=observed_revision,
+                    desired_payload_digest=desired_digest,
+                    observed_payload_digest=observed_digest,
                     observed_payload=observed_payload,
                 )
             )

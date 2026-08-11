@@ -73,3 +73,29 @@ caller authentication. Для их получения используйте bea
 Ответ `401 caller_auth_required` на эти маршруты без credential означает
 штатную границу раскрытия данных, а не неисправность runtime. Для обычной
 проверки запуска достаточно `/health/ready`.
+## Ошибки memory refinery
+
+- `refinery plan digest mismatch`: plan или переданный digest не совпадает с
+  исходным артефактом. Не редактируйте plan; выполните новый rehearsal.
+- `authoritative records changed after the refinery plan was created`: SQLite
+  изменилась после планирования. Сохраните старый rollback backup, удалите из
+  рабочего flow устаревшую working copy и выполните новый rehearsal.
+- `rollback backup digest mismatch`: остановитесь и не выполняйте live apply.
+  Сохраните артефакты и определите процесс, изменивший sealed backup.
+- Ошибка restore-probe или integrity: остановитесь до live apply. Успешный
+  rehearsal требует `quick_check=ok`, ноль foreign-key errors, неизменный
+  SHA-256 backup и совпадающие logical fingerprints.
+- `atomic refinery apply failed: MemoryRevisionConflict`: authoritative
+  snapshot изменился после plan/rehearsal. Не повторяйте старый plan; создайте
+  новый immutable rehearsal.
+- `atomic refinery apply failed: MemoryRepositoryIntegrityError`: обнаружена
+  project alias collision в `upsert_key` или link identity. Не объединяйте
+  записи автоматически; вынесите конфликт в reviewed data-quality gate.
+
+После успешной live-нормализации `projection_pending > 0` ожидаем: каждая
+изменённая memory создаёт transactional outbox event. Дождитесь drain через
+launcher-managed projection sidecar, затем выполняйте Qdrant reconciliation до
+canonical `upsert=0`, `delete=0`. `review=0` обязателен только когда нет
+классифицированных alias-orphan points; их удаление остаётся отдельным reviewed
+gate. Refinery не запускает `VACUUM`, не удаляет historical graph snapshots и
+alias orphans.

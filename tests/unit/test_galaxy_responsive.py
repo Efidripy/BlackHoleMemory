@@ -223,3 +223,81 @@ def test_galaxy_mcp_reconnect_receipt_is_progressive_and_source_free():
     assert '"read-only · no live writes"' in html
     assert 'session_id' not in html
     assert 'access_token' not in html
+
+
+def test_galaxy_view_modes_are_synchronized_and_customizable():
+    html = GALAXY_HTML.read_text(encoding="utf-8")
+
+    assert 'id="presetCustom"' in html
+    assert "const presetProfiles" in html
+    assert "function markFiltersCustom" in html
+    assert 'button.setAttribute("aria-pressed", String(key === name));' in html
+    assert 'markFiltersCustom(false, kind, checkbox.checked);' in html
+    assert 'domain_project: "Domain to project"' in html
+    assert '"domain_project"' in html
+    assert 'query.set("edge_kinds", Array.from(state.customEdgeKinds).sort().join(","));' in html
+    assert 'state.customEdgeKinds = new Set(state.enabledEdges);' in html
+    assert 'state.customEdgeKinds.add(changedKind);' in html
+    assert 'state.customEdgeKinds.delete(changedKind);' in html
+    assert 'customEdgeKindsProvided: params.has("edge_kinds")' in html
+    assert 'state.customEdgeKindsProvided = true;' in html
+    assert 'id="presetTelemetry"' not in html
+
+
+def test_galaxy_filters_nodes_by_mode_and_enabled_links():
+    html = GALAXY_HTML.read_text(encoding="utf-8")
+
+    assert "function nodeVisibleForMode" in html
+    assert "const eligibleNodeIds = new Set(eligibleNodes.map(node => node.id));" in html
+    assert "const visibleNodeIds = new Set();" in html
+    assert "const nodeIds = new Set((state.allData.nodes || []).map(node => node.id));" not in html
+    assert "function normalizeEdgeKind" in html
+
+
+def test_galaxy_advanced_filters_are_progressively_disclosed():
+    html = GALAXY_HTML.read_text(encoding="utf-8")
+    group_start = html.index('<details id="advancedFiltersGroup"')
+    group_end = html.index("</details>", group_start)
+    group = html[group_start:group_end]
+
+    assert 'id="limit"' in group
+    assert 'id="edgeFilters"' in group
+    assert 'id="tagLimit"' not in html
+    assert 'id="includeTags"' not in html
+    assert 'id="includeObservations"' not in html
+    assert 'query.set("tag_limit"' not in html
+
+
+def test_galaxy_operator_surfaces_share_one_progressive_group():
+    html = GALAXY_HTML.read_text(encoding="utf-8")
+    group_start = html.index('<details id="operatorDiagnosticsGroup"')
+
+    for marker in (
+        'id="systemContext"',
+        'id="qualityCard"',
+        'id="mcpAdvancedGroup"',
+        'id="cbmParityPanel"',
+        'id="advancedToolsGroup"',
+        'id="diagnosticsPanel"',
+    ):
+        assert html.index(marker) > group_start
+
+
+def test_galaxy_api_query_excludes_client_only_view_state():
+    html = GALAXY_HTML.read_text(encoding="utf-8")
+
+    assert 'const requestQuery = new URLSearchParams(query);' in html
+    assert 'requestQuery.delete(key);' in html
+    assert 'return `/bhm/galaxy/data?${requestQuery.toString()}`;' in html
+    assert 'query.set("include_tags"' not in html
+    assert 'query.set("include_observations"' not in html
+
+
+def test_galaxy_neighborhood_selection_redraws_and_project_hubs_are_not_duplicated():
+    html = GALAXY_HTML.read_text(encoding="utf-8")
+
+    assert 'return `project::${project || "unscoped"}`;' in html
+    assert 'startsWith("project::")' in html
+    assert 'role="group" aria-labelledby="presetGroupLabel"' in html
+    assert html.count('if (state.focusMode === "neighborhood") {') >= 3
+    assert 'redrawFilteredGraph(true);' in html

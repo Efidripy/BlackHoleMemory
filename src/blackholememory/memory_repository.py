@@ -102,6 +102,14 @@ class MemoryRepository(Protocol):
         expected_revision_ids: Mapping[str, str | None] | None = None,
     ) -> list[SaveMemoryResult]: ...
 
+    def save_memories_refinery_atomic(
+        self,
+        memories: Iterable[Memory],
+        *,
+        expected_memories: Mapping[str, Memory],
+        project_aliases: Mapping[str, str],
+    ) -> dict[str, Any]: ...
+
     def tombstone_project(self, project: str, *, reason: str = "project_retirement") -> dict[str, Any]: ...
 
     def get_memory(self, memory_id: str, *, project: str | None = None) -> Memory | None: ...
@@ -822,6 +830,112 @@ class SQLiteMemoryRepository:
                 )
                 for memory in items
             ]
+
+    def save_memories_refinery_atomic(
+        self,
+        memories: Iterable[Memory],
+        *,
+        expected_memories: Mapping[str, Memory],
+        project_aliases: Mapping[str, str],
+    ) -> dict[str, Any]:
+        """Apply a refinery batch with full-record CAS and related project updates."""
+
+        items = list(memories)
+        ids = [memory.id for memory in items]
+        if len(ids) != len(set(ids)):
+            raise MemoryRepositoryIntegrityError("refinery batch contains duplicate memory ids")
+        if not set(ids).issubset(expected_memories):
+            raise MemoryRepositoryIntegrityError("refinery batch is outside the expected snapshot")
+        if len(items) > 10_000:
+            raise ValueError("refinery batch exceeds 10000 items")
+        aliases = {
+            str(source): str(target)
+            for source, target in project_aliases.items()
+            if str(source) and str(target) and str(source) != str(target)
+        }
+        with self._write_transaction() as connection:
+            rows = connection.execute(self._joined_memory_query()).fetchall()
+            actual_memories = {
+                memory.id: memory
+                for memory in (self._joined_memory_row_to_model(row) for row in rows)
+            }
+            if set(actual_memories) != set(expected_memories):
+                raise MemoryRevisionConflict("authoritative memory set changed before refinery apply")
+            for memory_id, expected in expected_memories.items():
+                actual = actual_memories[memory_id]
+                if actual.to_record() != expected.to_record():
+                    raise MemoryRevisionConflict(
+                        f"memory {memory_id} changed before refinery apply"
+                    )
+
+            for source, target in aliases.items():
+                upsert_collision = connection.execute(
+                    """
+                    SELECT legacy.memory_id
+                    FROM memories AS legacy
+                    JOIN memories AS canonical
+                      ON canonical.project = ?
+                     AND canonical.upsert_key = legacy.upsert_key
+                     AND canonical.memory_id <> legacy.memory_id
+                    WHERE legacy.project = ?
+                      AND legacy.upsert_key IS NOT NULL
+                    LIMIT 1
+                    """,
+                    (target, source),
+                ).fetchone()
+                if upsert_collision is not None:
+                    raise MemoryRepositoryIntegrityError(
+                        f"project alias {source!r}->{target!r} collides on upsert_key"
+                    )
+                collision = connection.execute(
+                    """
+                    SELECT legacy.link_id
+                    FROM memory_links AS legacy
+                    JOIN memory_links AS canonical
+                      ON canonical.project = ?
+                     AND canonical.source_id = legacy.source_id
+                     AND canonical.target_id = legacy.target_id
+                     AND canonical.relation = legacy.relation
+                     AND canonical.link_id <> legacy.link_id
+                    WHERE legacy.project = ?
+                    LIMIT 1
+                    """,
+                    (target, source),
+                ).fetchone()
+                if collision is not None:
+                    raise MemoryRepositoryIntegrityError(
+                        f"project alias {source!r}->{target!r} collides in memory_links"
+                    )
+
+            results = [
+                self._save_memory_in_transaction(
+                    connection,
+                    memory,
+                    expected_revision_id=expected_memories[memory.id].current_revision.revision_id,
+                )
+                for memory in items
+            ]
+            links_updated = 0
+            artifacts_updated = 0
+            for source, target in aliases.items():
+                links_updated += int(
+                    connection.execute(
+                        "UPDATE memory_links SET project = ? WHERE project = ?",
+                        (target, source),
+                    ).rowcount
+                )
+                artifacts_updated += int(
+                    connection.execute(
+                        "UPDATE memory_artifacts SET project = ? WHERE project = ?",
+                        (target, source),
+                    ).rowcount
+                )
+            return {
+                "results": results,
+                "links_updated": links_updated,
+                "artifacts_updated": artifacts_updated,
+                "project_aliases": aliases,
+            }
 
     def get_memory(self, memory_id: str, *, project: str | None = None) -> Memory | None:
         connection = self._read_connection()

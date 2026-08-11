@@ -12,6 +12,7 @@ from blackholememory.mem0_adapter import local_collection_name
 from blackholememory.outbox import OutboxStatus
 from blackholememory.qdrant_projector import QdrantProjector
 from blackholememory.qdrant_projector import deterministic_point_id
+from blackholememory.qdrant_projector import projection_payload_digest
 from blackholememory.qdrant_projector import _vector_targets
 from blackholememory.vector_routing import route_vector_targets
 
@@ -41,6 +42,11 @@ class _FakeQdrant:
         assert wait is True
         for point_id in points_selector.points:
             self.points.pop((collection_name, str(point_id)), None)
+
+    def set_payload(self, *, collection_name, payload, points, wait):
+        assert wait is True
+        for point_id in points:
+            self.points[(collection_name, str(point_id))].payload = dict(payload)
 
     def collection_exists(self, collection_name):
         return any(name == collection_name for name, _point_id in self.points)
@@ -100,6 +106,7 @@ def test_projector_is_idempotent_and_payload_is_filterable(tmp_path):
     assert local_point.payload["data"] == local_point.payload["content"] == memory.current_revision.content
     assert local_point.payload["revision_id"] == memory.current_revision.revision_id
     assert local_point.payload["content_sha256"] == memory.current_revision.content_sha256
+    assert local_point.payload["projection_payload_digest"] == projection_payload_digest(memory, local_name)
     assert client.points[(global_name, deterministic_point_id(global_name, memory.id))].payload["project"] == memory.project
     assert repository.list_outbox(status=OutboxStatus.COMPLETED)[0].event_id == first.outcomes[0].event_id
 
@@ -133,6 +140,108 @@ def test_equivalent_replay_acks_without_reembedding(tmp_path):
 
     assert replayed.completed == 1
     assert len(vector_calls) == 1
+
+
+def test_metadata_only_change_refreshes_payload_without_reembedding(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _FakeQdrant()
+    vector_calls = []
+    projector = QdrantProjector(
+        client,
+        lambda _memory: vector_calls.append(True) or [0.25, 0.75],
+        expected_dimensions=2,
+    )
+    assert projector.run_once(repository).completed == 1
+
+    updated = memory.model_copy(
+        update={"metadata": {**memory.metadata, "domain": "backend", "importance_score": 8}}
+    )
+    repository.save_memory(updated, expected_revision_id=memory.current_revision.revision_id)
+    refreshed = projector.run_once(repository)
+
+    assert refreshed.completed == 1
+    assert len(vector_calls) == 1
+    for collection_name in projector.collection_names(updated):
+        point = client.points[(collection_name, deterministic_point_id(collection_name, updated.id))]
+        assert point.payload["metadata"]["domain"] == "backend"
+        assert point.payload["projection_payload_digest"] == projection_payload_digest(updated, collection_name)
+
+
+def test_tampered_payload_with_invalid_digest_contract_is_fully_reprojected(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _FakeQdrant()
+    vector_calls = []
+    projector = QdrantProjector(
+        client,
+        lambda _memory: vector_calls.append(True) or [0.25, 0.75],
+        expected_dimensions=2,
+    )
+    assert projector.run_once(repository).completed == 1
+    local_name = local_collection_name(memory.project)
+    point = client.points[(local_name, deterministic_point_id(local_name, memory.id))]
+    marker = point.payload["projection_payload_digest"]
+    point.payload["content"] = "tampered content"
+    point.payload["data"] = "tampered content"
+    point.payload["metadata"] = {"raw_title": "tampered"}
+    assert point.payload["projection_payload_digest"] == marker
+    assert projector.projection_matches(memory) is False
+
+    database = sqlite3.connect(repository.path)
+    try:
+        database.execute(
+            "UPDATE memory_outbox SET status = 'pending', claimed_at = NULL, claim_token = NULL"
+        )
+        database.commit()
+    finally:
+        database.close()
+    repaired = projector.run_once(repository)
+
+    assert repaired.completed == 1
+    assert len(vector_calls) == 2
+    point = client.points[(local_name, deterministic_point_id(local_name, memory.id))]
+    assert point.payload["content"] == memory.current_revision.content
+    assert point.payload["data"] == memory.current_revision.content
+    assert point.payload["metadata"] == memory.metadata
+
+
+def test_legacy_point_without_payload_digest_is_fully_reprojected(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _FakeQdrant()
+    vector_calls = []
+    projector = QdrantProjector(
+        client,
+        lambda _memory: vector_calls.append(True) or [0.25, 0.75],
+        expected_dimensions=2,
+    )
+    local_name = local_collection_name(memory.project)
+    point_id = deterministic_point_id(local_name, memory.id)
+    legacy_payload = {
+        "source_id": memory.id,
+        "project": memory.project,
+        "lifecycle": memory.lifecycle.value,
+        "revision_id": memory.current_revision.revision_id,
+        "content_sha256": memory.current_revision.content_sha256,
+    }
+    client.points[(local_name, point_id)] = _StoredPoint(
+        vector=[9.0, 9.0],
+        payload=legacy_payload,
+    )
+
+    projected = projector.run_once(repository)
+
+    assert projected.completed == 1
+    assert len(vector_calls) == 1
+    point = client.points[(local_name, point_id)]
+    assert point.vector == [0.25, 0.75]
+    assert point.payload["projection_payload_digest"] == projection_payload_digest(
+        memory, local_name
+    )
 
 
 def test_retrying_stale_event_cannot_regress_newer_authoritative_revision(tmp_path):

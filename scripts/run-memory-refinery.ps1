@@ -2,6 +2,7 @@ param(
     [string]$BaseUrl = '',
     [string]$Project = "",
     [string]$ExcludeProjectRegex = "^(bhm-surface-smoke-|smoke-|noise-smoke-|next20-smoke$)",
+    [ValidateRange(50, 1000)][int]$PageSize = 500,
     [switch]$ApplySafe
 )
 
@@ -269,19 +270,31 @@ Add-Step -Steps $steps -Name "service_ready" -Action {
 }
 
 $exportName = "memory-refinery-$mode-$scopeLabel-$runId"
-Add-Step -Steps $steps -Name "admin_export" -Action {
-    Invoke-BhmJson -Method Post -Url "$BaseUrl/bhm/admin/export" -Body @{
-        project = $projectValue
-        include_archived = $true
-        include_artifacts = $true
-        export_name = $exportName
+if ($ApplySafe) {
+    Add-Step -Steps $steps -Name "admin_export" -Action {
+        Invoke-BhmJson -Method Post -Url "$BaseUrl/bhm/admin/export" -Body @{
+            project = $projectValue
+            include_archived = $true
+            include_artifacts = $true
+            export_name = $exportName
+        }
     }
 }
 
 Add-Step -Steps $steps -Name "live_memory_inventory" -Action {
-    $inventory = Invoke-BhmJson -Method Get -Url "$BaseUrl/bhm/memories?include_archived=true&limit=1000&offset=0"
+    $inventoryItems = New-Object 'System.Collections.Generic.List[object]'
+    $offset = 0
+    do {
+        $inventory = Invoke-BhmJson -Method Get -Url "$BaseUrl/bhm/memories?include_archived=true&limit=$PageSize&offset=$offset"
+        $page = @($inventory.memories)
+        foreach ($item in $page) {
+            $inventoryItems.Add($item) | Out-Null
+        }
+        $offset += $page.Count
+    } while ($page.Count -eq $PageSize)
+
     $projectCounts = @{}
-    foreach ($item in @($inventory.memories)) {
+    foreach ($item in @($inventoryItems)) {
         $projectKey = if ($item.project) { [string]$item.project } else { "<none>" }
         if (-not $projectCounts.ContainsKey($projectKey)) {
             $projectCounts[$projectKey] = 0
@@ -299,8 +312,17 @@ Add-Step -Steps $steps -Name "live_memory_inventory" -Action {
             }
         }
 
+    if (-not $projectValue) {
+        $script:refineryProjects = @(
+            $projectCounts.Keys |
+                Where-Object { $_ -ne '<none>' -and $_ -notmatch $ExcludeProjectRegex } |
+                Sort-Object
+        )
+    }
+
     [ordered]@{
-        memory_count = @($inventory.memories).Count
+        memory_count = @($inventoryItems).Count
+        pages = [Math]::Ceiling(@($inventoryItems).Count / [double]$PageSize)
         top_projects = $topProjects
     }
 }
@@ -576,9 +598,14 @@ if ($ApplySafe) {
     }
 
     Add-Step -Steps $steps -Name "repair_live_indexes" -Action {
-        Invoke-BhmJson -Method Post -Url "$BaseUrl/bhm/repair-live-indexes" -Body @{
-            remove_orphan_links = $true
-            remove_orphan_artifacts = $true
+        Invoke-ProjectSweep -Projects $refineryProjects -Operation {
+            param($projectName)
+            Invoke-BhmJson -Method Post -Url "$BaseUrl/bhm/repair-live-indexes" -Body @{
+                project = $projectName
+                aggregate = $false
+                remove_orphan_links = $true
+                remove_orphan_artifacts = $true
+            }
         }
     }
 
@@ -599,10 +626,12 @@ if ($ApplySafe) {
     }
 }
 
-Add-Step -Steps $steps -Name "entity_catalog_rebuild" -Action {
-    Invoke-ProjectSweep -Projects $refineryProjects -Operation {
-        param($projectName)
-        Invoke-BhmJson -Method Post -Url "$BaseUrl/bhm/entity-catalog/rebuild" -Body @{ project = $projectName }
+if ($ApplySafe) {
+    Add-Step -Steps $steps -Name "entity_catalog_rebuild" -Action {
+        Invoke-ProjectSweep -Projects $refineryProjects -Operation {
+            param($projectName)
+            Invoke-BhmJson -Method Post -Url "$BaseUrl/bhm/entity-catalog/rebuild" -Body @{ project = $projectName }
+        }
     }
 }
 
@@ -655,10 +684,12 @@ if ($ApplySafe) {
     }
 }
 
-Add-Step -Steps $steps -Name "project_summary_refresh_all" -Action {
-    $projects = if (@($refineryProjects).Count -gt 0) { @($refineryProjects) } else { $null }
-    Invoke-BhmJson -Method Post -Url "$BaseUrl/bhm/project-summary/refresh-all" -Body @{
-        projects = $projects
+if ($ApplySafe) {
+    Add-Step -Steps $steps -Name "project_summary_refresh_all" -Action {
+        Invoke-BhmJson -Method Post -Url "$BaseUrl/bhm/project-summary/refresh-all" -Body @{
+            projects = @($refineryProjects)
+            aggregate = $false
+        }
     }
 }
 

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import SimpleNamespace
 
 from blackholememory.domain import Memory
 from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.mem0_adapter import local_collection_name
+from blackholememory.qdrant_projector import deterministic_point_id
 from blackholememory.qdrant_projector import QdrantProjector
 from blackholememory.sync_service import MemoryLifecycleService
 from blackholememory.projection_reconciliation import ReconciliationAction
@@ -53,6 +56,20 @@ class _Surface:
         assert wait is True
         for point_id in points_selector.points:
             self.delete_point(collection_name, str(point_id))
+
+    def retrieve(self, *, collection_name, ids, with_payload, with_vectors):
+        assert with_payload is True
+        assert with_vectors is False
+        return [
+            SimpleNamespace(id=point_id, payload=self.points[(collection_name, str(point_id))].payload)
+            for point_id in ids
+            if (collection_name, str(point_id)) in self.points
+        ]
+
+    def set_payload(self, *, collection_name, payload, points, wait):
+        assert wait is True
+        for point_id in points:
+            self.points[(collection_name, str(point_id))].payload = dict(payload)
 
 
 def _memory() -> Memory:
@@ -145,6 +162,57 @@ def test_reconciliation_detects_tombstone_delete_and_orphan_review(tmp_path):
     assert deleted.deleted == 1
     assert len(deleted.failed) == 2
     assert surface.points == {}
+
+
+def test_reconciliation_detects_metadata_only_payload_drift(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    surface = _Surface()
+    vector_calls = []
+    projector = QdrantProjector(
+        surface,
+        lambda _memory: vector_calls.append(True) or [0.1, 0.9],
+        expected_dimensions=2,
+    )
+    initial = build_projection_reconciliation_plan(repository, surface, as_of="fixed")
+    apply_projection_reconciliation(initial, repository, projector, surface)
+
+    updated = memory.model_copy(update={"metadata": {**memory.metadata, "domain": "backend"}})
+    repository.save_memory(updated, expected_revision_id=memory.current_revision.revision_id)
+    stale = build_projection_reconciliation_plan(repository, surface, as_of="fixed-2")
+
+    assert stale.counts[ReconciliationAction.UPSERT.value] == 2
+    applied = apply_projection_reconciliation(stale, repository, projector, surface)
+    assert applied.ok is True
+    assert len(vector_calls) == 1
+    clean = build_projection_reconciliation_plan(repository, surface, as_of="fixed-3")
+    assert clean.counts[ReconciliationAction.NOOP.value] == 2
+
+
+def test_reconciliation_detects_tampered_payload_behind_valid_digest_marker(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    surface = _Surface()
+    projector = QdrantProjector(surface, lambda _memory: [0.1, 0.9], expected_dimensions=2)
+    initial = build_projection_reconciliation_plan(repository, surface, as_of="fixed")
+    apply_projection_reconciliation(initial, repository, projector, surface)
+    collection_name = local_collection_name(memory.project)
+    point_id = deterministic_point_id(collection_name, memory.id)
+    point = surface.points[(collection_name, point_id)]
+    marker = point.payload["projection_payload_digest"]
+    point.payload["metadata"] = {"vector_targets": ["local", "global"], "domain": "tampered"}
+    assert point.payload["projection_payload_digest"] == marker
+
+    stale = build_projection_reconciliation_plan(repository, surface, as_of="fixed-2")
+
+    assert stale.counts[ReconciliationAction.UPSERT.value] == 1
+    assert stale.counts[ReconciliationAction.NOOP.value] == 1
+    applied = apply_projection_reconciliation(stale, repository, projector, surface)
+    assert applied.ok is True
+    clean = build_projection_reconciliation_plan(repository, surface, as_of="fixed-3")
+    assert clean.counts[ReconciliationAction.NOOP.value] == 2
 
 
 def test_review_classification_separates_known_duplicates_from_unknown_points(tmp_path):
