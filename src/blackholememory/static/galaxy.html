@@ -1704,13 +1704,13 @@
               <div id="galaxyDomainHint" class="mini-note">Combined связывает память и код; Memory показывает знания; Code показывает структуру репозитория.</div>
             </div>
             <div class="field">
-              <label>Готовый режим плотности</label>
-              <div class="preset-row">
-                <button id="presetKnowledge" class="chip active" type="button">Knowledge</button>
-                <button id="presetTelemetry" class="chip" type="button">Telemetry</button>
-                <button id="presetBalanced" class="chip" type="button">Balanced</button>
+              <div id="presetGroupLabel">Готовый набор связей</div>
+              <div class="preset-row" role="group" aria-labelledby="presetGroupLabel">
+                <button id="presetKnowledge" class="chip active" type="button" aria-pressed="true">Overview</button>
+                <button id="presetBalanced" class="chip" type="button" aria-pressed="false">All links</button>
+                <button id="presetCustom" class="chip" type="button" aria-pressed="false">Custom</button>
               </div>
-              <div class="mini-note">Knowledge скрывает шум; Telemetry добавляет наблюдения; Balanced — средний вариант.</div>
+              <div class="mini-note">Overview показывает структуру scope; All links добавляет semantic relations; Custom сохраняет ручной набор.</div>
             </div>
           </div>
           <div class="section-group">
@@ -1742,32 +1742,19 @@
               <a class="link-btn secondary" href="/" target="_self">На dashboard</a>
             </div>
           </div>
-          <div class="section-group">
-            <div class="section-title">3 · Плотность данных</div>
+          <details id="advancedFiltersGroup" class="advanced-panel">
+            <summary>3 · Расширенные фильтры</summary>
             <div class="field">
             <label for="limit">Лимит memory records</label>
             <input id="limit" type="number" min="40" max="500" value="220">
             <div class="mini-note">Больше записей = больше контекста и медленнее навигация.</div>
           </div>
-          <div class="field">
-            <label for="tagLimit">Лимит тегов</label>
-            <input id="tagLimit" type="number" min="0" max="60" value="24">
+          <div class="field" style="margin-top:18px;">
+            <label>Фильтры типов связей</label>
+            <div id="edgeFilters" class="edge-list"></div>
+            <div class="mini-note">Ручное изменение включает режим Custom.</div>
           </div>
-          <div class="toggle">
-            <div>
-              <strong>Показывать semantic tags</strong>
-              <div class="toggle-note">Добавляет узлы тегов и связи между знаниями.</div>
-            </div>
-            <input id="includeTags" type="checkbox" checked>
-          </div>
-          <div class="toggle">
-            <div>
-              <strong>Показывать observations</strong>
-              <div class="toggle-note">Добавляет агрегированные telemetry-кластеры, не raw events.</div>
-            </div>
-            <input id="includeObservations" type="checkbox" checked>
-          </div>
-          </div>
+          </details>
         </div>
         <div class="metrics">
           <div class="metrics-heading"><span>Текущий граф</span><span>read-only snapshot</span></div>
@@ -1788,6 +1775,8 @@
             <div id="scopeLabel" class="value" style="font-size: 18px;">all</div>
           </div>
         </div>
+        <details id="operatorDiagnosticsGroup" class="advanced-panel">
+          <summary>Operator diagnostics · runtime, MCP и CBM</summary>
         <section id="systemContext" class="system-context" aria-labelledby="systemContextTitle">
           <div class="system-context-header">
             <div id="systemContextTitle" class="section-title">Runtime context</div>
@@ -1935,11 +1924,7 @@
             <ul id="reconciliationList" class="diagnostic-list"></ul>
           </section>
         </details>
-        <div class="field" style="margin-top:18px;">
-           <label>Фильтры типов связей</label>
-          <div id="edgeFilters" class="edge-list"></div>
-          <div class="mini-note">Отключай слабые слои связей, если хочешь видеть только knowledge skeleton или только telemetry surface.</div>
-         </div>
+        </details>
         </details>
          <div id="status" class="status" role="status" aria-live="polite">Граф загружается…</div>
         </div>
@@ -2284,9 +2269,6 @@
     const controls = {
       project: document.getElementById("project"),
       limit: document.getElementById("limit"),
-      tagLimit: document.getElementById("tagLimit"),
-      includeTags: document.getElementById("includeTags"),
-      includeObservations: document.getElementById("includeObservations"),
       domain: document.getElementById("galaxyDomain"),
       layoutMode: document.getElementById("layoutMode"),
       focusMode: document.getElementById("focusMode"),
@@ -2294,8 +2276,8 @@
     };
     const presetButtons = {
       knowledge: document.getElementById("presetKnowledge"),
-      telemetry: document.getElementById("presetTelemetry"),
-      balanced: document.getElementById("presetBalanced")
+      balanced: document.getElementById("presetBalanced"),
+      custom: document.getElementById("presetCustom")
     };
     const edgeLabels = {
       belongs_to_project: "Project spine",
@@ -2308,6 +2290,7 @@
       holds_slot: "Slot holders",
       cluster_member: "Constellation spine",
       root_branch: "Galaxy trunk",
+      domain_project: "Domain to project",
       observed_in: "Telemetry clusters",
       DEPENDS_ON: "Depends on",
       UPGRADES: "Upgrades",
@@ -2319,10 +2302,13 @@
       CONTRADICTS: "#dc3545"
     };
     const semanticDirectionalEdgeTypes = new Set(["DEPENDS_ON", "UPGRADES"]);
-    const presetEdgeKinds = {
-      knowledge: ["cluster_member", "root_branch", "belongs_to_project", "has_memory_type", "shared_file", "shared_session", "shared_tag", "slot_context", "holds_slot", "DEPENDS_ON", "UPGRADES", "CONTRADICTS"],
-      telemetry: ["cluster_member", "root_branch", "belongs_to_project", "observed_in", "holds_slot"],
-      balanced: ["cluster_member", "root_branch", "belongs_to_project", "has_memory_type", "tagged", "shared_file", "shared_session", "shared_tag", "slot_context", "holds_slot", "observed_in", "DEPENDS_ON", "UPGRADES", "CONTRADICTS"]
+    const presetProfiles = {
+      knowledge: {
+        edges: ["cluster_member", "root_branch", "domain_project", "belongs_to_project"]
+      },
+      balanced: {
+        edges: ["cluster_member", "root_branch", "domain_project", "belongs_to_project", "DEPENDS_ON", "UPGRADES", "CONTRADICTS"]
+      }
     };
     const state = {
       baseData: { nodes: [], links: [] },
@@ -2360,17 +2346,22 @@
       growthSnapshot: null,
       diagnostics: {
         retrieval: null
-      }
+      },
+      customEdgeKinds: new Set(
+        String(params.get("edge_kinds") || "")
+          .split(",")
+          .map(item => item.trim())
+          .filter(Boolean)
+      ),
+      customEdgeKindsProvided: params.has("edge_kinds"),
+      loadGeneration: 0
     };
     const memoryPulseDurationMs = 800;
     const memoryPulseDecayRate = 7;
     controls.project.value = params.get("project") || "";
     controls.limit.value = params.get("limit") || "220";
-    controls.tagLimit.value = params.get("tag_limit") || "24";
-    controls.includeTags.checked = params.get("include_tags") !== "false";
-    controls.includeObservations.checked = params.get("include_observations") !== "false";
     controls.domain.value = ["all", "memory", "code"].includes(params.get("domain")) ? params.get("domain") : "all";
-    state.preset = params.get("preset") || "knowledge";
+    state.preset = ["knowledge", "balanced", "custom"].includes(params.get("preset")) ? params.get("preset") : "knowledge";
     state.layoutMode = params.get("layout_mode") || "clustered";
     state.focusMode = params.get("focus_mode") || "global";
     state.hopDepth = Number(params.get("hop_depth") || "1");
@@ -2763,8 +2754,12 @@
         state.hoveredNodeId = null;
         detailCard.hidden = true;
         detailEmpty.hidden = false;
-        syncHighlightState();
-        updateGraphSummary();
+        if (state.focusMode === "neighborhood") {
+          redrawFilteredGraph(true);
+        } else {
+          syncHighlightState();
+          updateGraphSummary();
+        }
       })
       .onNodeDragEnd(node => {
         node.fx = node.x;
@@ -2821,8 +2816,6 @@
     });
     document.getElementById("fitBtn").addEventListener("click", () => {
       Graph.zoomToFit(700, 50);
-      const data = Graph.graphData();
-      if (data.nodes && data.nodes[0]) focusNode(data.nodes[0], 1600);
     });
     controls.project.addEventListener("focus", () => {
       showProjectSuggestions((controls.project.value || "").trim(), true);
@@ -2997,6 +2990,7 @@
     function updateHopDepthLabel() {
       hopDepthLabelEl.textContent = `${state.hopDepth} ${state.hopDepth === 1 ? "hop" : "hops"}`;
       hopDepthLabelEl.style.color = state.focusMode === "neighborhood" ? "var(--accent)" : "var(--accent-2)";
+      controls.hopDepth.disabled = state.focusMode !== "neighborhood";
     }
 
     function taxonomyMetadata(node) {
@@ -3307,12 +3301,19 @@
       return group;
     }
 
+    function normalizeEdgeKind(value) {
+      const raw = String(value || "").trim();
+      const upper = raw.toUpperCase();
+      if (semanticDirectionalEdgeTypes.has(upper) || upper === "CONTRADICTS") return upper;
+      return raw.toLowerCase();
+    }
+
     function edgeType(link) {
-      return String(link && link.type ? link.type : "").trim().toUpperCase();
+      return normalizeEdgeKind(link && link.type ? link.type : "");
     }
 
     function edgeKind(link) {
-      return String((link && link.kind) || edgeType(link) || "").trim();
+      return normalizeEdgeKind((link && link.kind) || edgeType(link) || "");
     }
 
     function linkKey(link) {
@@ -3373,7 +3374,7 @@
     }
 
     function projectHubId(project) {
-      return `project-hub::${project || "unscoped"}`;
+      return `project::${project || "unscoped"}`;
     }
 
     function isGalaxyRootNode(node) {
@@ -3381,7 +3382,7 @@
     }
 
     function isProjectHubNode(node) {
-      return Boolean(node) && node.type === "project" && String(node.id || "").startsWith("project-hub::");
+      return Boolean(node) && node.type === "project" && String(node.id || "").startsWith("project::");
     }
 
     function projectHubProjects(nodes) {
@@ -3765,19 +3766,22 @@
       const query = new URLSearchParams();
       if (controls.project.value.trim()) query.set("project", controls.project.value.trim());
       query.set("limit", controls.limit.value || "220");
-      query.set("tag_limit", controls.tagLimit.value || "24");
-      query.set("include_tags", String(controls.includeTags.checked));
-      query.set("include_observations", String(controls.includeObservations.checked));
       query.set("domain", controls.domain.value || "all");
       query.set("preset", state.preset);
+      if (state.preset === "custom") {
+        query.set("edge_kinds", Array.from(state.customEdgeKinds).sort().join(","));
+      }
       query.set("layout_mode", state.layoutMode);
       query.set("focus_mode", state.focusMode);
       query.set("hop_depth", String(state.hopDepth));
-      const url = `/bhm/galaxy/data?${query.toString()}`;
       if (updateHistory) {
         window.history.replaceState({}, "", `/bhm/galaxy?${query.toString()}`);
       }
-      return url;
+      const requestQuery = new URLSearchParams(query);
+      for (const key of ["preset", "edge_kinds", "layout_mode", "focus_mode", "hop_depth"]) {
+        requestQuery.delete(key);
+      }
+      return `/bhm/galaxy/data?${requestQuery.toString()}`;
     }
 
     function setStatus(text, tone) {
@@ -4993,7 +4997,24 @@
       state.preset = name;
       Object.entries(presetButtons).forEach(([key, button]) => {
         button.classList.toggle("active", key === name);
+        button.setAttribute("aria-pressed", String(key === name));
       });
+    }
+
+    function markFiltersCustom(updateHistory = true, changedKind = null, enabled = false) {
+      const wasCustom = state.preset === "custom";
+      setActivePreset("custom");
+      if (wasCustom && changedKind) {
+        if (enabled) {
+          state.customEdgeKinds.add(changedKind);
+        } else {
+          state.customEdgeKinds.delete(changedKind);
+        }
+      } else {
+        state.customEdgeKinds = new Set(state.enabledEdges);
+      }
+      state.customEdgeKindsProvided = true;
+      if (updateHistory) buildUrl(true);
     }
 
     function cloneGraphData(data) {
@@ -5055,7 +5076,8 @@
           } else {
             state.enabledEdges.delete(kind);
           }
-          redrawFilteredGraph();
+          markFiltersCustom(false, kind, checkbox.checked);
+          redrawFilteredGraph(true);
         });
 
         row.appendChild(left);
@@ -5094,19 +5116,45 @@
 
     function applyPreset(name, updateHistory = false) {
       setActivePreset(name);
-      state.enabledEdges = new Set(presetEdgeKinds[name] || []);
+      const profile = presetProfiles[name];
+      const availableKinds = new Set(Object.keys(edgeCounts(state.allData.links || [])));
+      if (profile) {
+        state.enabledEdges = new Set(profile.edges.filter(kind => availableKinds.has(kind)));
+      } else if (name === "custom") {
+        const fallbackKinds = presetProfiles.balanced.edges.filter(kind => availableKinds.has(kind));
+        if (!state.customEdgeKindsProvided) {
+          state.customEdgeKinds = new Set(fallbackKinds);
+          state.customEdgeKindsProvided = true;
+        }
+        state.enabledEdges = new Set(
+          Array.from(state.customEdgeKinds).filter(kind => availableKinds.has(kind))
+        );
+      }
       renderEdgeFilters(edgeCounts(state.allData.links || []));
       redrawFilteredGraph(updateHistory);
     }
 
+    function nodeVisibleForMode(node) {
+      return Boolean(node);
+    }
+
     function redrawFilteredGraph(updateHistory = false) {
-      const links = (state.allData.links || []).filter(link => state.enabledEdges.has(edgeKind(link)));
-      const nodeIds = new Set((state.allData.nodes || []).map(node => node.id));
+      const eligibleNodes = (state.allData.nodes || []).filter(nodeVisibleForMode);
+      const eligibleNodeIds = new Set(eligibleNodes.map(node => node.id));
+      const links = (state.allData.links || []).filter(link => {
+        const source = typeof link.source === "object" ? link.source.id : link.source;
+        const target = typeof link.target === "object" ? link.target.id : link.target;
+        return state.enabledEdges.has(edgeKind(link)) && eligibleNodeIds.has(source) && eligibleNodeIds.has(target);
+      });
+      const visibleNodeIds = new Set();
       for (const link of links) {
-        nodeIds.add(typeof link.source === "object" ? link.source.id : link.source);
-        nodeIds.add(typeof link.target === "object" ? link.target.id : link.target);
+        visibleNodeIds.add(typeof link.source === "object" ? link.source.id : link.source);
+        visibleNodeIds.add(typeof link.target === "object" ? link.target.id : link.target);
       }
-      let nodes = (state.allData.nodes || []).filter(node => nodeIds.has(node.id));
+      for (const node of eligibleNodes) {
+        if (["root", "domain", "project"].includes(String(node.type || "").toLowerCase())) visibleNodeIds.add(node.id);
+      }
+      let nodes = eligibleNodes.filter(node => visibleNodeIds.has(node.id));
       let scopedLinks = links;
       const scopedMap = new Map(nodes.map(node => [node.id, []]));
       for (const link of links) {
@@ -5145,7 +5193,11 @@
         buildUrl(true);
       }
       syncHighlightState();
-      setStatus(`Loaded ${state.currentData.nodes.length} nodes / ${state.currentData.links.length} links`, "info");
+      if (state.focusMode === "neighborhood" && !state.selectedNodeId) {
+        setStatus("Select a node to show its neighborhood", "info");
+      } else {
+        setStatus(`Loaded ${state.currentData.nodes.length} nodes / ${state.currentData.links.length} links`, "info");
+      }
     }
 
     function memoryPulseWeight(progress) {
@@ -5428,15 +5480,14 @@
         if (!diagnosticQueryEl.value.trim()) {
           diagnosticQueryEl.value = String(node.label || node.id || "").slice(0, 160);
         }
-        console.info("BHM node metadata", {
-          id: node.id,
-          label: node.label,
-          metadata: taxonomyMetadata(node)
-        });
       }
       showNode(node);
-      syncHighlightState();
-      updateGraphSummary();
+      if (state.focusMode === "neighborhood") {
+        redrawFilteredGraph(true);
+      } else {
+        syncHighlightState();
+        updateGraphSummary();
+      }
     }
 
     function focusNode(node, duration = 1200) {
@@ -5450,6 +5501,7 @@
     }
 
     async function loadGalaxy(updateHistory = false) {
+      const generation = ++state.loadGeneration;
       setStatus("Loading galaxy...", "info");
       const requestedProject = controls.project.value.trim();
       if (state.pulseSocket && state.pulseProject !== requestedProject) {
@@ -5459,6 +5511,7 @@
       try {
         const response = await bhmFetch(buildUrl(updateHistory));
         const payload = await response.json();
+        if (generation !== state.loadGeneration) return;
         if (!response.ok || payload.ok === false) throw new Error(payload.detail || "graph load failed");
 
         const graphPayload = payload.graph || { nodes: payload.nodes || [], links: payload.links || [] };
@@ -5482,6 +5535,7 @@
         if (!uiSessionBlocked && !state.pulseSocket) void connectMemoryPulseSocket();
         void refreshCbmParity();
       } catch (error) {
+        if (generation !== state.loadGeneration) return;
         setStatus(`Load failed: ${error.message}`, "error");
       }
     }

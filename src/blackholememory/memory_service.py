@@ -183,14 +183,18 @@ class SQLiteMemoryService:
             count += 1
         return count
 
-    def load_records(self) -> list[dict[str, Any]]:
+    def load_records(self, *, include_storage_lifecycle: bool = False) -> list[dict[str, Any]]:
         self._ensure_ready(verify_integrity=False)
         memories = self.repository.list_memories(
             include_archived=True,
             include_tombstoned=True,
             limit=10_000,
         )
-        return [memory.to_record() for memory in memories]
+        records = [memory.to_record() for memory in memories]
+        if include_storage_lifecycle:
+            for record, memory in zip(records, memories, strict=True):
+                record["lifecycle"] = memory.lifecycle.value
+        return records
 
     def get_record(self, memory_id: str, *, project: str | None = None) -> dict[str, Any] | None:
         self._ensure_ready()

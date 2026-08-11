@@ -22,7 +22,12 @@ def test_memory_refinery_uses_bounded_loopback_transport():
         "must not contain a fragment",
         "requires an HTTP loopback endpoint",
         "ApplySafe",
+        "PageSize = 500",
+        "$script:refineryProjects",
+        'if ($ApplySafe) {',
+        "aggregate = $false",
     ):
         assert marker in text
 
     assert "Invoke-RestMethod" not in text
+    assert 'limit=1000&offset=0' not in text

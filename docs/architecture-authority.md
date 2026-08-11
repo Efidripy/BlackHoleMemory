@@ -25,6 +25,18 @@ for compatibility, but a sidecar-only update is not a valid BHM state change.
   response reports whether a bounded Qdrant payload update was scheduled.
 - Qdrant reconciliation is deterministic and rollback-aware; it consumes
   SQLite state and never promotes an orphan vector to authority.
+- Every canonical memory projection carries a stable
+  `projection_payload_digest` over non-volatile SQLite metadata. A digest
+  mismatch is projection drift. Metadata-only drift is repaired with bounded
+  `set_payload`; embedding/upsert is reserved for vector-text changes or legacy
+  points that do not yet carry the digest.
+- Refinery apply uses one `BEGIN IMMEDIATE` transaction, validates the complete
+  authoritative memory snapshot before writing, preserves storage tombstones,
+  and updates project columns in memories, links and artifacts together. Alias
+  collisions fail closed; derived memory/task graphs are rebuilt afterwards.
+- Provenance is inferred only from positive source evidence. An unresolved
+  origin remains unresolved and is reported in plan quality statistics; it is
+  never relabelled `synthetic` by default.
 - The launcher-managed projection sidecar may claim and acknowledge only
   transactional outbox leases in `sqlite-shadow` mode; it is not an
   authoritative memory writer and must not be folded into the API process.

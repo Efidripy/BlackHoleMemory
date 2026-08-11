@@ -34,6 +34,54 @@ The flow temporarily runs the explicit projection worker in `sqlite-shadow`
 mode, then restores the canonical `sqlite-authoritative` runtime and verifies
 that pending and failed projection events are zero.
 
+Metadata-only changes are projected with a stable
+`projection_payload_digest`. If the vector text is unchanged, the sidecar uses
+Qdrant `set_payload` instead of recomputing an embedding. Points created before
+this digest existed are treated as stale once and refreshed from SQLite.
+
+## Memory refinery
+
+The refinery normalizes project aliases, tags, display titles, summaries and
+taxonomy metadata without changing storage lifecycle or applying retention.
+The safe flow always creates three distinct databases: a sealed rollback
+backup, a writable rehearsal copy and a restore probe.
+
+```powershell
+uv run python .\scripts\run-memory-refinery.py rehearse `
+  --database .\.runtime\live-memory\memories.sqlite3 `
+  --backup .\.runtime\refinery\rollback-20260812.sqlite3 `
+  --working-copy .\.runtime\refinery\working-20260812.sqlite3 `
+  --restore-probe .\.runtime\refinery\restore-probe-20260812.sqlite3 `
+  --plan .\.runtime\refinery\normalization-plan-20260812.json `
+  --receipt .\.runtime\refinery\rehearsal-receipt-20260812.json
+```
+
+The rehearsal applies only to `--working-copy`, verifies the rollback backup's
+SHA-256 before and after the run, restores it into `--restore-probe`, and
+compares the logical SQLite fingerprint. Live apply requires both an exact plan
+digest and `--allow-live` for every CLI apply target; any intervening
+authoritative write makes the plan
+stale and fails closed. All output paths must be distinct and must not already
+exist, so a sealed backup or prior receipt cannot be overwritten. Historical
+graph retention, alias-orphan deletion and
+`VACUUM` are separate reviewed operations and are never implied by refinery.
+Stop the API and projection sidecar for the rehearsal/apply maintenance window;
+Qdrant and the LLM may remain running. Tombstoned storage rows stay tombstoned,
+and ambiguous provenance remains unset with an explicit unresolved count in the
+plan instead of being guessed as synthetic.
+
+## Galaxy controls
+
+Galaxy provides `Overview`, `All links` and `Custom` edge sets. Controls for
+tags and observations were removed because the canonical `/bhm/galaxy/data`
+read model does not publish those synthetic node types. Any manual edge change
+switches the view to `Custom` and persists the selected kinds in the shareable
+URL. Structural edge kinds are normalized to lowercase, semantic edge kinds
+keep their canonical uppercase names, and inactive nodes are removed from the
+rendered graph. Raw filters live under `Advanced filters`; runtime, MCP and CBM
+details live under `Operator diagnostics`. Hop depth is available only for
+focused scopes, while global mode keeps it disabled.
+
 The browser UI is launcher-session-bound: start the trusted BHM launcher, which
 uses the caller bearer boundary and passes a one-time bootstrap token in the
 URL fragment. Bare anonymous browser requests to `/bhm/ui/session/bootstrap`
