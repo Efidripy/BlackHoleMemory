@@ -12,3 +12,5 @@ def test_qdrant_startup_health_probe_is_finite_and_bounded() -> None:
     assert "$deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)" in source
     assert "Invoke-WebRequest -UseBasicParsing -Uri $qdrantHealthUrl -TimeoutSec 5" in source
     assert "Qdrant did not become HTTP-ready" in source
+    assert "$composeExitCode = $LASTEXITCODE" in source
+    assert "Qdrant docker compose startup failed with exit code" in source
