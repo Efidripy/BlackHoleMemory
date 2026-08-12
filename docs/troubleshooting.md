@@ -13,6 +13,24 @@
 4. Не переносите в Git диагностические логи и raw receipts. Их место — в
    локальной `.local/`-зоне.
 
+## API завершается с `remote_qdrant_required_but_unavailable`
+
+Это означает, что обязательный Qdrant не успел выйти в HTTP readiness. Само
+сообщение не доказывает crash контейнера: после перезапуска Docker Desktop
+Qdrant может восстанавливать коллекции дольше 30 секунд.
+
+Канонический запуск выполняет последовательность `Qdrant /healthz → BHM API`
+и ждёт холодное восстановление до 120 секунд:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-bhm-authoritative.ps1
+```
+
+Не запускайте `run-service.ps1` вручную до подтверждённого ответа
+`http://127.0.0.1:6333/healthz`. `Invalid Origin header` для неизвестного
+origin и Windows `ConnectionResetError 10054` от закрывшего соединение клиента
+сами по себе не означают завершение API.
+
 ## `bhm_index_repository` возвращает timeout
 
 Не запускайте повторную force-refresh индексацию вслепую. Сначала вызовите

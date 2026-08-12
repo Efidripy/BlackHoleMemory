@@ -5,6 +5,7 @@ param(
   [switch]$SemanticFusion,
   [string]$BaseUrl = '',
   [ValidateRange(5, 300)][int]$TimeoutSec = 90,
+  [ValidateRange(5, 300)][int]$QdrantTimeoutSec = 120,
   [ValidateRange(1, 10)][int]$PollSeconds = 1,
   [ValidateRange(1, 60)][int]$ShutdownTimeoutSec = 5
 )
@@ -27,6 +28,9 @@ function Set-AuthoritativeEnvironment {
   $env:BHM_PROJECTION_WORKER_ENABLED = "false"
   $env:BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"
   $env:BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = "true"
+  if ([string]::IsNullOrWhiteSpace([string]$env:BHM_STORAGE_STARTUP_TIMEOUT_SECONDS)) {
+    $env:BHM_STORAGE_STARTUP_TIMEOUT_SECONDS = "120"
+  }
   Resolve-LocalLmStudioEndpoint
 }
 
@@ -357,9 +361,12 @@ $serviceStderr = Join-Path $runtimeRoot 'authoritative-service-stderr.log'
 $qdrantStdout = Join-Path $runtimeRoot 'authoritative-qdrant-stdout.log'
 $qdrantStderr = Join-Path $runtimeRoot 'authoritative-qdrant-stderr.log'
 New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
-Start-BhmDetachedHidden -FilePath 'powershell.exe' `
-  -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $qdrantScript) `
-  -WorkingDirectory $repoRoot -StdoutPath $qdrantStdout -StderrPath $qdrantStderr
+$qdrantOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $qdrantScript -TimeoutSec $QdrantTimeoutSec 2>&1)
+if ($LASTEXITCODE -ne 0) {
+  $qdrantOutput | Set-Content -LiteralPath $qdrantStderr -Encoding UTF8
+  throw "Qdrant readiness prerequisite failed: $($qdrantOutput -join [Environment]::NewLine)"
+}
+$qdrantOutput | Set-Content -LiteralPath $qdrantStdout -Encoding UTF8
 Start-BhmDetachedHidden -FilePath 'powershell.exe' `
   -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $serviceScript, '-SkipInstall', '-Authoritative') + $(if ($SemanticFusion) { @('-SemanticFusion') } else { @() })) `
   -WorkingDirectory $repoRoot -StdoutPath $serviceStdout -StderrPath $serviceStderr
