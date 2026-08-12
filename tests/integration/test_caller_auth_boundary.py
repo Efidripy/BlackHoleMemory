@@ -177,6 +177,40 @@ def test_scoped_caller_cannot_turn_omitted_project_into_all_projects(monkeypatch
     assert galaxy.json()["detail"]["code"] == "caller_project_required"
 
 
+def test_galaxy_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+
+    async def fake_build(project, limit, domain="all"):
+        assert project is None
+        assert limit == 5000
+        assert domain == "all"
+        return {
+            "nodes": [{"id": "node-a"}, {"id": "node-b"}, {"id": "node-c"}],
+            "links": [{"source": "node-a", "target": "node-b", "type": "DEPENDS_ON"}],
+        }
+
+    monkeypatch.setattr(bhm_app, "_build_galaxy_data", fake_build)
+
+    anonymous = _client(authorization="").get("/bhm/galaxy/stats")
+    response = _client().get("/bhm/galaxy/stats")
+
+    assert anonymous.status_code == 401
+    assert response.status_code == 200
+    assert response.json() == {
+        "schema_version": "bhm.galaxy.stats.v1",
+        "scope": "all-projects",
+        "node_count": 3,
+        "link_count": 1,
+        "authority": "galaxy-read-model",
+        "bounded": True,
+        "limit": 5000,
+    }
+    assert caller_auth.caller_route_policy(
+        "/bhm/galaxy/stats", "GET"
+    ) is caller_auth.CallerRoutePolicy.AUTH_ONLY
+
+
 def test_scoped_ui_boot_report_is_auth_only(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.delenv("BHM_CALLER_DEFAULT_PROJECT", raising=False)

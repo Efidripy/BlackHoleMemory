@@ -424,7 +424,7 @@ def test_fetch_telemetry_exposes_runtime_quality_without_silent_placeholders(mon
         calls.append((url, method, payload, project))
         if "usage-stats" in url:
             data = {"memory_count": 12}
-        elif "link-graph-stats" in url:
+        elif "galaxy/stats" in url:
             data = {"link_count": 34, "node_count": 21}
         elif "agent-activity-rollup" in url:
             data = {"counts": {"session_records": 5, "observations": 8}}
@@ -453,6 +453,20 @@ def test_fetch_telemetry_exposes_runtime_quality_without_silent_placeholders(mon
     assert telemetry["slo_state"] == "HEALTHY"
     assert all(call[3] == "blackholememory" for call in calls)
     assert all(call[2] == {"project": "blackholememory"} for call in calls if call[1] == "POST")
+    graph_calls = [call for call in calls if "galaxy/stats" in call[0]]
+    assert graph_calls == [(f"{launcher.BHM_BASE_URL}/bhm/galaxy/stats", "GET", None, "blackholememory")]
+
+
+def test_launcher_hides_project_control_but_preserves_internal_scope() -> None:
+    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+
+    assert 'QLabel("PROJECT")' not in source
+    assert "self.project_input" not in source
+    assert "def on_project_changed" not in source
+    assert "self._project = resolve_launcher_project(self.settings)" in source
+    assert "self.monitor.set_project(self._project)" in source
+    assert '("link_count", "Galaxy Links", COLOR_CYAN)' in source
+    assert '("node_count", "Galaxy Nodes", COLOR_GREEN)' in source
 
 
 def test_fetch_telemetry_surfaces_auth_failure(monkeypatch) -> None:

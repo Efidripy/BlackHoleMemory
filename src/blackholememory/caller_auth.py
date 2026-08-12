@@ -56,6 +56,7 @@ _AUTH_ONLY_EXACT_PATHS = frozenset(
         "/bhm/ui/session/status",
         "/bhm/ui/session/renew",
         "/graph/status",
+        "/bhm/galaxy/stats",
         # These endpoints expose bounded process/capability aggregates only;
         # they do not return project-bearing memory or artifact records.
         "/bhm/llm/capabilities",
