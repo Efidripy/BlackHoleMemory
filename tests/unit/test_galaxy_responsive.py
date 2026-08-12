@@ -17,7 +17,15 @@ def test_galaxy_mobile_overlay_contract_is_present():
     assert "body.mobile-sidebar-open .panel.sidebar" in html
     assert "body.mobile-detail-open .panel.right" in html
     assert "function handleMobilePanelKeydown" in html
+    assert "panel.scrollTop = 0;" in html
     assert "@media (max-width: 980px)" in html
+
+
+def test_galaxy_layer_explanation_matches_published_read_model():
+    html = GALAXY_HTML.read_text(encoding="utf-8")
+
+    assert "BHM memory — записи, типы и связи" in html
+    assert "BHM memory — записи, теги, наблюдения" not in html
 
 
 def test_galaxy_dynamic_status_is_announced():
