@@ -1678,7 +1678,7 @@
           <h1 id="galaxyIntroTitle">BHM Galaxy</h1>
           <p>Здесь показаны связи между памятью BHM и code intelligence CBM. Граф read-only: переключатели меняют слой и плотность отображения, но не изменяют данные.</p>
           <div class="layer-key" aria-label="Layer explanation">
-            <span><i class="layer-dot bhm"></i>BHM memory — записи, теги, наблюдения</span>
+            <span><i class="layer-dot bhm"></i>BHM memory — записи, типы и связи</span>
             <span><i class="layer-dot cbm"></i>CBM code — файлы, функции и связи</span>
             <span><i class="layer-dot bridge"></i>Bridge — связь памяти с кодом</span>
           </div>
@@ -4888,6 +4888,7 @@
       updateMobilePanelAttributes();
       window.requestAnimationFrame(() => {
         const panel = kind === "left" ? sidebarEl : detailPanelEl;
+        panel.scrollTop = 0;
         const first = focusableElements(panel)[0];
         if (first) {
           first.focus({ preventScroll: true });
