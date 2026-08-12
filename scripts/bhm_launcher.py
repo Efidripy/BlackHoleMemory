@@ -230,6 +230,7 @@ load_pyqt6()
 
 REFRESH_SECONDS = 3
 TELEMETRY_SECONDS = 30
+SERVICE_FAILURE_THRESHOLD = 3
 TELEMETRY_TIMEOUT = LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
 SERVICE_READINESS_TIMEOUT_SECONDS = LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
 SERVICE_READINESS_POLL_SECONDS = LAUNCHER_SERVICE_READINESS_POLL_SECONDS
@@ -593,6 +594,23 @@ def http_status(url: str, timeout: float = LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS) 
     if detail.startswith("HTTP "):
         return ServiceStatus("Error", detail)
     return ServiceStatus("Stopped", detail)
+
+
+def stabilize_service_status(
+    previous: ServiceStatus | None,
+    observed: ServiceStatus,
+    consecutive_failures: int,
+    *,
+    failure_threshold: int = SERVICE_FAILURE_THRESHOLD,
+) -> tuple[ServiceStatus, int]:
+    """Debounce transient local probe timeouts before declaring a service down."""
+
+    if observed.state == "Running":
+        return observed, 0
+    failures = consecutive_failures + 1
+    if previous is not None and previous.state in {"Running", "Recovering"} and failures < failure_threshold:
+        return ServiceStatus("Recovering", f"transient probe failure {failures}/{failure_threshold}"), failures
+    return observed, failures
 
 
 def run_bounded_control_command(
@@ -1329,6 +1347,8 @@ class MonitorThread(QThread):
         self._remote_url = ""
         self._project = DEFAULT_LAUNCHER_PROJECT
         self._next_telemetry_at = 0.0
+        self._last_statuses: dict[str, ServiceStatus] = {}
+        self._status_failures: dict[str, int] = {}
 
     def set_llm_config(self, mode: str, port: int, remote_url: str) -> None:
         self._llm_mode = "remote" if mode == "remote" else "local"
@@ -1344,13 +1364,23 @@ class MonitorThread(QThread):
 
     def run(self) -> None:
         while self._running:
-            statuses = {
+            observed = {
                 "qdrant": http_status(QDRANT_HEALTH_URL),
                 "api": http_status(BHM_API_HEALTH_URL),
                 "llm": remote_status(self._remote_url)
                 if self._llm_mode == "remote"
                 else llm_api_status(self._llm_port),
             }
+            statuses: dict[str, ServiceStatus] = {}
+            for key, status in observed.items():
+                stable, failures = stabilize_service_status(
+                    self._last_statuses.get(key),
+                    status,
+                    self._status_failures.get(key, 0),
+                )
+                statuses[key] = stable
+                self._status_failures[key] = failures
+            self._last_statuses = statuses
             self.statuses_signal.emit(statuses)
 
             now = time.time()
@@ -2388,6 +2418,10 @@ class DashboardScreen(QWidget):
     def start_service(self, key: str, on_success: Callable[[], None] | None = None) -> None:
         if key == "llm":
             return
+        if key == "api" and not probe_http(QDRANT_HEALTH_URL)[0]:
+            append_launcher_log("START DEFERRED: api waiting for Qdrant HTTP readiness")
+            self.start_service("qdrant", on_success=lambda: self.start_service("api", on_success=on_success))
+            return
         existing = self._service_operations.get(key)
         if existing and existing.isRunning():
             return
@@ -2412,13 +2446,8 @@ class DashboardScreen(QWidget):
                         cwd=project_root,
                     )
             elif key == "api":
-                # A one-file PyInstaller build extracts bundled scripts under
-                # a temporary `_MEIPASS` directory.  `run-service.ps1` derives
-                # its venv/source paths from its own location, so launching
-                # that copy without an explicit project root makes it search
-                # the temporary bundle instead of the real repository.  Use
-                # the canonical repository script when available and always
-                # pass the discovered project root for portable/frozen builds.
+                # Use the canonical service script and explicit project root.
+                # Authoritative mode performs its own Qdrant HTTP prerequisite.
                 canonical_script = project_root / "scripts" / "run-service.ps1"
                 script = canonical_script if canonical_script.exists() else SCRIPTS_DIR / "run-service.ps1"
                 if not script.exists():
@@ -2516,6 +2545,8 @@ class DashboardScreen(QWidget):
     def stop_all_services(self) -> None:
         try:
             project_root = find_project_root()
+            append_launcher_log("STOP ALL: stopping API before Qdrant")
+            terminate_detached_processes()
             compose = QDRANT_COMPOSE if QDRANT_COMPOSE.exists() else project_root / "infra" / "qdrant" / "docker-compose.yml"
             if compose.exists():
                 _assert_launchable_source(compose, compose.parents[2])
@@ -2523,7 +2554,6 @@ class DashboardScreen(QWidget):
                     ["docker", "compose", "-f", str(compose), "stop"],
                     cwd=project_root,
                 )
-            terminate_detached_processes()
         except Exception as exc:
             QMessageBox.warning(self, "BHM Control Deck", compact_error(exc))
 

@@ -497,6 +497,10 @@ _READ_BACKPRESSURE_WAITING = 0
 _GRAPH_BUILD_OPERATIONS: dict[str, dict[str, Any]] = {}
 _GRAPH_BUILD_OPERATIONS_LOCK = asyncio.Lock()
 _GRAPH_BUILD_OPERATION_LIMIT = 128
+_GALAXY_STATS_CACHE_TTL_SECONDS = _env_float("BHM_GALAXY_STATS_CACHE_TTL_SECONDS", 300.0, 5.0, 3600.0)
+_GALAXY_STATS_CACHE: dict[str, Any] | None = None
+_GALAXY_STATS_CACHE_EXPIRES_AT = 0.0
+_GALAXY_STATS_CACHE_LOCK = asyncio.Lock()
 _HOOK_QUEUE_CAPACITY = _env_int("BHM_HOOK_QUEUE_CAPACITY", 128, 1)
 _HOOK_QUEUE_MAX_ATTEMPTS = _env_int("BHM_HOOK_QUEUE_MAX_ATTEMPTS", 3, 1)
 _HOOK_COMPACT_WORKERS = _env_int("BHM_HOOK_COMPACT_WORKERS", 1, 1)
@@ -11621,6 +11625,33 @@ async def _build_galaxy_data(project: str | None, limit: int, domain: str = "all
     return payload.model_dump(mode="json")
 
 
+async def _get_global_galaxy_stats() -> dict[str, Any]:
+    """Return cached global totals without repeatedly scrolling all Qdrant collections."""
+
+    global _GALAXY_STATS_CACHE, _GALAXY_STATS_CACHE_EXPIRES_AT
+    now = time.monotonic()
+    if _GALAXY_STATS_CACHE is not None and now < _GALAXY_STATS_CACHE_EXPIRES_AT:
+        return dict(_GALAXY_STATS_CACHE)
+
+    async with _GALAXY_STATS_CACHE_LOCK:
+        now = time.monotonic()
+        if _GALAXY_STATS_CACHE is not None and now < _GALAXY_STATS_CACHE_EXPIRES_AT:
+            return dict(_GALAXY_STATS_CACHE)
+        payload = await _build_galaxy_data(None, 5000, domain="all")
+        stats = {
+            "schema_version": "bhm.galaxy.stats.v1",
+            "scope": "all-projects",
+            "node_count": len(payload.get("nodes") or []),
+            "link_count": len(payload.get("links") or []),
+            "authority": "galaxy-read-model",
+            "bounded": True,
+            "limit": 5000,
+        }
+        _GALAXY_STATS_CACHE = stats
+        _GALAXY_STATS_CACHE_EXPIRES_AT = time.monotonic() + _GALAXY_STATS_CACHE_TTL_SECONDS
+        return dict(stats)
+
+
 def _search_memory_collection(
     *,
     query: str,
@@ -15688,17 +15719,7 @@ async def bhm_galaxy_data(
 @app.get("/bhm/galaxy/stats", response_model=GalaxyStatsResponse)
 async def bhm_galaxy_stats() -> dict[str, Any]:
     """Return lightweight counts for the same global graph rendered by Galaxy."""
-
-    payload = await _build_galaxy_data(None, 5000, domain="all")
-    return {
-        "schema_version": "bhm.galaxy.stats.v1",
-        "scope": "all-projects",
-        "node_count": len(payload.get("nodes") or []),
-        "link_count": len(payload.get("links") or []),
-        "authority": "galaxy-read-model",
-        "bounded": True,
-        "limit": 5000,
-    }
+    return await _get_global_galaxy_stats()
 
 
 @app.post("/bhm/ui/session/mint")

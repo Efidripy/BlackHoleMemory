@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -191,6 +192,8 @@ def test_galaxy_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> Non
         }
 
     monkeypatch.setattr(bhm_app, "_build_galaxy_data", fake_build)
+    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE", None)
+    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE_EXPIRES_AT", 0.0)
 
     anonymous = _client(authorization="").get("/bhm/galaxy/stats")
     response = _client().get("/bhm/galaxy/stats")
@@ -209,6 +212,30 @@ def test_galaxy_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> Non
     assert caller_auth.caller_route_policy(
         "/bhm/galaxy/stats", "GET"
     ) is caller_auth.CallerRoutePolicy.AUTH_ONLY
+
+
+def test_galaxy_stats_cache_is_single_flight_and_reused(monkeypatch) -> None:
+    calls = 0
+
+    async def fake_build(project, limit, domain="all"):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return {"nodes": [{"id": "node-a"}], "links": []}
+
+    monkeypatch.setattr(bhm_app, "_build_galaxy_data", fake_build)
+    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE", None)
+    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE_EXPIRES_AT", 0.0)
+    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE_TTL_SECONDS", 300.0)
+    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE_LOCK", asyncio.Lock())
+
+    async def exercise():
+        return await asyncio.gather(*(bhm_app._get_global_galaxy_stats() for _ in range(6)))
+
+    results = asyncio.run(exercise())
+
+    assert calls == 1
+    assert {item["node_count"] for item in results} == {1}
 
 
 def test_scoped_ui_boot_report_is_auth_only(monkeypatch) -> None:

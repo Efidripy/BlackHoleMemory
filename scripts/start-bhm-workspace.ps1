@@ -145,8 +145,7 @@ $stdoutLog = Join-Path $runtimeRoot "bhm-stdout.log"
 $stderrLog = Join-Path $runtimeRoot "bhm-stderr.log"
 $qdrantStdoutLog = Join-Path $runtimeRoot "qdrant-stdout.log"
 $qdrantStderrLog = Join-Path $runtimeRoot "qdrant-stderr.log"
-$startScript = Join-Path $repoRoot "scripts\run-service.ps1"
-$qdrantScript = Join-Path $repoRoot "scripts\start-qdrant.ps1"
+$startScript = Join-Path $repoRoot "scripts\start-bhm-authoritative.ps1"
 $readyUrl = "$bhmBaseUrl/health/ready"
 
 New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
@@ -172,14 +171,8 @@ foreach ($logPath in @($stdoutLog, $stderrLog, $qdrantStdoutLog, $qdrantStderrLo
 }
 
 Start-DetachedPowerShell `
-  -ScriptPath $qdrantScript `
-  -StdoutLog $qdrantStdoutLog `
-  -StderrLog $qdrantStderrLog `
-  -WorkingDirectory $repoRoot
-
-Start-DetachedPowerShell `
   -ScriptPath $startScript `
-  -ExtraArguments @("-SkipInstall") `
+  -ExtraArguments @("-NoWait") `
   -StdoutLog $stdoutLog `
   -StderrLog $stderrLog `
   -WorkingDirectory $repoRoot

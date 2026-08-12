@@ -32,6 +32,9 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
         "run-service.ps1",
         "'-Authoritative'",
         "start-qdrant.ps1",
+        "QdrantTimeoutSec",
+        "Qdrant readiness prerequisite failed",
+        "BHM_STORAGE_STARTUP_TIMEOUT_SECONDS",
         "rolled-back",
         "Resolve-LocalLmStudioEndpoint",
         "Assert-BhmApiLoopbackHost",
@@ -44,6 +47,18 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
 
     assert "172\\.18\\.0\\.1:13666/v1" not in text
     assert "127.0.0.1:13666/v1" not in text
+
+    qdrant_gate = text.index("$qdrantOutput = @(")
+    api_start = text.index("Start-BhmDetachedHidden -FilePath 'powershell.exe'", qdrant_gate)
+    assert qdrant_gate < api_start
+
+
+def test_workspace_launcher_delegates_to_canonical_authoritative_startup() -> None:
+    text = (REPO_ROOT / "scripts" / "start-bhm-workspace.ps1").read_text(encoding="utf-8")
+
+    assert 'scripts\\start-bhm-authoritative.ps1' in text
+    assert 'scripts\\run-service.ps1' not in text
+    assert 'scripts\\start-qdrant.ps1' not in text
 
 
 def test_authoritative_launcher_does_not_enable_projection_worker():

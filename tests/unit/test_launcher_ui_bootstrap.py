@@ -469,6 +469,31 @@ def test_launcher_hides_project_control_but_preserves_internal_scope() -> None:
     assert '("node_count", "Galaxy Nodes", COLOR_GREEN)' in source
 
 
+def test_service_status_requires_three_consecutive_probe_failures() -> None:
+    running = launcher.ServiceStatus("Running", "ready")
+    failed = launcher.ServiceStatus("Stopped", "timed out")
+
+    first, failures = launcher.stabilize_service_status(running, failed, 0)
+    second, failures = launcher.stabilize_service_status(first, failed, failures)
+    third, failures = launcher.stabilize_service_status(second, failed, failures)
+
+    assert first.state == "Recovering"
+    assert second.state == "Recovering"
+    assert third == failed
+    assert failures == 3
+
+
+def test_service_status_success_resets_failure_hysteresis() -> None:
+    recovered, failures = launcher.stabilize_service_status(
+        launcher.ServiceStatus("Recovering", "transient"),
+        launcher.ServiceStatus("Running", "ready"),
+        2,
+    )
+
+    assert recovered.state == "Running"
+    assert failures == 0
+
+
 def test_fetch_telemetry_surfaces_auth_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         launcher,
