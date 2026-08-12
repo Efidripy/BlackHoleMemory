@@ -871,7 +871,7 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     encoded_project = urlencode({"project": project_name})
     requests = {
         "memory": (f"{BHM_BASE_URL}/bhm/memory/usage-stats", "POST", {"project": project_name}),
-        "graph": (f"{BHM_BASE_URL}/bhm/link-graph-stats", "POST", {"project": project_name}),
+        "graph": (f"{BHM_BASE_URL}/bhm/galaxy/stats", "GET", None),
         "activity": (f"{BHM_BASE_URL}/bhm/agent-activity-rollup", "POST", {"project": project_name}),
         "profile": (f"{BHM_BASE_URL}/bhm/profile?{encoded_project}", "GET", None),
         "cutover": (f"{BHM_BASE_URL}/health/cutover?{encoded_project}", "GET", None),
@@ -2259,15 +2259,6 @@ class DashboardScreen(QWidget):
         title = QLabel("DASHBOARD")
         title.setObjectName("LinkTag")
         header.addWidget(title)
-        project_label = QLabel("PROJECT")
-        project_label.setObjectName("FieldLabel")
-        header.addWidget(project_label)
-        self.project_input = QLineEdit(self._project)
-        self.project_input.setObjectName("LlmInput")
-        self.project_input.setFixedSize(170, 32)
-        self.project_input.setToolTip("Project scope used for protected launcher telemetry")
-        self.project_input.editingFinished.connect(self.on_project_changed)
-        header.addWidget(self.project_input)
         header.addStretch(1)
         buttons = [
             ("Logs", self.show_logs, "GhostButton"),
@@ -2306,8 +2297,8 @@ class DashboardScreen(QWidget):
         grid.setSpacing(14)
         metrics = [
             ("memory_count", "Memory Crystals", COLOR_PINK),
-            ("link_count", "Graph Links", COLOR_CYAN),
-            ("node_count", "Graph Nodes", COLOR_GREEN),
+            ("link_count", "Galaxy Links", COLOR_CYAN),
+            ("node_count", "Galaxy Nodes", COLOR_GREEN),
             ("sessions", "Sessions", COLOR_CYAN),
             ("observations", "Observations", COLOR_PINK),
             ("sqlite_state", "SQLite Authority", COLOR_GREEN),
@@ -2380,26 +2371,6 @@ class DashboardScreen(QWidget):
         self._llm_remote_url = remote_url
         self.settings = candidate_settings
         self.apply_llm_config()
-
-    def on_project_changed(self) -> None:
-        try:
-            project = validate_launcher_project(self.project_input.text())
-        except ValueError as exc:
-            self.project_input.setText(self._project)
-            QMessageBox.warning(self, "BHM Control Deck", compact_error(exc))
-            return
-        candidate_settings = dict(self.settings)
-        candidate_settings["project"] = project
-        try:
-            save_launcher_settings(candidate_settings)
-        except (OSError, ValueError, TypeError) as exc:
-            self.project_input.setText(self._project)
-            QMessageBox.warning(self, "BHM Control Deck", f"Не удалось сохранить project scope: {compact_error(exc)}")
-            return
-        self._project = project
-        self.settings = candidate_settings
-        if self.monitor:
-            self.monitor.set_project(project)
 
     def apply_statuses(self, statuses: dict) -> None:
         for key, status in statuses.items():

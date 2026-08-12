@@ -2736,6 +2736,18 @@ class GalaxyDataResponse(BaseModel):
     links: list[GalaxyDataLink] = Field(default_factory=list)
 
 
+class GalaxyStatsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "bhm.galaxy.stats.v1"
+    scope: str = "all-projects"
+    node_count: int = 0
+    link_count: int = 0
+    authority: str = "galaxy-read-model"
+    bounded: bool = True
+    limit: int = 5000
+
+
 class MemoryUpsertRequest(BaseModel):
     upsert_key: str
     project: str = "e-github-workspace"
@@ -15671,6 +15683,22 @@ async def bhm_galaxy_data(
 ) -> dict:
     """Return the global Galaxy view, optionally narrowed to BHM memory or CBM code."""
     return await _build_galaxy_data(project, max(0, min(limit, 5000)), domain=domain)
+
+
+@app.get("/bhm/galaxy/stats", response_model=GalaxyStatsResponse)
+async def bhm_galaxy_stats() -> dict[str, Any]:
+    """Return lightweight counts for the same global graph rendered by Galaxy."""
+
+    payload = await _build_galaxy_data(None, 5000, domain="all")
+    return {
+        "schema_version": "bhm.galaxy.stats.v1",
+        "scope": "all-projects",
+        "node_count": len(payload.get("nodes") or []),
+        "link_count": len(payload.get("links") or []),
+        "authority": "galaxy-read-model",
+        "bounded": True,
+        "limit": 5000,
+    }
 
 
 @app.post("/bhm/ui/session/mint")
