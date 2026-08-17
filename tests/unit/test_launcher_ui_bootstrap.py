@@ -521,6 +521,62 @@ def test_llm_api_status_requires_models_contract(monkeypatch) -> None:
     assert "1 model" in status.detail
 
 
+def test_monitor_keeps_fast_llm_healthcheck_and_throttles_model_inventory(monkeypatch) -> None:
+    tcp_calls: list[int] = []
+    inventory_calls: list[int] = []
+
+    def fake_tcp_status(port: int) -> launcher.ServiceStatus:
+        tcp_calls.append(port)
+        return launcher.ServiceStatus("Running", f"127.0.0.1:{port}")
+
+    def fake_llm_api_status(port: int) -> launcher.ServiceStatus:
+        inventory_calls.append(port)
+        return launcher.ServiceStatus("Running", "API ready - 3 model(s)")
+
+    monkeypatch.setattr(launcher, "tcp_status", fake_tcp_status)
+    monkeypatch.setattr(launcher, "llm_api_status", fake_llm_api_status)
+    inventory = launcher.LlmInventoryCache()
+
+    first = launcher.observe_local_llm(launcher.DEFAULT_LLM_PORT, 100.0, inventory)
+    second = launcher.observe_local_llm(launcher.DEFAULT_LLM_PORT, 103.0, inventory)
+    third = launcher.observe_local_llm(
+        launcher.DEFAULT_LLM_PORT,
+        100.0 + launcher.LLM_INVENTORY_REFRESH_SECONDS,
+        inventory,
+    )
+
+    assert launcher.LLM_INVENTORY_REFRESH_SECONDS == 30 * 60
+    assert tcp_calls == [launcher.DEFAULT_LLM_PORT] * 3
+    assert inventory_calls == [launcher.DEFAULT_LLM_PORT] * 2
+    assert first.detail == "API ready - 3 model(s)"
+    assert second.detail == first.detail
+    assert third.detail == first.detail
+
+
+def test_monitor_skips_model_inventory_until_llm_healthcheck_recovers(monkeypatch) -> None:
+    readiness = iter(
+        [
+            launcher.ServiceStatus("Stopped", "connection refused"),
+            launcher.ServiceStatus("Running", "127.0.0.1:13666"),
+        ]
+    )
+    inventory_calls: list[int] = []
+    monkeypatch.setattr(launcher, "tcp_status", lambda _port: next(readiness))
+    monkeypatch.setattr(
+        launcher,
+        "llm_api_status",
+        lambda port: inventory_calls.append(port) or launcher.ServiceStatus("Running", "API ready - 3 model(s)"),
+    )
+    inventory = launcher.LlmInventoryCache()
+
+    stopped = launcher.observe_local_llm(launcher.DEFAULT_LLM_PORT, 100.0, inventory)
+    recovered = launcher.observe_local_llm(launcher.DEFAULT_LLM_PORT, 103.0, inventory)
+
+    assert stopped.state == "Stopped"
+    assert recovered.state == "Running"
+    assert inventory_calls == [launcher.DEFAULT_LLM_PORT]
+
+
 def test_post_json_rejects_non_local_endpoint(monkeypatch) -> None:
     monkeypatch.setattr(launcher, "_required_bhm_caller_token", lambda: CALLER_TOKEN)
 
