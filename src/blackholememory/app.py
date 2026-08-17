@@ -2752,6 +2752,18 @@ class GalaxyStatsResponse(BaseModel):
     limit: int = 5000
 
 
+class LauncherStatsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "bhm.launcher.stats.v1"
+    scope: str = "all-projects"
+    memory_count: int = 0
+    session_count: int = 0
+    memory_authority: str = "sqlite-authoritative"
+    session_authority: str = "runtime-artifact-store"
+    bounded: bool = True
+
+
 class MemoryUpsertRequest(BaseModel):
     upsert_key: str
     project: str = "e-github-workspace"
@@ -11652,6 +11664,27 @@ async def _get_global_galaxy_stats() -> dict[str, Any]:
         return dict(stats)
 
 
+def _collect_global_launcher_counts_sync() -> dict[str, int]:
+    return {
+        "memory_count": _memory_service().count_records(
+            include_archived=True,
+            include_tombstoned=False,
+        ),
+        "session_count": len(_load_session_records()),
+    }
+
+
+def _get_global_launcher_stats() -> dict[str, Any]:
+    return {
+        "schema_version": "bhm.launcher.stats.v1",
+        "scope": "all-projects",
+        **_collect_global_launcher_counts_sync(),
+        "memory_authority": "sqlite-authoritative",
+        "session_authority": "runtime-artifact-store",
+        "bounded": True,
+    }
+
+
 def _search_memory_collection(
     *,
     query: str,
@@ -15720,6 +15753,12 @@ async def bhm_galaxy_data(
 async def bhm_galaxy_stats() -> dict[str, Any]:
     """Return lightweight counts for the same global graph rendered by Galaxy."""
     return await _get_global_galaxy_stats()
+
+
+@app.get("/bhm/telemetry/launcher", response_model=LauncherStatsResponse, include_in_schema=False)
+def bhm_launcher_stats() -> dict[str, Any]:
+    """Return bounded all-project counters for the local launcher dashboard."""
+    return _get_global_launcher_stats()
 
 
 @app.post("/bhm/ui/session/mint")

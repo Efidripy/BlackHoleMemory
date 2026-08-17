@@ -134,6 +134,14 @@ class MemoryRepository(Protocol):
         offset: int = 0,
     ) -> list[Memory]: ...
 
+    def count_memories(
+        self,
+        *,
+        project: str | None = None,
+        include_archived: bool = False,
+        include_tombstoned: bool = False,
+    ) -> int: ...
+
     def save_artifact(self, artifact: Artifact) -> Artifact: ...
 
     def list_artifacts(
@@ -1085,6 +1093,30 @@ class SQLiteMemoryRepository:
                 (*parameters, limit, offset),
             ).fetchall()
             return [self._joined_memory_row_to_model(row) for row in rows]
+        finally:
+            connection.close()
+
+    def count_memories(
+        self,
+        *,
+        project: str | None = None,
+        include_archived: bool = False,
+        include_tombstoned: bool = False,
+    ) -> int:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if project is not None:
+            clauses.append("project = ?")
+            parameters.append(project)
+        if not include_archived:
+            clauses.append("lifecycle = 'active'")
+        elif not include_tombstoned:
+            clauses.append("lifecycle <> 'tombstoned'")
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        connection = self._read_connection()
+        try:
+            row = connection.execute(f"SELECT COUNT(*) FROM memories{where}", parameters).fetchone()
+            return int(row[0] if row else 0)
         finally:
             connection.close()
 

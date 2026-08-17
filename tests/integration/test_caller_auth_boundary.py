@@ -238,6 +238,39 @@ def test_galaxy_stats_cache_is_single_flight_and_reused(monkeypatch) -> None:
     assert {item["node_count"] for item in results} == {1}
 
 
+def test_launcher_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    monkeypatch.setattr(bhm_app, "_load_session_records", lambda: [{"id": index} for index in range(3)])
+
+    class MemoryService:
+        @staticmethod
+        def count_records(*, include_archived, include_tombstoned):
+            assert include_archived is True
+            assert include_tombstoned is False
+            return 2
+
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: MemoryService())
+
+    anonymous = _client(authorization="").get("/bhm/telemetry/launcher")
+    response = _client().get("/bhm/telemetry/launcher")
+
+    assert anonymous.status_code == 401
+    assert response.status_code == 200
+    assert response.json() == {
+        "schema_version": "bhm.launcher.stats.v1",
+        "scope": "all-projects",
+        "memory_count": 2,
+        "session_count": 3,
+        "memory_authority": "sqlite-authoritative",
+        "session_authority": "runtime-artifact-store",
+        "bounded": True,
+    }
+    assert caller_auth.caller_route_policy(
+        "/bhm/telemetry/launcher", "GET"
+    ) is caller_auth.CallerRoutePolicy.AUTH_ONLY
+
+
 def test_scoped_ui_boot_report_is_auth_only(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.delenv("BHM_CALLER_DEFAULT_PROJECT", raising=False)
