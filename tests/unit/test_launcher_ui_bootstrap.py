@@ -422,12 +422,15 @@ def test_fetch_telemetry_exposes_runtime_quality_without_silent_placeholders(mon
 
     def fake_safe(url: str, *, method: str, payload: dict | None, project: str | None, timeout: float = 0):
         calls.append((url, method, payload, project))
-        if "usage-stats" in url:
-            data = {"memory_count": 12}
+        if "telemetry/launcher" in url:
+            data = {
+                "memory_count": 12,
+                "session_count": 5,
+            }
         elif "galaxy/stats" in url:
             data = {"link_count": 34, "node_count": 21}
         elif "agent-activity-rollup" in url:
-            data = {"counts": {"session_records": 5, "observations": 8}}
+            data = {"counts": {"observations": 8}}
         elif "/profile" in url:
             data = {"readiness": {"provider_warmup": {"ready": True, "phase": "ready"}}}
         elif "/health/cutover" in url:
@@ -445,6 +448,8 @@ def test_fetch_telemetry_exposes_runtime_quality_without_silent_placeholders(mon
     telemetry = launcher.fetch_telemetry("blackholememory")
 
     assert telemetry["memory_count"] == "12"
+    assert telemetry["sessions"] == "5"
+    assert telemetry["observations"] == "8"
     assert telemetry["provider_state"] == "READY"
     assert telemetry["sqlite_state"] == "READY"
     assert telemetry["qdrant_state"] == "READY"
@@ -452,7 +457,8 @@ def test_fetch_telemetry_exposes_runtime_quality_without_silent_placeholders(mon
     assert telemetry["projection_queue"] == "0 / 0"
     assert telemetry["slo_state"] == "HEALTHY"
     assert all(call[3] == "blackholememory" for call in calls)
-    assert all(call[2] == {"project": "blackholememory"} for call in calls if call[1] == "POST")
+    launcher_calls = [call for call in calls if "telemetry/launcher" in call[0]]
+    assert launcher_calls == [(f"{launcher.BHM_BASE_URL}/bhm/telemetry/launcher", "GET", None, "blackholememory")]
     graph_calls = [call for call in calls if "galaxy/stats" in call[0]]
     assert graph_calls == [(f"{launcher.BHM_BASE_URL}/bhm/galaxy/stats", "GET", None, "blackholememory")]
 

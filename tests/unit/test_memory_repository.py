@@ -265,6 +265,9 @@ def test_default_listing_hides_archived_and_tombstoned_memories(tmp_path):
     assert {
         item.id for item in repository.list_memories(include_archived=True, include_tombstoned=True)
     } == {active.id, archived.id, tombstoned.id}
+    assert repository.count_memories() == 1
+    assert repository.count_memories(include_archived=True) == 2
+    assert repository.count_memories(include_archived=True, include_tombstoned=True) == 3
 
 
 def test_repository_persists_artifacts_and_links_without_fk_assumptions(tmp_path):

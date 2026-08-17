@@ -899,7 +899,7 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     project_name = validate_launcher_project(project or resolve_launcher_project())
     encoded_project = urlencode({"project": project_name})
     requests = {
-        "memory": (f"{BHM_BASE_URL}/bhm/memory/usage-stats", "POST", {"project": project_name}),
+        "launcher": (f"{BHM_BASE_URL}/bhm/telemetry/launcher", "GET", None),
         "graph": (f"{BHM_BASE_URL}/bhm/galaxy/stats", "GET", None),
         "activity": (f"{BHM_BASE_URL}/bhm/agent-activity-rollup", "POST", {"project": project_name}),
         "profile": (f"{BHM_BASE_URL}/bhm/profile?{encoded_project}", "GET", None),
@@ -915,7 +915,7 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix="bhm-launcher-telemetry") as pool:
         results = dict(pool.map(execute, requests.items()))
 
-    memory = results["memory"].data
+    launcher = results["launcher"].data
     graph = results["graph"].data
     activity = results["activity"].data
     profile = results["profile"].data
@@ -944,10 +944,10 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     projection_pending = int(observed.get("projection_pending") or 0)
     projection_failed = int(observed.get("projection_failed") or 0)
     current = {
-        "memory_count": value_or_error("memory", memory.get("memory_count")),
-        "link_count": value_or_error("graph", graph.get("link_count", memory.get("link_count"))),
+        "memory_count": value_or_error("launcher", launcher.get("memory_count")),
+        "link_count": value_or_error("graph", graph.get("link_count")),
         "node_count": value_or_error("graph", graph.get("node_count")),
-        "sessions": value_or_error("activity", counts.get("session_records")),
+        "sessions": value_or_error("launcher", launcher.get("session_count")),
         "observations": value_or_error("activity", counts.get("observations")),
         "sqlite_state": sqlite_state,
         "qdrant_state": qdrant_state,

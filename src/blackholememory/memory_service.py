@@ -196,6 +196,20 @@ class SQLiteMemoryService:
                 record["lifecycle"] = memory.lifecycle.value
         return records
 
+    def count_records(
+        self,
+        *,
+        project: str | None = None,
+        include_archived: bool = False,
+        include_tombstoned: bool = False,
+    ) -> int:
+        self._ensure_ready(verify_integrity=False)
+        return self.repository.count_memories(
+            project=project,
+            include_archived=include_archived,
+            include_tombstoned=include_tombstoned,
+        )
+
     def get_record(self, memory_id: str, *, project: str | None = None) -> dict[str, Any] | None:
         self._ensure_ready()
         memory = self.repository.get_memory(str(memory_id), project=project)
