@@ -107,6 +107,7 @@ def _install_pyqt_placeholders() -> None:
         "QTextCursor",
         "QTextEdit",
         "QThread",
+        "QTimer",
         "Qt",
         "QVBoxLayout",
         "QWidget",
@@ -147,6 +148,7 @@ def load_pyqt6() -> bool:
     global QTextCursor
     global QTextEdit
     global QThread
+    global QTimer
     global Qt
     global QVBoxLayout
     global QWidget
@@ -156,7 +158,7 @@ def load_pyqt6() -> bool:
     global _PYQT6_IMPORT_ERROR
 
     try:
-        from PyQt6.QtCore import QThread as _QThread, Qt as _Qt, pyqtSignal as _pyqtSignal
+        from PyQt6.QtCore import QThread as _QThread, QTimer as _QTimer, Qt as _Qt, pyqtSignal as _pyqtSignal
         from PyQt6.QtGui import (
             QAction as _QAction,
             QColor as _QColor,
@@ -216,6 +218,7 @@ def load_pyqt6() -> bool:
     QTextCursor = _QTextCursor
     QTextEdit = _QTextEdit
     QThread = _QThread
+    QTimer = _QTimer
     Qt = _Qt
     QVBoxLayout = _QVBoxLayout
     QWidget = _QWidget
@@ -1280,6 +1283,62 @@ def make_status_tray_icon(color: str, size: int = 64) -> QIcon:
     painter.drawEllipse(14, 20, 34, 22)
     painter.end()
     return QIcon(pixmap)
+
+
+def _show_native_windows_window(window_handle: int) -> None:
+    """Override an inherited SW_HIDE startup hint after Qt creates the HWND."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.ShowWindow.restype = wintypes.BOOL
+    user32.SetWindowPos.argtypes = [
+        wintypes.HWND,
+        wintypes.HWND,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    user32.SetWindowPos.restype = wintypes.BOOL
+    user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user32.SetForegroundWindow.restype = wintypes.BOOL
+
+    sw_restore = 9
+    swp_no_size = 0x0001
+    swp_no_move = 0x0002
+    swp_show_window = 0x0040
+    user32.ShowWindow(window_handle, sw_restore)
+    user32.SetWindowPos(
+        window_handle,
+        0,
+        0,
+        0,
+        0,
+        0,
+        swp_no_size | swp_no_move | swp_show_window,
+    )
+    user32.SetForegroundWindow(window_handle)
+
+
+def present_launcher_window(
+    window: Any,
+    *,
+    native_show: Callable[[int], None] | None = None,
+) -> None:
+    """Present the launcher even when its process inherited a hidden startup mode."""
+
+    window.showNormal()
+    if os.name == "nt":
+        try:
+            (native_show or _show_native_windows_window)(int(window.winId()))
+        except (AttributeError, OSError, TypeError, ValueError) as exc:
+            append_launcher_log(f"WINDOW PRESENTATION DEGRADED: error={exc.__class__.__name__}")
+    window.raise_()
+    window.activateWindow()
 
 
 class InstallWorker(QThread):
@@ -2674,9 +2733,7 @@ class MainWindow(QMainWindow):
             self.show_from_tray()
 
     def show_from_tray(self) -> None:
-        self.showNormal()
-        self.raise_()
-        self.activateWindow()
+        present_launcher_window(self)
 
     def update_tray_status(self, statuses: dict) -> None:
         self._last_statuses = {key: value for key, value in statuses.items() if isinstance(value, ServiceStatus)}
@@ -2975,6 +3032,17 @@ def build_qss() -> str:
     """
 
 
+def schedule_initial_window_presentation(
+    window: MainWindow,
+    *,
+    scheduler: Callable[[int, Callable[[], None]], None] | None = None,
+) -> None:
+    """Re-present the launcher after Windows consumes a hidden startup hint."""
+
+    schedule = scheduler or QTimer.singleShot
+    schedule(0, window.show_from_tray)
+
+
 def main() -> int:
     if "--check-dependencies" in sys.argv:
         if _PYQT6_AVAILABLE:
@@ -2994,10 +3062,12 @@ def main() -> int:
         return 1
     app = QApplication(sys.argv)
     app.setApplicationName("BlackHoleMemory Control Deck")
+    app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(make_bhm_icon())
     app.setStyleSheet(build_qss())
     window = MainWindow()
     window.show()
+    schedule_initial_window_presentation(window)
     return app.exec()
 
 
