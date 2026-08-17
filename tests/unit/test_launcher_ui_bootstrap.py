@@ -69,6 +69,60 @@ def test_launcher_local_state_stays_under_dot_runtime() -> None:
     )
 
 
+def test_launcher_re_presents_window_after_hidden_windows_startup_hint() -> None:
+    calls: list[tuple[int, object]] = []
+
+    class Window:
+        def show_from_tray(self) -> None:
+            calls.append((-1, self))
+
+    window = Window()
+
+    def schedule(delay: int, callback) -> None:
+        calls.append((delay, callback))
+        callback()
+
+    launcher.schedule_initial_window_presentation(window, scheduler=schedule)
+
+    assert calls[0][0] == 0
+    assert calls[0][1] == window.show_from_tray
+    assert calls[1] == (-1, window)
+
+
+def test_launcher_native_presentation_overrides_windows_hidden_startup(monkeypatch) -> None:
+    calls: list[object] = []
+
+    class Window:
+        def showNormal(self) -> None:  # noqa: N802
+            calls.append("showNormal")
+
+        def winId(self) -> int:  # noqa: N802
+            return 1234
+
+        def raise_(self) -> None:
+            calls.append("raise")
+
+        def activateWindow(self) -> None:  # noqa: N802
+            calls.append("activate")
+
+    monkeypatch.setattr(launcher.os, "name", "nt")
+    launcher.present_launcher_window(
+        Window(),
+        native_show=lambda handle: calls.append(("native", handle)),
+    )
+
+    assert calls == ["showNormal", ("native", 1234), "raise", "activate"]
+
+
+def test_launcher_keeps_tray_lifecycle_and_schedules_post_event_loop_presentation() -> None:
+    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+    main_source = source[source.index("def main() -> int:") :]
+
+    assert "app.setQuitOnLastWindowClosed(False)" in main_source
+    assert "window.show()" in main_source
+    assert "schedule_initial_window_presentation(window)" in main_source
+
+
 def test_launcher_merge_json_rejects_hardlink_target(tmp_path: Path) -> None:
     target = tmp_path / "mcp.json"
     outside = tmp_path / "outside.json"
