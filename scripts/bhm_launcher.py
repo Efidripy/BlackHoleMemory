@@ -230,6 +230,7 @@ load_pyqt6()
 
 REFRESH_SECONDS = 3
 TELEMETRY_SECONDS = 30
+LLM_INVENTORY_REFRESH_SECONDS = 30 * 60
 SERVICE_FAILURE_THRESHOLD = 3
 TELEMETRY_TIMEOUT = LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
 SERVICE_READINESS_TIMEOUT_SECONDS = LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
@@ -293,6 +294,16 @@ _LAST_TELEMETRY: dict[str, str] = {
 class ServiceStatus:
     state: str
     detail: str
+
+
+@dataclass
+class LlmInventoryCache:
+    next_refresh_at: float = 0.0
+    status: ServiceStatus | None = None
+
+    def reset(self) -> None:
+        self.next_refresh_at = 0.0
+        self.status = None
 
 
 @dataclass(frozen=True)
@@ -981,6 +992,27 @@ def llm_api_status(port: int, timeout: float = LAUNCHER_REMOTE_HTTP_TIMEOUT_SECO
         return ServiceStatus("Stopped", f"{host}:{port} API unavailable")
 
 
+def merge_llm_readiness_and_inventory(
+    readiness: ServiceStatus,
+    inventory: ServiceStatus | None,
+) -> ServiceStatus:
+    if readiness.state != "Running" or inventory is None:
+        return readiness
+    if inventory.state == "Running":
+        return ServiceStatus("Running", inventory.detail)
+    return ServiceStatus("Running", f"{readiness.detail} - model inventory unavailable")
+
+
+def observe_local_llm(port: int, now: float, inventory: LlmInventoryCache) -> ServiceStatus:
+    readiness = tcp_status(port)
+    if readiness.state != "Running":
+        return readiness
+    if now >= inventory.next_refresh_at:
+        inventory.status = llm_api_status(port)
+        inventory.next_refresh_at = now + LLM_INVENTORY_REFRESH_SECONDS
+    return merge_llm_readiness_and_inventory(readiness, inventory.status)
+
+
 def remote_status(url: str) -> ServiceStatus:
     target = url.strip()
     if not target:
@@ -1347,11 +1379,15 @@ class MonitorThread(QThread):
         self._remote_url = ""
         self._project = DEFAULT_LAUNCHER_PROJECT
         self._next_telemetry_at = 0.0
+        self._llm_inventory = LlmInventoryCache()
         self._last_statuses: dict[str, ServiceStatus] = {}
         self._status_failures: dict[str, int] = {}
 
     def set_llm_config(self, mode: str, port: int, remote_url: str) -> None:
-        self._llm_mode = "remote" if mode == "remote" else "local"
+        normalized_mode = "remote" if mode == "remote" else "local"
+        if (normalized_mode, port, remote_url) != (self._llm_mode, self._llm_port, self._remote_url):
+            self._llm_inventory.reset()
+        self._llm_mode = normalized_mode
         self._llm_port = port
         self._remote_url = remote_url
 
@@ -1362,14 +1398,18 @@ class MonitorThread(QThread):
     def stop(self) -> None:
         self._running = False
 
+    def _observe_llm(self, now: float) -> ServiceStatus:
+        if self._llm_mode == "remote":
+            return remote_status(self._remote_url)
+        return observe_local_llm(self._llm_port, now, self._llm_inventory)
+
     def run(self) -> None:
         while self._running:
+            now = time.monotonic()
             observed = {
                 "qdrant": http_status(QDRANT_HEALTH_URL),
                 "api": http_status(BHM_API_HEALTH_URL),
-                "llm": remote_status(self._remote_url)
-                if self._llm_mode == "remote"
-                else llm_api_status(self._llm_port),
+                "llm": self._observe_llm(now),
             }
             statuses: dict[str, ServiceStatus] = {}
             for key, status in observed.items():
@@ -1383,7 +1423,6 @@ class MonitorThread(QThread):
             self._last_statuses = statuses
             self.statuses_signal.emit(statuses)
 
-            now = time.time()
             if now >= self._next_telemetry_at:
                 self._next_telemetry_at = now + TELEMETRY_SECONDS
                 self.telemetry_signal.emit(fetch_telemetry(self._project))
