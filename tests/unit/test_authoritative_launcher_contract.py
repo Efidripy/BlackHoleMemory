@@ -13,6 +13,7 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
 
     for marker in (
         'BHM_MEMORY_STORE_MODE = "sqlite-authoritative"',
+        'BHM_QDRANT_REQUIRED_FOR_CORE = "false"',
         'BHM_FALLBACK_MODE = "explicit"',
         'BHM_PROJECTION_WORKER_ENABLED = "false"',
         'BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"',
@@ -33,8 +34,7 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
         "'-Authoritative'",
         "start-qdrant.ps1",
         "QdrantTimeoutSec",
-        "Qdrant readiness prerequisite failed",
-        "BHM_STORAGE_STARTUP_TIMEOUT_SECONDS",
+        "Qdrant projection recovery is pending; BHM core remains ready.",
         "rolled-back",
         "Resolve-LocalLmStudioEndpoint",
         "Assert-BhmApiLoopbackHost",
@@ -48,9 +48,9 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
     assert "172\\.18\\.0\\.1:13666/v1" not in text
     assert "127.0.0.1:13666/v1" not in text
 
-    qdrant_gate = text.index("$qdrantOutput = @(")
-    api_start = text.index("Start-BhmDetachedHidden -FilePath 'powershell.exe'", qdrant_gate)
-    assert qdrant_gate < api_start
+    api_start = text.index("Start-BhmDetachedHidden -FilePath 'powershell.exe'")
+    qdrant_recovery = text.index("$qdrantOutput = @(", api_start)
+    assert api_start < qdrant_recovery
 
 
 def test_workspace_launcher_delegates_to_canonical_authoritative_startup() -> None:
@@ -74,6 +74,7 @@ def test_service_authoritative_switch_sets_complete_writer_gate_contract():
 
     for marker in (
         'BHM_MEMORY_STORE_MODE = "sqlite-authoritative"',
+        'BHM_QDRANT_REQUIRED_FOR_CORE = "false"',
         'BHM_FALLBACK_MODE = "explicit"',
         'BHM_PROJECTION_WORKER_ENABLED = "false"',
         'BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"',

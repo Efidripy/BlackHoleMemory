@@ -31,7 +31,6 @@ if ([string]::IsNullOrWhiteSpace([string]$env:BHM_ADMIN_CAPABILITY)) {
 $apiParts = Get-BhmRuntimeEndpointParts -Name "bhm_api" -RepoRoot $repoRoot
 $lmStudioUrl = Get-BhmRuntimeEndpoint -Name "lm_studio" -RepoRoot $repoRoot
 $lmStudioPort = (Get-BhmRuntimeEndpointParts -Name "lm_studio" -RepoRoot $repoRoot).Port
-$qdrantHealthUrl = Get-BhmRuntimeEndpoint -Name "qdrant_http" -RepoRoot $repoRoot -Path "healthz"
 $env:BHM_HOST = if ($env:BHM_HOST) { $env:BHM_HOST } else { $apiParts.Host }
 $env:BHM_PORT = if ($env:BHM_PORT) { $env:BHM_PORT } else { [string]$apiParts.Port }
 Assert-BhmApiLoopbackHost -HostName ([string]$env:BHM_HOST)
@@ -84,35 +83,13 @@ function Resolve-AuthoritativeProviderEndpoint {
   }
 }
 
-function Wait-AuthoritativeQdrant {
-  param([ValidateRange(5, 300)][int]$TimeoutSec = 120)
-
-  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
-  $lastError = "Qdrant HTTP readiness has not completed"
-  do {
-    try {
-      $response = Invoke-WebRequest -UseBasicParsing -Uri $qdrantHealthUrl -TimeoutSec 5
-      if ([int]$response.StatusCode -eq 200) { return }
-      $lastError = "HTTP $([int]$response.StatusCode)"
-    } catch {
-      $lastError = $_.Exception.Message
-    }
-    if ([DateTime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 1 }
-  } while ([DateTime]::UtcNow -lt $deadline)
-
-  throw "Qdrant did not become HTTP-ready within $TimeoutSec seconds: $lastError"
-}
-
 if ($Authoritative) {
   $env:BHM_MEMORY_STORE_MODE = "sqlite-authoritative"
+  $env:BHM_QDRANT_REQUIRED_FOR_CORE = "false"
   $env:BHM_FALLBACK_MODE = "explicit"
   $env:BHM_PROJECTION_WORKER_ENABLED = "false"
   $env:BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"
   $env:BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = "true"
-  if ([string]::IsNullOrWhiteSpace([string]$env:BHM_STORAGE_STARTUP_TIMEOUT_SECONDS)) {
-    $env:BHM_STORAGE_STARTUP_TIMEOUT_SECONDS = "120"
-  }
-  Wait-AuthoritativeQdrant -TimeoutSec ([int]$env:BHM_STORAGE_STARTUP_TIMEOUT_SECONDS)
   Resolve-AuthoritativeProviderEndpoint
 }
 

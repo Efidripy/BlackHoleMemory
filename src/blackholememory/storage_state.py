@@ -10,6 +10,7 @@ from typing import Any
 
 
 STORAGE_MODE_ENV = "BHM_STORAGE_MODE"
+QDRANT_REQUIRED_FOR_CORE_ENV = "BHM_QDRANT_REQUIRED_FOR_CORE"
 
 
 class StorageMode(StrEnum):
@@ -62,6 +63,18 @@ def resolve_storage_mode(value: str | StorageMode | None = None) -> StorageMode:
         return value
     raw_value = os.getenv(STORAGE_MODE_ENV, StorageMode.REMOTE_REQUIRED.value) if value is None else value
     return _MODE_ALIASES.get(str(raw_value).strip().lower(), StorageMode.REMOTE_REQUIRED)
+
+
+def qdrant_required_for_core(environ: dict[str, str] | None = None) -> bool:
+    """Resolve the explicit core/projection coupling policy.
+
+    The default remains fail-closed. SQLite-authoritative launchers must opt
+    into projection-independent core readiness explicitly.
+    """
+
+    source = os.environ if environ is None else environ
+    raw = str(source.get(QDRANT_REQUIRED_FOR_CORE_ENV, "true")).strip().lower()
+    return raw not in {"0", "false", "no", "off"}
 
 
 def evaluate_storage_state(

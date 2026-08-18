@@ -20,6 +20,10 @@ from .health_contract import health_ready_public_payload
 from .health_contract import health_slo_payload
 
 
+def _projection_required_by_default() -> bool:
+    return True
+
+
 @dataclass(frozen=True)
 class HealthRuntimeDependencies:
     """Callbacks and immutable settings required by the health surfaces."""
@@ -42,6 +46,27 @@ class HealthRuntimeDependencies:
     memory_service: Callable[[], Any]
     sqlite_authoritative_mode: str
     memory_service_not_ready: type[Exception]
+    projection_required_for_core: Callable[[], bool] = _projection_required_by_default
+
+
+def _dependency_report_for_core(
+    runtime: HealthRuntimeDependencies,
+    *,
+    projection_required: bool,
+) -> dict[str, Any]:
+    report = dict(runtime.dependency_report())
+    dependencies = [dict(item) for item in report.get("dependencies", [])]
+    if not projection_required:
+        for item in dependencies:
+            if item.get("name") == "qdrant":
+                item["required"] = False
+    required = [item for item in dependencies if item.get("required", True)]
+    optional = [item for item in dependencies if not item.get("required", True)]
+    report["dependencies"] = dependencies
+    report["required_ok"] = all(bool(item.get("ok")) for item in required)
+    report["optional_ok"] = all(bool(item.get("ok")) for item in optional) if optional else True
+    report["ok"] = report["required_ok"]
+    return report
 
 
 def build_live(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
@@ -49,9 +74,13 @@ def build_live(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
 
 
 def build_ready(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
-    dependency_report = runtime.dependency_report()
     storage = runtime.storage_runtime_state()
     memory_store = runtime.memory_store_state()
+    projection_required = (
+        runtime.projection_required_for_core()
+        or memory_store.configured_mode != runtime.sqlite_authoritative_mode
+    )
+    dependency_report = _dependency_report_for_core(runtime, projection_required=projection_required)
     return health_ready_payload(
         dependency_report=dependency_report,
         storage=storage.as_dict(),
@@ -60,6 +89,7 @@ def build_ready(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
         fallback_active=runtime.fallback_grace_active(),
         mem0_plan=runtime.mem0_runtime_plan(),
         provider_warmup=runtime.provider_warmup_status(),
+        projection_required=projection_required,
     )
 
 
@@ -70,6 +100,10 @@ def build_ready_public(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
 def build_bhm_health(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
     storage = runtime.storage_runtime_state()
     memory_store = runtime.memory_store_state()
+    projection_required = (
+        runtime.projection_required_for_core()
+        or memory_store.configured_mode != runtime.sqlite_authoritative_mode
+    )
     return bhm_health_payload(
         service=runtime.app_name,
         version=runtime.runtime_version,
@@ -80,13 +114,18 @@ def build_bhm_health(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
         fallback_mode=runtime.configured_fallback_mode(),
         fallback_active=runtime.fallback_grace_active(),
         observed_at=runtime.utc_now(),
+        projection_required=projection_required,
     )
 
 
 def build_cutover(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
-    dependency_report = runtime.dependency_report()
     storage = runtime.storage_runtime_state()
     memory_store = runtime.memory_store_state()
+    projection_required = (
+        runtime.projection_required_for_core()
+        or memory_store.configured_mode != runtime.sqlite_authoritative_mode
+    )
+    dependency_report = _dependency_report_for_core(runtime, projection_required=projection_required)
     return health_cutover_payload(
         dependency_report=dependency_report,
         storage=storage.as_dict(),
@@ -94,6 +133,7 @@ def build_cutover(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
         fallback_mode=runtime.configured_fallback_mode(),
         fallback_active=runtime.fallback_grace_active(),
         mem0_plan=runtime.mem0_runtime_plan(),
+        projection_required=projection_required,
     )
 
 

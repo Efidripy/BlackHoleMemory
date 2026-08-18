@@ -14,6 +14,7 @@ from blackholememory.qdrant_projector import QdrantProjector
 from blackholememory.qdrant_projector import deterministic_point_id
 from blackholememory.qdrant_projector import projection_payload_digest
 from blackholememory.qdrant_projector import _vector_targets
+from blackholememory.qdrant_projector import is_projection_infrastructure_error
 from blackholememory.vector_routing import route_vector_targets
 
 
@@ -83,6 +84,11 @@ def _memory(*, memory_id: str = "mem_bhm_projector_001", lifecycle: str | None =
 
 def _projector(client: _FakeQdrant) -> QdrantProjector:
     return QdrantProjector(client, lambda _memory: [0.25, 0.75], expected_dimensions=2)
+
+
+def test_infrastructure_classifier_does_not_hide_domain_runtime_errors():
+    assert is_projection_infrastructure_error(ConnectionError("connection refused")) is True
+    assert is_projection_infrastructure_error(RuntimeError("timeout policy is invalid")) is False
 
 
 def test_projector_is_idempotent_and_payload_is_filterable(tmp_path):
@@ -316,6 +322,38 @@ def test_projector_partial_failure_is_replayable(tmp_path):
     replayed = projector.run_once(repository)
     assert (replayed.claimed, replayed.completed, replayed.failed) == (1, 1, 0)
     assert len(client.points) == 2
+
+
+def test_infrastructure_outage_defers_entire_claim_without_spending_attempts(tmp_path, caplog):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    repository.save_memory(_memory(memory_id="mem_bhm_projector_outage_001"))
+    repository.save_memory(_memory(memory_id="mem_bhm_projector_outage_002"))
+    client = _FakeQdrant()
+
+    def offline_upsert(**_kwargs):
+        raise ConnectionError("[WinError 10061] qdrant connection refused")
+
+    client.upsert = offline_upsert  # type: ignore[method-assign]
+    projector = _projector(client)
+    caplog.set_level("WARNING")
+
+    result = projector.run_once(repository, retry_after_seconds=30, max_attempts=1)
+
+    assert (result.claimed, result.completed, result.failed, result.deferred) == (2, 0, 0, 2)
+    assert result.classification == "infrastructure_unavailable"
+    assert "builtins.ConnectionError" in str(result.error)
+    pending = repository.list_outbox(status=OutboxStatus.PENDING)
+    assert len(pending) == 2
+    assert {event.attempts for event in pending} == {0}
+    assert repository.list_outbox(status=OutboxStatus.DEAD_LETTER) == []
+    record = next(
+        record
+        for record in caplog.records
+        if record.msg == "projection_infrastructure_unavailable"
+    )
+    assert record.classification == "infrastructure_unavailable"
+    assert record.deferred == 2
+    assert "builtins.ConnectionError" in record.error
 
 
 def test_tombstone_event_deletes_previous_projection(tmp_path):

@@ -69,6 +69,83 @@ class ProjectorRunResult:
     completed: int
     failed: int
     outcomes: tuple[ProjectionOutcome, ...]
+    deferred: int = 0
+    classification: str | None = None
+    error: str | None = None
+
+
+def bounded_projection_error(exc: BaseException, *, limit: int = 2_000) -> str:
+    """Return a bounded exception-chain diagnostic suitable for local logs."""
+
+    parts: list[str] = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).strip() or repr(current)
+        parts.append(f"{type(current).__module__}.{type(current).__name__}: {message}")
+        current = current.__cause__ or current.__context__
+    return " | caused by: ".join(parts)[: max(1, limit)]
+
+
+def is_projection_infrastructure_error(exc: BaseException) -> bool:
+    """Classify transient transport/service outages without hiding data bugs."""
+
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    transient_names = {
+        "apiconnectionerror",
+        "apitimeouterror",
+        "connecterror",
+        "connecttimeout",
+        "connectionerror",
+        "connectionreseterror",
+        "networkerror",
+        "pooltimeout",
+        "readerror",
+        "readtimeout",
+        "remoteprotocolerror",
+        "responsehandlingexception",
+        "timeout",
+        "timeouterror",
+        "writeerror",
+        "writetimeout",
+    }
+    transient_fragments = (
+        "connection refused",
+        "connection reset",
+        "connection aborted",
+        "no route to host",
+        "network is unreachable",
+        "server disconnected",
+        "service unavailable",
+        "temporarily unavailable",
+        "timed out",
+        "timeout",
+        "winerror 10054",
+        "winerror 10060",
+        "winerror 10061",
+        "winerror 10065",
+    )
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        name = type(current).__name__.casefold()
+        module = type(current).__module__.casefold()
+        message = str(current).casefold()
+        if isinstance(current, (ConnectionError, TimeoutError)):
+            return True
+        if name in transient_names:
+            return True
+        transport_module = module.startswith(
+            ("grpc", "httpcore", "httpx", "openai", "qdrant_client", "requests", "urllib3")
+        )
+        if transport_module and any(fragment in message for fragment in transient_fragments):
+            return True
+        status_code = getattr(current, "status_code", None)
+        if isinstance(status_code, int) and status_code >= 500:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def deterministic_point_id(collection_name: str, memory_id: str) -> str:
@@ -368,7 +445,10 @@ class QdrantProjector:
         outcomes: list[ProjectionOutcome] = []
         completed = 0
         failed = 0
-        for event in claimed:
+        deferred = 0
+        classification: str | None = None
+        infrastructure_error: str | None = None
+        for event_index, event in enumerate(claimed):
             try:
                 event_memory = Memory.from_dict(event.payload)
                 if event_memory.id != event.aggregate_id:
@@ -400,6 +480,42 @@ class QdrantProjector:
                 outcomes.append(outcome)
                 completed += 1
             except Exception as exc:
+                if is_projection_infrastructure_error(exc):
+                    classification = "infrastructure_unavailable"
+                    infrastructure_error = bounded_projection_error(exc)
+                    for deferred_event in claimed[event_index:]:
+                        token = deferred_event.claim_token
+                        if not token:
+                            continue
+                        try:
+                            repository.defer_outbox(
+                                deferred_event.event_id,
+                                token,
+                                infrastructure_error,
+                                retry_after_seconds=retry_after_seconds,
+                            )
+                            deferred += 1
+                        except Exception as record_exc:
+                            _LOGGER.exception(
+                                "projection_deferral_recording_failed",
+                                extra={
+                                    "event_id": deferred_event.event_id,
+                                    "aggregate_id": deferred_event.aggregate_id,
+                                    "classification": "failure_recording",
+                                    "error": bounded_projection_error(record_exc),
+                                },
+                            )
+                    _LOGGER.warning(
+                        "projection_infrastructure_unavailable",
+                        extra={
+                            "event_id": event.event_id,
+                            "aggregate_id": event.aggregate_id,
+                            "classification": classification,
+                            "deferred": deferred,
+                            "error": infrastructure_error,
+                        },
+                    )
+                    break
                 failed += 1
                 token = event.claim_token
                 if token:
@@ -445,4 +561,7 @@ class QdrantProjector:
             completed=completed,
             failed=failed,
             outcomes=tuple(outcomes),
+            deferred=deferred,
+            classification=classification,
+            error=infrastructure_error,
         )

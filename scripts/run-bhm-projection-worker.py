@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+INFRASTRUCTURE_UNAVAILABLE_EXIT_CODE = 75
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
@@ -32,6 +33,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--once", action="store_true", help="run one bounded batch (default)")
     parser.add_argument("--loop", action="store_true", help="poll until interrupted")
     parser.add_argument("--max-cycles", type=int, default=None)
+    parser.add_argument(
+        "--quiet-idle",
+        action="store_true",
+        help="suppress the success JSON when no outbox row was claimed",
+    )
     parser.add_argument(
         "--openai-base-url",
         default=None,
@@ -154,6 +160,34 @@ def _build_worker(config, *, openai_base_url: str | None = None):
     return ProjectionWorker(repository, projector, config=config.projection_worker)
 
 
+def _worker_report(config, metrics) -> dict[str, Any]:
+    return {
+        "ok": metrics.last_error is None,
+        "writes_live_state": False,
+        "mode": config.mode.value,
+        "database_path": str(config.database_path),
+        "metrics": metrics.as_dict(),
+    }
+
+
+def _emit_worker_report(report: dict[str, Any], *, quiet_idle: bool) -> int:
+    metrics = dict(report.get("metrics") or {})
+    classification = str(metrics.get("last_classification") or "")
+    if classification == "infrastructure_unavailable":
+        diagnostic = {
+            "timestamp": metrics.get("last_run_at"),
+            "classification": classification,
+            "deferred": int(metrics.get("deferred") or 0),
+            "error": str(metrics.get("last_error") or "projection infrastructure unavailable")[:2_000],
+        }
+        print(json.dumps(diagnostic, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+        return INFRASTRUCTURE_UNAVAILABLE_EXIT_CODE
+    if quiet_idle and int(metrics.get("claimed") or 0) == 0 and not metrics.get("last_error"):
+        return 0
+    print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+    return 0 if report.get("ok") else 1
+
+
 def main() -> int:
     args = _parser().parse_args()
     if args.once and args.loop:
@@ -232,21 +266,10 @@ def main() -> int:
         print(f"projection worker failed: {exc}", file=sys.stderr)
         return 1
 
-    print(
-        json.dumps(
-            {
-                "ok": metrics.last_error is None,
-                "writes_live_state": False,
-                "mode": config.mode.value,
-                "database_path": str(config.database_path),
-                "metrics": metrics.as_dict(),
-            },
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
+    return _emit_worker_report(
+        _worker_report(config, metrics),
+        quiet_idle=args.quiet_idle,
     )
-    return 0 if metrics.last_error is None else 1
 
 
 if __name__ == "__main__":

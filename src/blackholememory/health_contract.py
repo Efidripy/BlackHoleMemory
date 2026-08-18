@@ -18,14 +18,27 @@ def health_ready_payload(
     fallback_active: bool,
     mem0_plan: Mapping[str, Any],
     provider_warmup: Mapping[str, Any],
+    projection_required: bool = True,
 ) -> dict[str, Any]:
+    storage_ready = bool(storage["ready"])
+    core_ready = (
+        bool(dependency_report["ok"])
+        and bool(memory_store["ready"])
+        and not fallback_active
+        and (storage_ready or not projection_required)
+    )
     return {
-        "ok": bool(dependency_report["ok"]) and bool(storage["ready"]) and bool(memory_store["ready"]) and not fallback_active,
+        "ok": core_ready,
         "graph": "compiled",
         "mem0": dict(mem0_plan),
         "storage": dict(storage),
         "memory_store": dict(memory_store),
         "fallback": {"mode": fallback_mode, "active": fallback_active},
+        "projection": {
+            "required_for_core": bool(projection_required),
+            "ready": storage_ready,
+            "status": str(storage.get("readiness") or "not-ready"),
+        },
         "provider_warmup": dict(provider_warmup),
         "dependencies": list(dependency_report["dependencies"]),
     }
@@ -50,12 +63,18 @@ def bhm_health_payload(
     fallback_mode: str,
     fallback_active: bool,
     observed_at: str | None = None,
+    projection_required: bool = True,
 ) -> dict[str, Any]:
     storage_ready = bool(storage["ready"])
     memory_store_ready = bool(memory_store["ready"])
     if storage_ready and memory_store_ready and not fallback_active:
         status = "healthy"
-    elif storage.get("readiness") == "degraded" or memory_store.get("readiness") == "degraded" or fallback_active:
+    elif (
+        (memory_store_ready and not projection_required)
+        or storage.get("readiness") == "degraded"
+        or memory_store.get("readiness") == "degraded"
+        or fallback_active
+    ):
         status = "degraded"
     else:
         status = "not_ready"
@@ -68,6 +87,11 @@ def bhm_health_payload(
         "storage": dict(storage),
         "memory_store": dict(memory_store),
         "fallback": {"mode": fallback_mode, "active": fallback_active},
+        "projection": {
+            "required_for_core": bool(projection_required),
+            "ready": storage_ready,
+            "status": str(storage.get("readiness") or "not-ready"),
+        },
         "observed_at": observed_at,
     }
     # The legacy heartbeat lease is retired from the public health contract.
@@ -85,8 +109,15 @@ def health_cutover_payload(
     fallback_mode: str,
     fallback_active: bool,
     mem0_plan: Mapping[str, Any],
+    projection_required: bool = True,
 ) -> dict[str, Any]:
-    required_ok = bool(dependency_report["required_ok"]) and bool(storage["ready"]) and bool(memory_store["ready"]) and not fallback_active
+    storage_ready = bool(storage["ready"])
+    required_ok = (
+        bool(dependency_report["required_ok"])
+        and bool(memory_store["ready"])
+        and not fallback_active
+        and (storage_ready or not projection_required)
+    )
     return {
         "ok": required_ok,
         "required_ok": required_ok,
@@ -96,6 +127,11 @@ def health_cutover_payload(
         "storage": dict(storage),
         "memory_store": dict(memory_store),
         "fallback": {"mode": fallback_mode, "active": fallback_active},
+        "projection": {
+            "required_for_core": bool(projection_required),
+            "ready": storage_ready,
+            "status": str(storage.get("readiness") or "not-ready"),
+        },
         "dependencies": list(dependency_report["dependencies"]),
     }
 

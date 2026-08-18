@@ -6,7 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_frozen_launcher_uses_qdrant_gated_authoritative_api_service():
+def test_frozen_launcher_keeps_sqlite_authoritative_api_independent_of_qdrant():
     launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
     service = (REPO_ROOT / "scripts" / "run-service.ps1").read_text(encoding="utf-8")
 
@@ -14,9 +14,8 @@ def test_frozen_launcher_uses_qdrant_gated_authoritative_api_service():
     assert 'SCRIPTS_DIR / "run-service.ps1"' in launcher
     assert '"-ProjectRoot",' in launcher
     assert '"-Authoritative"' in launcher
-    assert "Wait-AuthoritativeQdrant" in service
-    assert "Qdrant did not become HTTP-ready" in service
-    assert "BHM_STORAGE_STARTUP_TIMEOUT_SECONDS" in service
+    assert "Wait-AuthoritativeQdrant" not in service
+    assert 'BHM_QDRANT_REQUIRED_FOR_CORE = "false"' in service
     assert "[switch]$SemanticFusion" in service
     assert 'BHM_CODE_SEMANTIC_FUSION = "1"' in service
     assert 'BHM_MEMORY_STORE_MODE = "sqlite-authoritative"' in service

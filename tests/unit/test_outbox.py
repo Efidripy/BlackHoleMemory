@@ -91,6 +91,28 @@ def test_outbox_failure_retries_then_dead_letters(tmp_path):
     assert repository.claim_outbox() == []
 
 
+def test_outbox_infrastructure_deferral_restores_attempt_budget(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    repository.save_memory(_memory())
+
+    claimed = repository.claim_outbox()
+    assert claimed[0].attempts == 1
+
+    deferred = repository.defer_outbox(
+        claimed[0].event_id,
+        claimed[0].claim_token or "",
+        "builtins.ConnectionError: qdrant connection refused",
+        retry_after_seconds=30,
+    )
+
+    assert deferred.status is OutboxStatus.PENDING
+    assert deferred.attempts == 0
+    assert deferred.claim_token is None
+    assert deferred.claimed_at is None
+    assert deferred.last_error == "builtins.ConnectionError: qdrant connection refused"
+    assert repository.list_outbox(status=OutboxStatus.DEAD_LETTER) == []
+
+
 def test_expired_processing_lease_is_reclaimed(tmp_path):
     repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
     repository.save_memory(_memory())

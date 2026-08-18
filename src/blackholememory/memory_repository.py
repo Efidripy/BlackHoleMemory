@@ -178,6 +178,15 @@ class MemoryRepository(Protocol):
 
     def ack_outbox(self, event_id: str, claim_token: str) -> OutboxEvent: ...
 
+    def defer_outbox(
+        self,
+        event_id: str,
+        claim_token: str,
+        error: str,
+        *,
+        retry_after_seconds: float = 5.0,
+    ) -> OutboxEvent: ...
+
     def fail_outbox(
         self,
         event_id: str,
@@ -1365,6 +1374,54 @@ class SQLiteMemoryRepository:
                 WHERE event_id = ?
                 """,
                 (now, event_id),
+            )
+            updated = connection.execute(
+                "SELECT * FROM memory_outbox WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            assert updated is not None
+            return self._outbox_row_to_model(updated)
+
+    def defer_outbox(
+        self,
+        event_id: str,
+        claim_token: str,
+        error: str,
+        *,
+        retry_after_seconds: float = 5.0,
+    ) -> OutboxEvent:
+        """Release an owned lease without charging an infrastructure attempt.
+
+        Claims increment ``attempts`` atomically.  A projection dependency
+        outage is outside the event's control, so return the row to the
+        pending queue and undo exactly that claim increment.  Domain/data
+        failures continue through ``fail_outbox`` and retain the existing
+        bounded retry/dead-letter contract.
+        """
+
+        if retry_after_seconds < 0 or retry_after_seconds > 86_400:
+            raise ValueError("retry_after_seconds must be between 0 and 86400")
+        now = utc_now_iso()
+        available_at = (
+            datetime.now(timezone.utc) + timedelta(seconds=retry_after_seconds)
+        ).isoformat().replace("+00:00", "Z")
+        bounded_error = str(error or "projection infrastructure unavailable")[:2_000]
+        with self._write_transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM memory_outbox WHERE event_id = ?",
+                (event_id,),
+            ).fetchone()
+            if row is None or row["status"] != OutboxStatus.PROCESSING.value or row["claim_token"] != claim_token:
+                raise OutboxLeaseLost(f"outbox lease is not owned: {event_id}")
+            connection.execute(
+                """
+                UPDATE memory_outbox SET
+                    status = 'pending', attempts = MAX(attempts - 1, 0),
+                    available_at = ?, claimed_at = NULL, claim_token = NULL,
+                    last_error = ?, updated_at = ?
+                WHERE event_id = ?
+                """,
+                (available_at, bounded_error, now, event_id),
             )
             updated = connection.execute(
                 "SELECT * FROM memory_outbox WHERE event_id = ?",

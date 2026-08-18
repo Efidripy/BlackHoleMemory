@@ -51,3 +51,44 @@ def test_provider_override_is_process_local_and_does_not_touch_user_env_file(mon
     assert MODULE._apply_provider_override("http://127.0.0.1:13666/v1") == "http://127.0.0.1:13666/v1"
     assert os.environ["OPENAI_BASE_URL"] == "http://127.0.0.1:13666/v1"
     assert env_file.read_text(encoding="utf-8") == "OPENAI_BASE_URL=http://172.18.0.1:13666/v1\n"
+
+
+def test_quiet_idle_suppresses_empty_success_json(capsys: pytest.CaptureFixture[str]) -> None:
+    report = {
+        "ok": True,
+        "metrics": {
+            "claimed": 0,
+            "last_error": None,
+            "last_classification": None,
+        },
+    }
+
+    assert MODULE._emit_worker_report(report, quiet_idle=True) == 0
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+
+def test_infrastructure_report_is_timestamped_bounded_and_uses_retry_exit_code(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    error = "builtins.ConnectionError: " + ("x" * 3_000)
+    report = {
+        "ok": False,
+        "metrics": {
+            "claimed": 2,
+            "deferred": 2,
+            "last_run_at": "2026-08-18T16:00:00Z",
+            "last_classification": "infrastructure_unavailable",
+            "last_error": error,
+        },
+    }
+
+    assert MODULE._emit_worker_report(report, quiet_idle=True) == 75
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    payload = __import__("json").loads(captured.err)
+    assert payload["timestamp"] == "2026-08-18T16:00:00Z"
+    assert payload["classification"] == "infrastructure_unavailable"
+    assert payload["deferred"] == 2
+    assert 0 < len(payload["error"]) <= 2_000
