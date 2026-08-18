@@ -2752,6 +2752,7 @@ class GalaxyDataResponse(BaseModel):
 
     nodes: list[GalaxyDataNode] = Field(default_factory=list)
     links: list[GalaxyDataLink] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class GalaxyStatsResponse(BaseModel):
@@ -2761,9 +2762,9 @@ class GalaxyStatsResponse(BaseModel):
     scope: str = "all-projects"
     node_count: int = 0
     link_count: int = 0
-    authority: str = "galaxy-read-model"
-    bounded: bool = True
-    limit: int = 5000
+    authority: str = "sqlite-authoritative"
+    bounded: bool = False
+    limit: int | None = None
 
 
 class LauncherStatsResponse(BaseModel):
@@ -11489,165 +11490,177 @@ async def _load_galaxy_code_project_nodes(project: str | None, limit: int) -> li
     return await asyncio.to_thread(_load_galaxy_code_project_nodes_sync, project, limit)
 
 
-async def _build_galaxy_data(project: str | None, limit: int, domain: str = "all") -> dict[str, Any]:
-    selected_domain = str(domain or "all").strip().casefold()
-    if selected_domain not in {"all", "memory", "code"}:
-        selected_domain = "all"
+def _galaxy_memory_record_node(record: dict[str, Any]) -> dict[str, Any] | None:
+    memory_id = str(record.get("source_id") or record.get("id") or "").strip()
+    project_key = _canonical_project(str(record.get("project") or "").strip())
+    if not memory_id or not project_key or _memory_lifecycle(record) != "active":
+        return None
 
-    nodes, alias_to_node_id = await _load_galaxy_active_nodes(project, limit)
-    for node in nodes:
-        meta = node.setdefault("meta", {})
-        metadata = node.setdefault("metadata", {})
-        project_key = _canonical_project(str(meta.get("project") or metadata.get("project") or ""))
-        if project_key:
-            meta["project"] = project_key
-            meta["project_key"] = project_key
-        meta.setdefault("product_root", "BlackHoleMemory")
-        meta.setdefault("galaxy_domain", "memory")
-        meta.setdefault("source_layer", "bhm")
-        metadata.setdefault("domain", "memory")
+    metadata = dict(record.get("metadata") or {})
+    content = str(record.get("content") or record.get("memory") or "").strip()
+    tags = _galaxy_string_list(record.get("tags") or metadata.get("tags") or metadata.get("concepts"))
+    memory_type = str(record.get("memory_type") or metadata.get("memory_type") or "memory").strip() or "memory"
+    updated_at = str(record.get("updated_at") or record.get("created_at") or "")
+    node_payload = {
+        **metadata,
+        "project": project_key,
+        "memory_type": memory_type,
+        "importance_score": record.get("importance_score") or metadata.get("importance_score"),
+        "access_count": record.get("access_count") or metadata.get("access_count"),
+    }
+    return {
+        "id": memory_id,
+        "label": _galaxy_label_from_text(content, memory_id),
+        "type": "memory",
+        "val": _galaxy_node_value(node_payload),
+        "color": _galaxy_node_color(node_payload, "sqlite-authoritative"),
+        "core_insight": content[:1200],
+        "tags": tags,
+        "metadata": {
+            **metadata,
+            "project": project_key,
+            "memory_type": memory_type,
+            "created_at": record.get("created_at"),
+            "updated_at": record.get("updated_at"),
+            "lifecycle": "active",
+        },
+        "meta": {
+            "project": project_key,
+            "project_key": project_key,
+            "memory_type": memory_type,
+            "source_id": memory_id,
+            "product_root": "BlackHoleMemory",
+            "galaxy_domain": "memory",
+            "source_layer": "sqlite",
+            "authority": "sqlite-authoritative",
+            "updated_at": updated_at,
+            "tags": tags,
+            "content_preview": content[:320],
+        },
+    }
 
-    # A project-scoped request may still read the global BHM collection.  Do
-    # the final canonical project filter on the normalized read model so a
-    # project slice never leaks memories from another repository.
+
+def _load_galaxy_authoritative_nodes_sync(
+    project: str | None,
+    limit: int | None,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    project_key = _canonical_project(project) if project else None
+    service = _memory_service()
+    total = service.count_records(project=project_key)
+    records = service.list_records(project=project_key, limit=limit)
+    nodes = [node for record in records if (node := _galaxy_memory_record_node(record)) is not None]
+    return nodes, total, service.list_projects()
+
+
+async def _load_galaxy_authoritative_nodes(
+    project: str | None,
+    limit: int | None,
+) -> tuple[list[dict[str, Any]], int, list[str]]:
+    return await asyncio.to_thread(_load_galaxy_authoritative_nodes_sync, project, limit)
+
+
+def _load_galaxy_authoritative_links_sync(project: str | None) -> list[dict[str, Any]]:
+    project_key = _canonical_project(project) if project else None
+    return _memory_service().list_links(project=project_key, limit=None)
+
+
+async def _build_galaxy_data(
+    project: str | None,
+    limit: int | None,
+    domain: str = "memory",
+) -> dict[str, Any]:
+    """Build a newest-first visual read model from authoritative SQLite."""
+
+    del domain  # Kept as a compatibility query parameter for older launchers.
     requested_project = _canonical_project(project) if project else ""
-    if requested_project:
-        nodes = [
-            node
-            for node in nodes
-            if str((node.get("meta") or {}).get("project_key") or "") == requested_project
+    memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(requested_project or None, limit)
+    visible_memory_ids = {str(node["id"]) for node in memory_nodes}
+    persisted_links = await asyncio.to_thread(_load_galaxy_authoritative_links_sync, requested_project or None)
+
+    semantic_links: list[dict[str, str]] = []
+    seen_links: set[tuple[str, str, str]] = set()
+    for item in persisted_links:
+        source = str(item.get("source_id") or "").strip()
+        target = str(item.get("target_id") or "").strip()
+        relation = str(item.get("relation") or "related").strip()
+        if source not in visible_memory_ids or target not in visible_memory_ids or source == target:
+            continue
+        key = (source, target, relation.casefold())
+        if key in seen_links:
+            continue
+        seen_links.add(key)
+        semantic_links.append({"source": source, "target": target, "type": relation})
+
+    project_keys = list(
+        dict.fromkeys(
+            str((node.get("meta") or {}).get("project_key") or "")
+            for node in memory_nodes
+            if str((node.get("meta") or {}).get("project_key") or "")
+        )
+    )
+    project_hubs = [
+        {
+            "id": f"project::{project_key}",
+            "label": "BlackHoleMemory" if project_key == "blackholememory" else project_key,
+            "type": "project",
+            "val": 13.0,
+            "color": "#cbd5e1",
+            "metadata": {"domain": "memory", "authority": "sqlite-authoritative"},
+            "meta": {
+                "project": project_key,
+                "project_key": project_key,
+                "product_root": "BlackHoleMemory",
+                "source_layer": "sqlite",
+                "authority": "sqlite-authoritative",
+            },
+        }
+        for project_key in project_keys
+    ]
+    containment_links = [
+        {
+            "source": f"project::{str((node.get('meta') or {}).get('project_key') or '')}",
+            "target": str(node["id"]),
+            "type": "belongs_to_project",
+        }
+        for node in memory_nodes
+    ]
+
+    nodes: list[dict[str, Any]] = [*project_hubs, *memory_nodes]
+    links: list[dict[str, str]] = [*containment_links, *semantic_links]
+    if not requested_project and project_hubs:
+        root_id = "galaxy-root::bhm"
+        nodes.insert(
+            0,
+            {
+                "id": root_id,
+                "label": "BlackHoleMemory",
+                "type": "root",
+                "val": 22.0,
+                "color": "#f7f7f2",
+                "metadata": {"domain": "memory", "authority": "sqlite-authoritative"},
+                "meta": {"product_root": "BlackHoleMemory", "source_layer": "sqlite", "authority": "sqlite-authoritative"},
+            },
+        )
+        links = [
+            *({"source": root_id, "target": str(hub["id"]), "type": "root_branch"} for hub in project_hubs),
+            *links,
         ]
 
-    code_nodes = await _load_galaxy_code_project_nodes(project, max(1, limit))
-    graph = await _BHM_GRAPH_MANAGER.get_graph()
-    links: list[dict[str, str]] = []
-    seen: set[tuple[str, str, str]] = set()
-
-    for source_alias, outgoing in graph.items():
-        source = alias_to_node_id.get(str(source_alias or "").strip())
-        if not source:
-            continue
-        for link in outgoing or []:
-            target_alias = str((link or {}).get("target_id") or "").strip()
-            target = alias_to_node_id.get(target_alias)
-            edge_type = str((link or {}).get("edge_type") or "").strip().upper()
-            if not target or source == target or edge_type not in _SEMANTIC_LINK_EDGE_TYPES:
-                continue
-            key = (source, target, edge_type)
-            if key in seen:
-                continue
-            seen.add(key)
-            links.append({"source": source, "target": target, "type": edge_type})
-
-    # The global view has one product root, two domain hubs and one shared
-    # project hub per canonical repository.  Memory and code never become two
-    # product roots merely because they came from different authorities.
-    if project is None:
-        root_id = "galaxy-root::bhm"
-        memory_domain_id = "galaxy-domain::memory"
-        code_domain_id = "galaxy-domain::code"
-        root = {
-            "id": root_id,
-            "label": "BlackHoleMemory",
-            "type": "root",
-            "val": 22.0,
-            "color": "#f7f7f2",
-            "metadata": {"domain": "cross_domain", "galaxy_domain": "cross_domain"},
-            "meta": {"product_root": "BlackHoleMemory", "galaxy_domain": "cross_domain", "source_layer": "bhm+cbm"},
-        }
-        memory_domain = {
-            "id": memory_domain_id,
-            "label": "BHM memory",
-            "type": "domain",
-            "val": 15.0,
-            "color": "#65a983",
-            "metadata": {"domain": "memory", "galaxy_domain": "memory"},
-            "meta": {"product_root": "BlackHoleMemory", "galaxy_domain": "memory", "source_layer": "bhm", "domains": ["memory"]},
-        }
-        code_domain = {
-            "id": code_domain_id,
-            "label": "CBM code",
-            "type": "domain",
-            "val": 15.0,
-            "color": "#4cc9f0",
-            "metadata": {"domain": "code", "galaxy_domain": "code"},
-            "meta": {"product_root": "BlackHoleMemory", "galaxy_domain": "code", "source_layer": "cbm", "domains": ["code"]},
-        }
-        project_hubs: dict[str, dict[str, Any]] = {}
-        for node in nodes:
-            project_key = str((node.get("meta") or {}).get("project_key") or "").strip()
-            if not project_key:
-                continue
-            hub = project_hubs.get(project_key)
-            if hub is None:
-                display = "BlackHoleMemory" if project_key == "blackholememory" else project_key
-                hub = {
-                    "id": f"project::{project_key}",
-                    "label": display,
-                    "type": "project",
-                    "val": 13.0,
-                    "color": "#cbd5e1",
-                    "metadata": {"domain": "memory", "galaxy_domain": "memory"},
-                    "meta": {"project": project_key, "project_key": project_key, "product_root": "BlackHoleMemory", "domains": ["memory"], "source_layer": "bhm"},
-                }
-                project_hubs[project_key] = hub
-        for code_node in code_nodes:
-            project_key = str((code_node.get("meta") or {}).get("project_key") or "").strip()
-            if not project_key:
-                continue
-            hub = project_hubs.get(project_key)
-            if hub is None:
-                hub = dict(code_node)
-                hub["meta"] = dict(code_node.get("meta") or {})
-                hub["metadata"] = dict(code_node.get("metadata") or {})
-                project_hubs[project_key] = hub
-            else:
-                hub_meta = hub.setdefault("meta", {})
-                hub_meta["domains"] = list(dict.fromkeys([*(hub_meta.get("domains") or []), "code"]))
-                hub_meta["source_layer"] = "bhm+cbm"
-                hub_meta["galaxy_domain"] = "cross_domain"
-                hub_meta.update({key: value for key, value in (code_node.get("meta") or {}).items() if key not in {"project", "project_key", "domains", "source_layer", "galaxy_domain"}})
-                hub.setdefault("metadata", {})["domain"] = "cross_domain"
-                hub["metadata"]["galaxy_domain"] = "cross_domain"
-        nodes = [root, memory_domain, code_domain, *project_hubs.values(), *nodes]
-        links.extend(
-            [
-                {"source": root_id, "target": memory_domain_id, "type": "root_branch"},
-                {"source": root_id, "target": code_domain_id, "type": "root_branch"},
-            ]
-        )
-        for project_key, hub in project_hubs.items():
-            hub_id = str(hub["id"])
-            hub_domains = set((hub.get("meta") or {}).get("domains") or [])
-            if "memory" in hub_domains:
-                links.append({"source": memory_domain_id, "target": hub_id, "type": "domain_project"})
-            if "code" in hub_domains:
-                links.append({"source": code_domain_id, "target": hub_id, "type": "domain_project"})
-            for node in nodes:
-                if node is hub:
-                    continue
-                node_meta = node.get("meta") or {}
-                if node_meta.get("project_key") == project_key and node_meta.get("galaxy_domain") == "memory":
-                    links.append({"source": hub_id, "target": str(node["id"]), "type": "belongs_to_project"})
-    elif code_nodes:
-        # Project-scoped views still expose the matching metadata-only CBM
-        # slice.  The global root/hubs are omitted here to keep the narrowed
-        # view compact; domain filtering below remains authoritative.
-        nodes.extend(code_nodes)
-
-    visible_domains = {"memory"} if selected_domain == "memory" else {"code"} if selected_domain == "code" else {"memory", "code", "cross_domain"}
-    if selected_domain != "all":
-        visible_ids = {
-            str(node["id"])
-            for node in nodes
-            if str(node.get("id")) == "galaxy-root::bhm"
-            or str((node.get("meta") or {}).get("galaxy_domain") or "") in visible_domains
-            or selected_domain in set((node.get("meta") or {}).get("domains") or [])
-        }
-        nodes = [node for node in nodes if str(node["id"]) in visible_ids]
-        links = [link for link in links if link["source"] in visible_ids and link["target"] in visible_ids]
-
-    payload = GalaxyDataResponse(nodes=nodes, links=links)
+    summary = {
+        "project": requested_project or "all-projects",
+        "memory_records": len(memory_nodes),
+        "returned_memory_count": len(memory_nodes),
+        "total_memory_count": total_memory_count,
+        "node_count": len(nodes),
+        "link_count": len(links),
+        "top_projects": available_projects,
+        "mode": "all" if limit is None else "limited",
+        "limit": limit,
+        "authority": "sqlite-authoritative",
+        "order": "updated_at_desc",
+        "generated_at": _utc_now_iso(),
+    }
+    payload = GalaxyDataResponse(nodes=nodes, links=links, summary=summary)
     return payload.model_dump(mode="json")
 
 
@@ -11663,15 +11676,15 @@ async def _get_global_galaxy_stats() -> dict[str, Any]:
         now = time.monotonic()
         if _GALAXY_STATS_CACHE is not None and now < _GALAXY_STATS_CACHE_EXPIRES_AT:
             return dict(_GALAXY_STATS_CACHE)
-        payload = await _build_galaxy_data(None, 5000, domain="all")
+        payload = await _build_galaxy_data(None, None, domain="memory")
         stats = {
             "schema_version": "bhm.galaxy.stats.v1",
             "scope": "all-projects",
             "node_count": len(payload.get("nodes") or []),
             "link_count": len(payload.get("links") or []),
-            "authority": "galaxy-read-model",
-            "bounded": True,
-            "limit": 5000,
+            "authority": "sqlite-authoritative",
+            "bounded": False,
+            "limit": None,
         }
         _GALAXY_STATS_CACHE = stats
         _GALAXY_STATS_CACHE_EXPIRES_AT = time.monotonic() + _GALAXY_STATS_CACHE_TTL_SECONDS
@@ -15757,11 +15770,22 @@ def bhm_graph(
 @app.get("/bhm/galaxy/data", response_model=GalaxyDataResponse)
 async def bhm_galaxy_data(
     project: str | None = None,
-    limit: int = 1000,
-    domain: str = "all",
+    limit: str = "200",
+    domain: str = "memory",
 ) -> dict:
-    """Return the global Galaxy view, optionally narrowed to BHM memory or CBM code."""
-    return await _build_galaxy_data(project, max(0, min(limit, 5000)), domain=domain)
+    """Return the newest SQLite-authoritative memory view for Galaxy."""
+
+    normalized_limit = str(limit or "").strip().casefold()
+    if normalized_limit in {"all", "max", "*"}:
+        parsed_limit: int | None = None
+    else:
+        try:
+            parsed_limit = int(normalized_limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail={"code": "galaxy_limit_invalid"}) from exc
+        if parsed_limit < 1:
+            raise HTTPException(status_code=422, detail={"code": "galaxy_limit_invalid"})
+    return await _build_galaxy_data(project, parsed_limit, domain=domain)
 
 
 @app.get("/bhm/galaxy/stats", response_model=GalaxyStatsResponse)

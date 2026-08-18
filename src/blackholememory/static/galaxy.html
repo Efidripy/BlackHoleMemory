@@ -41,6 +41,7 @@
       --legend-domain-unknown: #94a3b8;
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     html, body {
       margin: 0;
       min-height: 100%;
@@ -1668,12 +1669,12 @@
         <div class="brand-row">
           <div class="brand-left">
             <div class="eyebrow">BHM Galaxy</div>
-            <span class="version-pill">v4.0</span>
+            <span class="version-pill">Visual DB</span>
           </div>
           <button id="sidebarToggle" class="sidebar-toggle secondary" type="button" aria-controls="galaxySidebar" aria-label="Collapse sidebar" aria-expanded="true" title="Collapse sidebar">&larr;</button>
         </div>
         <div class="sidebar-content">
-        <section class="galaxy-intro" aria-labelledby="galaxyIntroTitle">
+        <section class="galaxy-intro" aria-labelledby="galaxyIntroTitle" hidden>
           <p class="eyebrow">Визуальная карта</p>
           <h1 id="galaxyIntroTitle">BHM Galaxy</h1>
           <p>Здесь показаны связи между памятью BHM и code intelligence CBM. Граф read-only: переключатели меняют слой и плотность отображения, но не изменяют данные.</p>
@@ -1685,25 +1686,25 @@
         </section>
         <div class="stack">
           <div class="section-group">
-            <div class="section-title">1 · Что смотрим</div>
+            <div class="section-title">Память</div>
             <div class="field">
-              <label for="project">Проект или область</label>
+              <label for="project">Проект</label>
               <div class="autocomplete">
-                <input id="project" type="text" autocomplete="off" placeholder="e-github-workspace or leave empty">
+                <input id="project" type="text" autocomplete="off" placeholder="Все проекты">
                 <div id="projectSuggestions" class="suggestion-panel" role="listbox" aria-label="Project scopes"></div>
               </div>
-              <div class="mini-note">Пустое поле показывает доступный общий scope; конкретный проект уменьшает граф.</div>
+              <div class="mini-note">Пусто — вся база. Введи или выбери проект, чтобы посмотреть его отдельно.</div>
             </div>
-            <div class="field">
+            <div class="field" hidden>
               <label for="galaxyDomain">Слой данных</label>
               <select id="galaxyDomain" aria-describedby="galaxyDomainHint">
+                <option value="memory" selected>BHM memory / knowledge</option>
                 <option value="all">Combined — BHM memory + CBM code</option>
-                <option value="memory">BHM memory / knowledge</option>
                 <option value="code">CBM code graph</option>
               </select>
               <div id="galaxyDomainHint" class="mini-note">Combined связывает память и код; Memory показывает знания; Code показывает структуру репозитория.</div>
             </div>
-            <div class="field">
+            <div class="field" hidden>
               <div id="presetGroupLabel">Готовый набор связей</div>
               <div class="preset-row" role="group" aria-labelledby="presetGroupLabel">
                 <button id="presetKnowledge" class="chip active" type="button" aria-pressed="true">Overview</button>
@@ -1714,8 +1715,19 @@
             </div>
           </div>
           <div class="section-group">
-            <div class="section-title">2 · Вид графа</div>
+            <div class="section-title">Отображение</div>
             <div class="field">
+              <label for="limit">Показывать последние</label>
+              <select id="limit">
+                <option value="50">50 записей</option>
+                <option value="200" selected>200 записей</option>
+                <option value="500">500 записей</option>
+                <option value="1000">1 000 записей</option>
+                <option value="all">Все доступные</option>
+              </select>
+              <div class="mini-note">Записи идут от новых к старым. «Все» не имеет скрытого лимита.</div>
+            </div>
+            <div class="field" hidden>
               <label for="layoutMode">Раскладка</label>
               <select id="layoutMode">
                 <option value="clustered">Clustered constellations — группы</option>
@@ -1723,15 +1735,15 @@
               </select>
             </div>
             <div class="field">
-              <label for="focusMode">Фокус</label>
+              <label for="focusMode">Область графа</label>
               <select id="focusMode">
                 <option value="global">Весь граф</option>
-                <option value="neighborhood">Окрестность выбранного узла</option>
+                <option value="neighborhood">Связи выбранного узла</option>
               </select>
-              <div class="mini-note">Выберите узел в графе и включите neighborhood, чтобы убрать дальний контекст.</div>
+              <div class="mini-note">Выбери узел и режим связей, чтобы сузить карту вокруг него.</div>
             </div>
             <div class="field">
-              <label for="hopDepth">Глубина связей</label>
+              <label for="hopDepth">Глубина вокруг узла</label>
               <input id="hopDepth" type="range" min="1" max="3" step="1" value="1">
               <div id="hopDepthLabel" class="range-readout">1 hop</div>
             </div>
@@ -1739,14 +1751,14 @@
               <button id="reloadBtn" type="button">Обновить данные</button>
               <button id="uiSessionRetryBtn" class="secondary" type="button" hidden>Повторить UI-сессию</button>
               <button id="fitBtn" class="secondary" type="button">Вписать граф</button>
-              <a class="link-btn secondary" href="/" target="_self">На dashboard</a>
+              <a class="link-btn secondary" href="/" target="_self" hidden>На dashboard</a>
             </div>
           </div>
-          <details id="advancedFiltersGroup" class="advanced-panel">
+          <details id="advancedFiltersGroup" class="advanced-panel" hidden>
             <summary>3 · Расширенные фильтры</summary>
             <div class="field">
             <label for="limit">Лимит memory records</label>
-            <input id="limit" type="number" min="40" max="500" value="220">
+            <div>Record amount is controlled above.</div>
             <div class="mini-note">Больше записей = больше контекста и медленнее навигация.</div>
           </div>
           <div class="field" style="margin-top:18px;">
@@ -1771,11 +1783,15 @@
             <div id="memoryCount" class="value">0</div>
           </div>
           <div class="metric">
+            <div class="label">Показано из базы</div>
+            <div id="shownCount" class="value" style="font-size: 18px;">0 / 0</div>
+          </div>
+          <div class="metric">
             <div class="label">Область</div>
             <div id="scopeLabel" class="value" style="font-size: 18px;">all</div>
           </div>
         </div>
-        <details id="operatorDiagnosticsGroup" class="advanced-panel">
+        <details id="operatorDiagnosticsGroup" class="advanced-panel" hidden>
           <summary>Operator diagnostics · runtime, MCP и CBM</summary>
         <section id="systemContext" class="system-context" aria-labelledby="systemContextTitle">
           <div class="system-context-header">
@@ -2015,6 +2031,7 @@
     const nodeCountEl = document.getElementById("nodeCount");
     const linkCountEl = document.getElementById("linkCount");
     const memoryCountEl = document.getElementById("memoryCount");
+    const shownCountEl = document.getElementById("shownCount");
     const scopeLabelEl = document.getElementById("scopeLabel");
     const detailCard = document.getElementById("detailCard");
     const detailEmpty = document.getElementById("detailEmpty");
@@ -2314,6 +2331,7 @@
       baseData: { nodes: [], links: [] },
       allData: { nodes: [], links: [] },
       currentData: { nodes: [], links: [] },
+      dataSummary: null,
       enabledEdges: new Set(),
       preset: "knowledge",
       layoutMode: "clustered",
@@ -2341,6 +2359,7 @@
       pulseSocket: null,
       pulseProject: "",
       pulseReconnectTimer: null,
+      pulseReloadTimer: null,
       runtimeQuality: null,
       mcpPanel: null,
       growthSnapshot: null,
@@ -2359,8 +2378,8 @@
     const memoryPulseDurationMs = 800;
     const memoryPulseDecayRate = 7;
     controls.project.value = params.get("project") || "";
-    controls.limit.value = params.get("limit") || "220";
-    controls.domain.value = ["all", "memory", "code"].includes(params.get("domain")) ? params.get("domain") : "all";
+    controls.limit.value = ["50", "200", "500", "1000", "all"].includes(params.get("limit")) ? params.get("limit") : "200";
+    controls.domain.value = "memory";
     state.preset = ["knowledge", "balanced", "custom"].includes(params.get("preset")) ? params.get("preset") : "knowledge";
     state.layoutMode = params.get("layout_mode") || "clustered";
     state.focusMode = params.get("focus_mode") || "global";
@@ -2769,8 +2788,6 @@
 
     document.getElementById("reloadBtn").addEventListener("click", () => {
       loadGalaxy(true);
-      refreshRuntimeQuality();
-      refreshMcpPanel();
     });
     uiSessionRetryBtn?.addEventListener("click", () => {
       uiSessionRetryBtn.disabled = true;
@@ -2892,6 +2909,11 @@
       if (event.key === "Enter") {
         event.preventDefault();
         state.projectEditMode = "committing";
+        if (!(controls.project.value || "").trim()) {
+          closeProjectSuggestions();
+          loadGalaxy(true);
+          return;
+        }
         const activeSuggestion = state.suggestionItems[state.activeSuggestionIndex];
         if (activeSuggestion) {
           applyProjectSuggestion(activeSuggestion.project);
@@ -2972,6 +2994,7 @@
       updateHopDepthLabel();
       redrawFilteredGraph(true);
     });
+    controls.limit.addEventListener("change", () => loadGalaxy(true));
     controls.hopDepth.addEventListener("input", () => {
       state.hopDepth = Number(controls.hopDepth.value || "1");
       updateHopDepthLabel();
@@ -3765,8 +3788,8 @@
     function buildUrl(updateHistory) {
       const query = new URLSearchParams();
       if (controls.project.value.trim()) query.set("project", controls.project.value.trim());
-      query.set("limit", controls.limit.value || "220");
-      query.set("domain", controls.domain.value || "all");
+      query.set("limit", controls.limit.value || "200");
+      query.set("domain", "memory");
       query.set("preset", state.preset);
       if (state.preset === "custom") {
         query.set("edge_kinds", Array.from(state.customEdgeKinds).sort().join(","));
@@ -5119,7 +5142,9 @@
       setActivePreset(name);
       const profile = presetProfiles[name];
       const availableKinds = new Set(Object.keys(edgeCounts(state.allData.links || [])));
-      if (profile) {
+      if (name === "knowledge") {
+        state.enabledEdges = new Set(availableKinds);
+      } else if (profile) {
         state.enabledEdges = new Set(profile.edges.filter(kind => availableKinds.has(kind)));
       } else if (name === "custom") {
         const fallbackKinds = presetProfiles.balanced.edges.filter(kind => availableKinds.has(kind));
@@ -5197,7 +5222,9 @@
       if (state.focusMode === "neighborhood" && !state.selectedNodeId) {
         setStatus("Select a node to show its neighborhood", "info");
       } else {
-        setStatus(`Loaded ${state.currentData.nodes.length} nodes / ${state.currentData.links.length} links`, "info");
+        const returned = Number(state.dataSummary?.returned_memory_count ?? 0).toLocaleString();
+        const total = Number(state.dataSummary?.total_memory_count ?? 0).toLocaleString();
+        setStatus(`Loaded ${returned} of ${total} memories · ${state.currentData.nodes.length} nodes / ${state.currentData.links.length} links`, "info");
       }
     }
 
@@ -5308,10 +5335,11 @@
 
     function triggerMemoryPulse(nodeId) {
       const node = findVisibleNodeById(nodeId);
-      if (!node || !node.__bhmObject) return;
+      if (!node || !node.__bhmObject) return false;
       state.activePulses.set(node.id, { startedAt: performance.now() });
       updateNodeVisual(node);
       Graph.refresh();
+      return true;
     }
 
     function tickMemoryPulses(now) {
@@ -5370,7 +5398,13 @@
         try {
           const payload = JSON.parse(event.data);
           if (payload && payload.event === "pulse" && payload.node_id) {
-            triggerMemoryPulse(payload.node_id);
+            const visible = triggerMemoryPulse(payload.node_id);
+            if (!visible && !state.pulseReloadTimer) {
+              state.pulseReloadTimer = window.setTimeout(() => {
+                state.pulseReloadTimer = null;
+                void loadGalaxy(false);
+              }, 500);
+            }
           }
         } catch (error) {
           console.warn("BHM pulse payload ignored", error);
@@ -5519,8 +5553,10 @@
         state.baseData = cloneGraphData(graphPayload);
         refreshAugmentedData();
         const summary = payload.summary || summarizeGraphData(state.baseData, controls.project.value.trim());
+        state.dataSummary = summary;
 
         memoryCountEl.textContent = String(summary.memory_records);
+        shownCountEl.textContent = `${Number(summary.returned_memory_count ?? summary.memory_records ?? 0).toLocaleString()} / ${Number(summary.total_memory_count ?? summary.memory_records ?? 0).toLocaleString()}`;
         scopeLabelEl.textContent = summary.project;
         renderProjectScopes(summary.top_projects || summarizeGraphData(state.baseData).top_projects || []);
 
@@ -5534,7 +5570,6 @@
         detailCard.hidden = true;
         detailEmpty.hidden = false;
         if (!uiSessionBlocked && !state.pulseSocket) void connectMemoryPulseSocket();
-        void refreshCbmParity();
       } catch (error) {
         if (generation !== state.loadGeneration) return;
         setStatus(`Load failed: ${error.message}`, "error");
@@ -5565,8 +5600,6 @@
       });
     }
 
-    controls.domain.addEventListener("change", () => loadGalaxy(true));
-
     applySidebarState();
     applyRightPanelState();
     applyLegendPanelState();
@@ -5583,8 +5616,6 @@
       if (uiSessionBlocked) return;
       window.setInterval(() => void renewUiSession().catch(() => {}), uiSessionKeepaliveMs);
       void connectMemoryPulseSocket();
-      void refreshRuntimeQuality();
-      void refreshMcpPanel();
     }
     void startGalaxyUi();
     window.addEventListener("resize", () => {

@@ -62,14 +62,13 @@ def test_galaxy_runtime_quality_contract_is_present():
     assert "nodeMetadata.metadata" in html
 
 
-def test_galaxy_global_bhm_cbm_domain_selector_contract_is_present():
+def test_galaxy_is_memory_only_and_hides_legacy_domain_selector():
     html = GALAXY_HTML.read_text(encoding="utf-8")
 
     assert 'id="galaxyDomain"' in html
-    assert 'value="memory"' in html
-    assert 'value="code"' in html
-    assert 'query.set("domain", controls.domain.value || "all")' in html
-    assert 'controls.domain.addEventListener("change", () => loadGalaxy(true))' in html
+    assert '<div class="field" hidden>\n              <label for="galaxyDomain">' in html
+    assert 'query.set("domain", "memory")' in html
+    assert 'controls.domain.addEventListener("change", () => loadGalaxy(true))' not in html
 
 
 def test_galaxy_project_resolution_is_fail_safe_for_partial_link_endpoints():
@@ -262,14 +261,15 @@ def test_galaxy_filters_nodes_by_mode_and_enabled_links():
     assert "function normalizeEdgeKind" in html
 
 
-def test_galaxy_advanced_filters_are_progressively_disclosed():
+def test_galaxy_legacy_advanced_filters_are_hidden():
     html = GALAXY_HTML.read_text(encoding="utf-8")
     group_start = html.index('<details id="advancedFiltersGroup"')
     group_end = html.index("</details>", group_start)
     group = html[group_start:group_end]
 
-    assert 'id="limit"' in group
+    assert 'class="advanced-panel" hidden' in group
     assert 'id="edgeFilters"' in group
+    assert '<select id="limit">' in html
     assert 'id="tagLimit"' not in html
     assert 'id="includeTags"' not in html
     assert 'id="includeObservations"' not in html

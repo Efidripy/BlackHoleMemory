@@ -72,15 +72,19 @@ plan instead of being guessed as synthetic.
 
 ## Galaxy controls
 
-Galaxy provides `Overview`, `All links` and `Custom` edge sets. Controls for
-tags and observations were removed because the canonical `/bhm/galaxy/data`
-read model does not publish those synthetic node types. Any manual edge change
-switches the view to `Custom` and persists the selected kinds in the shareable
-URL. Structural edge kinds are normalized to lowercase, semantic edge kinds
-keep their canonical uppercase names, and inactive nodes are removed from the
-rendered graph. Raw filters live under `Advanced filters`; runtime, MCP and CBM
-details live under `Operator diagnostics`. Hop depth is available only for
-focused scopes, while global mode keeps it disabled.
+Galaxy is a visual read model of active memory records from authoritative
+SQLite. Records are ordered by `updated_at` newest first and can be scoped to
+one project or all projects. The amount selector provides `50`, `200`, `500`,
+`1000`, and `ALL`; `ALL` walks every SQLite page and does not impose a hidden
+total-record cap. The status line always discloses the returned and available
+memory counts.
+
+The visible sidebar is intentionally limited to visual exploration controls:
+project, amount, whole-graph or selected-node focus, hop depth, reload, and fit.
+Runtime, MCP, CBM, raw-filter, domain, relation-preset, and layout diagnostics
+are not part of the Galaxy navigation. Persisted SQLite memory links are shown
+when both endpoints are present in the selected record set. New memory events
+refresh the open visualization when the record is not already visible.
 
 The browser UI is launcher-session-bound: start the trusted BHM launcher, which
 uses the caller bearer boundary and passes a one-time bootstrap token in the

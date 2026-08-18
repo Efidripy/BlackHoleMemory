@@ -151,6 +151,50 @@ def test_service_targeted_record_lookups_do_not_require_full_store_load(tmp_path
     )
 
 
+def test_service_list_records_is_newest_first_and_project_scoped(tmp_path):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    older = _record("mem_bhm_old")
+    newer = _record("mem_bhm_new")
+    newer["updated_at"] = "2026-07-14T12:00:00Z"
+    foreign = _record("mem_bhm_foreign")
+    foreign["project"] = "other-project"
+    foreign["updated_at"] = "2026-07-15T12:00:00Z"
+    service.upsert_records([older, newer, foreign])
+
+    records = service.list_records(project="blackholememory", limit=None)
+
+    assert [record["source_id"] for record in records] == ["mem_bhm_new", "mem_bhm_old"]
+    assert service.list_projects() == ["other-project", "blackholememory"]
+
+
+def test_service_all_mode_walks_every_bounded_repository_page(tmp_path, monkeypatch):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    service.repository.initialize()
+    calls: list[tuple[int, int]] = []
+
+    class FakeMemory:
+        def __init__(self, index: int) -> None:
+            self.index = index
+            self.lifecycle = type("LifecycleValue", (), {"value": "active"})()
+
+        def to_record(self) -> dict:
+            return {"source_id": f"mem-{self.index}"}
+
+    def fake_list_memories(**kwargs):
+        limit = int(kwargs["limit"])
+        offset = int(kwargs["offset"])
+        calls.append((limit, offset))
+        remaining = max(0, 10_001 - offset)
+        return [FakeMemory(offset + index) for index in range(min(limit, remaining))]
+
+    monkeypatch.setattr(service.repository, "list_memories", fake_list_memories)
+
+    records = service.list_records(limit=None)
+
+    assert len(records) == 10_001
+    assert calls == [(10_000, 0), (10_000, 10_000)]
+
+
 def test_service_bulk_upsert_rolls_back_on_second_outbox_failure(tmp_path, monkeypatch):
     service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
     original_append = service.repository._append_memory_event

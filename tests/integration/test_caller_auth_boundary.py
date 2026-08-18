@@ -182,10 +182,10 @@ def test_galaxy_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> Non
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
 
-    async def fake_build(project, limit, domain="all"):
+    async def fake_build(project, limit, domain="memory"):
         assert project is None
-        assert limit == 5000
-        assert domain == "all"
+        assert limit is None
+        assert domain == "memory"
         return {
             "nodes": [{"id": "node-a"}, {"id": "node-b"}, {"id": "node-c"}],
             "links": [{"source": "node-a", "target": "node-b", "type": "DEPENDS_ON"}],
@@ -205,9 +205,9 @@ def test_galaxy_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> Non
         "scope": "all-projects",
         "node_count": 3,
         "link_count": 1,
-        "authority": "galaxy-read-model",
-        "bounded": True,
-        "limit": 5000,
+        "authority": "sqlite-authoritative",
+        "bounded": False,
+        "limit": None,
     }
     assert caller_auth.caller_route_policy(
         "/bhm/galaxy/stats", "GET"
