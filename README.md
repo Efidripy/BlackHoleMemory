@@ -42,6 +42,8 @@ The authority boundary is deliberate:
 - **SQLite is authoritative** for memory lifecycle, metadata, provenance, and recovery.
 - **Mem0 is the semantic/logical layer** used to consolidate and retrieve context.
 - **Qdrant is a rebuildable projection**, never a second source of truth.
+- In the default SQLite-authoritative launcher, a Docker/Qdrant outage degrades
+  semantic projection and SLO without taking the core API or MCP offline.
 - **LangGraph** orchestrates stateful agent workflows.
 - Destructive or proposal-only operations stay behind explicit operator controls; BHM does not silently edit code or data.
 
@@ -112,7 +114,7 @@ BHM-authored code and documentation are released under the [0BSD license](LICENS
 
 BlackHoleMemory (BHM) — локальная self-hosted память и контур code intelligence для AI-агентов. Он сохраняет факты, решения, задачи, ошибки, файлы и зависимости с областью проекта и provenance, а затем возвращает проверяемый контекст через REST и локальный MCP Streamable HTTP.
 
-Архитектурное правило неизменно: **SQLite — единственный authoritative store**, Mem0 — семантический слой, Qdrant — восстанавливаемая projection, LangGraph — оркестрация. Разрушительные и proposal-only действия требуют явного operator control. Galaxy/workbench — локальная launcher-bound UI-поверхность; прямой anonymous URL намеренно требует доверенный bootstrap.
+Архитектурное правило неизменно: **SQLite — единственный authoritative store**, Mem0 — семантический слой, Qdrant — восстанавливаемая projection, LangGraph — оркестрация. В штатном SQLite-authoritative launcher сбой Docker/Qdrant ухудшает semantic projection и SLO, но не отключает core API/MCP. Разрушительные и proposal-only действия требуют явного operator control. Galaxy/workbench — локальная launcher-bound UI-поверхность; прямой anonymous URL намеренно требует доверенный bootstrap.
 
 Быстрый запуск:
 

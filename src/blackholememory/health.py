@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from .mem0_adapter import get_qdrant_client
+from .storage_state import qdrant_required_for_core
 
 
 @dataclass
@@ -24,8 +25,10 @@ def check_qdrant() -> DependencyStatus:
         return DependencyStatus("qdrant", False, "qdrant_unavailable")
 
 
-def dependency_report(include_optional: bool = False) -> dict:
-    checks = [check_qdrant()]
+def dependency_report(include_optional: bool = False, *, require_qdrant: bool | None = None) -> dict:
+    qdrant = check_qdrant()
+    qdrant.required = qdrant_required_for_core() if require_qdrant is None else bool(require_qdrant)
+    checks = [qdrant]
     if not include_optional:
         checks = [item for item in checks if item.required]
     required_checks = [item for item in checks if item.required]

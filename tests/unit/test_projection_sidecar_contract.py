@@ -13,6 +13,11 @@ def test_projection_sidecar_keeps_authority_in_bhm_and_worker_in_shadow_mode():
     assert "BHM_PROJECTION_WORKER_ENABLED = 'true'" in runner
     assert "run-bhm-projection-worker.py" in runner
     assert "--loop" in runner
+    assert "--quiet-idle" in runner
+    assert "$failureStreak" in runner
+    assert "$workerExitCode -eq 75" in runner
+    assert "$ErrorActionPreference = 'Continue'" in runner
+    assert "infrastructure_recovered" in runner
     assert "projection-sidecar.pid" in runner
     assert "projection-sidecar.stop" in launcher
     assert "start-bhm-projection-sidecar.ps1" in authoritative

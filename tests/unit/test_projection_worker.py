@@ -69,7 +69,9 @@ def test_run_once_forwards_bounded_claim_and_retry_settings():
         "claimed": 2,
         "completed": 1,
         "failed": 1,
+        "deferred": 0,
         "last_run_at": worker.snapshot().last_run_at,
+        "last_classification": None,
         "last_error": "one or more projection events failed",
         "last_duration_ms": worker.snapshot().last_duration_ms,
     }
@@ -99,5 +101,28 @@ def test_projector_exception_is_recorded_and_propagated():
 
     snapshot = worker.snapshot()
     assert snapshot.runs == 1
-    assert snapshot.last_error == "qdrant offline"
+    assert snapshot.last_classification == "worker_error"
+    assert snapshot.last_error == "builtins.RuntimeError: qdrant offline"
+
+
+def test_infrastructure_deferral_is_observable_and_uses_bounded_backoff():
+    result = ProjectorRunResult(
+        claimed=3,
+        completed=0,
+        failed=0,
+        outcomes=(),
+        deferred=3,
+        classification="infrastructure_unavailable",
+        error="builtins.ConnectionError: qdrant offline",
+    )
+    worker = ProjectionWorker(object(), _FakeProjector([result]), config=_config(poll_seconds=2))
+
+    assert worker.run_once() == result
+    snapshot = worker.snapshot()
+    assert snapshot.deferred == 3
+    assert snapshot.last_classification == "infrastructure_unavailable"
+    assert snapshot.last_error == "builtins.ConnectionError: qdrant offline"
+    assert worker._poll_delay(1) == 2
+    assert worker._poll_delay(3) == 8
+    assert worker._poll_delay(100) == 300
 

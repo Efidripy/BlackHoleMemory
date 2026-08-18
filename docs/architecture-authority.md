@@ -42,6 +42,14 @@ for compatibility, but a sidecar-only update is not a valid BHM state change.
   authoritative memory writer and must not be folded into the API process.
 - Authoritative runtime readiness requires SQLite schema/parity checks, while
   Qdrant degradation is reported separately.
+- The normal Windows authoritative launcher sets
+  `BHM_QDRANT_REQUIRED_FOR_CORE=false`: Docker/Qdrant outages leave the
+  SQLite API and MCP ready, while detailed health reports a degraded
+  projection and SLO remains breached. Strict deployment profiles retain the
+  fail-closed default by leaving the flag enabled.
+- Projection infrastructure failures return claimed outbox rows to `pending`
+  without consuming retry attempts; payload/schema failures remain bounded
+  and may enter dead-letter.
 
 When a compatibility path cannot yet be migrated, its receipt must identify the
 source (`sqlite-authoritative` or `read-model`), the authority boundary and

@@ -13,23 +13,28 @@
 4. Не переносите в Git диагностические логи и raw receipts. Их место — в
    локальной `.local/`-зоне.
 
-## API завершается с `remote_qdrant_required_but_unavailable`
+## Qdrant или Docker временно недоступен
 
-Это означает, что обязательный Qdrant не успел выйти в HTTP readiness. Само
-сообщение не доказывает crash контейнера: после перезапуска Docker Desktop
-Qdrant может восстанавливать коллекции дольше 30 секунд.
+Канонический SQLite-authoritative launcher сначала поднимает BHM core, затем
+восстанавливает Qdrant projection. Поэтому `/health/ready` остаётся `ready`,
+если SQLite исправна, а защищённые `/bhm/health` и `/bhm/health/slo` показывают
+`degraded`/`breached` до возвращения projection. Сообщение
+`remote_qdrant_required_but_unavailable` само по себе не доказывает crash
+Qdrant: часто первым недоступен Docker Desktop/WSL engine.
 
-Канонический запуск выполняет последовательность `Qdrant /healthz → BHM API`
-и ждёт холодное восстановление до 120 секунд:
+Повторный безопасный запуск:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-bhm-authoritative.ps1
 ```
 
-Не запускайте `run-service.ps1` вручную до подтверждённого ответа
-`http://127.0.0.1:6333/healthz`. `Invalid Origin header` для неизвестного
-origin и Windows `ConnectionResetError 10054` от закрывшего соединение клиента
-сами по себе не означают завершение API.
+`start-qdrant.ps1` ограниченно запускает Docker Desktop, выполняет Compose и
+ждёт HTTP `/healthz`. Он не вызывает `wsl --shutdown` и не перезапускает
+исправный BHM API. Для специального строгого профиля установите
+`BHM_QDRANT_REQUIRED_FOR_CORE=true`; тогда startup/readiness остаются
+fail-closed. `Invalid Origin header` для неизвестного origin и Windows
+`ConnectionResetError 10054` от закрывшего соединение клиента сами по себе не
+означают завершение API.
 
 ## `bhm_index_repository` возвращает timeout
 

@@ -33,23 +33,63 @@ $env:BHM_PROJECTION_WORKER_MAX_ATTEMPTS = [string]$MaxAttempts
 $env:BHM_FALLBACK_MODE = 'explicit'
 
 try {
+  $failureStreak = 0
   while (-not (Test-Path -LiteralPath $stopPath)) {
     $arguments = @(
       (Join-Path $repoRoot 'scripts\run-bhm-projection-worker.py'),
       '--loop',
       '--force',
-      '--max-cycles', '1'
+      '--max-cycles', '1',
+      '--quiet-idle'
     )
     if (-not [string]::IsNullOrWhiteSpace($OpenAiBaseUrl)) {
       $arguments += @('--openai-base-url', $OpenAiBaseUrl)
     }
     try {
-      & $pythonPath @arguments >> $stdoutPath 2>> $stderrPath
+      # Native stderr is expected for the worker's structured infrastructure
+      # diagnostic. Do not let PowerShell convert it into a one-line
+      # NativeCommandError that discards the bounded JSON payload.
+      $savedErrorActionPreference = $ErrorActionPreference
+      try {
+        $ErrorActionPreference = 'Continue'
+        & $pythonPath @arguments >> $stdoutPath 2>> $stderrPath
+        $workerExitCode = $LASTEXITCODE
+      } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+      }
     } catch {
-      Add-Content -LiteralPath $stderrPath -Value ("sidecar invocation failed: " + $_.Exception.Message)
+      $workerExitCode = 1
+      $boundedError = [string]$_.Exception.Message
+      if ($boundedError.Length -gt 2000) { $boundedError = $boundedError.Substring(0, 2000) }
+      Add-Content -LiteralPath $stderrPath -Value (([pscustomobject]@{
+        timestamp = [DateTimeOffset]::UtcNow.ToString('o')
+        classification = 'sidecar_invocation_failed'
+        error = $boundedError
+      }) | ConvertTo-Json -Compress)
     }
     if (Test-Path -LiteralPath $stopPath) { break }
-    Start-Sleep -Seconds $PollSeconds
+    if ($workerExitCode -eq 75) {
+      $failureStreak += 1
+      $exponent = [Math]::Min([Math]::Max($failureStreak - 1, 0), 8)
+      $delaySeconds = [Math]::Min(300, [int]($PollSeconds * [Math]::Pow(2, $exponent)))
+    } else {
+      if ($failureStreak -gt 0 -and $workerExitCode -eq 0) {
+        Add-Content -LiteralPath $stdoutPath -Value (([pscustomobject]@{
+          timestamp = [DateTimeOffset]::UtcNow.ToString('o')
+          classification = 'infrastructure_recovered'
+        }) | ConvertTo-Json -Compress)
+      }
+      $failureStreak = 0
+      $delaySeconds = $PollSeconds
+      if ($workerExitCode -ne 0) {
+        Add-Content -LiteralPath $stderrPath -Value (([pscustomobject]@{
+          timestamp = [DateTimeOffset]::UtcNow.ToString('o')
+          classification = 'worker_exit'
+          exit_code = [int]$workerExitCode
+        }) | ConvertTo-Json -Compress)
+      }
+    }
+    Start-Sleep -Seconds $delaySeconds
   }
 }
 finally {

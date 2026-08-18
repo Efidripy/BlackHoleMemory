@@ -24,6 +24,7 @@ Assert-BhmApiLoopbackHost -HostName ([string]$env:BHM_HOST)
 
 function Set-AuthoritativeEnvironment {
   $env:BHM_MEMORY_STORE_MODE = "sqlite-authoritative"
+  $env:BHM_QDRANT_REQUIRED_FOR_CORE = "false"
   $env:BHM_FALLBACK_MODE = "explicit"
   $env:BHM_PROJECTION_WORKER_ENABLED = "false"
   $env:BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"
@@ -233,12 +234,13 @@ function Get-ContractSnapshot {
     return [pscustomobject]@{
       reachable = $true
       authoritative = (
-        $health.status -eq 'healthy' -and
+        (@('healthy', 'degraded') -contains $health.status) -and
         $health.memory_store.backend -eq 'sqlite-authoritative' -and
         [bool]$health.memory_store.ready -and
         [bool]$health.memory_store.parity_confirmed -and
         [bool]$health.memory_store.writer_offline_confirmed -and
         [bool]$cutover.ok -and
+        -not [bool]$cutover.projection.required_for_core -and
         $cutover.mem0.status -eq 'projection-only' -and
         -not [bool]$cutover.mem0.direct_vector_writes -and
         -not [bool]$health.memory_store.projection_worker.enabled
@@ -361,16 +363,18 @@ $serviceStderr = Join-Path $runtimeRoot 'authoritative-service-stderr.log'
 $qdrantStdout = Join-Path $runtimeRoot 'authoritative-qdrant-stdout.log'
 $qdrantStderr = Join-Path $runtimeRoot 'authoritative-qdrant-stderr.log'
 New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
-$qdrantOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $qdrantScript -TimeoutSec $QdrantTimeoutSec 2>&1)
-if ($LASTEXITCODE -ne 0) {
-  $qdrantOutput | Set-Content -LiteralPath $qdrantStderr -Encoding UTF8
-  throw "Qdrant readiness prerequisite failed: $($qdrantOutput -join [Environment]::NewLine)"
-}
-$qdrantOutput | Set-Content -LiteralPath $qdrantStdout -Encoding UTF8
 Start-BhmDetachedHidden -FilePath 'powershell.exe' `
   -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $serviceScript, '-SkipInstall', '-Authoritative') + $(if ($SemanticFusion) { @('-SemanticFusion') } else { @() })) `
   -WorkingDirectory $repoRoot -StdoutPath $serviceStdout -StderrPath $serviceStderr
 if ($NoWait) {
+  $projectionSidecarScript = Join-Path $repoRoot 'scripts\start-bhm-projection-sidecar.ps1'
+  if (Test-Path -LiteralPath $projectionSidecarScript) {
+    try {
+      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $projectionSidecarScript -Action Start -NoWait | Out-Null
+    } catch {
+      Write-Warning "Projection sidecar start failed; BHM core remains authoritative: $($_.Exception.Message)"
+    }
+  }
   [pscustomobject]@{
     ok = $true
     action = 'spawned'
@@ -392,6 +396,16 @@ if (-not $result.ok) {
     error = $result.error
   } | ConvertTo-Json -Depth 4
   exit 1
+}
+
+# Qdrant is a rebuildable projection. Attempt recovery after the SQLite core
+# is live, but never roll the authoritative API back when Docker is absent.
+$qdrantOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $qdrantScript -TimeoutSec $QdrantTimeoutSec 2>&1)
+if ($LASTEXITCODE -ne 0) {
+  $qdrantOutput | Set-Content -LiteralPath $qdrantStderr -Encoding UTF8
+  Write-Warning "Qdrant projection recovery is pending; BHM core remains ready."
+} else {
+  $qdrantOutput | Set-Content -LiteralPath $qdrantStdout -Encoding UTF8
 }
 
 # Keep the Qdrant projection current in a separate, explicit sidecar. The

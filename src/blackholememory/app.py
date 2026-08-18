@@ -110,6 +110,7 @@ from .health_routes import build_live
 from .health_routes import build_ready
 from .health_routes import build_ready_public
 from .health_routes import build_slo
+from .storage_state import qdrant_required_for_core
 from .mcp_protocol_contract import validate_bhm_remember_arguments
 from .mem0_adapter import BHMGraphManager
 from .mem0_adapter import StorageNotReady
@@ -2219,20 +2220,33 @@ async def _app_lifespan(_app: FastAPI):
             "sqlite-authoritative memory mode is not ready: "
             f"{memory_store.reason}"
         )
-    if memory_store.configured_mode == MemoryStoreMode.SQLITE_AUTHORITATIVE.value:
+    sqlite_authoritative = memory_store.configured_mode == MemoryStoreMode.SQLITE_AUTHORITATIVE.value
+    if sqlite_authoritative:
         # The repository's first write intentionally runs an integrity-complete
         # SQLite initializer.  Complete that bounded gate before readiness is
         # advertised so the first MCP mutation cannot commit after the default
         # client deadline without returning its receipt.
         await asyncio.to_thread(_initialize_authoritative_memory_service)
-    await _wait_for_required_storage_ready()
-    collection_report = await asyncio.to_thread(ensure_memory_collections, settings.qdrant_collection)
-    print(
-        "[INFO] BHM Qdrant contours ready: "
-        f"local={collection_report['local']['collection_name']} "
-        f"global={collection_report['global']['collection_name']}",
-        flush=True,
-    )
+    storage = await asyncio.to_thread(storage_runtime_state)
+    projection_required = qdrant_required_for_core() or not sqlite_authoritative
+    if projection_required:
+        waited_storage = await _wait_for_required_storage_ready()
+        if waited_storage is not None:
+            storage = waited_storage
+    if storage.ready:
+        collection_report = await asyncio.to_thread(ensure_memory_collections, settings.qdrant_collection)
+        print(
+            "[INFO] BHM Qdrant contours ready: "
+            f"local={collection_report['local']['collection_name']} "
+            f"global={collection_report['global']['collection_name']}",
+            flush=True,
+        )
+    else:
+        print(
+            "[WARN] BHM started with SQLite authoritative and Qdrant projection degraded: "
+            f"{storage.reason}",
+            flush=True,
+        )
     warmup_task: asyncio.Task[None] | None = None
     boot_report_task: asyncio.Task[None] | None = None
     telemetry_task: asyncio.Task[None] | None = None
@@ -12476,6 +12490,7 @@ def _health_runtime_dependencies() -> HealthRuntimeDependencies:
         memory_service=_memory_service,
         sqlite_authoritative_mode=MemoryStoreMode.SQLITE_AUTHORITATIVE.value,
         memory_service_not_ready=MemoryServiceNotReady,
+        projection_required_for_core=qdrant_required_for_core,
     )
 
 
