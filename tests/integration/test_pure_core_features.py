@@ -3566,31 +3566,22 @@ def _galaxy_node(node_id: str, *, qdrant_id: str | None = None, tags: list[str] 
     }
 
 
-class _FakeGalaxyGraphManager:
-    def __init__(self, graph: dict[str, list[dict[str, str]]]) -> None:
-        self.graph = graph
-
-    async def get_graph(self) -> dict[str, list[dict[str, str]]]:
-        return self.graph
-
-
 def _patch_galaxy_data(monkeypatch, nodes: list[dict], graph: dict[str, list[dict[str, str]]]) -> None:
-    async def fake_active_nodes(project: str | None, limit: int):
-        alias_map: dict[str, str] = {}
-        for node in nodes:
-            node_id = node["id"]
-            meta = node.get("meta") or {}
-            for alias in (node_id, meta.get("source_id"), meta.get("qdrant_point_id")):
-                if alias:
-                    alias_map[str(alias)] = node_id
-        return nodes, alias_map
+    async def fake_active_nodes(project: str | None, limit: int | None):
+        projects = list(dict.fromkeys(str((node.get("meta") or {}).get("project") or "") for node in nodes))
+        return nodes, len(nodes), projects
 
-    monkeypatch.setattr(bhm_app, "_load_galaxy_active_nodes", fake_active_nodes)
-    async def fake_code_nodes(project: str | None, limit: int):
-        return []
-
-    monkeypatch.setattr(bhm_app, "_load_galaxy_code_project_nodes", fake_code_nodes)
-    monkeypatch.setattr(bhm_app, "_BHM_GRAPH_MANAGER", _FakeGalaxyGraphManager(graph))
+    links = [
+        {
+            "source_id": source,
+            "target_id": str(link.get("target_id") or ""),
+            "relation": str(link.get("edge_type") or ""),
+        }
+        for source, outgoing in graph.items()
+        for link in outgoing
+    ]
+    monkeypatch.setattr(bhm_app, "_load_galaxy_authoritative_nodes", fake_active_nodes)
+    monkeypatch.setattr(bhm_app, "_load_galaxy_authoritative_links_sync", lambda project: links)
 
 
 def test_galaxy_endpoint_json_structure(monkeypatch):
@@ -3603,10 +3594,12 @@ def test_galaxy_endpoint_json_structure(monkeypatch):
 
     data = asyncio.run(bhm_app.bhm_galaxy_data(project="BlackHoleMemory", limit=100))
 
-    assert set(data) == {"nodes", "links"}
-    assert data["nodes"][0]["core_insight"].startswith("Core insight")
-    assert data["nodes"][0]["tags"] == ["graph"]
-    assert data["links"] == [{"source": "mem-a", "target": "mem-b", "type": "DEPENDS_ON"}]
+    assert set(data) == {"nodes", "links", "summary"}
+    memories = [node for node in data["nodes"] if node["type"] == "memory"]
+    assert memories[0]["core_insight"].startswith("Core insight")
+    assert memories[0]["tags"] == ["graph"]
+    assert {link["type"] for link in data["links"]} == {"belongs_to_project", "DEPENDS_ON"}
+    assert data["summary"]["authority"] == "sqlite-authoritative"
 
 
 def test_galaxy_empty_base_handling(monkeypatch):
@@ -3614,7 +3607,24 @@ def test_galaxy_empty_base_handling(monkeypatch):
 
     data = asyncio.run(bhm_app.bhm_galaxy_data(project="BlackHoleMemory", limit=100))
 
-    assert data == {"nodes": [], "links": []}
+    assert data["nodes"] == []
+    assert data["links"] == []
+    assert data["summary"]["memory_records"] == 0
+
+
+def test_galaxy_all_mode_has_no_numeric_cap(monkeypatch):
+    captured: list[tuple[str | None, int | None, str]] = []
+
+    async def fake_build(project: str | None, limit: int | None, domain: str = "memory") -> dict:
+        captured.append((project, limit, domain))
+        return {"nodes": [], "links": [], "summary": {}}
+
+    monkeypatch.setattr(bhm_app, "_build_galaxy_data", fake_build)
+
+    data = asyncio.run(bhm_app.bhm_galaxy_data(project="lookatme", limit="all"))
+
+    assert data == {"nodes": [], "links": [], "summary": {}}
+    assert captured == [("lookatme", None, "memory")]
 
 
 def test_galaxy_dangling_links_filter(monkeypatch):
@@ -3633,7 +3643,8 @@ def test_galaxy_dangling_links_filter(monkeypatch):
 
     data = asyncio.run(bhm_app.bhm_galaxy_data(project="BlackHoleMemory", limit=100))
 
-    assert data["links"] == [{"source": "mem-a", "target": "mem-b", "type": "UPGRADES"}]
+    semantic = [link for link in data["links"] if link["type"] != "belongs_to_project"]
+    assert semantic == [{"source": "mem-a", "target": "mem-b", "type": "UPGRADES"}]
 
 
 def test_galaxy_edge_type_routing(monkeypatch):
@@ -3658,7 +3669,13 @@ def test_galaxy_edge_type_routing(monkeypatch):
 
     data = asyncio.run(bhm_app.bhm_galaxy_data(project="BlackHoleMemory", limit=100))
 
-    assert [link["type"] for link in data["links"]] == ["DEPENDS_ON", "UPGRADES", "CONTRADICTS"]
+    semantic = [link for link in data["links"] if link["type"] != "belongs_to_project"]
+    assert [link["type"] for link in semantic] == [
+        "DEPENDS_ON",
+        "UPGRADES",
+        "CONTRADICTS",
+        "unsupported",
+    ]
     assert all(set(link) == {"source", "target", "type"} for link in data["links"])
 
 

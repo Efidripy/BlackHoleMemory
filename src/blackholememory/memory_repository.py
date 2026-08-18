@@ -142,6 +142,8 @@ class MemoryRepository(Protocol):
         include_tombstoned: bool = False,
     ) -> int: ...
 
+    def list_projects(self, *, include_archived: bool = False) -> list[str]: ...
+
     def save_artifact(self, artifact: Artifact) -> Artifact: ...
 
     def list_artifacts(
@@ -1126,6 +1128,19 @@ class SQLiteMemoryRepository:
         try:
             row = connection.execute(f"SELECT COUNT(*) FROM memories{where}", parameters).fetchone()
             return int(row[0] if row else 0)
+        finally:
+            connection.close()
+
+    def list_projects(self, *, include_archived: bool = False) -> list[str]:
+        clause = "" if include_archived else " WHERE lifecycle = 'active'"
+        connection = self._read_connection()
+        try:
+            rows = connection.execute(
+                "SELECT project, MAX(updated_at) AS latest FROM memories"
+                + clause
+                + " GROUP BY project ORDER BY latest DESC, project"
+            ).fetchall()
+            return [str(row["project"]) for row in rows if str(row["project"] or "").strip()]
         finally:
             connection.close()
 

@@ -183,18 +183,89 @@ class SQLiteMemoryService:
             count += 1
         return count
 
-    def load_records(self, *, include_storage_lifecycle: bool = False) -> list[dict[str, Any]]:
+    def list_records(
+        self,
+        *,
+        project: str | None = None,
+        include_archived: bool = False,
+        include_tombstoned: bool = False,
+        limit: int | None = None,
+        offset: int = 0,
+        include_storage_lifecycle: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Return newest-first records without imposing a hidden total cap.
+
+        The repository deliberately bounds each SQLite page to 10,000 rows.
+        ``limit=None`` preserves that protection while walking every page, so
+        operator views such as Galaxy can truthfully implement an ``all``
+        mode even when the authoritative store grows past one page.
+        """
+
         self._ensure_ready(verify_integrity=False)
-        memories = self.repository.list_memories(
-            include_archived=True,
-            include_tombstoned=True,
-            limit=10_000,
-        )
+        requested_offset = max(0, int(offset))
+        remaining = None if limit is None else max(0, int(limit))
+        if remaining == 0:
+            return []
+
+        memories = []
+        page_offset = requested_offset
+        while remaining is None or remaining > 0:
+            page_limit = 10_000 if remaining is None else min(10_000, remaining)
+            page = self.repository.list_memories(
+                project=project,
+                include_archived=include_archived,
+                include_tombstoned=include_tombstoned,
+                limit=page_limit,
+                offset=page_offset,
+            )
+            memories.extend(page)
+            page_offset += len(page)
+            if remaining is not None:
+                remaining -= len(page)
+            if len(page) < page_limit:
+                break
+
         records = [memory.to_record() for memory in memories]
         if include_storage_lifecycle:
             for record, memory in zip(records, memories, strict=True):
                 record["lifecycle"] = memory.lifecycle.value
         return records
+
+    def load_records(self, *, include_storage_lifecycle: bool = False) -> list[dict[str, Any]]:
+        return self.list_records(
+            include_archived=True,
+            include_tombstoned=True,
+            include_storage_lifecycle=include_storage_lifecycle,
+        )
+
+    def list_links(
+        self,
+        *,
+        project: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return persisted SQLite memory links, paging through ``all`` safely."""
+
+        self._ensure_ready(verify_integrity=False)
+        remaining = None if limit is None else max(0, int(limit))
+        if remaining == 0:
+            return []
+        links = []
+        page_offset = 0
+        while remaining is None or remaining > 0:
+            page_limit = 10_000 if remaining is None else min(10_000, remaining)
+            page = self.repository.list_links(
+                project=project,
+                limit=page_limit,
+                offset=page_offset,
+            )
+            links.extend(page)
+            page_offset += len(page)
+            if remaining is not None:
+                remaining -= len(page)
+            if len(page) < page_limit:
+                break
+        return [link.to_record() for link in links]
 
     def count_records(
         self,
@@ -209,6 +280,10 @@ class SQLiteMemoryService:
             include_archived=include_archived,
             include_tombstoned=include_tombstoned,
         )
+
+    def list_projects(self, *, include_archived: bool = False) -> list[str]:
+        self._ensure_ready(verify_integrity=False)
+        return self.repository.list_projects(include_archived=include_archived)
 
     def get_record(self, memory_id: str, *, project: str | None = None) -> dict[str, Any] | None:
         self._ensure_ready()
