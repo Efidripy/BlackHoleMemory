@@ -34,6 +34,15 @@ def test_frozen_launcher_keeps_sqlite_authoritative_api_independent_of_qdrant():
     assert "Resolve-Path -LiteralPath $ProjectRoot" in service
 
 
+def test_launcher_exposes_operator_gated_qdrant_recovery():
+    launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+
+    assert '"qdrant_recovery"' in launcher
+    assert '"recover-qdrant.ps1"' in launcher
+    assert '"-WhatIf"' in launcher
+    assert '"-Force"' in launcher
+
+
 def test_launcher_does_not_select_project_root_from_process_cwd():
     launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
 

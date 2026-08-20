@@ -318,6 +318,13 @@ OPERATOR_ACTIONS: tuple[OperatorActionSpec, ...] = (
     OperatorActionSpec("repair", "Repair indexes", "Preview and repair canonical links/indexes.", True, "Maintenance"),
     OperatorActionSpec("projection", "Rebuild Qdrant", "Drain the projection backlog from SQLite.", True, "Maintenance"),
     OperatorActionSpec("reconcile", "Reconcile projection", "Preview deterministic Qdrant repairs, then apply.", True, "Maintenance"),
+    OperatorActionSpec(
+        "qdrant_recovery",
+        "Recover Qdrant",
+        "Run bounded Docker/Qdrant recovery; force mode is explicit and preserves volumes.",
+        True,
+        "Recovery & transfer",
+    ),
     OperatorActionSpec("restore", "Restore backup", "Offline verified restore with pre-restore backup.", True, "Recovery & transfer"),
     OperatorActionSpec("exchange", "Export / import", "Export or preview/apply an admin snapshot.", True, "Recovery & transfer"),
 )
@@ -3277,6 +3284,28 @@ class DashboardScreen(QWidget):
                     timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
                 )
             )
+        if key == "qdrant_recovery":
+            return with_context(
+                lambda: {
+                    "ok": True,
+                    "action": "qdrant_recovery",
+                    "phase": "preview",
+                    "recovery": _run_operator_json(
+                        [
+                            "powershell",
+                            "-NoProfile",
+                            "-ExecutionPolicy",
+                            "Bypass",
+                            "-File",
+                            str(find_project_root() / "scripts" / "recover-qdrant.ps1"),
+                            "-WhatIf",
+                            "-AsJson",
+                        ],
+                        cwd=find_project_root(),
+                        timeout=API_START_COMMAND_TIMEOUT_SECONDS,
+                    ),
+                }
+            )
         if key == "reconcile":
             return with_context(lambda: operator_reconcile_preview(project))
         raise ValueError(f"unsupported operator action: {key}")
@@ -3346,10 +3375,17 @@ class DashboardScreen(QWidget):
         phase = str(payload.get("phase") or "")
         if key in OPERATOR_MUTATION_KEYS and phase in {"preview", ""}:
             self._operator_previews[key] = payload
+            if key == "qdrant_recovery":
+                prompt = (
+                    "Qdrant recovery will try bounded local repair and, if needed, "
+                    "restart Docker/WSL. Docker volumes and SQLite are preserved. Continue?"
+                )
+            else:
+                prompt = "Preview completed. Create a verified backup and apply this operation?"
             answer = QMessageBox.question(
                 self,
                 "Confirm BHM mutation",
-                "Preview completed. Create a verified backup and apply this operation?",
+                prompt,
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if answer is not QMessageBox.StandardButton.Yes:
@@ -3367,6 +3403,25 @@ class DashboardScreen(QWidget):
             "repair": lambda: operator_repair_indexes(project),
             "restore": lambda: operator_restore_backup(path, project),
             "projection": lambda: operator_projection_rebuild(project),
+            "qdrant_recovery": lambda: {
+                "ok": True,
+                "action": "qdrant_recovery",
+                "phase": "apply",
+                "recovery": _run_operator_json(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                        str(find_project_root() / "scripts" / "recover-qdrant.ps1"),
+                        "-Force",
+                        "-AsJson",
+                    ],
+                    cwd=find_project_root(),
+                    timeout=API_START_COMMAND_TIMEOUT_SECONDS,
+                ),
+            },
             "reconcile": lambda: operator_reconcile_apply(preview, project),
             "exchange": lambda: operator_exchange_apply(path, project),
         }
