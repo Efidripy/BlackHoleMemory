@@ -1790,6 +1790,16 @@
             <div class="label">Область</div>
             <div id="scopeLabel" class="value" style="font-size: 18px;">all</div>
           </div>
+          <div class="metrics-heading" style="margin-top: 10px;"><span>Вся память</span><span>authoritative totals</span></div>
+          <div class="metric">
+            <div class="label">Всего узлов</div>
+            <div id="globalNodeCount" class="value">—</div>
+          </div>
+          <div class="metric">
+            <div class="label">Всего связей</div>
+            <div id="globalLinkCount" class="value">—</div>
+          </div>
+          <div id="globalStatsStatus" class="mini-note" role="status" aria-live="polite">Глобальные итоги загружаются…</div>
         </div>
         <details id="operatorDiagnosticsGroup" class="advanced-panel" hidden>
           <summary>Operator diagnostics · runtime, MCP и CBM</summary>
@@ -2033,6 +2043,9 @@
     const memoryCountEl = document.getElementById("memoryCount");
     const shownCountEl = document.getElementById("shownCount");
     const scopeLabelEl = document.getElementById("scopeLabel");
+    const globalNodeCountEl = document.getElementById("globalNodeCount");
+    const globalLinkCountEl = document.getElementById("globalLinkCount");
+    const globalStatsStatusEl = document.getElementById("globalStatsStatus");
     const detailCard = document.getElementById("detailCard");
     const detailEmpty = document.getElementById("detailEmpty");
     const detailType = document.getElementById("detailType");
@@ -5576,6 +5589,21 @@
       }
     }
 
+    async function loadGlobalStats() {
+      try {
+        const response = await bhmFetch("/bhm/galaxy/stats", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok || payload.ok === false) throw new Error(payload.detail || "global totals unavailable");
+        globalNodeCountEl.textContent = Number(payload.node_count || 0).toLocaleString();
+        globalLinkCountEl.textContent = Number(payload.link_count || 0).toLocaleString();
+        globalStatsStatusEl.textContent = "SQLite-authoritative · все проекты";
+      } catch (error) {
+        globalNodeCountEl.textContent = "—";
+        globalLinkCountEl.textContent = "—";
+        globalStatsStatusEl.textContent = `Глобальные итоги недоступны: ${error.message}`;
+      }
+    }
+
     window.__bhmGraph = Graph;
     window.__bhmGalaxyState = state;
     window.__bhmGalaxySyncHighlightState = syncHighlightState;
@@ -5613,6 +5641,7 @@
         return;
       }
       await loadGalaxy(false);
+      void loadGlobalStats();
       if (uiSessionBlocked) return;
       window.setInterval(() => void renewUiSession().catch(() => {}), uiSessionKeepaliveMs);
       void connectMemoryPulseSocket();

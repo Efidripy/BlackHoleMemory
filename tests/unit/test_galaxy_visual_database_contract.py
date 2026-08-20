@@ -45,6 +45,16 @@ def test_galaxy_discloses_returned_and_total_authoritative_records() -> None:
     assert "Loaded ${returned} of ${total} memories" in html
 
 
+def test_galaxy_displays_global_authoritative_graph_totals_separately() -> None:
+    html = _html()
+
+    assert 'id="globalNodeCount"' in html
+    assert 'id="globalLinkCount"' in html
+    assert 'id="globalStatsStatus"' in html
+    assert 'bhmFetch("/bhm/galaxy/stats"' in html
+    assert "SQLite-authoritative" in html
+
+
 def test_galaxy_operator_surfaces_are_removed_from_the_visible_sidebar() -> None:
     html = _html()
 
