@@ -33,3 +33,4 @@ def test_qdrant_recovery_exposes_safe_escalation_and_force_gate() -> None:
     assert "docker system prune" not in source.casefold()
     assert "qdrant.recovery.v1" in source
     assert "Re-run with -Force" in source
+    assert "$deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)" in source

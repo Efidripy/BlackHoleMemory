@@ -190,6 +190,10 @@ try {
     } catch {
       Add-Step 'soft-recovery' 'failed' $_.Exception.Message
       if (-not $Force) { throw "Qdrant soft recovery failed. Re-run with -Force for the explicit Docker/WSL reset. $($_.Exception.Message)" }
+      # Soft recovery owns the first bounded budget.  A slow Docker Desktop
+      # probe must not consume the entire budget reserved for the explicitly
+      # operator-approved force reset.
+      $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
       Invoke-ForceRecovery
       $result = 'force-recovered'
     }
