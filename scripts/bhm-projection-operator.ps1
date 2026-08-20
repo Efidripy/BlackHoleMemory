@@ -269,11 +269,25 @@ $stderr = Join-Path $RepoRoot ".runtime\bootstrap\projection-operator-launcher.s
         -WorkingDirectory $RepoRoot -WindowStyle Hidden `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
     $deadline = [DateTime]::UtcNow.AddSeconds(120)
+    $readyObserved = $false
     while (-not $launcher.HasExited -and [DateTime]::UtcNow -lt $deadline) {
         Start-Sleep -Seconds 1
         $launcher.Refresh()
+        try {
+            $probe = Get-LiveSlo -Url $BaseUrl
+            if ($probe.ready -and $probe.cutover) {
+                # ``-NoWait`` is a detached launcher contract.  A wrapper
+                # process can remain alive while its child API is already
+                # ready; readiness is the useful completion signal here.
+                $readyObserved = $true
+                break
+            }
+        } catch {
+            # Keep waiting within the bounded startup deadline.
+        }
     }
     $timedOut = -not $launcher.HasExited
+    $timedOut = $timedOut -and (-not $readyObserved)
     if ($timedOut) {
         Stop-Process -Id $launcher.Id -Force -ErrorAction SilentlyContinue
         $stopDeadline = [DateTime]::UtcNow.AddSeconds($ProjectionShutdownTimeoutSec)
@@ -289,9 +303,10 @@ $stderr = Join-Path $RepoRoot ".runtime\bootstrap\projection-operator-launcher.s
     $safeText = if ($null -eq $text) { "" } else { [string]$text }
     $safeErrorText = if ($null -eq $errorText) { "" } else { [string]$errorText }
     [pscustomobject]@{
-        ok = ($launcher.HasExited -and -not $timedOut -and [string]::IsNullOrWhiteSpace($safeErrorText) -and $safeText -match '"ok"\s*:\s*true')
+        ok = ($readyObserved -or ($launcher.HasExited -and -not $timedOut -and [string]::IsNullOrWhiteSpace($safeErrorText) -and $safeText -match '"ok"\s*:\s*true'))
         exited = $launcher.HasExited
         timed_out = $timedOut
+        ready_observed = $readyObserved
         stdout = $safeText.Trim()
         stderr = $safeErrorText.Trim()
     }
