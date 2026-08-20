@@ -273,9 +273,6 @@ COLOR_RED = "#FF5252"
 QUICK_LINKS = [
     ("BHM", "BHM Home", f"{BHM_BASE_URL}/"),
     ("GALAXY", "Galaxy Viewer", f"{BHM_BASE_URL}/bhm/galaxy"),
-    ("DOCS", "API Docs", f"{BHM_BASE_URL}/docs"),
-    ("REDOC", "ReDoc", f"{BHM_BASE_URL}/redoc"),
-    ("HEALTH", "BHM Health", f"{BHM_BASE_URL}/bhm/health"),
     ("QDRANT", "Qdrant Dashboard", endpoint_url("qdrant_http", "/dashboard/")),
 ]
 
@@ -2591,7 +2588,7 @@ class DashboardScreen(QWidget):
         title.setObjectName("LinkTag")
         layout.addWidget(title)
 
-        description = QLabel("Database operations and maintenance shortcuts.")
+        description = QLabel("Database maintenance and recovery actions.")
         description.setObjectName("Muted")
         description.setWordWrap(True)
         layout.addWidget(description)
@@ -2600,7 +2597,10 @@ class DashboardScreen(QWidget):
             layout.addWidget(LinkButton(tag, label, url))
 
         if not OPERATOR_LINKS:
-            empty_state = QLabel("Operator actions will be pinned here after review.")
+            empty_state = QLabel(
+                "Integrity, backup, restore, cleanup, reindex, and export/import "
+                "controls will appear here after their safe flows are approved."
+            )
             empty_state.setObjectName("OperatorDrawerEmpty")
             empty_state.setWordWrap(True)
             layout.addWidget(empty_state)
