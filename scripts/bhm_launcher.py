@@ -26,6 +26,7 @@ import webbrowser
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlencode, urlsplit, urlunsplit
@@ -102,6 +103,7 @@ def _install_pyqt_placeholders() -> None:
         "QPixmap",
         "QProgressBar",
         "QPushButton",
+        "QScrollArea",
         "QSizePolicy",
         "QStackedWidget",
         "QSystemTrayIcon",
@@ -144,6 +146,7 @@ def load_pyqt6() -> bool:
     global QPixmap
     global QProgressBar
     global QPushButton
+    global QScrollArea
     global QSizePolicy
     global QStackedWidget
     global QSystemTrayIcon
@@ -184,6 +187,7 @@ def load_pyqt6() -> bool:
             QMessageBox as _QMessageBox,
             QProgressBar as _QProgressBar,
             QPushButton as _QPushButton,
+            QScrollArea as _QScrollArea,
             QSizePolicy as _QSizePolicy,
             QStackedWidget as _QStackedWidget,
             QSystemTrayIcon as _QSystemTrayIcon,
@@ -216,6 +220,7 @@ def load_pyqt6() -> bool:
     QPixmap = _QPixmap
     QProgressBar = _QProgressBar
     QPushButton = _QPushButton
+    QScrollArea = _QScrollArea
     QSizePolicy = _QSizePolicy
     QStackedWidget = _QStackedWidget
     QSystemTrayIcon = _QSystemTrayIcon
@@ -294,16 +299,23 @@ class OperatorActionSpec:
     label: str
     description: str
     mutation: bool = False
+    group: str = "Diagnostics"
 
 
 OPERATOR_ACTIONS: tuple[OperatorActionSpec, ...] = (
-    OperatorActionSpec("integrity", "Integrity audit", "Read-only SQLite/link consistency check."),
-    OperatorActionSpec("backup", "SQLite backup", "Verified online backup with quick/foreign-key checks."),
-    OperatorActionSpec("restore", "Restore backup", "Offline verified restore; preserves a pre-restore rollback copy.", True),
-    OperatorActionSpec("cleanup", "Cleanup", "Preview retention candidates, then apply with digest + backup.", True),
-    OperatorActionSpec("repair", "Repair indexes", "Preview orphan links, then repair after backup + confirmation.", True),
-    OperatorActionSpec("projection", "Rebuild Qdrant", "Drain/rebuild the rebuildable projection from SQLite.", True),
-    OperatorActionSpec("exchange", "Export / import", "Admin snapshot export or preview/apply import.", True),
+    OperatorActionSpec("integrity", "Integrity audit", "Check SQLite records and memory links."),
+    OperatorActionSpec("projection_status", "Projection status", "Read worker, backlog, cutover and SLO state."),
+    OperatorActionSpec("qdrant_catalog", "Qdrant catalog", "Inspect collections and project classification."),
+    OperatorActionSpec("orphan_classification", "Classify orphans", "Classify Qdrant REVIEW points without deleting."),
+    OperatorActionSpec("index_status", "Index status / plan", "Check repository index freshness and next work."),
+    OperatorActionSpec("receipts", "Operator receipts", "List recent maintenance and rollback receipts."),
+    OperatorActionSpec("backup", "SQLite backup", "Create and verify an online rollback backup.", group="Maintenance"),
+    OperatorActionSpec("cleanup", "Cleanup", "Preview retention, then apply by exact digest.", True, "Maintenance"),
+    OperatorActionSpec("repair", "Repair indexes", "Preview and repair canonical links/indexes.", True, "Maintenance"),
+    OperatorActionSpec("projection", "Rebuild Qdrant", "Drain the projection backlog from SQLite.", True, "Maintenance"),
+    OperatorActionSpec("reconcile", "Reconcile projection", "Preview deterministic Qdrant repairs, then apply.", True, "Maintenance"),
+    OperatorActionSpec("restore", "Restore backup", "Offline verified restore with pre-restore backup.", True, "Recovery & transfer"),
+    OperatorActionSpec("exchange", "Export / import", "Export or preview/apply an admin snapshot.", True, "Recovery & transfer"),
 )
 
 OPERATOR_MUTATION_KEYS = frozenset(item.key for item in OPERATOR_ACTIONS if item.mutation)
@@ -996,6 +1008,51 @@ def _run_operator_json(args: list[str], *, cwd: Path, timeout: float = PROCESS_C
     return payload
 
 
+def _operator_receipt_path(folder: str, prefix: str) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    target = (_operator_runtime_root("operator-tools") / folder / f"{prefix}-{stamp}.json").resolve()
+    _assert_owned_path(target, find_project_root() / ".runtime", require_directory=False)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _operator_projection_report_path(prefix: str) -> Path:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    report_root = (find_project_root() / ".runtime" / "reports").resolve()
+    target = (report_root / "operator-tools" / f"{prefix}-{stamp}.json").resolve()
+    _assert_owned_path(target, report_root, require_directory=False)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
+def _run_operator_report(
+    args: list[str],
+    *,
+    cwd: Path,
+    report: Path,
+    timeout: float = PROCESS_CONTROL_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    completed = subprocess.run(
+        args,
+        cwd=str(cwd),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=timeout,
+        creationflags=creation_flags(),
+        startupinfo=hidden_startupinfo(),
+        check=False,
+    )
+    if not report.is_file():
+        raise RuntimeError("operator did not produce its bounded report")
+    payload = json.loads(report.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise RuntimeError("operator report must be an object")
+    if completed.returncode != 0 or payload.get("ok") is False or payload.get("success") is False:
+        raise RuntimeError(str(payload.get("error") or payload.get("detail") or "operator action failed")[:240])
+    return {"report_path": str(report), **payload}
+
+
 def operator_integrity_audit(project: str) -> dict[str, Any]:
     result = safe_json_request(
         f"{BHM_BASE_URL}/bhm/integrity-audit?{urlencode({'project': project})}",
@@ -1024,7 +1081,7 @@ def operator_sqlite_backup(_project: str) -> dict[str, Any]:
     database = _operator_database_path().resolve()
     if not database.is_file():
         raise FileNotFoundError(database)
-    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     target = (_operator_runtime_root("backups") / "sqlite-retention" / stamp / "memories.sqlite3").resolve()
     _assert_owned_path(target, find_project_root() / ".runtime", require_directory=False)
     backup = create_verified_sqlite_backup(database, target)
@@ -1041,7 +1098,12 @@ def operator_restore_backup(path: str, _project: str) -> dict[str, Any]:
     if not source_check.get("ok"):
         raise RuntimeError("selected backup failed SQLite verification")
     database = _operator_database_path().resolve()
-    pre_restore = (backup_root / "pre-restore" / datetime.utcnow().strftime("%Y%m%dT%H%M%SZ") / "memories.sqlite3").resolve()
+    pre_restore = (
+        backup_root
+        / "pre-restore"
+        / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        / "memories.sqlite3"
+    ).resolve()
     stopped, detail = run_canonical_api_command(root, stop_only=True)
     if not stopped:
         raise RuntimeError(f"API stop failed: {detail}")
@@ -1060,7 +1122,9 @@ def operator_restore_backup(path: str, _project: str) -> dict[str, Any]:
             shutil.copy2(pre_restore, database)
         raise
     finally:
-        run_canonical_api_command(root)
+        restarted, restart_detail = run_canonical_api_command(root)
+        if not restarted:
+            raise RuntimeError(f"API restart failed after SQLite restore: {restart_detail}")
     return {"action": "restore", "source": str(source), "pre_restore_backup": str(pre_restore), "verification": after}
 
 
@@ -1082,7 +1146,7 @@ def operator_cleanup_apply(preview: dict[str, Any], project: str) -> dict[str, A
     if not digest or not as_of:
         raise RuntimeError("cleanup preview did not provide a plan digest and timestamp")
     root = find_project_root()
-    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_path = (_operator_runtime_root("backups") / "sqlite-retention" / stamp / "memories.sqlite3").resolve()
     _assert_owned_path(backup_path, root / ".runtime", require_directory=False)
     python = str(venv_python(root) if has_virtualenv(root) else host_python_executable())
@@ -1097,7 +1161,9 @@ def operator_cleanup_apply(preview: dict[str, Any], project: str) -> dict[str, A
             timeout=API_START_COMMAND_TIMEOUT_SECONDS,
         )
     finally:
-        run_canonical_api_command(root)
+        restarted, restart_detail = run_canonical_api_command(root)
+        if not restarted:
+            raise RuntimeError(f"API restart failed after SQLite cleanup: {restart_detail}")
     return {"action": "cleanup", "phase": "apply", "backup": str(backup_path), "result": applied}
 
 
@@ -1127,6 +1193,136 @@ def operator_projection_rebuild(project: str) -> dict[str, Any]:
         timeout=API_START_COMMAND_TIMEOUT_SECONDS,
     )
     return {"action": "projection", "backup": backup, "result": result}
+
+
+def operator_projection_status(_project: str) -> dict[str, Any]:
+    root = find_project_root()
+    script = root / "scripts" / "bhm-projection-operator.ps1"
+    _assert_launchable_source(script, root)
+    result = _run_operator_json(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Action", "status", "-AsJson"],
+        cwd=root,
+    )
+    return {"action": "projection_status", **result}
+
+
+def operator_qdrant_catalog(project: str) -> dict[str, Any]:
+    result = safe_json_request(
+        f"{BHM_BASE_URL}/bhm/telemetry/qdrant-catalog",
+        method="GET",
+        project=project,
+        timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+        max_bytes=min(MAX_HTTP_BYTES * 8, 1024 * 1024),
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"HTTP {result.status_code}")
+    return {"action": "qdrant_catalog", **result.data}
+
+
+def operator_orphan_classification(project: str) -> dict[str, Any]:
+    root = find_project_root()
+    script = root / "scripts" / "bhm_classify_projection_orphans.py"
+    _assert_launchable_source(script, root)
+    python = str(venv_python(root) if has_virtualenv(root) else host_python_executable())
+    report = _operator_projection_report_path("orphan-classification")
+    result = _run_operator_json(
+        [python, str(script), "--database", str(_operator_database_path()), "--project", project, "--report", str(report), "--summary-only"],
+        cwd=root,
+        timeout=API_START_COMMAND_TIMEOUT_SECONDS,
+    )
+    return {"action": "orphan_classification", "report_path": str(report), **result}
+
+
+def operator_index_status(project: str) -> dict[str, Any]:
+    root = find_project_root()
+    script = root / "scripts" / "bhm-repository-index.py"
+    _assert_launchable_source(script, root)
+    python = str(venv_python(root) if has_virtualenv(root) else host_python_executable())
+    status_report = _operator_receipt_path("repository-index", "status")
+    plan_report = _operator_receipt_path("repository-index", "plan")
+    common = ["--root", str(root), "--database", str(_operator_database_path()), "--project", project]
+    status = _run_operator_report(
+        [python, str(script), "--action", "status", *common, "--report", str(status_report)],
+        cwd=root,
+        report=status_report,
+    )
+    plan = _run_operator_report(
+        [python, str(script), "--action", "plan", *common, "--report", str(plan_report)],
+        cwd=root,
+        report=plan_report,
+    )
+    return {"action": "index_status", "project": project, "status": status, "plan": plan}
+
+
+def operator_receipts(_project: str) -> dict[str, Any]:
+    runtime = (find_project_root() / ".runtime").resolve()
+    roots = [
+        runtime / name
+        for name in ("operator-tools", "reports", "retention", "data-hygiene", "backups", "admin-exports")
+    ]
+    items: list[dict[str, Any]] = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if not path.is_file() or path.suffix.casefold() not in {".json", ".zip", ".sqlite3"}:
+                continue
+            try:
+                metadata = path.stat()
+                relative = path.resolve().relative_to(runtime)
+            except (OSError, ValueError):
+                continue
+            items.append(
+                {
+                    "path": str(relative),
+                    "size_bytes": int(metadata.st_size),
+                    "modified_at": datetime.fromtimestamp(metadata.st_mtime).isoformat(timespec="seconds"),
+                }
+            )
+    items.sort(key=lambda item: str(item["modified_at"]), reverse=True)
+    return {"action": "receipts", "runtime_root": ".runtime", "count": len(items), "items": items[:100]}
+
+
+def operator_reconcile_preview(project: str) -> dict[str, Any]:
+    root = find_project_root()
+    script = root / "scripts" / "bhm_reconcile_projection.py"
+    _assert_launchable_source(script, root)
+    python = str(venv_python(root) if has_virtualenv(root) else host_python_executable())
+    report = _operator_projection_report_path("reconcile-preview")
+    result = _run_operator_json(
+        [python, str(script), "--database", str(_operator_database_path()), "--project", project, "--report", str(report), "--summary-only"],
+        cwd=root,
+        timeout=API_START_COMMAND_TIMEOUT_SECONDS,
+    )
+    return {"action": "reconcile", "phase": "preview", "report_path": str(report), **result}
+
+
+def operator_reconcile_apply(preview: dict[str, Any], project: str) -> dict[str, Any]:
+    plan = preview.get("plan") if isinstance(preview.get("plan"), dict) else {}
+    digest = str(preview.get("planDigest") or plan.get("digest") or plan.get("planDigest") or "")
+    as_of = str(preview.get("asOf") or preview.get("as_of") or "")
+    if not digest or not as_of:
+        raise RuntimeError("projection preview did not return an exact digest and timestamp")
+    root = find_project_root()
+    script = root / "scripts" / "bhm_reconcile_projection.py"
+    _assert_launchable_source(script, root)
+    python = str(venv_python(root) if has_virtualenv(root) else host_python_executable())
+    report = _operator_projection_report_path("reconcile-apply")
+    backup = operator_sqlite_backup(project)
+    stopped, detail = run_canonical_api_command(root, stop_only=True)
+    if not stopped:
+        raise RuntimeError(f"API stop failed: {detail}")
+    try:
+        result = _run_operator_json(
+            [python, str(script), "--database", str(_operator_database_path()), "--project", project, "--as-of", as_of, "--apply", "--confirm-plan-digest", digest, "--report", str(report), "--summary-only"],
+            cwd=root,
+            timeout=API_START_COMMAND_TIMEOUT_SECONDS,
+        )
+    finally:
+        restarted, restart_detail = run_canonical_api_command(root)
+        if not restarted:
+            raise RuntimeError(f"API restart failed after projection reconcile: {restart_detail}")
+    return {"action": "reconcile", "phase": "apply", "backup": backup, "report_path": str(report), "result": result}
 
 
 def operator_exchange_preview(path: str, project: str) -> dict[str, Any]:
@@ -2905,17 +3101,17 @@ class DashboardScreen(QWidget):
     def build_operator_drawer(self) -> QFrame:
         drawer = QFrame(self)
         drawer.setObjectName("OperatorDrawer")
-        drawer.setFixedWidth(318)
+        drawer.setFixedWidth(364)
         layout = QVBoxLayout(drawer)
-        layout.setContentsMargins(16, 18, 16, 18)
-        layout.setSpacing(8)
+        layout.setContentsMargins(16, 16, 12, 16)
+        layout.setSpacing(7)
 
         title = QLabel("OPERATOR TOOLS")
-        title.setObjectName("LinkTag")
+        title.setObjectName("OperatorTitle")
         layout.addWidget(title)
 
-        description = QLabel("Database maintenance and recovery actions.")
-        description.setObjectName("Muted")
+        description = QLabel("Database diagnostics, maintenance and recovery.")
+        description.setObjectName("OperatorIntro")
         description.setWordWrap(True)
         layout.addWidget(description)
 
@@ -2945,25 +3141,54 @@ class DashboardScreen(QWidget):
         for tag, label, url in OPERATOR_LINKS:
             layout.addWidget(LinkButton(tag, label, url))
 
+        scroll = QScrollArea()
+        scroll.setObjectName("OperatorScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+        content = QWidget()
+        content.setObjectName("OperatorDrawerContent")
+        actions_layout = QVBoxLayout(content)
+        actions_layout.setContentsMargins(0, 4, 4, 8)
+        actions_layout.setSpacing(6)
+
+        current_group = ""
         for spec in OPERATOR_ACTIONS:
+            if spec.group != current_group:
+                if current_group:
+                    actions_layout.addSpacing(6)
+                current_group = spec.group
+                group_title = QLabel(current_group.upper())
+                group_title.setObjectName("OperatorGroupTitle")
+                actions_layout.addWidget(group_title)
+
             card = QFrame()
             card.setObjectName("OperatorCard")
             card_layout = QVBoxLayout(card)
-            card_layout.setContentsMargins(8, 6, 8, 6)
-            card_layout.setSpacing(2)
+            card_layout.setContentsMargins(10, 8, 10, 8)
+            card_layout.setSpacing(5)
             row = QHBoxLayout()
+            row.setSpacing(6)
             if spec.key == "exchange":
                 export_button = QPushButton("Export")
-                export_button.setObjectName("GhostButton")
+                export_button.setObjectName("OperatorActionButton")
+                export_button.setFixedHeight(30)
+                export_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
                 export_button.clicked.connect(self.start_operator_export)
                 import_button = QPushButton("Import…")
-                import_button.setObjectName("DangerButton")
+                import_button.setObjectName("OperatorDangerButton")
+                import_button.setFixedHeight(30)
+                import_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
                 import_button.clicked.connect(self.start_operator_import_preview)
                 row.addWidget(export_button)
                 row.addWidget(import_button)
             else:
                 button = QPushButton(spec.label)
-                button.setObjectName("DangerButton" if spec.mutation else "GhostButton")
+                button.setObjectName("OperatorDangerButton" if spec.mutation else "OperatorActionButton")
+                button.setFixedHeight(30)
+                button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
                 button.setCursor(Qt.CursorShape.PointingHandCursor)
                 button.clicked.connect(lambda _checked=False, key=spec.key: self.start_operator_action(key))
                 row.addWidget(button)
@@ -2973,9 +3198,11 @@ class DashboardScreen(QWidget):
             hint.setObjectName("OperatorHint")
             hint.setWordWrap(True)
             card_layout.addWidget(hint)
-            layout.addWidget(card)
+            actions_layout.addWidget(card)
 
-        layout.addStretch(1)
+        actions_layout.addStretch(1)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
         drawer.setVisible(False)
         return drawer
 
@@ -2995,20 +3222,64 @@ class DashboardScreen(QWidget):
 
     def _operator_preview_operation(self, key: str) -> Callable[[], dict[str, Any]]:
         project = self.operator_project()
+        path = self.operator_path()
+        context = {"project": project, "path": path}
+
+        def with_context(operation: Callable[[], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
+            return lambda: {**operation(), "operator_context": context}
+
         if key == "integrity":
-            return lambda: operator_integrity_audit(project)
+            return with_context(lambda: operator_integrity_audit(project))
+        if key == "projection_status":
+            return with_context(lambda: operator_projection_status(project))
+        if key == "qdrant_catalog":
+            return with_context(lambda: operator_qdrant_catalog(project))
+        if key == "orphan_classification":
+            return with_context(lambda: operator_orphan_classification(project))
+        if key == "index_status":
+            return with_context(lambda: operator_index_status(project))
+        if key == "receipts":
+            return with_context(lambda: operator_receipts(project))
         if key == "backup":
-            return lambda: operator_sqlite_backup(project)
+            return with_context(lambda: operator_sqlite_backup(project))
         if key == "cleanup":
-            return lambda: operator_cleanup_preview(project)
+            return with_context(lambda: operator_cleanup_preview(project))
         if key == "repair":
-            return lambda: {"action": "repair", "phase": "preview", "project": project, "audit": operator_integrity_audit(project)}
+            return with_context(
+                lambda: {
+                    "action": "repair",
+                    "phase": "preview",
+                    "project": project,
+                    "audit": operator_integrity_audit(project),
+                }
+            )
         if key == "restore":
-            path = self.operator_path()
-            return lambda: operator_restore_preview(path)
+            return with_context(lambda: operator_restore_preview(path))
         if key == "projection":
-            return lambda: _run_operator_json(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(find_project_root() / "scripts" / "bhm-projection-operator.ps1"), "-Action", "dry-run", "-AsJson"], cwd=find_project_root(), timeout=PROCESS_CONTROL_TIMEOUT_SECONDS)
+            return with_context(
+                lambda: _run_operator_json(
+                    [
+                        "powershell",
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-File",
+                        str(find_project_root() / "scripts" / "bhm-projection-operator.ps1"),
+                        "-Action",
+                        "dry-run",
+                        "-AsJson",
+                    ],
+                    cwd=find_project_root(),
+                    timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+                )
+            )
+        if key == "reconcile":
+            return with_context(lambda: operator_reconcile_preview(project))
         raise ValueError(f"unsupported operator action: {key}")
+
+    def _release_operator_thread(self, key: str, operation: OperatorActionThread) -> None:
+        if self._operator_operations.get(key) is operation:
+            self._operator_operations.pop(key, None)
 
     def start_operator_action(self, key: str) -> None:
         if key in self._operator_operations and self._operator_operations[key].isRunning():
@@ -3019,16 +3290,27 @@ class DashboardScreen(QWidget):
             QMessageBox.warning(self, "BHM Operator Tools", compact_error(exc))
             return
         operation.result_signal.connect(self._on_operator_result)
-        operation.finished.connect(lambda key=key: self._operator_operations.pop(key, None))
+        operation.finished.connect(
+            lambda key=key, operation=operation: self._release_operator_thread(key, operation)
+        )
         self._operator_operations[key] = operation
         append_launcher_log(f"OPERATOR START: {key}")
         operation.start()
 
     def start_operator_export(self) -> None:
         project = self.operator_project()
-        operation = OperatorActionThread("export", lambda: operator_export(project))
+        path = self.operator_path()
+        operation = OperatorActionThread(
+            "export",
+            lambda: {
+                **operator_export(project),
+                "operator_context": {"project": project, "path": path},
+            },
+        )
         operation.result_signal.connect(self._on_operator_result)
-        operation.finished.connect(lambda: self._operator_operations.pop("export", None))
+        operation.finished.connect(
+            lambda operation=operation: self._release_operator_thread("export", operation)
+        )
         self._operator_operations["export"] = operation
         operation.start()
 
@@ -3038,9 +3320,17 @@ class DashboardScreen(QWidget):
     def start_operator_exchange_preview(self) -> None:
         project = self.operator_project()
         path = self.operator_path()
-        operation = OperatorActionThread("exchange", lambda: operator_exchange_preview(path, project))
+        operation = OperatorActionThread(
+            "exchange",
+            lambda: {
+                **operator_exchange_preview(path, project),
+                "operator_context": {"project": project, "path": path},
+            },
+        )
         operation.result_signal.connect(self._on_operator_result)
-        operation.finished.connect(lambda: self._operator_operations.pop("exchange", None))
+        operation.finished.connect(
+            lambda operation=operation: self._release_operator_thread("exchange", operation)
+        )
         self._operator_operations["exchange"] = operation
         operation.start()
 
@@ -3063,18 +3353,24 @@ class DashboardScreen(QWidget):
             self._start_operator_apply(key, payload)
 
     def _start_operator_apply(self, key: str, preview: dict[str, Any]) -> None:
-        project = self.operator_project()
-        path = self.operator_path()
+        context = preview.get("operator_context")
+        if not isinstance(context, dict):
+            raise RuntimeError("operator preview is missing immutable execution context")
+        project = validate_launcher_project(str(context.get("project") or ""))
+        path = str(context.get("path") or "")
         operations: dict[str, Callable[[], dict[str, Any]]] = {
             "cleanup": lambda: operator_cleanup_apply(preview, project),
             "repair": lambda: operator_repair_indexes(project),
             "restore": lambda: operator_restore_backup(path, project),
             "projection": lambda: operator_projection_rebuild(project),
+            "reconcile": lambda: operator_reconcile_apply(preview, project),
             "exchange": lambda: operator_exchange_apply(path, project),
         }
         operation = OperatorActionThread(key, operations[key])
         operation.result_signal.connect(self._on_operator_apply_result)
-        operation.finished.connect(lambda key=key: self._operator_operations.pop(key, None))
+        operation.finished.connect(
+            lambda key=key, operation=operation: self._release_operator_thread(key, operation)
+        )
         self._operator_operations[key] = operation
         append_launcher_log(f"OPERATOR APPLY: {key}")
         operation.start()
@@ -3108,7 +3404,10 @@ class DashboardScreen(QWidget):
             toggle_x = drawer_x - gap - self.operator_drawer_toggle.width()
         else:
             toggle_x = self.width() - margin - self.operator_drawer_toggle.width()
-        toggle_y = max(margin, (self.height() - self.operator_drawer_toggle.height()) // 2)
+        toggle_y = margin + 12 if self.operator_drawer.isVisible() else max(
+            margin,
+            (self.height() - self.operator_drawer_toggle.height()) // 2,
+        )
         self.operator_drawer_toggle.move(toggle_x, toggle_y)
         self.operator_drawer.raise_()
         self.operator_drawer_toggle.raise_()
@@ -3536,6 +3835,10 @@ def build_qss() -> str:
         border: 1px solid #263145;
         border-radius: 8px;
     }}
+    QScrollArea#OperatorScroll, QWidget#OperatorDrawerContent {{
+        background: transparent;
+        border: none;
+    }}
     QFrame#Card {{
         min-height: 150px;
     }}
@@ -3593,13 +3896,28 @@ def build_qss() -> str:
         padding: 14px;
         font-size: 12px;
     }}
+    QLabel#OperatorTitle {{
+        color: #FFFFFF;
+        font-size: 15px;
+        font-weight: 900;
+    }}
+    QLabel#OperatorIntro {{
+        color: {COLOR_MUTED};
+        font-size: 12px;
+    }}
+    QLabel#OperatorGroupTitle {{
+        color: {COLOR_CYAN};
+        font-size: 11px;
+        font-weight: 900;
+        padding: 3px 2px 1px 2px;
+    }}
     QLabel#OperatorHint {{
         color: {COLOR_MUTED};
-        font-size: 10px;
+        font-size: 12px;
     }}
     QLabel#FieldLabel {{
         color: {COLOR_CYAN};
-        font-size: 10px;
+        font-size: 11px;
         font-weight: 850;
     }}
     QLabel#Mono {{
@@ -3685,6 +4003,55 @@ def build_qss() -> str:
         background: #172133;
         color: #FFFFFF;
         border-color: {COLOR_CYAN};
+    }}
+    QPushButton#OperatorActionButton, QPushButton#OperatorDangerButton {{
+        min-width: 0px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 800;
+        border-radius: 7px;
+    }}
+    QPushButton#OperatorActionButton {{
+        background: #111A28;
+        color: #DCE7FA;
+        border: 1px solid #2A3950;
+    }}
+    QPushButton#OperatorActionButton:hover {{
+        background: #18263A;
+        color: #FFFFFF;
+        border-color: {COLOR_CYAN};
+    }}
+    QPushButton#OperatorDangerButton {{
+        background: #2B1720;
+        color: #FFDCE9;
+        border: 1px solid #6C3046;
+    }}
+    QPushButton#OperatorDangerButton:hover {{
+        background: #3D1B29;
+        border-color: {COLOR_PINK};
+    }}
+    QScrollArea#OperatorScroll QScrollBar:vertical {{
+        background: #0D131E;
+        width: 9px;
+        margin: 2px 0px;
+        border: none;
+        border-radius: 4px;
+    }}
+    QScrollArea#OperatorScroll QScrollBar::handle:vertical {{
+        background: #34445E;
+        min-height: 30px;
+        border-radius: 4px;
+    }}
+    QScrollArea#OperatorScroll QScrollBar::handle:vertical:hover {{
+        background: {COLOR_CYAN};
+    }}
+    QScrollArea#OperatorScroll QScrollBar::add-line:vertical,
+    QScrollArea#OperatorScroll QScrollBar::sub-line:vertical {{
+        height: 0px;
+    }}
+    QScrollArea#OperatorScroll QScrollBar::add-page:vertical,
+    QScrollArea#OperatorScroll QScrollBar::sub-page:vertical {{
+        background: transparent;
     }}
     QPushButton#AccentButton {{
         background: #063B38;
