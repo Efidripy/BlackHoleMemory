@@ -134,12 +134,16 @@ def is_projection_infrastructure_error(exc: BaseException) -> bool:
         message = str(current).casefold()
         if isinstance(current, (ConnectionError, TimeoutError)):
             return True
+        if name in {"storagenotready", "qdrantnotready"}:
+            return True
         if name in transient_names:
             return True
         transport_module = module.startswith(
             ("grpc", "httpcore", "httpx", "openai", "qdrant_client", "requests", "urllib3")
         )
         if transport_module and any(fragment in message for fragment in transient_fragments):
+            return True
+        if "qdrant" in message and any(fragment in message for fragment in ("unavailable", "not ready", "not_ready")):
             return True
         status_code = getattr(current, "status_code", None)
         if isinstance(status_code, int) and status_code >= 500:

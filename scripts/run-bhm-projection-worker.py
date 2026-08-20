@@ -13,6 +13,8 @@ import os
 import sqlite3
 import sys
 from dataclasses import replace
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -188,6 +190,21 @@ def _emit_worker_report(report: dict[str, Any], *, quiet_idle: bool) -> int:
     return 0 if report.get("ok") else 1
 
 
+def _emit_startup_infrastructure_error(exc: BaseException) -> int:
+    """Emit the same bounded retry signal used for in-batch outages."""
+
+    from blackholememory.qdrant_projector import bounded_projection_error
+
+    diagnostic = {
+        "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "classification": "infrastructure_unavailable",
+        "deferred": 0,
+        "error": bounded_projection_error(exc),
+    }
+    print(json.dumps(diagnostic, ensure_ascii=False, sort_keys=True), file=sys.stderr)
+    return INFRASTRUCTURE_UNAVAILABLE_EXIT_CODE
+
+
 def main() -> int:
     args = _parser().parse_args()
     if args.once and args.loop:
@@ -252,7 +269,15 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    worker = _build_worker(config, openai_base_url=provider_override)
+    try:
+        worker = _build_worker(config, openai_base_url=provider_override)
+    except Exception as exc:
+        from blackholememory.qdrant_projector import is_projection_infrastructure_error
+
+        if is_projection_infrastructure_error(exc):
+            return _emit_startup_infrastructure_error(exc)
+        print(f"projection worker failed: {exc}", file=sys.stderr)
+        return 1
     try:
         if args.loop:
             metrics = worker.run_forever(max_cycles=args.max_cycles, force=args.force)
