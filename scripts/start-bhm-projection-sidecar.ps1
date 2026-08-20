@@ -46,10 +46,22 @@ function Get-SidecarStatus {
 function Get-PidFileProcess {
   if (-not (Test-Path -LiteralPath $pidPath)) { return $null }
   try {
-    $rawPid = (Get-Content -LiteralPath $pidPath -Raw -ErrorAction Stop).Trim()
+    $raw = (Get-Content -LiteralPath $pidPath -Raw -ErrorAction Stop).Trim()
+    $identity = $null
+    try { $identity = $raw | ConvertFrom-Json -ErrorAction Stop } catch { }
+    $rawPid = if ($null -ne $identity) { [string]$identity.pid } else { $raw }
     $pidValue = 0
     if (-not [int]::TryParse($rawPid, [ref]$pidValue) -or $pidValue -le 0) { return $null }
-    return Get-Process -Id $pidValue -ErrorAction Stop
+    $process = Get-Process -Id $pidValue -ErrorAction Stop
+    if ($null -eq $identity -or [string]::IsNullOrWhiteSpace([string]$identity.started_at)) {
+      # Legacy plain-PID files cannot prove process identity.  Let the CIM
+      # command-line probe decide instead of accepting a reused PID.
+      return $null
+    }
+    $expectedStart = [DateTime]::Parse([string]$identity.started_at).ToUniversalTime()
+    $actualStart = $process.StartTime.ToUniversalTime()
+    if ([Math]::Abs(($actualStart - $expectedStart).TotalSeconds) -gt 2) { return $null }
+    return $process
   } catch {
     return $null
   }

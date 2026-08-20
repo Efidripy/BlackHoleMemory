@@ -11,16 +11,59 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $composeFile = Join-Path $repoRoot "infra\qdrant\docker-compose.yml"
 $qdrantHealthUrl = Get-BhmRuntimeEndpoint -Name 'qdrant_http' -RepoRoot $repoRoot -Path 'healthz'
 $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSec)
+$dockerCommandTimeoutSec = 20
+$dockerExecutable = $null
+$dockerCommand = Get-Command docker -ErrorAction SilentlyContinue
+if ($null -ne $dockerCommand) {
+    $dockerExecutable = $dockerCommand.Source
+} else {
+    foreach ($candidate in @(
+        (Join-Path $env:ProgramFiles 'Docker\Docker\resources\bin\docker.exe'),
+        (Join-Path $env:LOCALAPPDATA 'Docker\Docker\resources\bin\docker.exe')
+    )) {
+        if (Test-Path -LiteralPath $candidate) {
+            $dockerExecutable = $candidate
+            break
+        }
+    }
+}
+if ([string]::IsNullOrWhiteSpace($dockerExecutable)) {
+    throw 'Docker executable was not found on PATH or in the Docker Desktop installation paths.'
+}
+
+function Invoke-DockerBounded {
+    param(
+        [Parameter(Mandatory)][string[]]$Arguments,
+        [ValidateRange(1, 120)][int]$TimeoutSeconds = 20
+    )
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $dockerExecutable
+    $psi.Arguments = ($Arguments | ForEach-Object {
+        $value = [string]$_
+        if ($value -match '[\s"]') { '"' + $value.Replace('"', '\\"') + '"' } else { $value }
+    }) -join ' '
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $process = [System.Diagnostics.Process]::new()
+    $process.StartInfo = $psi
+    if (-not $process.Start()) { throw 'Docker process could not be started.' }
+    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+        try { $process.Kill($true) } catch { }
+        return [pscustomobject]@{ TimedOut = $true; ExitCode = $null; Output = ''; Error = "docker command timed out after $TimeoutSeconds seconds" }
+    }
+    [pscustomobject]@{
+        TimedOut = $false
+        ExitCode = $process.ExitCode
+        Output = $process.StandardOutput.ReadToEnd()
+        Error = $process.StandardError.ReadToEnd()
+    }
+}
 
 function Test-DockerEngineReady {
-    $savedPreference = $ErrorActionPreference
-    try {
-        $ErrorActionPreference = 'Continue'
-        $null = & docker info --format '{{.ServerVersion}}' 2>$null
-        return $LASTEXITCODE -eq 0
-    } finally {
-        $ErrorActionPreference = $savedPreference
-    }
+    $result = Invoke-DockerBounded -Arguments @('info', '--format', '{{.ServerVersion}}') -TimeoutSeconds 3
+    return (-not $result.TimedOut) -and $result.ExitCode -eq 0
 }
 
 function Start-DockerDesktopBounded {
@@ -39,20 +82,13 @@ function Start-DockerDesktopBounded {
 
 Start-DockerDesktopBounded
 
-# Docker Desktop writes normal progress lines to stderr on Windows. Under
-# ErrorActionPreference=Stop, invoking it directly can turn a successful
-# compose command into a terminating PowerShell error. Capture the native exit
-# code explicitly so only a real non-zero result blocks API startup.
-$savedErrorActionPreference = $ErrorActionPreference
-try {
-    $ErrorActionPreference = "Continue"
-    $composeOutput = @(& docker compose -f $composeFile up -d 2>&1)
-    $composeExitCode = $LASTEXITCODE
-} finally {
-    $ErrorActionPreference = $savedErrorActionPreference
-}
-if ($composeExitCode -ne 0) {
-    $composeDetail = ($composeOutput | ForEach-Object { [string]$_ }) -join "; "
+# Docker Desktop writes normal progress lines to stderr on Windows. Capture
+# both streams explicitly and keep compose recovery bounded as well.
+$composeResult = Invoke-DockerBounded -Arguments @('compose', '-f', $composeFile, 'up', '-d') -TimeoutSeconds $dockerCommandTimeoutSec
+if ($composeResult.TimedOut -or $composeResult.ExitCode -ne 0) {
+    $composeDetail = (@($composeResult.Output, $composeResult.Error) | Where-Object { $_ }) -join "; "
+    if ($composeResult.TimedOut) { $composeDetail = $composeResult.Error }
+    $composeExitCode = if ($null -eq $composeResult.ExitCode) { 'timeout' } else { $composeResult.ExitCode }
     throw "Qdrant docker compose startup failed with exit code $composeExitCode`: $composeDetail"
 }
 $lastError = "Qdrant HTTP readiness has not completed"

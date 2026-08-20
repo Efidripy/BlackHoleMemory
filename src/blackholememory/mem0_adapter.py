@@ -49,6 +49,9 @@ from .storage_state import evaluate_storage_state
 
 LOCAL_COLLECTION_PREFIX = "bhm_local_memory"
 GLOBAL_COLLECTION_NAME = "bhm_global_core_knowledge"
+_QDRANT_UNAVAILABLE_CACHE_TTL_SECONDS = 2.0
+_qdrant_health_cache_lock = threading.Lock()
+_qdrant_unavailable_until = 0.0
 DECAY_ARCHIVE_PATH = settings.runtime_dir / "archive" / "decayed_memory_vault.json"
 SEMANTIC_GRAPH_PATH = settings.runtime_dir / "memory" / "semantic_graph.json"
 QDRANT_LOCAL_PATH = settings.runtime_dir / "qdrant-local"
@@ -175,6 +178,11 @@ def normalize_semantic_edge_type(edge_type: Any) -> str:
 
 
 def _remote_qdrant_available() -> bool:
+    global _qdrant_unavailable_until
+    now = time.monotonic()
+    with _qdrant_health_cache_lock:
+        if now < _qdrant_unavailable_until:
+            return False
     try:
         request = urllib.request.Request(
             f"{settings.qdrant_url.rstrip('/')}/healthz",
@@ -182,9 +190,13 @@ def _remote_qdrant_available() -> bool:
         )
         with open_local_url(request, timeout=QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS) as response:
             read_bounded_response(response, limit=128)
-            return 200 <= getattr(response, "status", 200) < 300
+            available = 200 <= getattr(response, "status", 200) < 300
     except Exception:
-        return False
+        available = False
+    if not available:
+        with _qdrant_health_cache_lock:
+            _qdrant_unavailable_until = time.monotonic() + _QDRANT_UNAVAILABLE_CACHE_TTL_SECONDS
+    return available
 
 
 def _qdrant_connection_config() -> dict[str, Any]:
