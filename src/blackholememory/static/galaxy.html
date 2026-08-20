@@ -5548,6 +5548,49 @@
       );
     }
 
+    function graphLinkEndpointsVisible(link, nodeIds) {
+      const source = typeof link.source === "object" ? link.source.id : link.source;
+      const target = typeof link.target === "object" ? link.target.id : link.target;
+      return nodeIds.has(source) && nodeIds.has(target);
+    }
+
+    function nextAnimationFrame() {
+      return new Promise(resolve => window.requestAnimationFrame(resolve));
+    }
+
+    async function renderGalaxyPayloadProgressively(graphPayload, summary, generation, updateHistory) {
+      const sourceNodes = graphPayload.nodes || [];
+      const sourceLinks = graphPayload.links || [];
+      const progressive = controls.limit.value === "all" && sourceNodes.length > 500;
+      const batchSize = progressive ? 250 : Math.max(sourceNodes.length, 1);
+
+      for (let end = batchSize; end < sourceNodes.length; end += batchSize) {
+        if (!progressive || generation !== state.loadGeneration) break;
+        const nodes = sourceNodes.slice(0, end);
+        const nodeIds = new Set(nodes.map(node => node.id));
+        state.baseData = cloneGraphData({
+          nodes,
+          links: sourceLinks.filter(link => graphLinkEndpointsVisible(link, nodeIds))
+        });
+        state.dataSummary = {
+          ...summary,
+          returned_memory_count: end,
+          node_count: nodes.length
+        };
+        refreshAugmentedData();
+        applyPreset(state.preset, false);
+        setStatus(`Rendering ${end.toLocaleString()} of ${sourceNodes.length.toLocaleString()} records…`, "info");
+        await nextAnimationFrame();
+      }
+
+      if (generation !== state.loadGeneration) return false;
+      state.baseData = cloneGraphData({ nodes: sourceNodes, links: sourceLinks });
+      state.dataSummary = summary;
+      refreshAugmentedData();
+      applyPreset(state.preset, updateHistory);
+      return true;
+    }
+
     async function loadGalaxy(updateHistory = false) {
       const generation = ++state.loadGeneration;
       setStatus("Loading galaxy...", "info");
@@ -5562,11 +5605,9 @@
         if (generation !== state.loadGeneration) return;
         if (!response.ok || payload.ok === false) throw new Error(payload.detail || "graph load failed");
 
-        const graphPayload = payload.graph || { nodes: payload.nodes || [], links: payload.links || [] };
-        state.baseData = cloneGraphData(graphPayload);
-        refreshAugmentedData();
         const summary = payload.summary || summarizeGraphData(state.baseData, controls.project.value.trim());
-        state.dataSummary = summary;
+        const graphPayload = payload.graph || { nodes: payload.nodes || [], links: payload.links || [] };
+        if (!await renderGalaxyPayloadProgressively(graphPayload, summary, generation, updateHistory)) return;
 
         memoryCountEl.textContent = String(summary.memory_records);
         shownCountEl.textContent = `${Number(summary.returned_memory_count ?? summary.memory_records ?? 0).toLocaleString()} / ${Number(summary.total_memory_count ?? summary.memory_records ?? 0).toLocaleString()}`;
@@ -5579,7 +5620,6 @@
         Graph.cameraPosition({ x: 0, y: 0, z: cameraDistance }, null, 900);
 
         updateHopDepthLabel();
-        applyPreset(state.preset, updateHistory);
         detailCard.hidden = true;
         detailEmpty.hidden = false;
         if (!uiSessionBlocked && !state.pulseSocket) void connectMemoryPulseSocket();
