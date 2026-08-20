@@ -36,6 +36,8 @@ DEFAULT_MAX_TOTAL_BYTES = 512 * 1024 * 1024
 DEFAULT_BATCH_SIZE = 128
 DEFAULT_WATCH_INTERVAL_SECONDS = 2.0
 DEFAULT_WATCH_MAX_INFLIGHT_JOBS = 1
+DEFAULT_WATCH_RETRY_ATTEMPTS = 2
+DEFAULT_WATCH_RETRY_BACKOFF_SECONDS = 0.25
 MAX_WATCH_MAX_INFLIGHT_JOBS = 4
 REPOSITORY_INDEX_REPORT_LIST_LIMIT = 64
 _REPOSITORY_INDEX_TABLES = {
@@ -488,6 +490,32 @@ class RepositoryIndexMigrationRequired(RepositoryIndexError):
     """Raised when an older repository-index schema needs explicit backup/migration."""
 
 
+def repository_index_error_retryable(exc: BaseException) -> bool:
+    """Classify bounded infrastructure failures that are safe to retry.
+
+    Validation, filesystem-boundary and state-integrity failures stay terminal;
+    only transient SQLite contention and bounded Git/probe timeouts qualify.
+    """
+
+    if isinstance(exc, sqlite3.OperationalError):
+        detail = str(exc).casefold()
+        return "locked" in detail or "busy" in detail
+    if isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
+        return True
+    if isinstance(exc, RepositoryIndexError):
+        detail = str(exc).casefold()
+        return any(
+            marker in detail
+            for marker in (
+                "deadline exceeded",
+                "probe timeout",
+                "git timeout",
+                "timed out",
+            )
+        )
+    return False
+
+
 @dataclass(frozen=True)
 class RepositoryIndexLimits:
     max_candidates: int = DEFAULT_MAX_CANDIDATES
@@ -640,15 +668,18 @@ def _run_git(
         timeout = min(timeout, max(0.1, deadline - time.monotonic()))
         if deadline <= time.monotonic():
             raise RepositoryIndexError("repository probe deadline exceeded")
-    completed = subprocess.run(
-        ["git", "-C", str(root), *args],
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=timeout,
-    )
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RepositoryIndexError(f"git probe timeout: {' '.join(args)}") from exc
     if completed.returncode != 0 and not allow_failure:
         detail = completed.stderr.strip() or completed.stdout.strip()
         raise RepositoryIndexError(f"git {' '.join(args)} failed: {detail}")
@@ -2128,6 +2159,7 @@ class SQLiteRepositoryIndexStore:
                 "repository_schema": schema,
                 "current_snapshot": None,
                 "latest_job": None,
+                "retryable": False,
             }
         current = self.current_snapshot(project, root_id, include_files=False)
         connection = self._connect(read_only=True)
@@ -2140,6 +2172,12 @@ class SQLiteRepositoryIndexStore:
                 """,
                 (project, root_id),
             ).fetchone()
+            latest_job = dict(job) if job is not None else None
+            retryable = False
+            if latest_job is not None and latest_job.get("status") == "failed":
+                retryable = repository_index_error_retryable(
+                    RepositoryIndexError(str(latest_job.get("error_detail") or latest_job.get("error_code") or ""))
+                )
             return {
                 "schema_version": REPOSITORY_INDEX_SCHEMA_VERSION,
                 "database_path": str(self.path),
@@ -2147,7 +2185,8 @@ class SQLiteRepositoryIndexStore:
                 "root_id": root_id,
                 "repository_schema": schema,
                 "current_snapshot": current,
-                "latest_job": dict(job) if job is not None else None,
+                "latest_job": latest_job,
+                "retryable": retryable,
             }
         finally:
             connection.close()
@@ -2544,6 +2583,8 @@ class RepositoryWatcher:
         limits: RepositoryIndexLimits | None = None,
         source: RepositorySourceProvenance | None = None,
         max_inflight_jobs: int = DEFAULT_WATCH_MAX_INFLIGHT_JOBS,
+        retry_attempts: int = DEFAULT_WATCH_RETRY_ATTEMPTS,
+        retry_backoff_seconds: float = DEFAULT_WATCH_RETRY_BACKOFF_SECONDS,
     ) -> None:
         # lgtm [py/path-injection]
         self.root = assert_safe_path(
@@ -2562,6 +2603,12 @@ class RepositoryWatcher:
                 f"max_inflight_jobs must be between 1 and {MAX_WATCH_MAX_INFLIGHT_JOBS}"
             )
         self.max_inflight_jobs = int(max_inflight_jobs)
+        if not 1 <= int(retry_attempts) <= 4:
+            raise ValueError("retry_attempts must be between 1 and 4")
+        if not 0 <= float(retry_backoff_seconds) <= 30:
+            raise ValueError("retry_backoff_seconds must be between 0 and 30")
+        self.retry_attempts = int(retry_attempts)
+        self.retry_backoff_seconds = float(retry_backoff_seconds)
 
     def backpressure(self) -> dict[str, Any]:
         """Return bounded operator backpressure state without writing state."""
@@ -2582,6 +2629,8 @@ class RepositoryWatcher:
             "root_id": root_id,
             "state_digest": state_digest,
             "max_inflight_jobs": self.max_inflight_jobs,
+            "retry_attempts": self.retry_attempts,
+            "retry_backoff_seconds": self.retry_backoff_seconds,
             "active_job_count": len(running),
             "active_jobs": [
                 {
@@ -2677,13 +2726,69 @@ class RepositoryWatcher:
                     if not stable_poll["changed"]:
                         event["debounced"] = True
                 if not event.get("debounced") and not backpressure["blocked"]:
-                    event["index"] = index_repository(
-                        self.root,
-                        self.database_path,
-                        project=self.project,
-                        limits=self.limits,
-                        source=self.source,
-                    )
+                    index_error: BaseException | None = None
+                    for attempt in range(1, self.retry_attempts + 1):
+                        try:
+                            event["index"] = index_repository(
+                                self.root,
+                                self.database_path,
+                                project=self.project,
+                                limits=self.limits,
+                                source=self.source,
+                            )
+                            event["retry"] = {
+                                "attempts": attempt,
+                                "max_attempts": self.retry_attempts,
+                                "recovered": attempt > 1,
+                            }
+                            break
+                        except Exception as exc:
+                            index_error = exc
+                            retryable = repository_index_error_retryable(exc)
+                            if not retryable or attempt >= self.retry_attempts:
+                                failed_checkpoint = store.save_watch_checkpoint(
+                                    self.project,
+                                    str(poll["state"]["root_id"]),
+                                    {
+                                        "status": "failed",
+                                        "cycle": cycle + 1,
+                                        "cycles": int(cycles),
+                                        "state_digest": poll["state"].get("state_digest"),
+                                        "current_snapshot_id": poll.get("current_snapshot_id"),
+                                        "updated_at": _utc_now(),
+                                        "resume_source": "crash-recovery" if resumed_from_checkpoint else "new-run",
+                                        "retryable": bool(retryable),
+                                        "error_code": type(exc).__name__,
+                                        "error": _clip(str(exc), 500),
+                                        "attempts": attempt,
+                                        "max_attempts": self.retry_attempts,
+                                        "next_retry_at": _utc_now() if retryable else None,
+                                    },
+                                )
+                                event["checkpoint"] = failed_checkpoint
+                                event["error"] = {
+                                    "code": type(exc).__name__,
+                                    "detail": _clip(str(exc), 500),
+                                    "retryable": bool(retryable),
+                                }
+                                event["retry"] = {
+                                    "attempts": attempt,
+                                    "max_attempts": self.retry_attempts,
+                                    "recovered": False,
+                                }
+                                if retryable:
+                                    break
+                                raise
+                            delay = self.retry_backoff_seconds * (2 ** (attempt - 1))
+                            if delay:
+                                time.sleep(delay)
+                    if index_error is not None and event.get("index") is None and "error" not in event:
+                        raise index_error
+            if event.get("error"):
+                events.append(event)
+                if cycle + 1 < int(cycles) and interval_seconds:
+                    time.sleep(float(interval_seconds))
+                continue
             store.save_watch_checkpoint(
                 self.project,
                 str(poll["state"]["root_id"]),
@@ -2703,10 +2808,16 @@ class RepositoryWatcher:
                 time.sleep(float(interval_seconds))
         return {
             "schema_version": REPOSITORY_INDEX_SCHEMA_VERSION,
-            "ok": all(event["index"] is None or bool(event["index"]["ok"]) for event in events),
+            "ok": all(
+                not event.get("error")
+                and (event["index"] is None or bool(event["index"]["ok"]))
+                for event in events
+            ),
             "cycles": int(cycles),
             "debounce_seconds": float(debounce_seconds),
             "max_inflight_jobs": self.max_inflight_jobs,
+            "retry_attempts": self.retry_attempts,
+            "retry_backoff_seconds": self.retry_backoff_seconds,
             "backpressured_cycles": sum(1 for event in events if event.get("backpressured")),
             "operator_managed": True,
             "autonomous_apply": False,
@@ -2745,7 +2856,7 @@ def repository_index_status(
     status["current_state"] = state.summary()
     status["fresh"] = bool(current) and str(current["state_digest"]) == state.state_digest
     status["freshness_status"] = "fresh" if status["fresh"] else "stale"
-    status["retryable"] = False
+    status["retryable"] = bool(status.get("retryable", False))
     return status
 
 
@@ -2764,6 +2875,7 @@ __all__ = [
     "RepositoryWatcher",
     "SQLiteRepositoryIndexStore",
     "index_repository",
+    "repository_index_error_retryable",
     "probe_repository_state",
     "repository_root_id",
     "repository_index_status",

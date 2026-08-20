@@ -366,6 +366,74 @@ def test_polling_watcher_is_explicit_and_detects_freshness(tmp_path: Path) -> No
     assert watcher.poll()["changed"] is True
 
 
+def test_polling_watcher_retries_transient_index_failure_and_recovers(monkeypatch, tmp_path: Path) -> None:
+    root = _repository(tmp_path)
+    database = tmp_path / "index.sqlite3"
+    watcher = RepositoryWatcher(
+        root,
+        database,
+        project="demo",
+        source=_source(),
+        retry_attempts=2,
+        retry_backoff_seconds=0,
+    )
+    original = repository_index_module.index_repository
+    calls = 0
+
+    def flaky(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(repository_index_module, "index_repository", flaky)
+    result = watcher.run(cycles=1, interval_seconds=0)
+
+    assert result["ok"] is True
+    assert calls == 2
+    assert result["events"][0]["retry"] == {
+        "attempts": 2,
+        "max_attempts": 2,
+        "recovered": True,
+    }
+    checkpoint = SQLiteRepositoryIndexStore(database).get_watch_checkpoint(
+        "demo", result["events"][0]["poll"]["state"]["root_id"]
+    )
+    assert checkpoint["status"] == "completed"
+
+
+def test_polling_watcher_persists_retryable_failure_checkpoint(monkeypatch, tmp_path: Path) -> None:
+    root = _repository(tmp_path)
+    database = tmp_path / "index.sqlite3"
+    watcher = RepositoryWatcher(
+        root,
+        database,
+        project="demo",
+        retry_attempts=2,
+        retry_backoff_seconds=0,
+    )
+
+    def unavailable(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(repository_index_module, "index_repository", unavailable)
+    result = watcher.run(cycles=1, interval_seconds=0)
+    event = result["events"][0]
+    checkpoint = SQLiteRepositoryIndexStore(database).get_watch_checkpoint(
+        "demo", event["poll"]["state"]["root_id"]
+    )
+
+    assert result["ok"] is False
+    assert event["index"] is None
+    assert event["error"]["retryable"] is True
+    assert event["retry"]["attempts"] == 2
+    assert checkpoint["status"] == "failed"
+    assert checkpoint["retryable"] is True
+    assert checkpoint["error_code"] == "OperationalError"
+    assert checkpoint["attempts"] == 2
+
+
 def test_polling_watcher_debounce_is_bounded(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
