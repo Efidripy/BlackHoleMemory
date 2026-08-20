@@ -554,6 +554,66 @@ def test_service_status_success_resets_failure_hysteresis() -> None:
     assert failures == 0
 
 
+def test_authoritative_api_command_uses_canonical_api_only_lifecycle(tmp_path: Path, monkeypatch) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    canonical = scripts / "start-bhm-authoritative.ps1"
+    canonical.write_text("# fixture\n", encoding="utf-8")
+    monkeypatch.setattr(launcher, "_assert_launchable_source", lambda source, _owner: source)
+
+    start = launcher.canonical_api_command(tmp_path)
+    recovery = launcher.canonical_api_command(tmp_path, force_restart=True)
+    stop = launcher.canonical_api_command(tmp_path, stop_only=True)
+
+    assert str(canonical) in start
+    assert "run-service.ps1" not in " ".join(start)
+    assert "-SkipProjectionRecovery" in start
+    assert start[-2:] == ["-TimeoutSec", "120"]
+    assert "-ForceRestart" not in start
+    assert "-ForceRestart" in recovery
+    assert stop[-1] == "-StopOnly"
+    assert "-SkipProjectionRecovery" not in stop
+
+
+def test_authoritative_api_transaction_retries_once_with_force_restart(tmp_path: Path, monkeypatch) -> None:
+    calls: list[bool] = []
+    probes = iter([(False, "offline"), (False, "first failed"), (True, "ready")])
+    monkeypatch.setattr(launcher, "append_launcher_log", lambda _line: None)
+
+    def runner(_root: Path, *, force_restart: bool = False, **_kwargs) -> tuple[bool, str]:
+        calls.append(force_restart)
+        return (force_restart, "recovered" if force_restart else "failed")
+
+    result = launcher.run_authoritative_api_transaction(
+        tmp_path,
+        command_runner=runner,
+        readiness_probe=lambda: next(probes),
+    )
+
+    assert result["ok"] is True
+    assert result["attempts"] == 2
+    assert calls == [False, True]
+
+
+def test_authoritative_api_transaction_stops_after_two_failed_attempts(tmp_path: Path, monkeypatch) -> None:
+    calls: list[bool] = []
+    monkeypatch.setattr(launcher, "append_launcher_log", lambda _line: None)
+
+    def runner(_root: Path, *, force_restart: bool = False, **_kwargs) -> tuple[bool, str]:
+        calls.append(force_restart)
+        return False, "failed"
+
+    result = launcher.run_authoritative_api_transaction(
+        tmp_path,
+        command_runner=runner,
+        readiness_probe=lambda: (False, "offline"),
+    )
+
+    assert result["ok"] is False
+    assert result["attempts"] == 2
+    assert calls == [False, True]
+
+
 def test_fetch_telemetry_surfaces_auth_failure(monkeypatch) -> None:
     monkeypatch.setattr(
         launcher,
