@@ -111,6 +111,7 @@ def _install_pyqt_placeholders() -> None:
         "QTextEdit",
         "QThread",
         "QTimer",
+        "QLockFile",
         "Qt",
         "QVBoxLayout",
         "QWidget",
@@ -154,6 +155,7 @@ def load_pyqt6() -> bool:
     global QTextEdit
     global QThread
     global QTimer
+    global QLockFile
     global Qt
     global QVBoxLayout
     global QWidget
@@ -163,7 +165,7 @@ def load_pyqt6() -> bool:
     global _PYQT6_IMPORT_ERROR
 
     try:
-        from PyQt6.QtCore import QThread as _QThread, QTimer as _QTimer, Qt as _Qt, pyqtSignal as _pyqtSignal
+        from PyQt6.QtCore import QLockFile as _QLockFile, QThread as _QThread, QTimer as _QTimer, Qt as _Qt, pyqtSignal as _pyqtSignal
         from PyQt6.QtGui import (
             QAction as _QAction,
             QColor as _QColor,
@@ -228,6 +230,7 @@ def load_pyqt6() -> bool:
     QTextEdit = _QTextEdit
     QThread = _QThread
     QTimer = _QTimer
+    QLockFile = _QLockFile
     Qt = _Qt
     QVBoxLayout = _QVBoxLayout
     QWidget = _QWidget
@@ -263,6 +266,7 @@ BHM_API_HEALTH_URL = endpoint_url("bhm_api", "/health/ready")
 BHM_BASE_URL = endpoint_url("bhm_api")
 DEFAULT_LLM_PORT = endpoint_port("llm_default")
 DEFAULT_LAUNCHER_PROJECT = "blackholememory"
+LAUNCHER_LOCK_FILENAME = "bhm-control-deck.lock"
 CREATE_NO_WINDOW = 0x08000000
 CREATE_NEW_PROCESS_GROUP = 0x00000200
 
@@ -4191,6 +4195,13 @@ def main() -> int:
         )
         return 1
     app = QApplication(sys.argv)
+    lock_root = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")) / "BlackHoleMemory"
+    lock_root.mkdir(parents=True, exist_ok=True)
+    launcher_lock = QLockFile(str(lock_root / LAUNCHER_LOCK_FILENAME))
+    launcher_lock.setStaleLockTime(10_000)
+    if not launcher_lock.tryLock(0):
+        print("BlackHoleMemory Control Deck is already running.", file=sys.stderr)
+        return 0
     app.setApplicationName("BlackHoleMemory Control Deck")
     app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(make_bhm_icon())
