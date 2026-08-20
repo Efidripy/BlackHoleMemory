@@ -238,6 +238,13 @@ SERVICE_FAILURE_THRESHOLD = 3
 TELEMETRY_TIMEOUT = LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
 SERVICE_READINESS_TIMEOUT_SECONDS = LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
 SERVICE_READINESS_POLL_SECONDS = LAUNCHER_SERVICE_READINESS_POLL_SECONDS
+API_START_COMMAND_TIMEOUT_SECONDS = (
+    LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS + (2 * PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS)
+)
+API_STOP_COMMAND_TIMEOUT_SECONDS = (
+    PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS + PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS
+)
+API_COMMAND_LOG_MAX_BYTES = 64 * 1024
 UI_SESSION_MINT_TIMEOUT_SECONDS = LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS
 PROCESS_CONTROL_TIMEOUT_SECONDS = float(PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS)
 LAUNCHER_INSTALL_TIMEOUT_SECONDS = PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS
@@ -1045,6 +1052,146 @@ def run_detached(args: list[str], cwd: Path = PROJECT_ROOT) -> subprocess.Popen:
     return proc
 
 
+def canonical_api_command(
+    project_root: Path,
+    *,
+    force_restart: bool = False,
+    stop_only: bool = False,
+) -> list[str]:
+    """Build the canonical API lifecycle command used by the frozen launcher."""
+
+    script = project_root / "scripts" / "start-bhm-authoritative.ps1"
+    _assert_launchable_source(script, project_root)
+    args = [
+        "powershell.exe",
+        "-NoLogo",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(script),
+    ]
+    if stop_only:
+        args.append("-StopOnly")
+        return args
+    if force_restart:
+        args.append("-ForceRestart")
+    args.extend(
+        [
+            "-SkipProjectionRecovery",
+            "-TimeoutSec",
+            str(int(SERVICE_READINESS_TIMEOUT_SECONDS)),
+        ]
+    )
+    return args
+
+
+def run_canonical_api_command(
+    project_root: Path,
+    *,
+    force_restart: bool = False,
+    stop_only: bool = False,
+) -> tuple[bool, str]:
+    """Run one bounded canonical API lifecycle command without blocking the GUI thread."""
+
+    args = canonical_api_command(
+        project_root,
+        force_restart=force_restart,
+        stop_only=stop_only,
+    )
+    timeout = API_STOP_COMMAND_TIMEOUT_SECONDS if stop_only else API_START_COMMAND_TIMEOUT_SECONDS
+    append_launcher_log("COMMAND: " + " ".join(args))
+    timed_out = False
+    try:
+        proc = subprocess.Popen(
+            args,
+            cwd=str(project_root),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            creationflags=creation_flags(),
+            startupinfo=hidden_startupinfo(),
+        )
+        try:
+            output, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            terminate_process_tree(proc)
+            timed_out = True
+            try:
+                output, _ = proc.communicate(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                output = b""
+    except OSError as exc:
+        return False, compact_error(exc)
+    bounded_output = bytes(output or b"")[-API_COMMAND_LOG_MAX_BYTES:]
+    try:
+        replace_bytes_safely(LAUNCHER_LOG_DIR / "api-command-latest.log", bounded_output)
+    except OSError as exc:
+        append_launcher_log(f"API COMMAND LOG DEGRADED: error={exc.__class__.__name__}")
+    if timed_out:
+        return False, f"canonical command timed out after {timeout:.0f}s"
+    return_code = int(proc.returncode or 0)
+    if return_code != 0:
+        lines = bounded_output.decode("utf-8", errors="replace").splitlines()
+        tail = compact_error(RuntimeError(lines[-1])) if lines else "no command output"
+        return False, f"canonical command exited with code {return_code}: {tail}"
+    return True, "canonical command completed"
+
+
+def run_authoritative_api_transaction(
+    project_root: Path,
+    *,
+    force_restart: bool = False,
+    command_runner: Callable[..., tuple[bool, str]] | None = None,
+    readiness_probe: Callable[[], tuple[bool, str]] | None = None,
+) -> dict[str, Any]:
+    """Probe, start, and perform exactly one bounded recovery retry for BHM API."""
+
+    runner = command_runner or run_canonical_api_command
+    probe = readiness_probe or (lambda: probe_http(BHM_API_HEALTH_URL, require_json_ok=True))
+    started_at = time.monotonic()
+    if not force_restart:
+        ready, detail = probe()
+        if ready:
+            return {
+                "ok": True,
+                "started": False,
+                "rolled_back": False,
+                "attempts": 1,
+                "elapsed_ms": 0.0,
+                "detail": detail,
+            }
+
+    last_detail = "not started"
+    for attempt in range(1, 3):
+        use_force_restart = force_restart or attempt == 2
+        command_ok, command_detail = runner(project_root, force_restart=use_force_restart)
+        ready, readiness_detail = probe()
+        if command_ok and ready:
+            return {
+                "ok": True,
+                "started": True,
+                "rolled_back": False,
+                "attempts": attempt,
+                "elapsed_ms": round((time.monotonic() - started_at) * 1000, 3),
+                "detail": readiness_detail,
+            }
+        last_detail = f"{command_detail}; readiness={readiness_detail}"
+        append_launcher_log(
+            f"API START ATTEMPT FAILED: attempt={attempt}/2; force_restart={use_force_restart}; "
+            f"detail={last_detail}"
+        )
+
+    return {
+        "ok": False,
+        "started": True,
+        "rolled_back": False,
+        "attempts": 2,
+        "elapsed_ms": round((time.monotonic() - started_at) * 1000, 3),
+        "detail": last_detail,
+    }
+
+
 def terminate_detached_processes() -> None:
     for proc in list(DETACHED_PROCESSES):
         if proc.poll() is not None:
@@ -1530,6 +1677,34 @@ class ServiceOperationThread(QThread):
                 "detail": compact_error(exc),
             }
         self.result_signal.emit(self.key, payload)
+
+
+class CanonicalApiOperationThread(QThread):
+    """Run the canonical API cold-start and its single recovery pass off the GUI thread."""
+
+    result_signal = pyqtSignal(str, dict)
+
+    def __init__(self, project_root: Path, *, force_restart: bool = False) -> None:
+        super().__init__()
+        self.project_root = Path(project_root)
+        self.force_restart = force_restart
+
+    def run(self) -> None:
+        try:
+            payload = run_authoritative_api_transaction(
+                self.project_root,
+                force_restart=self.force_restart,
+            )
+        except Exception as exc:
+            payload = {
+                "ok": False,
+                "started": True,
+                "rolled_back": False,
+                "attempts": 0,
+                "elapsed_ms": 0.0,
+                "detail": compact_error(exc),
+            }
+        self.result_signal.emit("api", payload)
 
 
 class SetupScreen(QWidget):
@@ -2503,6 +2678,10 @@ class DashboardScreen(QWidget):
     def apply_statuses(self, statuses: dict) -> None:
         for key, status in statuses.items():
             card = self.service_cards.get(key)
+            operation = self._service_operations.get(key)
+            if card and operation and operation.isRunning():
+                card.set_status(ServiceStatus("Starting", "waiting for readiness"))
+                continue
             if card and isinstance(status, ServiceStatus):
                 card.set_status(status)
         self.statuses_changed.emit(statuses)
@@ -2513,12 +2692,14 @@ class DashboardScreen(QWidget):
             if card:
                 card.set_value(str(value))
 
-    def start_service(self, key: str, on_success: Callable[[], None] | None = None) -> None:
+    def start_service(
+        self,
+        key: str,
+        on_success: Callable[[], None] | None = None,
+        *,
+        force_restart: bool = False,
+    ) -> None:
         if key == "llm":
-            return
-        if key == "api" and not probe_http(QDRANT_HEALTH_URL)[0]:
-            append_launcher_log("START DEFERRED: api waiting for Qdrant HTTP readiness")
-            self.start_service("qdrant", on_success=lambda: self.start_service("api", on_success=on_success))
             return
         existing = self._service_operations.get(key)
         if existing and existing.isRunning():
@@ -2544,43 +2725,18 @@ class DashboardScreen(QWidget):
                         cwd=project_root,
                     )
             elif key == "api":
-                # Use the canonical service script and explicit project root.
-                # Authoritative mode performs its own Qdrant HTTP prerequisite.
-                canonical_script = project_root / "scripts" / "run-service.ps1"
-                script = canonical_script if canonical_script.exists() else SCRIPTS_DIR / "run-service.ps1"
-                if not script.exists():
-                    raise FileNotFoundError(script)
-                _assert_launchable_source(script, project_root)
-
-                def start() -> Any:
-                    return run_detached(
-                        [
-                            "powershell",
-                            "-NoProfile",
-                            "-ExecutionPolicy",
-                            "Bypass",
-                            "-File",
-                            str(script),
-                            "-SkipInstall",
-                            "-ProjectRoot",
-                            str(project_root),
-                            "-Authoritative",
-                        ],
-                        cwd=project_root,
-                    )
-
-                def probe() -> tuple[bool, str]:
-                    return probe_http(f"{BHM_BASE_URL}/health/ready", require_json_ok=True)
-
-                def rollback(token: Any) -> None:
-                    terminate_process_tree(token if isinstance(token, subprocess.Popen) else None)
+                canonical_api_command(project_root, force_restart=force_restart)
             else:
                 raise ValueError(f"unsupported service: {key}")
 
             card = self.service_cards.get(key)
             if card:
                 card.set_status(ServiceStatus("Starting", "waiting for readiness"))
-            operation = ServiceOperationThread(key, start, probe, rollback)
+            operation = (
+                CanonicalApiOperationThread(project_root, force_restart=force_restart)
+                if key == "api"
+                else ServiceOperationThread(key, start, probe, rollback)
+            )
             operation.result_signal.connect(self._on_service_operation_result)
             operation.finished.connect(lambda key=key: self._service_operations.pop(key, None))
             self._service_operations[key] = operation
@@ -2594,6 +2750,9 @@ class DashboardScreen(QWidget):
         detail = str(result.get("detail") or "unknown")
         if not result.get("ok"):
             self._service_success_callbacks.pop(key, None)
+            card = self.service_cards.get(key)
+            if card:
+                card.set_status(ServiceStatus("Error", detail))
             append_launcher_log(
                 f"START FAILED: {key}; attempts={result.get('attempts', 0)}; "
                 f"rolled_back={result.get('rolled_back', False)}; detail={detail}"
@@ -2601,13 +2760,16 @@ class DashboardScreen(QWidget):
             QMessageBox.warning(
                 self,
                 "BHM Control Deck",
-                f"{key} не вышел в readiness за {SERVICE_READINESS_TIMEOUT_SECONDS:.0f}s.\n{detail}\nRollback: {bool(result.get('rolled_back'))}",
+                f"{key} не вышел в readiness после bounded recovery.\n{detail}\nRollback: {bool(result.get('rolled_back'))}",
             )
             return
         append_launcher_log(
             f"START READY: {key}; started={result.get('started', False)}; "
             f"attempts={result.get('attempts', 0)}; elapsed_ms={result.get('elapsed_ms', 0)}"
         )
+        card = self.service_cards.get(key)
+        if card:
+            card.set_status(ServiceStatus("Running", "ready"))
         callback = self._service_success_callbacks.pop(key, None)
         if callback:
             callback()
@@ -2623,13 +2785,18 @@ class DashboardScreen(QWidget):
                     cwd=project_root,
                 )
             elif key == "api":
-                terminate_detached_processes()
+                ok, detail = run_canonical_api_command(project_root, stop_only=True)
+                if not ok:
+                    raise RuntimeError(detail)
             elif key == "llm":
                 return
         except Exception as exc:
             QMessageBox.warning(self, "BHM Control Deck", compact_error(exc))
 
     def restart_service(self, key: str) -> None:
+        if key == "api":
+            self.start_service("api", force_restart=True)
+            return
         self.stop_service(key)
         self.start_service(key)
 
@@ -2638,13 +2805,16 @@ class DashboardScreen(QWidget):
         QMessageBox.information(self, "LLM", f"{status.state}: {status.detail}")
 
     def start_all_services(self) -> None:
-        self.start_service("qdrant", on_success=lambda: self.start_service("api"))
+        self.start_service("api")
+        self.start_service("qdrant")
 
     def stop_all_services(self) -> None:
         try:
             project_root = find_project_root()
             append_launcher_log("STOP ALL: stopping API before Qdrant")
-            terminate_detached_processes()
+            ok, detail = run_canonical_api_command(project_root, stop_only=True)
+            if not ok:
+                raise RuntimeError(detail)
             compose = QDRANT_COMPOSE if QDRANT_COMPOSE.exists() else project_root / "infra" / "qdrant" / "docker-compose.yml"
             if compose.exists():
                 _assert_launchable_source(compose, compose.parents[2])
