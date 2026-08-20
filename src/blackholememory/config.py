@@ -71,5 +71,19 @@ class Settings(BaseSettings):
     repo_root: Path = Path(__file__).resolve().parents[2]
     runtime_dir: Path = repo_root / ".runtime"
 
+    sqlite_retention_enabled: bool = True
+    sqlite_retention_initial_delay_seconds: float = 300.0
+    sqlite_retention_interval_seconds: float = 21_600.0
+    sqlite_retention_keep_graph_history: int = 2
+    sqlite_retention_keep_index_history: int = 2
+    sqlite_retention_keep_completed_outbox: int = 1_000
+    sqlite_retention_keep_latest_outbox_per_aggregate: int = 1
+    sqlite_retention_graph_min_age_days: int = 7
+    sqlite_retention_index_min_age_days: int = 7
+    sqlite_retention_outbox_min_age_days: int = 30
+    sqlite_retention_max_graph_snapshots_per_cycle: int = 2
+    sqlite_retention_max_index_snapshots_per_cycle: int = 2
+    sqlite_retention_max_outbox_events_per_cycle: int = 250
+
 
 settings = Settings()

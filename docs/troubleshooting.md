@@ -122,3 +122,19 @@ canonical `upsert=0`, `delete=0`. `review=0` обязателен только �
 классифицированных alias-orphan points; их удаление остаётся отдельным reviewed
 gate. Refinery не запускает `VACUUM`, не удаляет historical graph snapshots и
 alias orphans.
+
+## Ошибки SQLite retention
+
+- `plan digest mismatch`: база или policy изменились после dry-run. Не
+  повторяйте старый apply; создайте новый plan.
+- `active_build`: выполняется repository index или строится graph. Дождитесь
+  terminal state и повторите dry-run.
+- `live retention requires ... listener ... stopped`: API всё ещё владеет
+  authoritative SQLite. Остановите API и projection sidecar.
+- `insufficient ... free space`: для backup или `VACUUM` недостаточно места;
+  не обходите gate удалением rollback evidence.
+- `compaction_failed` после `retention_committed=true`: логическое удаление уже
+  завершено, но файл не сжат. База может оставаться рабочей; проверьте receipt и
+  не повторяйте старый digest.
+
+Полный operator flow: [SQLite retention](sqlite-retention.md).

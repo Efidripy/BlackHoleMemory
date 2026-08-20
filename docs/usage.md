@@ -63,8 +63,9 @@ digest and `--allow-live` for every CLI apply target; any intervening
 authoritative write makes the plan
 stale and fails closed. All output paths must be distinct and must not already
 exist, so a sealed backup or prior receipt cannot be overwritten. Historical
-graph retention, alias-orphan deletion and
-`VACUUM` are separate reviewed operations and are never implied by refinery.
+graph retention and `VACUUM` use the separate reviewed
+[SQLite retention](sqlite-retention.md) flow; alias-orphan deletion is never
+implied by refinery.
 Stop the API and projection sidecar for the rehearsal/apply maintenance window;
 Qdrant and the LLM may remain running. Tombstoned storage rows stay tombstoned,
 and ambiguous provenance remains unset with an explicit unresolved count in the
