@@ -314,8 +314,9 @@ def test_projector_partial_failure_is_replayable(tmp_path):
     projector = _projector(client)
 
     failed = projector.run_once(repository, retry_after_seconds=0)
-    assert (failed.claimed, failed.completed, failed.failed) == (1, 0, 1)
-    assert repository.list_outbox(status=OutboxStatus.FAILED)[0].attempts == 1
+    assert (failed.claimed, failed.completed, failed.failed, failed.deferred) == (1, 0, 0, 1)
+    assert repository.list_outbox(status=OutboxStatus.PENDING)[0].attempts == 0
+    assert repository.list_outbox(status=OutboxStatus.FAILED) == []
     assert len(client.points) == 1
 
     client.fail_collections.clear()
