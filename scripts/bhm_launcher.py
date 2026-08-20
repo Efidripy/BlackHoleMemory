@@ -273,6 +273,9 @@ COLOR_RED = "#FF5252"
 QUICK_LINKS = [
     ("BHM", "BHM Home", f"{BHM_BASE_URL}/"),
     ("GALAXY", "Galaxy Viewer", f"{BHM_BASE_URL}/bhm/galaxy"),
+    ("DOCS", "API Docs", f"{BHM_BASE_URL}/docs"),
+    ("REDOC", "ReDoc", f"{BHM_BASE_URL}/redoc"),
+    ("HEALTH", "BHM Health", f"{BHM_BASE_URL}/bhm/health"),
     ("QDRANT", "Qdrant Dashboard", endpoint_url("qdrant_http", "/dashboard/")),
 ]
 
