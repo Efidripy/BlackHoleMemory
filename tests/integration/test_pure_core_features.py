@@ -3612,6 +3612,33 @@ def test_galaxy_empty_base_handling(monkeypatch):
     assert data["summary"]["memory_records"] == 0
 
 
+def test_galaxy_scoped_project_list_does_not_leak_global_project_names(monkeypatch):
+    class FakeMemoryService:
+        def count_records(self, *, project=None):
+            return 1 if project == "lookatme" else 2
+
+        def list_records(self, *, project=None, limit=None):
+            return [
+                {
+                    "source_id": "lookatme-memory",
+                    "project": "lookatme",
+                    "content": "scoped memory",
+                    "lifecycle": "active",
+                }
+            ]
+
+        def list_projects(self):
+            return ["lookatme", "jmaka", "blackholememory"]
+
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeMemoryService())
+
+    nodes, total, projects = bhm_app._load_galaxy_authoritative_nodes_sync("lookatme", 50)
+
+    assert total == 1
+    assert [node["meta"]["project_key"] for node in nodes] == ["lookatme"]
+    assert projects == ["lookatme"]
+
+
 def test_galaxy_all_mode_has_no_numeric_cap(monkeypatch):
     captured: list[tuple[str | None, int | None, str]] = []
 
