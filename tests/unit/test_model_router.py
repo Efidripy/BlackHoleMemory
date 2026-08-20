@@ -58,9 +58,41 @@ def test_custom_inventory_selects_lowest_latency_matching_local_model():
     assert decision.model_id == "fast"
 
 
+def test_custom_inventory_prefers_lighter_sufficient_tier_before_latency():
+    decision = route_model(
+        "classify",
+        required_capabilities=["classification", "json"],
+        models=[
+            {
+                "model_id": "deep-fast",
+                "capabilities": ["classification", "json"],
+                "context_window": 8192,
+                "local_only": True,
+                "available": True,
+                "latency_ms": 5,
+                "selection_tier": 3,
+            },
+            {
+                "model_id": "light-slower",
+                "capabilities": ["classification", "json"],
+                "context_window": 8192,
+                "local_only": True,
+                "available": True,
+                "latency_ms": 50,
+                "selection_tier": 1,
+            },
+        ],
+    )
+
+    assert decision.model_id == "light-slower"
+    assert decision.selection_tier == 1
+    assert "minimum_sufficient_tier" in decision.reason_codes
+
+
 def test_snapshot_and_invalid_capabilities_fail_closed():
     snapshot = router_snapshot()
     assert snapshot["cloud_fallback"] is False
+    assert snapshot["selection_policy"]["strategy"] == "minimum_sufficient_local_tier"
     assert [item["profile_tokens"] for item in snapshot["context_profiles"]] == [8192, 16384, 32768]
     assert snapshot["context_profiles"][0]["status"] == "measured"
     with pytest.raises(ModelRouterError):
