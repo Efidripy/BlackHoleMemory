@@ -271,12 +271,18 @@ COLOR_YELLOW = "#FFD54F"
 COLOR_RED = "#FF5252"
 
 QUICK_LINKS = [
+    ("BHM", "BHM Home", f"{BHM_BASE_URL}/"),
+    ("GALAXY", "Galaxy Viewer", f"{BHM_BASE_URL}/bhm/galaxy"),
     ("DOCS", "API Docs", f"{BHM_BASE_URL}/docs"),
     ("REDOC", "ReDoc", f"{BHM_BASE_URL}/redoc"),
-    ("GALAXY", "Galaxy Viewer", f"{BHM_BASE_URL}/bhm/galaxy"),
     ("HEALTH", "BHM Health", f"{BHM_BASE_URL}/bhm/health"),
     ("QDRANT", "Qdrant Dashboard", endpoint_url("qdrant_http", "/dashboard/")),
 ]
+
+# The drawer is intentionally empty until operator actions have explicit,
+# reviewed contracts.  Keeping the link model beside QUICK_LINKS makes future
+# additions data-driven instead of growing one-off UI wiring.
+OPERATOR_LINKS: tuple[tuple[str, str, str], ...] = ()
 
 BHM_UI_BOOTSTRAP_FRAGMENT_KEY = "bhm-ui-bootstrap"
 BHM_HUMAN_UI_PATHS = frozenset({"/", "/bhm", "/bhm/galaxy"})
@@ -2493,6 +2499,8 @@ class DashboardScreen(QWidget):
         self.metric_cards: dict[str, MetricCard] = {}
         self.logs_window = LogsWindow()
         self.integrations_window = IntegrationsWindow()
+        self.operator_drawer: QFrame | None = None
+        self.operator_drawer_toggle: QPushButton | None = None
         self.settings = load_launcher_settings()
         self._project = resolve_launcher_project(self.settings)
         llm_settings = self.settings.get("llm") if isinstance(self.settings.get("llm"), dict) else {}
@@ -2524,6 +2532,10 @@ class DashboardScreen(QWidget):
         layout.addStretch(1)
         shell.addWidget(main, 1)
 
+        self.operator_drawer = self.build_operator_drawer()
+        self.operator_drawer_toggle = self.build_operator_drawer_toggle()
+        self._position_operator_drawer()
+
     def build_sidebar(self) -> QFrame:
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
@@ -2554,6 +2566,81 @@ class DashboardScreen(QWidget):
         layout.addWidget(integrations)
         layout.addStretch(1)
         return sidebar
+
+    def build_operator_drawer_toggle(self) -> QPushButton:
+        button = QPushButton("TOOLS  ›", self)
+        button.setObjectName("OperatorDrawerToggle")
+        button.setCheckable(True)
+        button.setChecked(False)
+        button.setFixedSize(64, 36)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setToolTip("Open operator tools")
+        button.setAccessibleName("Toggle operator tools")
+        button.clicked.connect(self.set_operator_drawer_expanded)
+        return button
+
+    def build_operator_drawer(self) -> QFrame:
+        drawer = QFrame(self)
+        drawer.setObjectName("OperatorDrawer")
+        drawer.setFixedWidth(236)
+        layout = QVBoxLayout(drawer)
+        layout.setContentsMargins(16, 18, 16, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("OPERATOR TOOLS")
+        title.setObjectName("LinkTag")
+        layout.addWidget(title)
+
+        description = QLabel("Database operations and maintenance shortcuts.")
+        description.setObjectName("Muted")
+        description.setWordWrap(True)
+        layout.addWidget(description)
+
+        for tag, label, url in OPERATOR_LINKS:
+            layout.addWidget(LinkButton(tag, label, url))
+
+        if not OPERATOR_LINKS:
+            empty_state = QLabel("Operator actions will be pinned here after review.")
+            empty_state.setObjectName("OperatorDrawerEmpty")
+            empty_state.setWordWrap(True)
+            layout.addWidget(empty_state)
+
+        layout.addStretch(1)
+        drawer.setVisible(False)
+        return drawer
+
+    def set_operator_drawer_expanded(self, expanded: bool) -> None:
+        if self.operator_drawer is None or self.operator_drawer_toggle is None:
+            return
+        self.operator_drawer.setVisible(expanded)
+        self.operator_drawer_toggle.setText("‹  TOOLS" if expanded else "TOOLS  ›")
+        self.operator_drawer_toggle.setToolTip(
+            "Close operator tools" if expanded else "Open operator tools"
+        )
+        self._position_operator_drawer()
+
+    def _position_operator_drawer(self) -> None:
+        if self.operator_drawer is None or self.operator_drawer_toggle is None:
+            return
+        margin = 18
+        gap = 8
+        drawer_width = self.operator_drawer.width()
+        drawer_x = self.width() - margin - drawer_width
+        drawer_height = max(1, self.height() - (2 * margin))
+        self.operator_drawer.setGeometry(drawer_x, margin, drawer_width, drawer_height)
+
+        if self.operator_drawer.isVisible():
+            toggle_x = drawer_x - gap - self.operator_drawer_toggle.width()
+        else:
+            toggle_x = self.width() - margin - self.operator_drawer_toggle.width()
+        toggle_y = max(margin, (self.height() - self.operator_drawer_toggle.height()) // 2)
+        self.operator_drawer_toggle.move(toggle_x, toggle_y)
+        self.operator_drawer.raise_()
+        self.operator_drawer_toggle.raise_()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._position_operator_drawer()
 
     def build_header(self) -> QHBoxLayout:
         header = QHBoxLayout()
@@ -2959,7 +3046,7 @@ def build_qss() -> str:
     QWidget#SetupScreen, QWidget#DashboardScreen, QWidget#IntegrationsOnboarding, QWidget#IntegrationsPanel {{
         background: {COLOR_BG};
     }}
-    QFrame#Sidebar, QFrame#MainPanel {{
+    QFrame#Sidebar, QFrame#MainPanel, QFrame#OperatorDrawer {{
         background: {COLOR_PANEL};
         border: 1px solid {COLOR_BORDER};
         border-radius: 12px;
@@ -3017,6 +3104,14 @@ def build_qss() -> str:
         color: {COLOR_MUTED};
         font-size: 10px;
         font-weight: 400;
+    }}
+    QLabel#OperatorDrawerEmpty {{
+        color: {COLOR_MUTED};
+        background: {COLOR_CARD_2};
+        border: 1px dashed #34405A;
+        border-radius: 8px;
+        padding: 14px;
+        font-size: 12px;
     }}
     QLabel#FieldLabel {{
         color: {COLOR_CYAN};
@@ -3089,6 +3184,20 @@ def build_qss() -> str:
         border-color: #263145;
     }}
     QPushButton#GhostButton:hover {{
+        background: #172133;
+        color: #FFFFFF;
+        border-color: {COLOR_CYAN};
+    }}
+    QPushButton#OperatorDrawerToggle {{
+        background: #111722;
+        color: {COLOR_CYAN};
+        border: 1px solid #263145;
+        border-radius: 8px;
+        padding: 9px 5px;
+        font-size: 10px;
+        font-weight: 900;
+    }}
+    QPushButton#OperatorDrawerToggle:hover, QPushButton#OperatorDrawerToggle:checked {{
         background: #172133;
         color: #FFFFFF;
         border-color: {COLOR_CYAN};
