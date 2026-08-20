@@ -6,6 +6,8 @@
 - [Быстрый старт](getting-started.md) — установка, запуск и проверка readiness.
 - [Использование](usage.md) — REST, MCP, Galaxy и базовые сценарии.
 - [Конфигурация](configuration.md) — локальные настройки и границы данных.
+- [Маршрутизация агентов и моделей](agent-model-routing.md) — lightweight-first
+  policy, capability gates и границы эскалации.
 - [SQLite retention](sqlite-retention.md) — автоматическая и офлайн-очистка истории.
 - [Data hygiene](data-hygiene.md) — двухфазная очистка точных disposable project IDs.
 - [Диагностика](troubleshooting.md) — что проверить, если runtime не стартует.
