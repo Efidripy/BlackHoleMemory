@@ -108,6 +108,17 @@ untrusted reverse proxy, and do not treat `X-Forwarded-*` headers as an
 authentication signal. A proxy deployment must preserve the loopback boundary
 and explicitly authenticate before forwarding requests.
 
+### Launcher operator tools
+
+Откройте `TOOLS` справа в trusted launcher. Левая навигация остаётся только
+инструментами доступа к BHM и Galaxy. Правая панель содержит семь workflows:
+integrity audit, verified SQLite backup, offline restore, retention cleanup,
+strict index repair, bounded Qdrant projection rebuild и admin snapshot
+export/import. Read-only действия выполняются сразу; мутации сначала показывают
+preview, затем требуют backup и явное подтверждение. Пути restore/import
+ограничены соответствующими `.runtime` каталогами, а admin REST-вызовы требуют
+caller token и `BHM_ADMIN_CAPABILITY`.
+
 ## MCP
 
 Канонический локальный endpoint:

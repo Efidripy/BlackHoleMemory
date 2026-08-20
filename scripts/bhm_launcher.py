@@ -88,6 +88,7 @@ def _install_pyqt_placeholders() -> None:
         "QColor",
         "QCloseEvent",
         "QComboBox",
+        "QFileDialog",
         "QFrame",
         "QGridLayout",
         "QHBoxLayout",
@@ -129,6 +130,7 @@ def load_pyqt6() -> bool:
     global QColor
     global QCloseEvent
     global QComboBox
+    global QFileDialog
     global QFrame
     global QGridLayout
     global QHBoxLayout
@@ -171,6 +173,7 @@ def load_pyqt6() -> bool:
         from PyQt6.QtWidgets import (
             QApplication as _QApplication,
             QComboBox as _QComboBox,
+            QFileDialog as _QFileDialog,
             QFrame as _QFrame,
             QGridLayout as _QGridLayout,
             QHBoxLayout as _QHBoxLayout,
@@ -199,6 +202,7 @@ def load_pyqt6() -> bool:
     QColor = _QColor
     QCloseEvent = _QCloseEvent
     QComboBox = _QComboBox
+    QFileDialog = _QFileDialog
     QFrame = _QFrame
     QGridLayout = _QGridLayout
     QHBoxLayout = _QHBoxLayout
@@ -279,10 +283,30 @@ QUICK_LINKS = [
     ("QDRANT", "Qdrant Dashboard", endpoint_url("qdrant_http", "/dashboard/")),
 ]
 
-# The drawer is intentionally empty until operator actions have explicit,
-# reviewed contracts.  Keeping the link model beside QUICK_LINKS makes future
-# additions data-driven instead of growing one-off UI wiring.
+# Kept for compatibility with the original link-only drawer contract. Operator
+# actions below are real workflows and intentionally do not become sidebar links.
 OPERATOR_LINKS: tuple[tuple[str, str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class OperatorActionSpec:
+    key: str
+    label: str
+    description: str
+    mutation: bool = False
+
+
+OPERATOR_ACTIONS: tuple[OperatorActionSpec, ...] = (
+    OperatorActionSpec("integrity", "Integrity audit", "Read-only SQLite/link consistency check."),
+    OperatorActionSpec("backup", "SQLite backup", "Verified online backup with quick/foreign-key checks."),
+    OperatorActionSpec("restore", "Restore backup", "Offline verified restore; preserves a pre-restore rollback copy.", True),
+    OperatorActionSpec("cleanup", "Cleanup", "Preview retention candidates, then apply with digest + backup.", True),
+    OperatorActionSpec("repair", "Repair indexes", "Preview orphan links, then repair after backup + confirmation.", True),
+    OperatorActionSpec("projection", "Rebuild Qdrant", "Drain/rebuild the rebuildable projection from SQLite.", True),
+    OperatorActionSpec("exchange", "Export / import", "Admin snapshot export or preview/apply import.", True),
+)
+
+OPERATOR_MUTATION_KEYS = frozenset(item.key for item in OPERATOR_ACTIONS if item.mutation)
 
 BHM_UI_BOOTSTRAP_FRAGMENT_KEY = "bhm-ui-bootstrap"
 BHM_HUMAN_UI_PATHS = frozenset({"/", "/bhm", "/bhm/galaxy"})
@@ -748,7 +772,7 @@ def resolve_launcher_project(settings: dict[str, Any] | None = None) -> str:
     return DEFAULT_LAUNCHER_PROJECT
 
 
-def _caller_headers(*, project: str | None = None) -> dict[str, str]:
+def _caller_headers(*, project: str | None = None, admin: bool = False) -> dict[str, str]:
     headers = {
         "Authorization": f"Bearer {_required_bhm_caller_token()}",
         "Content-Type": "application/json",
@@ -757,6 +781,12 @@ def _caller_headers(*, project: str | None = None) -> dict[str, str]:
     }
     if project:
         headers["X-BHM-Caller-Project"] = validate_launcher_project(project)
+    if admin:
+        admin_capability = _read_process_or_user_env_value("BHM_ADMIN_CAPABILITY") or _read_process_or_user_env_value(
+            "BHM_MCP_ADMIN_CAPABILITY"
+        )
+        if admin_capability:
+            headers["X-BHM-Admin-Capability"] = admin_capability
     return headers
 
 
@@ -767,6 +797,8 @@ def request_json(
     payload: dict[str, Any] | None = None,
     project: str | None = None,
     timeout: float = TELEMETRY_TIMEOUT,
+    max_bytes: int = MAX_HTTP_BYTES,
+    admin: bool = False,
 ) -> dict[str, Any]:
     normalized_method = method.upper()
     data = None
@@ -775,7 +807,7 @@ def request_json(
     request = urllib.request.Request(
         url,
         data=data,
-        headers=_caller_headers(project=project),
+        headers=_caller_headers(project=project, admin=admin),
         method=normalized_method,
     )
     # The endpoint policy validates the configured origin separately from a
@@ -785,7 +817,7 @@ def request_json(
     if urlsplit(url).query:
         open_kwargs["endpoint"] = BHM_BASE_URL
     with open_local_url(request, **open_kwargs) as response:
-        raw = read_bounded_response(response, limit=MAX_HTTP_BYTES)
+        raw = read_bounded_response(response, limit=max(1, min(int(max_bytes), 1024 * 1024)))
     decoded = json.loads(raw.decode("utf-8"))
     if not isinstance(decoded, dict):
         raise ValueError("local JSON response must be an object")
@@ -885,9 +917,11 @@ def safe_json_request(
     payload: dict[str, Any] | None = None,
     project: str | None = None,
     timeout: float = TELEMETRY_TIMEOUT,
+    max_bytes: int = MAX_HTTP_BYTES,
+    admin: bool = False,
 ) -> JsonRequestResult:
     try:
-        data = request_json(url, method=method, payload=payload, project=project, timeout=timeout)
+        data = request_json(url, method=method, payload=payload, project=project, timeout=timeout, max_bytes=max_bytes, admin=admin)
         return JsonRequestResult(ok=True, data=data, status_code=200)
     except urllib.error.HTTPError as exc:
         code = int(exc.code)
@@ -908,6 +942,238 @@ def _result_error_label(results: list[JsonRequestResult]) -> str:
     if any(result.error == "INVALID" for result in results):
         return "INVALID"
     return "OFFLINE"
+
+
+def _operator_database_path() -> Path:
+    return find_project_root() / ".runtime" / "live-memory" / "memories.sqlite3"
+
+
+def _operator_runtime_root(name: str) -> Path:
+    root = find_project_root() / ".runtime" / name
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _resolve_owned_runtime_file(value: str, root: Path, *, must_exist: bool = True) -> Path:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("file path is required")
+    candidate = Path(raw)
+    if not candidate.is_absolute():
+        candidate = root / candidate
+    resolved = candidate.resolve()
+    _assert_owned_path(resolved, root, require_directory=False)
+    if must_exist and not resolved.is_file():
+        raise FileNotFoundError(resolved)
+    return resolved
+
+
+def _run_operator_json(args: list[str], *, cwd: Path, timeout: float = PROCESS_CONTROL_TIMEOUT_SECONDS) -> dict[str, Any]:
+    completed = subprocess.run(
+        args,
+        cwd=str(cwd),
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=timeout,
+        creationflags=creation_flags(),
+        startupinfo=hidden_startupinfo(),
+        check=False,
+    )
+    output = (completed.stdout or "").strip()
+    if not output:
+        raise RuntimeError(compact_error(RuntimeError(completed.stderr.strip() or "operator returned no output")))
+    try:
+        payload = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"operator returned invalid JSON: {compact_error(exc)}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("operator response must be an object")
+    if completed.returncode != 0 or payload.get("ok") is False:
+        raise RuntimeError(str(payload.get("error") or payload.get("detail") or "operator action failed")[:240])
+    return payload
+
+
+def operator_integrity_audit(project: str) -> dict[str, Any]:
+    result = safe_json_request(
+        f"{BHM_BASE_URL}/bhm/integrity-audit?{urlencode({'project': project})}",
+        method="POST",
+        payload={},
+        project=project,
+        timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+        max_bytes=min(MAX_HTTP_BYTES * 8, 1024 * 1024),
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"HTTP {result.status_code}")
+    return {"action": "integrity", "project": project, **result.data}
+
+
+def operator_cleanup_preview(project: str) -> dict[str, Any]:
+    python = str(venv_python(find_project_root()) if has_virtualenv(find_project_root()) else host_python_executable())
+    cli = find_project_root() / "scripts" / "bhm-sqlite-retention.py"
+    _assert_launchable_source(cli, find_project_root())
+    report = _run_operator_json([python, str(cli)], cwd=find_project_root(), timeout=PROCESS_CONTROL_TIMEOUT_SECONDS)
+    return {"action": "cleanup", "project": project, "phase": "preview", **report}
+
+
+def operator_sqlite_backup(_project: str) -> dict[str, Any]:
+    from blackholememory.sqlite_retention import create_verified_sqlite_backup, verify_sqlite_database
+
+    database = _operator_database_path().resolve()
+    if not database.is_file():
+        raise FileNotFoundError(database)
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    target = (_operator_runtime_root("backups") / "sqlite-retention" / stamp / "memories.sqlite3").resolve()
+    _assert_owned_path(target, find_project_root() / ".runtime", require_directory=False)
+    backup = create_verified_sqlite_backup(database, target)
+    return {"action": "backup", "path": str(target), "verification": verify_sqlite_database(backup)}
+
+
+def operator_restore_backup(path: str, _project: str) -> dict[str, Any]:
+    from blackholememory.sqlite_retention import create_verified_sqlite_backup, verify_sqlite_database
+
+    root = find_project_root()
+    backup_root = (root / ".runtime" / "backups").resolve()
+    source = _resolve_owned_runtime_file(path, backup_root)
+    source_check = verify_sqlite_database(source)
+    if not source_check.get("ok"):
+        raise RuntimeError("selected backup failed SQLite verification")
+    database = _operator_database_path().resolve()
+    pre_restore = (backup_root / "pre-restore" / datetime.utcnow().strftime("%Y%m%dT%H%M%SZ") / "memories.sqlite3").resolve()
+    stopped, detail = run_canonical_api_command(root, stop_only=True)
+    if not stopped:
+        raise RuntimeError(f"API stop failed: {detail}")
+    try:
+        if database.exists():
+            create_verified_sqlite_backup(database, pre_restore)
+        staging = database.with_suffix(".restore-staging.sqlite3")
+        _assert_owned_path(staging, root / ".runtime", require_directory=False)
+        shutil.copy2(source, staging)
+        if not verify_sqlite_database(staging).get("ok"):
+            raise RuntimeError("staged restore failed SQLite verification")
+        os.replace(staging, database)
+        after = verify_sqlite_database(database)
+    except Exception:
+        if pre_restore.exists():
+            shutil.copy2(pre_restore, database)
+        raise
+    finally:
+        run_canonical_api_command(root)
+    return {"action": "restore", "source": str(source), "pre_restore_backup": str(pre_restore), "verification": after}
+
+
+def operator_restore_preview(path: str) -> dict[str, Any]:
+    from blackholememory.sqlite_retention import verify_sqlite_database
+
+    backup_root = (find_project_root() / ".runtime" / "backups").resolve()
+    source = _resolve_owned_runtime_file(path, backup_root)
+    verification = verify_sqlite_database(source)
+    if not verification.get("ok"):
+        raise RuntimeError("selected backup failed SQLite verification")
+    return {"action": "restore", "phase": "preview", "source": str(source), "verification": verification}
+
+
+def operator_cleanup_apply(preview: dict[str, Any], project: str) -> dict[str, Any]:
+    retention = preview.get("retention") or preview.get("plan") or {}
+    digest = str(retention.get("plan_digest") or retention.get("planDigest") or "")
+    as_of = str(retention.get("as_of") or retention.get("asOf") or preview.get("as_of") or "")
+    if not digest or not as_of:
+        raise RuntimeError("cleanup preview did not provide a plan digest and timestamp")
+    root = find_project_root()
+    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    backup_path = (_operator_runtime_root("backups") / "sqlite-retention" / stamp / "memories.sqlite3").resolve()
+    _assert_owned_path(backup_path, root / ".runtime", require_directory=False)
+    python = str(venv_python(root) if has_virtualenv(root) else host_python_executable())
+    cli = root / "scripts" / "bhm-sqlite-retention.py"
+    stopped, detail = run_canonical_api_command(root, stop_only=True)
+    if not stopped:
+        raise RuntimeError(f"API stop failed: {detail}")
+    try:
+        applied = _run_operator_json(
+            [python, str(cli), "--apply", "--offline", "--as-of", as_of, "--confirm-plan-digest", digest, "--backup", str(backup_path)],
+            cwd=root,
+            timeout=API_START_COMMAND_TIMEOUT_SECONDS,
+        )
+    finally:
+        run_canonical_api_command(root)
+    return {"action": "cleanup", "phase": "apply", "backup": str(backup_path), "result": applied}
+
+
+def operator_repair_indexes(project: str) -> dict[str, Any]:
+    backup = operator_sqlite_backup(project)
+    result = safe_json_request(
+        f"{BHM_BASE_URL}/bhm/integrity/repair-strict",
+        method="POST",
+        payload={"project": project, "aggregate": False, "remove_orphan_links": True, "remove_orphan_artifacts": False, "normalize_metadata": True},
+        project=project,
+        timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+        admin=True,
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"HTTP {result.status_code}")
+    return {"action": "repair", "project": project, "backup": backup, **result.data}
+
+
+def operator_projection_rebuild(project: str) -> dict[str, Any]:
+    root = find_project_root()
+    script = root / "scripts" / "bhm-projection-operator.ps1"
+    _assert_launchable_source(script, root)
+    backup = operator_sqlite_backup(project)
+    result = _run_operator_json(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "-Action", "drain", "-MaxCycles", "32", "-AsJson"],
+        cwd=root,
+        timeout=API_START_COMMAND_TIMEOUT_SECONDS,
+    )
+    return {"action": "projection", "backup": backup, "result": result}
+
+
+def operator_exchange_preview(path: str, project: str) -> dict[str, Any]:
+    root = (find_project_root() / ".runtime" / "admin-exports").resolve()
+    snapshot = _resolve_owned_runtime_file(path, root)
+    result = safe_json_request(
+        f"{BHM_BASE_URL}/bhm/admin/import-preview",
+        method="POST",
+        payload={"path": str(snapshot), "project": project},
+        project=project,
+        timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+        admin=True,
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"HTTP {result.status_code}")
+    return {"action": "exchange", "phase": "preview", **result.data}
+
+
+def operator_export(project: str) -> dict[str, Any]:
+    result = safe_json_request(
+        f"{BHM_BASE_URL}/bhm/admin/export",
+        method="POST",
+        payload={"project": project, "include_archived": True, "include_artifacts": True},
+        project=project,
+        timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+        admin=True,
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"HTTP {result.status_code}")
+    return {"action": "export", **result.data}
+
+
+def operator_exchange_apply(path: str, project: str) -> dict[str, Any]:
+    root = (find_project_root() / ".runtime" / "admin-exports").resolve()
+    snapshot = _resolve_owned_runtime_file(path, root)
+    backup = operator_sqlite_backup(project)
+    result = safe_json_request(
+        f"{BHM_BASE_URL}/bhm/admin/import-apply",
+        method="POST",
+        payload={"path": str(snapshot), "merge_mode": "upsert", "project": project},
+        project=project,
+        timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+        admin=True,
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"HTTP {result.status_code}")
+    return {"action": "exchange", "phase": "apply", "backup": backup, **result.data}
 
 
 def fetch_telemetry(project: str | None = None) -> dict[str, str]:
@@ -1713,6 +1979,25 @@ class CanonicalApiOperationThread(QThread):
         self.result_signal.emit("api", payload)
 
 
+class OperatorActionThread(QThread):
+    """Execute one bounded database operator workflow off the Qt event loop."""
+
+    result_signal = pyqtSignal(str, dict)
+
+    def __init__(self, key: str, operation: Callable[[], dict[str, Any]]) -> None:
+        super().__init__()
+        self.key = key
+        self.operation = operation
+
+    def run(self) -> None:
+        try:
+            payload = self.operation()
+            payload = {"ok": True, **payload}
+        except Exception as exc:
+            payload = {"ok": False, "error": compact_error(exc)}
+        self.result_signal.emit(self.key, payload)
+
+
 class SetupScreen(QWidget):
     setup_finished = pyqtSignal()
 
@@ -2455,6 +2740,39 @@ class LogsWindow(QFrame):
         self.text.moveCursor(QTextCursor.MoveOperation.End)
 
 
+class OperatorResultWindow(QFrame):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("LogsWindow")
+        self.setWindowTitle("BHM Operator Result")
+        self.setWindowIcon(make_bhm_icon())
+        self.resize(860, 520)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 14, 18, 18)
+        layout.setSpacing(10)
+        header = QHBoxLayout()
+        self.title = QLabel("Operator result")
+        self.title.setObjectName("SectionTitle")
+        header.addWidget(self.title)
+        header.addStretch(1)
+        copy = QPushButton("Copy")
+        copy.setObjectName("GhostButton")
+        copy.clicked.connect(lambda: QApplication.clipboard().setText(self.text.toPlainText()))
+        header.addWidget(copy)
+        layout.addLayout(header)
+        self.text = QTextEdit()
+        self.text.setObjectName("Console")
+        self.text.setReadOnly(True)
+        layout.addWidget(self.text)
+
+    def show_result(self, key: str, payload: dict[str, Any]) -> None:
+        self.title.setText(f"Operator result · {key}")
+        self.text.setPlainText(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True))
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+
 class LinkButton(QFrame):
     def __init__(self, tag: str, label: str, url: str) -> None:
         super().__init__()
@@ -2498,9 +2816,14 @@ class DashboardScreen(QWidget):
         self.service_cards: dict[str, ServiceCard] = {}
         self.metric_cards: dict[str, MetricCard] = {}
         self.logs_window = LogsWindow()
+        self.operator_result_window = OperatorResultWindow()
         self.integrations_window = IntegrationsWindow()
         self.operator_drawer: QFrame | None = None
         self.operator_drawer_toggle: QPushButton | None = None
+        self.operator_project_input: QLineEdit | None = None
+        self.operator_path_input: QLineEdit | None = None
+        self._operator_operations: dict[str, OperatorActionThread] = {}
+        self._operator_previews: dict[str, dict[str, Any]] = {}
         self.settings = load_launcher_settings()
         self._project = resolve_launcher_project(self.settings)
         llm_settings = self.settings.get("llm") if isinstance(self.settings.get("llm"), dict) else {}
@@ -2582,10 +2905,10 @@ class DashboardScreen(QWidget):
     def build_operator_drawer(self) -> QFrame:
         drawer = QFrame(self)
         drawer.setObjectName("OperatorDrawer")
-        drawer.setFixedWidth(236)
+        drawer.setFixedWidth(318)
         layout = QVBoxLayout(drawer)
         layout.setContentsMargins(16, 18, 16, 18)
-        layout.setSpacing(12)
+        layout.setSpacing(8)
 
         title = QLabel("OPERATOR TOOLS")
         title.setObjectName("LinkTag")
@@ -2596,21 +2919,170 @@ class DashboardScreen(QWidget):
         description.setWordWrap(True)
         layout.addWidget(description)
 
+        project_label = QLabel("Project scope")
+        project_label.setObjectName("FieldLabel")
+        layout.addWidget(project_label)
+        self.operator_project_input = QLineEdit(self._project)
+        self.operator_project_input.setPlaceholderText("blackholememory")
+        self.operator_project_input.setFixedHeight(30)
+        layout.addWidget(self.operator_project_input)
+
+        path_label = QLabel("Backup / snapshot path (when needed)")
+        path_label.setObjectName("FieldLabel")
+        layout.addWidget(path_label)
+        path_row = QHBoxLayout()
+        self.operator_path_input = QLineEdit()
+        self.operator_path_input.setPlaceholderText(".runtime\\backups\\... or admin export JSON")
+        self.operator_path_input.setFixedHeight(30)
+        path_row.addWidget(self.operator_path_input, 1)
+        browse = QPushButton("Browse")
+        browse.setObjectName("GhostButton")
+        browse.setFixedHeight(30)
+        browse.clicked.connect(self.browse_operator_path)
+        path_row.addWidget(browse)
+        layout.addLayout(path_row)
+
         for tag, label, url in OPERATOR_LINKS:
             layout.addWidget(LinkButton(tag, label, url))
 
-        if not OPERATOR_LINKS:
-            empty_state = QLabel(
-                "Integrity, backup, restore, cleanup, reindex, and export/import "
-                "controls will appear here after their safe flows are approved."
-            )
-            empty_state.setObjectName("OperatorDrawerEmpty")
-            empty_state.setWordWrap(True)
-            layout.addWidget(empty_state)
+        for spec in OPERATOR_ACTIONS:
+            card = QFrame()
+            card.setObjectName("OperatorCard")
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(8, 6, 8, 6)
+            card_layout.setSpacing(2)
+            row = QHBoxLayout()
+            if spec.key == "exchange":
+                export_button = QPushButton("Export")
+                export_button.setObjectName("GhostButton")
+                export_button.clicked.connect(self.start_operator_export)
+                import_button = QPushButton("Import…")
+                import_button.setObjectName("DangerButton")
+                import_button.clicked.connect(self.start_operator_import_preview)
+                row.addWidget(export_button)
+                row.addWidget(import_button)
+            else:
+                button = QPushButton(spec.label)
+                button.setObjectName("DangerButton" if spec.mutation else "GhostButton")
+                button.setCursor(Qt.CursorShape.PointingHandCursor)
+                button.clicked.connect(lambda _checked=False, key=spec.key: self.start_operator_action(key))
+                row.addWidget(button)
+            row.addStretch(1)
+            card_layout.addLayout(row)
+            hint = QLabel(spec.description)
+            hint.setObjectName("OperatorHint")
+            hint.setWordWrap(True)
+            card_layout.addWidget(hint)
+            layout.addWidget(card)
 
         layout.addStretch(1)
         drawer.setVisible(False)
         return drawer
+
+    def browse_operator_path(self) -> None:
+        if self.operator_path_input is None:
+            return
+        chosen, _ = QFileDialog.getOpenFileName(self, "Select BHM backup or admin snapshot")
+        if chosen:
+            self.operator_path_input.setText(chosen)
+
+    def operator_project(self) -> str:
+        value = self.operator_project_input.text().strip() if self.operator_project_input else self._project
+        return validate_launcher_project(value or self._project)
+
+    def operator_path(self) -> str:
+        return self.operator_path_input.text().strip() if self.operator_path_input else ""
+
+    def _operator_preview_operation(self, key: str) -> Callable[[], dict[str, Any]]:
+        project = self.operator_project()
+        if key == "integrity":
+            return lambda: operator_integrity_audit(project)
+        if key == "backup":
+            return lambda: operator_sqlite_backup(project)
+        if key == "cleanup":
+            return lambda: operator_cleanup_preview(project)
+        if key == "repair":
+            return lambda: {"action": "repair", "phase": "preview", "project": project, "audit": operator_integrity_audit(project)}
+        if key == "restore":
+            path = self.operator_path()
+            return lambda: operator_restore_preview(path)
+        if key == "projection":
+            return lambda: _run_operator_json(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(find_project_root() / "scripts" / "bhm-projection-operator.ps1"), "-Action", "dry-run", "-AsJson"], cwd=find_project_root(), timeout=PROCESS_CONTROL_TIMEOUT_SECONDS)
+        raise ValueError(f"unsupported operator action: {key}")
+
+    def start_operator_action(self, key: str) -> None:
+        if key in self._operator_operations and self._operator_operations[key].isRunning():
+            return
+        try:
+            operation = OperatorActionThread(key, self._operator_preview_operation(key))
+        except Exception as exc:
+            QMessageBox.warning(self, "BHM Operator Tools", compact_error(exc))
+            return
+        operation.result_signal.connect(self._on_operator_result)
+        operation.finished.connect(lambda key=key: self._operator_operations.pop(key, None))
+        self._operator_operations[key] = operation
+        append_launcher_log(f"OPERATOR START: {key}")
+        operation.start()
+
+    def start_operator_export(self) -> None:
+        project = self.operator_project()
+        operation = OperatorActionThread("export", lambda: operator_export(project))
+        operation.result_signal.connect(self._on_operator_result)
+        operation.finished.connect(lambda: self._operator_operations.pop("export", None))
+        self._operator_operations["export"] = operation
+        operation.start()
+
+    def start_operator_import_preview(self) -> None:
+        self.start_operator_exchange_preview()
+
+    def start_operator_exchange_preview(self) -> None:
+        project = self.operator_project()
+        path = self.operator_path()
+        operation = OperatorActionThread("exchange", lambda: operator_exchange_preview(path, project))
+        operation.result_signal.connect(self._on_operator_result)
+        operation.finished.connect(lambda: self._operator_operations.pop("exchange", None))
+        self._operator_operations["exchange"] = operation
+        operation.start()
+
+    def _on_operator_result(self, key: str, payload: dict[str, Any]) -> None:
+        self.operator_result_window.show_result(key, payload)
+        if not payload.get("ok"):
+            QMessageBox.warning(self, "BHM Operator Tools", str(payload.get("error") or "Operation failed"))
+            return
+        phase = str(payload.get("phase") or "")
+        if key in OPERATOR_MUTATION_KEYS and phase in {"preview", ""}:
+            self._operator_previews[key] = payload
+            answer = QMessageBox.question(
+                self,
+                "Confirm BHM mutation",
+                "Preview completed. Create a verified backup and apply this operation?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if answer is not QMessageBox.StandardButton.Yes:
+                return
+            self._start_operator_apply(key, payload)
+
+    def _start_operator_apply(self, key: str, preview: dict[str, Any]) -> None:
+        project = self.operator_project()
+        path = self.operator_path()
+        operations: dict[str, Callable[[], dict[str, Any]]] = {
+            "cleanup": lambda: operator_cleanup_apply(preview, project),
+            "repair": lambda: operator_repair_indexes(project),
+            "restore": lambda: operator_restore_backup(path, project),
+            "projection": lambda: operator_projection_rebuild(project),
+            "exchange": lambda: operator_exchange_apply(path, project),
+        }
+        operation = OperatorActionThread(key, operations[key])
+        operation.result_signal.connect(self._on_operator_apply_result)
+        operation.finished.connect(lambda key=key: self._operator_operations.pop(key, None))
+        self._operator_operations[key] = operation
+        append_launcher_log(f"OPERATOR APPLY: {key}")
+        operation.start()
+
+    def _on_operator_apply_result(self, key: str, payload: dict[str, Any]) -> None:
+        self.operator_result_window.show_result(key, payload)
+        if not payload.get("ok"):
+            QMessageBox.warning(self, "BHM Operator Tools", str(payload.get("error") or "Mutation failed"))
 
     def set_operator_drawer_expanded(self, expanded: bool) -> None:
         if self.operator_drawer is None or self.operator_drawer_toggle is None:
@@ -3059,6 +3531,11 @@ def build_qss() -> str:
         border: 1px solid {COLOR_BORDER};
         border-radius: 8px;
     }}
+    QFrame#OperatorCard {{
+        background: #101622;
+        border: 1px solid #263145;
+        border-radius: 8px;
+    }}
     QFrame#Card {{
         min-height: 150px;
     }}
@@ -3115,6 +3592,10 @@ def build_qss() -> str:
         border-radius: 8px;
         padding: 14px;
         font-size: 12px;
+    }}
+    QLabel#OperatorHint {{
+        color: {COLOR_MUTED};
+        font-size: 10px;
     }}
     QLabel#FieldLabel {{
         color: {COLOR_CYAN};
