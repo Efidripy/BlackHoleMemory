@@ -312,6 +312,30 @@ def test_bhm_human_ui_detection_is_origin_and_path_bounded() -> None:
     assert launcher._is_bhm_human_ui_url("not a URL") is False
 
 
+def test_launcher_quick_links_put_home_first_and_galaxy_second() -> None:
+    assert launcher.QUICK_LINKS[:2] == [
+        ("BHM", "BHM Home", f"{launcher.BHM_BASE_URL}/"),
+        ("GALAXY", "Galaxy Viewer", f"{launcher.BHM_BASE_URL}/bhm/galaxy"),
+    ]
+    assert [tag for tag, _label, _url in launcher.QUICK_LINKS[2:]] == [
+        "DOCS",
+        "REDOC",
+        "HEALTH",
+        "QDRANT",
+    ]
+
+
+def test_operator_drawer_foundation_is_collapsed_and_data_driven() -> None:
+    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+
+    assert launcher.OPERATOR_LINKS == ()
+    assert 'button = QPushButton("TOOLS  ›", self)' in source
+    assert "drawer = QFrame(self)" in source
+    assert "drawer.setVisible(False)" in source
+    assert "for tag, label, url in OPERATOR_LINKS:" in source
+    assert "def _position_operator_drawer(self)" in source
+
+
 def test_mint_uses_authenticated_post_with_a_bounded_timeout(monkeypatch) -> None:
     calls: list[tuple[str, dict, float]] = []
 
@@ -356,6 +380,24 @@ def test_open_galaxy_mints_before_open_and_only_places_bootstrap_in_fragment() -
     assert target.path == "/bhm/galaxy"
     assert target.query == "project=BlackHoleMemory"
     assert parse_qs(target.fragment) == {launcher.BHM_UI_BOOTSTRAP_FRAGMENT_KEY: [BOOTSTRAP_TOKEN]}
+    assert CALLER_TOKEN not in opened[0]
+
+
+def test_open_bhm_home_uses_the_same_trusted_ui_bootstrap() -> None:
+    opened: list[str] = []
+
+    launcher.open_launcher_link(
+        f"{launcher.BHM_BASE_URL}/",
+        mint=lambda: BOOTSTRAP_TOKEN,
+        opener=lambda target: opened.append(target) or True,
+    )
+
+    assert len(opened) == 1
+    target = urlsplit(opened[0])
+    assert target.path == "/"
+    assert parse_qs(target.fragment) == {
+        launcher.BHM_UI_BOOTSTRAP_FRAGMENT_KEY: [BOOTSTRAP_TOKEN]
+    }
     assert CALLER_TOKEN not in opened[0]
 
 
