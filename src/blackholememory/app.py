@@ -11584,7 +11584,18 @@ def _load_galaxy_authoritative_nodes_sync(
     total = service.count_records(project=project_key)
     records = service.list_records(project=project_key, limit=limit)
     nodes = [node for record in records if (node := _galaxy_memory_record_node(record)) is not None]
-    return nodes, total, service.list_projects()
+    # A scoped Galaxy response must not disclose project names outside the
+    # caller's requested scope.  ``list_projects()`` is intentionally global
+    # for operator surfaces, so derive the suggestions from the filtered
+    # records when a project is selected.
+    available_projects = (
+        [project_key]
+        if project_key and total > 0
+        else []
+        if project_key
+        else service.list_projects()
+    )
+    return nodes, total, available_projects
 
 
 async def _load_galaxy_authoritative_nodes(
