@@ -38,3 +38,11 @@ def test_launcher_does_not_select_project_root_from_process_cwd():
     launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
 
     assert "roots.append(Path.cwd().resolve())" not in launcher
+
+
+def test_launcher_has_single_instance_guard_for_polling_ownership():
+    launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+
+    assert "QLockFile" in launcher
+    assert "bhm-control-deck.lock" in launcher
+    assert "launcher_lock.tryLock(0)" in launcher
