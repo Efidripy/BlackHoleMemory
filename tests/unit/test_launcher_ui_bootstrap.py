@@ -317,11 +317,8 @@ def test_launcher_quick_links_put_home_first_and_galaxy_second() -> None:
         ("BHM", "BHM Home", f"{launcher.BHM_BASE_URL}/"),
         ("GALAXY", "Galaxy Viewer", f"{launcher.BHM_BASE_URL}/bhm/galaxy"),
     ]
-    assert [tag for tag, _label, _url in launcher.QUICK_LINKS[2:]] == [
-        "DOCS",
-        "REDOC",
-        "HEALTH",
-        "QDRANT",
+    assert launcher.QUICK_LINKS[2:] == [
+        ("QDRANT", "Qdrant Dashboard", launcher.endpoint_url("qdrant_http", "/dashboard/"))
     ]
 
 
