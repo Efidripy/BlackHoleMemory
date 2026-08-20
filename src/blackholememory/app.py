@@ -197,6 +197,8 @@ from .retention import load_retention_policy
 from .retention import parse_timestamp
 from .retention import RetentionPolicyError
 from .retention import summarize_retention_plan
+from .sqlite_retention import automatic_sqlite_retention_loop
+from .sqlite_retention import SQLiteRetentionPolicy
 from .observation_security import OBSERVATION_COMPACT_MAX_INPUT_BYTES
 from .observation_security import OBSERVATION_IDLE_MAX_INPUT_BYTES
 from .observation_security import OBSERVATION_MAX_INPUT_BYTES
@@ -2250,11 +2252,43 @@ async def _app_lifespan(_app: FastAPI):
     warmup_task: asyncio.Task[None] | None = None
     boot_report_task: asyncio.Task[None] | None = None
     telemetry_task: asyncio.Task[None] | None = None
+    sqlite_retention_task: asyncio.Task[None] | None = None
     try:
         warmup_task = asyncio.create_task(warmup_provider_probe())
         if _boot_report_is_pending():
             boot_report_task = asyncio.create_task(_finalize_pending_boot_report(warmup_task))
         telemetry_task = asyncio.create_task(_telemetry_harvester_loop())
+        if sqlite_authoritative and settings.sqlite_retention_enabled:
+            retention_database = resolve_runtime_storage_config(
+                runtime_dir=settings.runtime_dir
+            ).database_path
+            sqlite_retention_task = asyncio.create_task(
+                automatic_sqlite_retention_loop(
+                    retention_database,
+                    SQLiteRetentionPolicy(
+                        keep_graph_history_per_scope=settings.sqlite_retention_keep_graph_history,
+                        keep_index_history_per_scope=settings.sqlite_retention_keep_index_history,
+                        keep_completed_outbox=settings.sqlite_retention_keep_completed_outbox,
+                        keep_latest_completed_outbox_per_aggregate=(
+                            settings.sqlite_retention_keep_latest_outbox_per_aggregate
+                        ),
+                        graph_min_age_days=settings.sqlite_retention_graph_min_age_days,
+                        index_min_age_days=settings.sqlite_retention_index_min_age_days,
+                        completed_outbox_min_age_days=settings.sqlite_retention_outbox_min_age_days,
+                        max_graph_snapshots_per_run=(
+                            settings.sqlite_retention_max_graph_snapshots_per_cycle
+                        ),
+                        max_index_snapshots_per_run=(
+                            settings.sqlite_retention_max_index_snapshots_per_cycle
+                        ),
+                        max_completed_outbox_per_run=(
+                            settings.sqlite_retention_max_outbox_events_per_cycle
+                        ),
+                    ),
+                    initial_delay_seconds=settings.sqlite_retention_initial_delay_seconds,
+                    interval_seconds=settings.sqlite_retention_interval_seconds,
+                )
+            )
         await _start_hook_queue_workers()
         async with _MCP_STREAMABLE_HTTP.run():
             yield
@@ -2265,6 +2299,7 @@ async def _app_lifespan(_app: FastAPI):
         finally:
             await _cancel_lifespan_task(boot_report_task, name="boot_report")
             await _cancel_lifespan_task(telemetry_task, name="telemetry")
+            await _cancel_lifespan_task(sqlite_retention_task, name="sqlite_retention")
             await _cancel_lifespan_task(warmup_task, name="provider_warmup")
             await _cleanup_registered_infra_processes(reason="api_shutdown")
 
