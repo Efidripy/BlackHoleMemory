@@ -22,6 +22,8 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
         "/bhm/health",
         "/health/cutover",
         "projection-only",
+        "projectionStatusAllowed",
+        "'degraded'",
         "direct_vector_writes",
         "Wait-Authoritative",
         "ProbeOnly",

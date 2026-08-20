@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 
-from .mem0_adapter import get_qdrant_client
+from .mem0_adapter import _remote_qdrant_available
 from .storage_state import qdrant_required_for_core
 
 
@@ -16,9 +16,9 @@ class DependencyStatus:
 
 def check_qdrant() -> DependencyStatus:
     try:
-        client = get_qdrant_client()
-        client.get_collections()
-        return DependencyStatus("qdrant", True, "ok")
+        if _remote_qdrant_available():
+            return DependencyStatus("qdrant", True, "ok")
+        return DependencyStatus("qdrant", False, "qdrant_unavailable")
     except Exception:  # pragma: no cover - runtime probe
         # Dependency exceptions may contain hostnames, paths or credentials;
         # expose only the stable health-contract code to callers.

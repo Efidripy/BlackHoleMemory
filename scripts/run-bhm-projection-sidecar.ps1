@@ -20,7 +20,13 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
 }
 
 New-Item -ItemType Directory -Force -Path $bootstrapRoot | Out-Null
-Set-Content -LiteralPath $pidPath -Value ([string]$PID) -Encoding UTF8
+$sidecarProcess = Get-Process -Id $PID -ErrorAction Stop
+$pidIdentity = [pscustomobject]@{
+  pid = [int]$PID
+  started_at = $sidecarProcess.StartTime.ToUniversalTime().ToString('o')
+  role = 'bhm-projection-sidecar'
+}
+Set-Content -LiteralPath $pidPath -Value ($pidIdentity | ConvertTo-Json -Compress) -Encoding UTF8
 
 # The sidecar is deliberately not the BHM service. It consumes only the
 # transactional outbox and projects to Qdrant; SQLite remains authoritative.

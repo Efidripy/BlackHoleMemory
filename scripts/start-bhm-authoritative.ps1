@@ -247,6 +247,8 @@ function Get-ContractSnapshot {
     }
     $health = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/bhm/health" -Headers $headers -TimeoutSec 10
     $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/health/cutover" -Headers $headers -TimeoutSec 10
+    $projectionStatus = [string]$cutover.mem0.status
+    $projectionStatusAllowed = @('projection-only', 'degraded') -contains $projectionStatus
     return [pscustomobject]@{
       reachable = $true
       authoritative = (
@@ -257,7 +259,7 @@ function Get-ContractSnapshot {
         [bool]$health.memory_store.writer_offline_confirmed -and
         [bool]$cutover.ok -and
         -not [bool]$cutover.projection.required_for_core -and
-        $cutover.mem0.status -eq 'projection-only' -and
+        $projectionStatusAllowed -and
         -not [bool]$cutover.mem0.direct_vector_writes -and
         -not [bool]$health.memory_store.projection_worker.enabled
       )

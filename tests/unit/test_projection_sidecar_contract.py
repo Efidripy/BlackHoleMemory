@@ -21,8 +21,12 @@ def test_projection_sidecar_keeps_authority_in_bhm_and_worker_in_shadow_mode():
     assert "projection-sidecar.pid" in runner
     assert "projection-sidecar.stop" in launcher
     assert "function Get-PidFileProcess" in launcher
+    assert "started_at" in launcher
+    assert "ConvertFrom-Json" in launcher
+    assert "PID reuse" in launcher or "reused PID" in launcher
     assert "already-running" in launcher
     assert "Stop-Process -Id $pidProcess.Id" in launcher
     assert "start-bhm-projection-sidecar.ps1" in authoritative
     assert "BHM_MEMORY_STORE_MODE = 'sqlite-authoritative'" not in runner
     assert "start-qdrant.ps1" not in runner
+    assert "started_at = $sidecarProcess.StartTime" in runner
