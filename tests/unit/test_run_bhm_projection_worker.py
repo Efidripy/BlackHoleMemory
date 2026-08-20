@@ -92,3 +92,14 @@ def test_infrastructure_report_is_timestamped_bounded_and_uses_retry_exit_code(
     assert payload["classification"] == "infrastructure_unavailable"
     assert payload["deferred"] == 2
     assert 0 < len(payload["error"]) <= 2_000
+
+
+def test_startup_infrastructure_error_uses_retry_exit_code(capsys: pytest.CaptureFixture[str]) -> None:
+    from blackholememory.mem0_adapter import StorageNotReady
+
+    assert MODULE._emit_startup_infrastructure_error(StorageNotReady("qdrant unavailable")) == 75
+    captured = capsys.readouterr()
+    payload = __import__("json").loads(captured.err)
+    assert payload["classification"] == "infrastructure_unavailable"
+    assert payload["deferred"] == 0
+    assert "StorageNotReady" in payload["error"]
