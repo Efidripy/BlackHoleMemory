@@ -36,6 +36,22 @@ fail-closed. `Invalid Origin header` для неизвестного origin и W
 `ConnectionResetError 10054` от закрывшего соединение клиента сами по себе не
 означают завершение API.
 
+Если bounded recovery не помог, используйте отдельную лестницу восстановления:
+
+```powershell
+# Только диагностика и план, без остановки Docker/WSL
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\recover-qdrant.ps1 -WhatIf
+
+# Явно разрешённый оператором жёсткий локальный fallback
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\recover-qdrant.ps1 -Force
+```
+
+`-Force` останавливает Docker service/Desktop, завершает backend-процессы,
+выполняет `wsl --shutdown`, поднимает Docker заново и повторяет Compose и
+`/healthz`. Скрипт пишет локальный redacted receipt, не делает `docker system
+prune`, не удаляет volumes/SQLite и оставляет API в SQLite-authoritative
+degraded режиме, если Qdrant так и не восстановился.
+
 ## `bhm_index_repository` возвращает timeout
 
 Не запускайте повторную force-refresh индексацию вслепую. Сначала вызовите
