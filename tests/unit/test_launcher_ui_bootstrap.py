@@ -333,20 +333,163 @@ def test_operator_drawer_foundation_is_collapsed_and_data_driven() -> None:
     assert "drawer = QFrame(self)" in source
     assert "drawer.setVisible(False)" in source
     assert "for tag, label, url in OPERATOR_LINKS:" in source
+    assert "scroll = QScrollArea()" in source
+    assert "scroll.setWidgetResizable(True)" in source
+    assert "Qt.ScrollBarPolicy.ScrollBarAsNeeded" in source
+    assert 'group_title.setObjectName("OperatorGroupTitle")' in source
+    assert 'hint.setObjectName("OperatorHint")' in source
+    assert "font-size: 12px;" in source
     assert "def _position_operator_drawer(self)" in source
 
 
 def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes() -> None:
     keys = [item.key for item in launcher.OPERATOR_ACTIONS]
-    assert keys == ["integrity", "backup", "restore", "cleanup", "repair", "projection", "exchange"]
-    assert {item.key for item in launcher.OPERATOR_ACTIONS if item.mutation} == {
-        "restore",
+    assert keys == [
+        "integrity",
+        "projection_status",
+        "qdrant_catalog",
+        "orphan_classification",
+        "index_status",
+        "receipts",
+        "backup",
         "cleanup",
         "repair",
         "projection",
+        "reconcile",
+        "restore",
+        "exchange",
+    ]
+    assert {item.key for item in launcher.OPERATOR_ACTIONS if item.mutation} == {
+        "cleanup",
+        "repair",
+        "projection",
+        "reconcile",
+        "restore",
         "exchange",
     }
+    assert [item.group for item in launcher.OPERATOR_ACTIONS] == [
+        *(["Diagnostics"] * 6),
+        *(["Maintenance"] * 5),
+        *(["Recovery & transfer"] * 2),
+    ]
     assert [tag for tag, _label, _url in launcher.QUICK_LINKS[:2]] == ["BHM", "GALAXY"]
+
+
+def test_operator_drawer_live_geometry_is_scrollable_and_non_overlapping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    if not launcher.load_pyqt6():
+        pytest.skip("PyQt6 is not installed in this test environment")
+    application = launcher.QApplication.instance() or launcher.QApplication([])
+    application.setStyleSheet(launcher.build_qss())
+    view = launcher.DashboardScreen()
+    view.resize(1280, 800)
+    view.show()
+    view.set_operator_drawer_expanded(True)
+    application.processEvents()
+    try:
+        drawer = view.operator_drawer
+        toggle = view.operator_drawer_toggle
+        assert drawer is not None
+        assert toggle is not None
+        scroll = drawer.findChild(launcher.QScrollArea, "OperatorScroll")
+        assert scroll is not None
+        assert scroll.verticalScrollBar().maximum() > 0
+        assert scroll.verticalScrollBar().isVisible()
+        assert not toggle.geometry().intersects(drawer.geometry())
+        buttons = [
+            button
+            for button in drawer.findChildren(launcher.QPushButton)
+            if button.objectName() in {"OperatorActionButton", "OperatorDangerButton"}
+        ]
+        assert len(buttons) == 14
+        assert {button.height() for button in buttons} == {30}
+        assert [
+            label.text() for label in drawer.findChildren(launcher.QLabel, "OperatorGroupTitle")
+        ] == ["DIAGNOSTICS", "MAINTENANCE", "RECOVERY & TRANSFER"]
+    finally:
+        view.close()
+        application.processEvents()
+
+
+def test_operator_projection_reports_stay_under_script_approved_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(launcher, "find_project_root", lambda: tmp_path)
+
+    report = launcher._operator_projection_report_path("reconcile-preview")
+
+    assert report.parent == tmp_path / ".runtime" / "reports" / "operator-tools"
+    assert report.name.startswith("reconcile-preview-")
+    assert report.suffix == ".json"
+
+
+def test_operator_receipts_include_projection_reports(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = tmp_path / ".runtime" / "reports" / "operator-tools" / "projection.json"
+    report.parent.mkdir(parents=True)
+    report.write_text('{"ok": true}\n', encoding="utf-8")
+    monkeypatch.setattr(launcher, "find_project_root", lambda: tmp_path)
+
+    payload = launcher.operator_receipts("blackholememory")
+
+    assert payload["count"] == 1
+    assert payload["items"][0]["path"] == str(Path("reports/operator-tools/projection.json"))
+
+
+def test_projection_reconcile_apply_uses_exact_preview_contract_and_restarts_api(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = tmp_path / "scripts" / "bhm_reconcile_projection.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# bounded test helper\n", encoding="utf-8")
+    report = tmp_path / ".runtime" / "reports" / "operator-tools" / "apply.json"
+    database = tmp_path / ".runtime" / "live-memory" / "memories.sqlite3"
+    api_calls: list[bool] = []
+    command: list[str] = []
+
+    monkeypatch.setattr(launcher, "find_project_root", lambda: tmp_path)
+    monkeypatch.setattr(launcher, "has_virtualenv", lambda _root: False)
+    monkeypatch.setattr(launcher, "host_python_executable", lambda: "python-test")
+    monkeypatch.setattr(launcher, "_operator_projection_report_path", lambda _prefix: report)
+    monkeypatch.setattr(launcher, "_operator_database_path", lambda: database)
+    monkeypatch.setattr(launcher, "operator_sqlite_backup", lambda _project: {"verified": True})
+
+    def fake_api_command(_root: Path, *, stop_only: bool = False) -> tuple[bool, str]:
+        api_calls.append(stop_only)
+        return True, "ok"
+
+    def fake_operator_json(args: list[str], **_kwargs) -> dict:
+        command.extend(args)
+        return {"success": True}
+
+    monkeypatch.setattr(launcher, "run_canonical_api_command", fake_api_command)
+    monkeypatch.setattr(launcher, "_run_operator_json", fake_operator_json)
+
+    payload = launcher.operator_reconcile_apply(
+        {"planDigest": "digest-123", "asOf": "2026-08-20T14:30:00Z"},
+        "blackholememory",
+    )
+
+    assert command[command.index("--confirm-plan-digest") + 1] == "digest-123"
+    assert command[command.index("--as-of") + 1] == "2026-08-20T14:30:00Z"
+    assert api_calls == [True, False]
+    assert payload["phase"] == "apply"
+
+
+def test_operator_preview_context_and_thread_release_are_identity_bound() -> None:
+    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+
+    assert 'context = {"project": project, "path": path}' in source
+    assert 'context = preview.get("operator_context")' in source
+    assert "if self._operator_operations.get(key) is operation:" in source
+    assert "API restart failed after SQLite restore" in source
+    assert "API restart failed after SQLite cleanup" in source
 
 
 def test_launcher_admin_headers_are_opt_in_and_never_replace_caller_auth(monkeypatch) -> None:
