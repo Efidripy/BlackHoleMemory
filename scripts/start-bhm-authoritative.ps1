@@ -150,11 +150,15 @@ function Stop-BhmProcesses {
   foreach ($proc in $processes) {
     Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
   }
-  foreach ($listenerId in @(Get-BhmListeningProcessIds)) {
-    if ($knownIds -contains [int]$listenerId) {
-      Stop-Process -Id $listenerId -Force -ErrorAction SilentlyContinue
-    }
+  # The API port is the authoritative fallback when CIM process inspection is
+  # unavailable (common for a non-elevated post-reboot launcher).  Do not
+  # require the listener PID to appear in the CIM result, or stale processes
+  # will survive and the next bind will fail.
+  $listenerIds = @(Get-BhmListeningProcessIds)
+  foreach ($listenerId in $listenerIds) {
+    Stop-Process -Id ([int]$listenerId) -Force -ErrorAction SilentlyContinue
   }
+  $knownIds = @($knownIds + $listenerIds | Sort-Object -Unique)
   $deadline = [DateTime]::UtcNow.AddSeconds($ShutdownTimeoutSec)
   do {
     $remaining = @($knownIds | Where-Object {
@@ -175,6 +179,16 @@ function Stop-BhmProcesses {
     Start-Sleep -Milliseconds 250
   } while ([DateTime]::UtcNow -lt $retryDeadline)
   throw "BHM process cleanup exceeded bounded shutdown deadline of $ShutdownTimeoutSec seconds. Remaining PIDs: $($remaining -join ', ')"
+}
+
+function Stop-ProjectionSidecar {
+  $sidecarScript = Join-Path $repoRoot 'scripts\start-bhm-projection-sidecar.ps1'
+  if (-not (Test-Path -LiteralPath $sidecarScript)) { return }
+  try {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sidecarScript -Action Stop -NoWait | Out-Null
+  } catch {
+    Write-Warning "Projection sidecar stop failed; continuing API lifecycle: $($_.Exception.Message)"
+  }
 }
 
 function Get-BhmCallerToken {
@@ -294,6 +308,7 @@ function Wait-Authoritative {
 }
 
 if ($StopOnly) {
+  Stop-ProjectionSidecar
   Stop-BhmProcesses
   [pscustomobject]@{
     ok = $true
@@ -319,6 +334,7 @@ if ($ProbeOnly) {
   exit 1
 }
 if ($ForceRestart -and $initial.reachable) {
+  Stop-ProjectionSidecar
   Stop-BhmProcesses
   Start-Sleep -Seconds 2
   $initial = Get-ContractSnapshot -BaseUrl $BaseUrl
@@ -344,6 +360,7 @@ if ($initial.authoritative) {
   exit 0
 }
 
+Stop-ProjectionSidecar
 if (@(Get-BhmProcesses).Count -gt 0) {
   Stop-BhmProcesses
   Start-Sleep -Seconds 2
@@ -408,6 +425,7 @@ if ($NoWait) {
 
 $result = Wait-Authoritative -BaseUrl $BaseUrl -TimeoutSeconds $TimeoutSec -PollIntervalSeconds $PollSeconds
 if (-not $result.ok) {
+  Stop-ProjectionSidecar
   Stop-BhmProcesses
   [pscustomobject]@{
     ok = $false

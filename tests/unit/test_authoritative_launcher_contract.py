@@ -30,6 +30,9 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
         "-SemanticFusion",
         "BaseUrl",
         "Stop-BhmProcesses",
+        "Stop-ProjectionSidecar",
+        "The API port is the authoritative fallback",
+        "Stop-Process -Id ([int]$listenerId)",
         "run-service.ps1",
         "'-Authoritative'",
         "start-qdrant.ps1",
@@ -64,6 +67,13 @@ def test_workspace_launcher_delegates_to_canonical_authoritative_startup() -> No
 def test_authoritative_launcher_does_not_enable_projection_worker():
     text = LAUNCHER.read_text(encoding="utf-8")
     assert 'BHM_PROJECTION_WORKER_ENABLED = "true"' not in text
+
+
+def test_authoritative_launcher_stops_projection_sidecar_on_stop_and_restart():
+    text = LAUNCHER.read_text(encoding="utf-8")
+
+    assert text.index("if ($StopOnly)") < text.index("Stop-ProjectionSidecar", text.index("if ($StopOnly)"))
+    assert text.index("if ($ForceRestart") < text.index("Stop-ProjectionSidecar", text.index("if ($ForceRestart"))
 
 
 def test_service_authoritative_switch_sets_complete_writer_gate_contract():

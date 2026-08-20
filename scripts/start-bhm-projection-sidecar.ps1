@@ -29,12 +29,29 @@ function Get-SidecarProcess {
 
 function Get-SidecarStatus {
   $processes = @(Get-SidecarProcess)
+  $pidProcess = Get-PidFileProcess
+  $pids = @($processes | ForEach-Object { [int]$_.ProcessId })
+  if ($null -ne $pidProcess -and $pids -notcontains [int]$pidProcess.Id) {
+    $pids += [int]$pidProcess.Id
+  }
   [pscustomobject]@{
-    running = $processes.Count -gt 0
-    pids = @($processes | ForEach-Object { [int]$_.ProcessId })
+    running = $processes.Count -gt 0 -or $null -ne $pidProcess
+    pids = @($pids | Sort-Object -Unique)
     pid_file = $pidPath
     stdout = $stdoutPath
     stderr = $stderrPath
+  }
+}
+
+function Get-PidFileProcess {
+  if (-not (Test-Path -LiteralPath $pidPath)) { return $null }
+  try {
+    $rawPid = (Get-Content -LiteralPath $pidPath -Raw -ErrorAction Stop).Trim()
+    $pidValue = 0
+    if (-not [int]::TryParse($rawPid, [ref]$pidValue) -or $pidValue -le 0) { return $null }
+    return Get-Process -Id $pidValue -ErrorAction Stop
+  } catch {
+    return $null
   }
 }
 
@@ -47,6 +64,10 @@ if ($Action -eq 'Status') {
 
 if ($Action -eq 'Stop') {
   New-Item -ItemType File -Force -Path $stopPath | Out-Null
+  $pidProcess = Get-PidFileProcess
+  if ($null -ne $pidProcess) {
+    Stop-Process -Id $pidProcess.Id -Force -ErrorAction SilentlyContinue
+  }
   foreach ($process in @(Get-SidecarProcess)) {
     Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction SilentlyContinue
   }
@@ -58,6 +79,12 @@ if ($Action -eq 'Stop') {
 if (-not (Test-Path -LiteralPath $runner)) {
   throw "Missing projection sidecar runner: $runner"
 }
+$pidProcess = Get-PidFileProcess
+if ($null -ne $pidProcess) {
+  [pscustomobject]@{ ok = $true; action = 'already-running'; pid = [int]$pidProcess.Id; status = Get-SidecarStatus } | ConvertTo-Json -Depth 6
+  exit 0
+}
+Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue
 if (@(Get-SidecarProcess).Count -gt 0) {
   [pscustomobject]@{ ok = $true; action = 'already-running'; status = Get-SidecarStatus } | ConvertTo-Json -Depth 6
   exit 0
