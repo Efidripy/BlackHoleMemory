@@ -356,6 +356,7 @@ def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes
         "repair",
         "projection",
         "reconcile",
+        "qdrant_recovery",
         "restore",
         "exchange",
     ]
@@ -364,13 +365,14 @@ def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes
         "repair",
         "projection",
         "reconcile",
+        "qdrant_recovery",
         "restore",
         "exchange",
     }
     assert [item.group for item in launcher.OPERATOR_ACTIONS] == [
         *(["Diagnostics"] * 6),
         *(["Maintenance"] * 5),
-        *(["Recovery & transfer"] * 2),
+        *(["Recovery & transfer"] * 3),
     ]
     assert [tag for tag, _label, _url in launcher.QUICK_LINKS[:2]] == ["BHM", "GALAXY"]
 
