@@ -336,6 +336,30 @@ def test_operator_drawer_foundation_is_collapsed_and_data_driven() -> None:
     assert "def _position_operator_drawer(self)" in source
 
 
+def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes() -> None:
+    keys = [item.key for item in launcher.OPERATOR_ACTIONS]
+    assert keys == ["integrity", "backup", "restore", "cleanup", "repair", "projection", "exchange"]
+    assert {item.key for item in launcher.OPERATOR_ACTIONS if item.mutation} == {
+        "restore",
+        "cleanup",
+        "repair",
+        "projection",
+        "exchange",
+    }
+    assert [tag for tag, _label, _url in launcher.QUICK_LINKS[:2]] == ["BHM", "GALAXY"]
+
+
+def test_launcher_admin_headers_are_opt_in_and_never_replace_caller_auth(monkeypatch) -> None:
+    monkeypatch.setattr(launcher, "_required_bhm_caller_token", lambda: CALLER_TOKEN)
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "operator-capability-test")
+
+    headers = launcher._caller_headers(project="blackholememory", admin=True)
+
+    assert headers["Authorization"] == f"Bearer {CALLER_TOKEN}"
+    assert headers["X-BHM-Admin-Capability"] == "operator-capability-test"
+    assert CALLER_TOKEN not in headers["X-BHM-Admin-Capability"]
+
+
 def test_mint_uses_authenticated_post_with_a_bounded_timeout(monkeypatch) -> None:
     calls: list[tuple[str, dict, float]] = []
 
