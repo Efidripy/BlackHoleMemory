@@ -138,3 +138,22 @@ alias orphans.
   не повторяйте старый digest.
 
 Полный operator flow: [SQLite retention](sqlite-retention.md).
+
+## Ошибки data hygiene
+
+- `policy`/allowlist error: не заменяйте точный project ID wildcard-правилом.
+  Сверьте ID с reviewed policy.
+- `existing full backup` error: операция не создаёт второй полный backup.
+  Передайте существующий SQLite backup, прошедший integrity и digest checks.
+- `plan digest` или `as_of` mismatch: authoritative snapshot или параметры
+  изменились. Старый plan не переиспользуйте; начните с нового `plan`.
+- `offline`/listener error: API или projection sidecar ещё может писать SQLite.
+  Остановите оба процесса и повторите фазу; Qdrant и LLM останавливать не надо.
+- `projection absence` error: не переходите к purge. Drain-ните outbox до нуля,
+  устраните failed/dead-letter events и пересоздайте reviewed absence report.
+- `rollback package` error: не создавайте package поверх существующего и не
+  переносите его за пределы `.runtime/data-hygiene/`.
+
+Data hygiene не запускает `VACUUM`. Размер SQLite-файла может не уменьшиться
+после purge; это ожидаемо. Отдельная compaction относится к reviewed
+[SQLite retention](sqlite-retention.md) flow.

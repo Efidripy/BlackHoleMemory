@@ -37,3 +37,16 @@ SQLite authority boundary.
 `src/blackholememory/config.py` и получают стандартный prefix `BHM_`.
 Автоматический режим не выполняет backup или `VACUUM`. Операторский flow и
 rollback описаны в [SQLite retention](sqlite-retention.md).
+
+## One-time data hygiene
+
+`config/data-hygiene-policy.json` — точный одноразовый allowlist disposable
+project IDs и отдельный denylist защищённых проектов. Сопоставление выполняется
+только по полному project ID: wildcard, prefix, regex и эвристика по имени
+запрещены. Политика требует существующий full SQLite backup, не создаёт второй
+полный backup, не выполняет `VACUUM`, а новые operational artifacts ограничивает
+каталогом `.runtime/data-hygiene/`.
+
+Изменение списка — отдельная reviewed операция. Автоматическое добавление
+будущих `*-test` или `*-smoke` проектов не допускается. Operator flow описан в
+[Data hygiene](data-hygiene.md).

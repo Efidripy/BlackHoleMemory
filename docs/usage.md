@@ -71,6 +71,19 @@ Qdrant and the LLM may remain running. Tombstoned storage rows stay tombstoned,
 and ambiguous provenance remains unset with an explicit unresolved count in the
 plan instead of being guessed as synthetic.
 
+## Disposable data hygiene
+
+Одноразовая очистка подтверждённых disposable namespaces отделена от refinery
+и retention. Она использует точный policy allowlist, существующий full backup и
+selective rollback package. Active records сначала tombstone-ятся offline в
+`prepare`, затем projection sidecar должен drain-нуть удаления, а
+`projection-check` — подтвердить отсутствие каждого ID в Qdrant. Только после
+нового post-prepare plan отдельное offline-окно разрешает физический `purge`.
+`VACUUM` не является частью операции.
+
+CLI, полный порядок остановки/запуска и restore описаны в
+[Data hygiene](data-hygiene.md).
+
 ## Galaxy controls
 
 Galaxy is a visual read model of active memory records from authoritative
