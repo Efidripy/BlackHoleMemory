@@ -20,6 +20,9 @@ def test_galaxy_exposes_newest_first_amounts_and_true_all_mode() -> None:
     assert 'query.set("limit", controls.limit.value || "200")' in html
     assert 'controls.limit.addEventListener("change", () => loadGalaxy(true))' in html
     assert 'max="500"' not in html
+    assert "function renderGalaxyPayloadProgressively" in html
+    assert 'controls.limit.value === "all"' in html
+    assert "Rendering ${end.toLocaleString()} of ${sourceNodes.length.toLocaleString()} records…" in html
 
 
 def test_galaxy_project_scope_and_depth_are_primary_controls() -> None:
