@@ -62,6 +62,15 @@ def test_inventory_is_deterministic_and_limited_to_first_party_roots() -> None:
     assert all(row["mutation_disposition"] for row in mutation_rows)
     assert all(row["mutation_evidence"] for row in mutation_rows)
     assert all(row["mutation_verified"] for row in mutation_rows)
+    outbound_rows = [row for row in first["call_sites"] if row["family"] == "outbound-http-call-sites"]
+    assert outbound_rows
+    assert first["summary"]["outbound_rows"] == len(outbound_rows)
+    assert first["summary"]["outbound_verified_rows"] == len(outbound_rows)
+    assert first["summary"]["outbound_unresolved_rows"] == []
+    assert first["summary"]["outbound_coverage_ok"] is True
+    assert all(row["outbound_disposition"] for row in outbound_rows)
+    assert all(row["outbound_evidence"] for row in outbound_rows)
+    assert all(row["outbound_verified"] for row in outbound_rows)
 
 
 def test_inventory_classifies_process_filesystem_and_outbound_boundaries(tmp_path: Path) -> None:
@@ -144,3 +153,22 @@ def test_unmapped_filesystem_mutation_remains_explicitly_unresolved(tmp_path: Pa
     assert report["summary"]["mutation_rows"] == 1
     assert report["summary"]["mutation_verified_rows"] == 0
     assert report["summary"]["mutation_coverage_ok"] is False
+
+
+def test_unbounded_httpx_constructor_remains_explicitly_unresolved(tmp_path: Path) -> None:
+    module = _load_inventory_module()
+    source = tmp_path / "src" / "blackholememory"
+    source.mkdir(parents=True)
+    (source / "runtime.py").write_text(
+        "import httpx\n\ndef request():\n    return httpx.Client(timeout=2)\n",
+        encoding="utf-8",
+    )
+
+    report = module.inventory(tmp_path)
+    row = next(row for row in report["call_sites"] if row["family"] == "outbound-http-call-sites")
+
+    assert row["outbound_disposition"] == "bounded-httpx-client"
+    assert row["outbound_verified"] is False
+    assert report["summary"]["outbound_rows"] == 1
+    assert report["summary"]["outbound_verified_rows"] == 0
+    assert report["summary"]["outbound_coverage_ok"] is False
