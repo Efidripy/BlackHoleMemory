@@ -369,6 +369,13 @@ def test_galaxy_mcp_transport_status_is_allowed_for_authenticated_ui_session():
     assert ui_session_route_allowed("/bhm/mcp/http/status", "POST") is False
 
 
+def test_galaxy_global_stats_is_allowed_for_authenticated_ui_session():
+    from blackholememory.ui_session import ui_session_route_allowed
+
+    assert ui_session_route_allowed("/bhm/galaxy/stats", "GET") is True
+    assert ui_session_route_allowed("/bhm/galaxy/stats", "POST") is False
+
+
 def test_live_generation_mismatch_is_explicit_schema_drift():
     snapshot = build_mcp_panel_snapshot(
         configured=_configured(),

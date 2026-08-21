@@ -808,6 +808,39 @@ def test_ui_bootstrap_exchange_is_one_time_origin_bound_and_httponly() -> None:
     assert rejected_renew.status_code == 403
 
 
+def test_ui_session_can_read_galaxy_global_stats_without_bearer(monkeypatch) -> None:
+    async def fake_global_stats() -> dict[str, object]:
+        return {
+            "schema_version": "bhm.galaxy.stats.v1",
+            "scope": "all-projects",
+            "node_count": 21,
+            "link_count": 34,
+            "authority": "sqlite-authoritative",
+            "bounded": False,
+            "limit": None,
+        }
+
+    bhm_app._UI_SESSIONS.reset()
+    monkeypatch.setattr(bhm_app, "_get_global_galaxy_stats", fake_global_stats)
+    minted = _client().post("/bhm/ui/session/mint")
+    browser = _client(authorization="")
+    exchanged = browser.post(
+        "/bhm/ui/session/exchange",
+        headers=_ui_headers(),
+        json={"bootstrap_token": minted.json()["bootstrap_token"]},
+    )
+    assert exchanged.status_code == 200
+
+    response = browser.get(
+        "/bhm/galaxy/stats",
+        headers={"Host": "127.0.0.1:8000", "Sec-Fetch-Site": "same-origin"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["node_count"] == 21
+    assert response.json()["link_count"] == 34
+
+
 def test_ui_session_mint_rejects_non_loopback_client() -> None:
     remote = TestClient(
         bhm_app.app,

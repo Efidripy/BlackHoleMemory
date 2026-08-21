@@ -21,6 +21,11 @@ _HTTP_ALLOWLIST = frozenset(
     {
         ("GET", "/bhm/ui/boot-report"),
         ("GET", "/bhm/galaxy/data"),
+        # Galaxy renders these global counters alongside the project-scoped
+        # snapshot. They are read-only SQLite-authoritative aggregates and
+        # must use the launcher-bound browser session rather than fall back
+        # to a bearer credential in page JavaScript.
+        ("GET", "/bhm/galaxy/stats"),
         ("GET", "/bhm/graph"),
         ("GET", "/bhm/telemetry/mcp-panel"),
         ("GET", "/bhm/mcp/http/status"),
