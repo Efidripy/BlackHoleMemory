@@ -59,6 +59,7 @@ def test_apply_creates_only_additive_schema_and_is_idempotent(tmp_path: Path) ->
     plan = build_migration_plan(database, backup, as_of="2026-08-21T18:00:00Z")
     first = apply_migration(database, backup, plan, expected_plan_digest=plan["plan_digest"], confirm_operator=True, offline_verified=True)
     assert first["action"] == "applied"
+    assert first["wal_checkpoint"] == [0, 0, 0]
     version, tables = _schema(database)
     assert version == 2
     assert MIGRATION_TABLES.issubset(tables)
