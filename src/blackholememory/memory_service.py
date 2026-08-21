@@ -21,7 +21,7 @@ from .domain import Lifecycle
 from .domain import content_sha256
 from .filesystem_boundaries import assert_safe_path
 from .memory_repository import MemoryRepositoryError
-from .memory_repository import MEMORY_STORE_SCHEMA_VERSION
+from .memory_repository import SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS
 from .memory_repository import SQLiteMemoryRepository
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .sync_service import MemoryLifecycleService
@@ -114,7 +114,7 @@ class SQLiteMemoryService:
                             f"SQLite memory store schema is missing: {self.path}"
                         )
                     version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-                    if version != MEMORY_STORE_SCHEMA_VERSION:
+                    if version not in SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS:
                         raise MemoryServiceNotReady(
                             f"SQLite memory store schema version is not ready: {self.path}"
                         )
