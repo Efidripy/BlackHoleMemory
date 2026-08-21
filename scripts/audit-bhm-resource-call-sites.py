@@ -217,7 +217,13 @@ def _is_writable_open(call: ast.Call, resolved: str | None) -> bool:
 
 def _family_for_call(call: ast.Call, resolved: str | None) -> tuple[str, str, bool] | None:
     if resolved in PROCESS_CALLS:
-        return "process-execution-call-sites", "process-launch", _has_keyword(call, {"timeout"})
+        if resolved.startswith("os.exec"):
+            operation = "process-replacement"
+        elif resolved == "subprocess.Popen":
+            operation = "process-lifecycle"
+        else:
+            operation = "process-run"
+        return "process-execution-call-sites", operation, _has_keyword(call, {"timeout"})
     if resolved in OUTBOUND_CALLS:
         operation = "client-construction" if resolved in OUTBOUND_CONSTRUCTORS else "transport"
         return "outbound-http-call-sites", operation, _has_keyword(call, {"timeout", "total"})
