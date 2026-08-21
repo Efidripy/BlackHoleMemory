@@ -110,6 +110,28 @@ memory. Until WL-295.2 persists freshness-candidate decision events, review
 latency and freshness false-positive rate may correctly be reported as
 `unavailable` rather than fabricated as zero.
 
+## Offline hybrid retrieval evaluation
+
+`run-bhm-hybrid-retrieval-evaluation.py` is WL-295.3's frozen-fixture gate for
+a *possible* project-filtered SQLite FTS5/BM25 candidate lane. It compares the
+unchanged current BHM ranker, candidate expansion, and equal-weight RRF. The
+SQLite database is `:memory:` and contains only synthetic fixture rows; the
+command does not open authoritative SQLite or call Qdrant, Mem0, a model or
+the network. It never enables a runtime feature flag.
+
+```powershell
+uv run python .\scripts\run-bhm-hybrid-retrieval-evaluation.py `
+  --cases 120 `
+  --repeats 11 `
+  --output .\.runtime\hybrid-retrieval-evaluation\baseline.json
+```
+
+Only a measurable `Recall@5` gain, zero project-isolation regression, and an
+end-to-end RRF p95 increase of no more than 20% may return
+`propose-feature-flag`. Any other result is `defer`: current retrieval remains
+the only production path. A passing local fixture gate still requires a
+separate feature-flag design, production-like validation and operator review.
+
 ## Galaxy controls
 
 Galaxy is a visual read model of active memory records from authoritative
