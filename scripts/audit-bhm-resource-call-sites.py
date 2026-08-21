@@ -79,6 +79,17 @@ OUTBOUND_CALLS = frozenset(
         "urllib3.PoolManager",
     }
 )
+OUTBOUND_CONSTRUCTORS = frozenset(
+    {
+        "aiohttp.ClientSession",
+        "http.client.HTTPConnection",
+        "http.client.HTTPSConnection",
+        "httpx.AsyncClient",
+        "httpx.Client",
+        "urllib.request.Request",
+        "urllib3.PoolManager",
+    }
+)
 FILESYSTEM_CALLS = frozenset(
     {
         "Path.hardlink_to",
@@ -116,6 +127,7 @@ class CallSite:
     line: int
     column: int
     callee: str
+    operation: str
     classification: str
     owner: str
     explicit_budget: bool
@@ -193,14 +205,15 @@ def _is_writable_open(call: ast.Call, resolved: str | None) -> bool:
     return False
 
 
-def _family_for_call(call: ast.Call, resolved: str | None) -> tuple[str, bool] | None:
+def _family_for_call(call: ast.Call, resolved: str | None) -> tuple[str, str, bool] | None:
     if resolved in PROCESS_CALLS:
-        return "process-execution-call-sites", _has_keyword(call, {"timeout"})
+        return "process-execution-call-sites", "process-launch", _has_keyword(call, {"timeout"})
     if resolved in OUTBOUND_CALLS:
-        return "outbound-http-call-sites", _has_keyword(call, {"timeout", "total"})
+        operation = "client-construction" if resolved in OUTBOUND_CONSTRUCTORS else "transport"
+        return "outbound-http-call-sites", operation, _has_keyword(call, {"timeout", "total"})
     normalized = resolved.removeprefix("pathlib.") if resolved else None
     if normalized in FILESYSTEM_CALLS or _is_writable_open(call, normalized):
-        return "filesystem-call-sites", False
+        return "filesystem-call-sites", "filesystem-mutation", False
     return None
 
 
@@ -239,7 +252,7 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
             matched = _family_for_call(node, resolved)
             if not matched:
                 continue
-            family, explicit_budget = matched
+            family, operation, explicit_budget = matched
             rows.append(
                 CallSite(
                     family=family,
@@ -247,6 +260,7 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
                     line=node.lineno,
                     column=node.col_offset,
                     callee=resolved or _dotted_name(node.func) or "<dynamic>",
+                    operation=operation,
                     classification=_script_classification(relative),
                     owner=_owner(relative),
                     explicit_budget=explicit_budget,
