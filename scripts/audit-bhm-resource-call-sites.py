@@ -208,6 +208,16 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
 
 
 MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
+    ("scripts/audit-bhm-freshness-review.py", "main", "pathlib.Path.mkdir"): BoundaryExpectation(
+        disposition="runtime-confined-read-only-inventory-report",
+        scope_signals=("output = _runtime_report_path(args.output)", "Path.mkdir(output.parent, parents=True, exist_ok=True)"),
+        module_signals=("RUNTIME_REPORT_ROOT = REPO_ROOT / \".runtime\" / \"freshness-review\"", "def _runtime_report_path"),
+    ),
+    ("scripts/audit-bhm-freshness-review.py", "main", "pathlib.Path.write_text"): BoundaryExpectation(
+        disposition="runtime-confined-read-only-inventory-report",
+        scope_signals=("output = _runtime_report_path(args.output)", "Path.write_text(output, rendered, encoding=\"utf-8\", newline=\"\\n\")"),
+        module_signals=("RUNTIME_REPORT_ROOT = REPO_ROOT / \".runtime\" / \"freshness-review\"", "def _runtime_report_path"),
+    ),
     ("scripts/bhm_launcher.py", "ensure_persistent_file", "shutil.copy2"): BoundaryExpectation(
         disposition="owned-persistent-resource-copy",
         scope_signals=("_assert_owned_path(destination", "destination.parent.mkdir", "shutil.copy2(source, destination)"),
