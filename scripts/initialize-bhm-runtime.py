@@ -21,6 +21,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 # ruff: noqa: E402
+from blackholememory.memory_repository import SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.runtime_storage import inspect_memory_store_schema
 
@@ -60,7 +61,12 @@ def initialize_runtime_database(database_path: Path, *, verify_only: bool = Fals
         repository.initialize()
     health = repository.health()
     schema_ready, schema_reason = inspect_memory_store_schema(path)
-    ok = schema_ready and health.schema_version == 1 and health.journal_mode == "wal" and health.quick_check == "ok"
+    ok = (
+        schema_ready
+        and health.schema_version in SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS
+        and health.journal_mode == "wal"
+        and health.quick_check == "ok"
+    )
     return {
         "ok": ok,
         "action": "verify" if verify_only else "initialize",
