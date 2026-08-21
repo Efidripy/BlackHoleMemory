@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tomllib
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "manage-bhm-codex-security-capacity-overlay.py"
@@ -189,3 +191,22 @@ def test_rollback_refuses_drift_and_auto_root_uses_codex_home(tmp_path: Path) ->
     assert payload["ok"] is False
     assert "drift" in payload["message"]
     assert "# local drift" in profiles.read_text(encoding="utf-8")
+
+
+def test_apply_refuses_hardlinked_profile_before_backup_or_replace(tmp_path: Path) -> None:
+    plugin_root, profiles, _skill, policy = _fixture(tmp_path)
+    outside = tmp_path / "outside-profile.toml"
+    outside.write_text(UPSTREAM_PROFILE, encoding="utf-8")
+    profiles.unlink()
+    try:
+        os.link(outside, profiles)
+    except OSError as error:
+        pytest.skip(f"hardlinks unavailable: {error}")
+
+    completed, payload = _run("apply", plugin_root=plugin_root, policy=policy)
+
+    assert completed.returncode == 2
+    assert payload["ok"] is False
+    assert "hardlink" in payload["message"]
+    assert outside.read_text(encoding="utf-8") == UPSTREAM_PROFILE
+    assert not profiles.with_name(profiles.name + ".bhm-capacity-overlay.bak").exists()

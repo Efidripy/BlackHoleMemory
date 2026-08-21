@@ -53,6 +53,15 @@ def test_inventory_is_deterministic_and_limited_to_first_party_roots() -> None:
     assert all(row["lifecycle_disposition"] for row in lifecycle_rows)
     assert all(row["lifecycle_evidence"] for row in lifecycle_rows)
     assert all(row["lifecycle_verified"] for row in lifecycle_rows)
+    mutation_rows = [row for row in first["call_sites"] if row["operation"] == "filesystem-mutation"]
+    assert mutation_rows
+    assert first["summary"]["mutation_rows"] == len(mutation_rows)
+    assert first["summary"]["mutation_verified_rows"] == len(mutation_rows)
+    assert first["summary"]["mutation_unresolved_rows"] == []
+    assert first["summary"]["mutation_coverage_ok"] is True
+    assert all(row["mutation_disposition"] for row in mutation_rows)
+    assert all(row["mutation_evidence"] for row in mutation_rows)
+    assert all(row["mutation_verified"] for row in mutation_rows)
 
 
 def test_inventory_classifies_process_filesystem_and_outbound_boundaries(tmp_path: Path) -> None:
@@ -114,3 +123,24 @@ def test_unmapped_process_lifecycle_row_remains_explicitly_unresolved(tmp_path: 
     assert report["summary"]["lifecycle_unresolved_rows"] == [
         {"path": "src/blackholememory/runtime.py", "line": 4, "callee": "subprocess.Popen", "scope": "start"}
     ]
+
+
+def test_unmapped_filesystem_mutation_remains_explicitly_unresolved(tmp_path: Path) -> None:
+    module = _load_inventory_module()
+    source = tmp_path / "src" / "blackholememory"
+    source.mkdir(parents=True)
+    (source / "runtime.py").write_text(
+        "from pathlib import Path\n\ndef write():\n    return Path('out').write_text('x')\n",
+        encoding="utf-8",
+    )
+
+    report = module.inventory(tmp_path)
+    row = next(row for row in report["call_sites"] if row["operation"] == "filesystem-mutation")
+
+    assert row["scope"] == "write"
+    assert row["mutation_disposition"] is None
+    assert row["mutation_evidence"] == ()
+    assert row["mutation_verified"] is False
+    assert report["summary"]["mutation_rows"] == 1
+    assert report["summary"]["mutation_verified_rows"] == 0
+    assert report["summary"]["mutation_coverage_ok"] is False

@@ -20,7 +20,7 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = "bhm.resource-callsite-inventory.v2"
+SCHEMA_VERSION = "bhm.resource-callsite-inventory.v3"
 SCANNED_ROOTS = ("src", "scripts")
 EXCLUDED_PARTS = frozenset(
     {
@@ -121,13 +121,13 @@ WRITABLE_OPEN_NAMES = frozenset({"a", "a+", "ab", "ab+", "r+", "rb+", "w", "w+",
 
 
 @dataclass(frozen=True)
-class LifecycleExpectation:
-    """Static evidence required for an intentional long-lived process boundary.
+class BoundaryExpectation:
+    """Static evidence required for an explicitly reviewed resource boundary.
 
-    ``Popen`` and ``exec*`` deliberately do not receive a literal ``timeout``
-    argument. Their correctness depends on who owns the child lifetime. The
-    table keeps that exceptional set small and fails review when a new
-    lifecycle call site has no explicit, source-verifiable disposition.
+    The inventory is conservative: lifecycle and mutation calls are not
+    considered covered merely because their syntax looks familiar. The tables
+    keep reviewed exceptions small and fail coverage when a new boundary lacks
+    an explicit, source-verifiable disposition.
     """
 
     disposition: str
@@ -135,12 +135,12 @@ class LifecycleExpectation:
     module_signals: tuple[str, ...] = ()
 
 
-LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], LifecycleExpectation] = {
+LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
     (
         "scripts/bhm_launcher.py",
         "run_detached",
         "subprocess.Popen",
-    ): LifecycleExpectation(
+    ): BoundaryExpectation(
         disposition="tracked-detached-process",
         scope_signals=("DETACHED_PROCESSES.append",),
         module_signals=("def terminate_detached_processes", "proc.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)"),
@@ -149,7 +149,7 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], LifecycleExpectation] = {
         "scripts/bhm_launcher.py",
         "run_canonical_api_command",
         "subprocess.Popen",
-    ): LifecycleExpectation(
+    ): BoundaryExpectation(
         disposition="bounded-command-with-tree-termination",
         scope_signals=(
             "proc.communicate(timeout=timeout)",
@@ -161,7 +161,7 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], LifecycleExpectation] = {
         "scripts/bhm_launcher.py",
         "run_command",
         "subprocess.Popen",
-    ): LifecycleExpectation(
+    ): BoundaryExpectation(
         disposition="deadline-bounded-installer-process",
         scope_signals=(
             "deadline = time.monotonic() + LAUNCHER_INSTALL_TIMEOUT_SECONDS",
@@ -174,7 +174,7 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], LifecycleExpectation] = {
         "scripts/validate-bhm-p18.14-mcp-doctor.py",
         "_ensure_project_runtime",
         "os.execv",
-    ): LifecycleExpectation(
+    ): BoundaryExpectation(
         disposition="intentional-self-replacement",
         scope_signals=("candidate.resolve()", "os.execv("),
     ),
@@ -182,7 +182,7 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], LifecycleExpectation] = {
         "src/blackholememory/app.py",
         "_spawn_detached_restart_launcher",
         "subprocess.Popen",
-    ): LifecycleExpectation(
+    ): BoundaryExpectation(
         disposition="windows-detached-restart-handoff",
         scope_signals=(
             '"cmd.exe"',
@@ -195,7 +195,7 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], LifecycleExpectation] = {
         "src/blackholememory/safe_patch_factory.py",
         "_run_command",
         "subprocess.Popen",
-    ): LifecycleExpectation(
+    ): BoundaryExpectation(
         disposition="bounded-process-group-with-cleanup",
         scope_signals=(
             "process.communicate(input=input_text, timeout=timeout)",
@@ -203,6 +203,90 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], LifecycleExpectation] = {
             "process.communicate(timeout=PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS)",
             "process.kill()",
         ),
+    ),
+}
+
+
+MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
+    ("scripts/bhm_launcher.py", "ensure_persistent_file", "shutil.copy2"): BoundaryExpectation(
+        disposition="owned-persistent-resource-copy",
+        scope_signals=("_assert_owned_path(destination", "destination.parent.mkdir", "shutil.copy2(source, destination)"),
+    ),
+    ("scripts/bhm_launcher.py", "ensure_persistent_plugin_source", "shutil.rmtree"): BoundaryExpectation(
+        disposition="owned-plugin-replacement",
+        scope_signals=("_assert_owned_plugin_target(destination", "shutil.rmtree(destination)", "shutil.copytree(source, destination)"),
+    ),
+    ("scripts/bhm_launcher.py", "ensure_persistent_plugin_source", "shutil.copytree"): BoundaryExpectation(
+        disposition="owned-plugin-replacement",
+        scope_signals=("_assert_owned_plugin_target(destination", "shutil.rmtree(destination)", "shutil.copytree(source, destination)"),
+    ),
+    ("scripts/bhm_launcher.py", "operator_restore_backup", "shutil.copy2"): BoundaryExpectation(
+        disposition="verified-sqlite-staging-restore",
+        scope_signals=("_resolve_owned_runtime_file", "verify_sqlite_database(source)", "_assert_owned_path(staging", "os.replace(staging, database)"),
+    ),
+    ("scripts/bhm_launcher.py", "operator_restore_backup", "os.replace"): BoundaryExpectation(
+        disposition="verified-sqlite-staging-restore",
+        scope_signals=("_resolve_owned_runtime_file", "verify_sqlite_database(source)", "_assert_owned_path(staging", "os.replace(staging, database)"),
+    ),
+    ("scripts/bhm_launcher.py", "install_codex_plugin", "shutil.rmtree"): BoundaryExpectation(
+        disposition="owned-codex-plugin-replacement",
+        scope_signals=("_assert_owned_plugin_target(destination", "shutil.rmtree(destination)", "shutil.copytree(source, destination)"),
+    ),
+    ("scripts/bhm_launcher.py", "install_codex_plugin", "shutil.copytree"): BoundaryExpectation(
+        disposition="owned-codex-plugin-replacement",
+        scope_signals=("_assert_owned_plugin_target(destination", "shutil.rmtree(destination)", "shutil.copytree(source, destination)"),
+    ),
+    ("scripts/bhm_launcher_config.py", "_backup_existing", "shutil.copy2"): BoundaryExpectation(
+        disposition="confined-timestamped-config-backup",
+        scope_signals=("_assert_safe_path(path)", "_assert_safe_path(backup_dir)", "backup_dir.mkdir", "_assert_safe_path(backup_path)"),
+    ),
+    ("scripts/bhm_reconcile_projection.py", "main", "shutil.rmtree"): BoundaryExpectation(
+        disposition="temporary-reconciliation-cleanup",
+        scope_signals=("temp_root: Path | None = None", "tempfile.mkdtemp", "shutil.rmtree(temp_root, ignore_errors=True)"),
+    ),
+    ("scripts/generate-bhm-mcp-adapters.py", "_backup_target", "shutil.copyfile"): BoundaryExpectation(
+        disposition="confined-adapter-rollback-backup",
+        scope_signals=("assert_safe_path(path)", "assert_safe_path(backup_dir", "backup_path.parent.mkdir", "assert_safe_path(backup_path)"),
+    ),
+    ("scripts/generate-bhm-mcp-adapters.py", "run_canary", "shutil.copyfile"): BoundaryExpectation(
+        disposition="disposable-canary-copy",
+        scope_signals=("tempfile.TemporaryDirectory", "_rollback_records", '"writes_live_state": False'),
+    ),
+    ("scripts/manage-bhm-codex-security-capacity-overlay.py", "_atomic_replace", "os.replace"): BoundaryExpectation(
+        disposition="hash-guarded-profile-replacement",
+        scope_signals=("assert_safe_path(path)", "read_bytes_safely", "tempfile.mkstemp", "assert_safe_path(temporary)", "os.replace(temporary, target)"),
+    ),
+    ("scripts/materialize-release-source.py", "_remove_partial_safely", "shutil.rmtree"): BoundaryExpectation(
+        disposition="safe-partial-release-cleanup",
+        scope_signals=("assert_safe_path(path", "shutil.rmtree(path, ignore_errors=True)"),
+    ),
+    ("scripts/validate-bhm-p23.1-small-repo.py", "main", "shutil.copytree"): BoundaryExpectation(
+        disposition="disposable-validator-copy",
+        scope_signals=("tempfile.TemporaryDirectory", "copy_root =", "ignore_patterns", "incremental_update_and_cleanup"),
+    ),
+    ("src/blackholememory/filesystem_boundaries.py", "replace_bytes_safely", "os.replace"): BoundaryExpectation(
+        disposition="atomic-safe-boundary-replacement",
+        scope_signals=("target = assert_safe_path", "tempfile.mkstemp", "os.fsync", "assert_safe_path(temporary)", "os.replace(temporary, target)"),
+    ),
+    ("src/blackholememory/infra/mcp_broker.py", "_serve_unix", "os.unlink"): BoundaryExpectation(
+        disposition="owned-unix-socket-lifecycle",
+        scope_signals=("path = self.unix_socket_path", "server.bind(path)", "if os.path.exists(path):", "os.unlink(path)"),
+    ),
+    ("src/blackholememory/retention.py", "restore_retention_backup", "shutil.copy2"): BoundaryExpectation(
+        disposition="hash-verified-staging-restore",
+        scope_signals=("manifest_root = source_manifest.parent.resolve()", "backup_path = assert_safe_path", "actual_hash = sha256_file", "quick_check = sqlite_quick_check", "shutil.copy2(backup_path, target_path)"),
+    ),
+    ("src/blackholememory/safe_patch_factory.py", "prepare", "shutil.copy2"): BoundaryExpectation(
+        disposition="quarantine-baseline-candidate-copy",
+        scope_signals=("baseline.mkdir", "candidate.mkdir", "_contained_path(repository", "shutil.copy2(source, baseline_path)", "shutil.copy2(source, candidate_path)"),
+    ),
+    ("src/blackholememory/safe_patch_factory.py", "cleanup", "shutil.rmtree"): BoundaryExpectation(
+        disposition="reparse-checked-quarantine-cleanup",
+        scope_signals=("_assert_no_reparse_components", "target == self.root", "shutil.rmtree(target)"),
+    ),
+    ("src/blackholememory/source_registry.py", "_remove_tree", "shutil.rmtree"): BoundaryExpectation(
+        disposition="owner-root-reparse-checked-cleanup",
+        scope_signals=("_assert_owned_tree_target(path, owner_root)", "remove_readonly", "shutil.rmtree(path, onerror=remove_readonly)"),
     ),
 }
 
@@ -223,6 +307,9 @@ class CallSite:
     lifecycle_disposition: str | None
     lifecycle_evidence: tuple[str, ...]
     lifecycle_verified: bool
+    mutation_disposition: str | None
+    mutation_evidence: tuple[str, ...]
+    mutation_verified: bool
 
 
 def _dotted_name(node: ast.expr) -> str | None:
@@ -328,6 +415,28 @@ def _lifecycle_review(
     return expectation.disposition, (*scope_evidence, *module_evidence), verified
 
 
+def _mutation_review(
+    *,
+    path: str,
+    scope: str,
+    callee: str,
+    operation: str,
+    scope_source: str,
+    module_source: str,
+) -> tuple[str | None, tuple[str, ...], bool]:
+    if operation != "filesystem-mutation":
+        return None, (), False
+    expectation = MUTATION_EXPECTATIONS.get((path, scope, callee))
+    if expectation is None:
+        return None, (), False
+    scope_evidence = tuple(f"scope:{signal}" for signal in expectation.scope_signals if signal in scope_source)
+    module_evidence = tuple(f"module:{signal}" for signal in expectation.module_signals if signal in module_source)
+    verified = len(scope_evidence) == len(expectation.scope_signals) and len(module_evidence) == len(
+        expectation.module_signals
+    )
+    return expectation.disposition, (*scope_evidence, *module_evidence), verified
+
+
 def _family_for_call(call: ast.Call, resolved: str | None) -> tuple[str, str, bool] | None:
     if resolved in PROCESS_CALLS:
         if resolved.startswith("os.exec"):
@@ -397,6 +506,14 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
                 scope_source=scope_source or "",
                 module_source=source_text,
             )
+            mutation_disposition, mutation_evidence, mutation_verified = _mutation_review(
+                path=relative.as_posix(),
+                scope=scope,
+                callee=callee,
+                operation=operation,
+                scope_source=scope_source or "",
+                module_source=source_text,
+            )
             rows.append(
                 CallSite(
                     family=family,
@@ -413,6 +530,9 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
                     lifecycle_disposition=lifecycle_disposition,
                     lifecycle_evidence=lifecycle_evidence,
                     lifecycle_verified=lifecycle_verified,
+                    mutation_disposition=mutation_disposition,
+                    mutation_evidence=mutation_evidence,
+                    mutation_verified=mutation_verified,
                 )
             )
     rows.sort(key=lambda row: (row.family, row.path, row.line, row.column, row.callee))
@@ -420,6 +540,8 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
     classifications = Counter(row.classification for row in rows)
     lifecycle_rows = [row for row in rows if row.operation in {"process-lifecycle", "process-replacement"}]
     unresolved_lifecycle_rows = [row for row in lifecycle_rows if not row.lifecycle_verified]
+    mutation_rows = [row for row in rows if row.operation == "filesystem-mutation"]
+    unresolved_mutation_rows = [row for row in mutation_rows if not row.mutation_verified]
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "scope": {
@@ -441,6 +563,13 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
                 for row in unresolved_lifecycle_rows
             ],
             "lifecycle_coverage_ok": not unresolved_lifecycle_rows,
+            "mutation_rows": len(mutation_rows),
+            "mutation_verified_rows": sum(row.mutation_verified for row in mutation_rows),
+            "mutation_unresolved_rows": [
+                {"path": row.path, "line": row.line, "callee": row.callee, "scope": row.scope}
+                for row in unresolved_mutation_rows
+            ],
+            "mutation_coverage_ok": not unresolved_mutation_rows,
             "parse_failures": parse_failures,
         },
         "call_sites": [asdict(row) for row in rows],
