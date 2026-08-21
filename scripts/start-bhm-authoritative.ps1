@@ -191,6 +191,19 @@ function Stop-ProjectionSidecar {
   }
 }
 
+function Start-ProjectionSidecar {
+  $sidecarScript = Join-Path $repoRoot 'scripts\start-bhm-projection-sidecar.ps1'
+  if (-not (Test-Path -LiteralPath $sidecarScript)) { return }
+  try {
+    # The sidecar owns only SQLite-outbox -> Qdrant projection work.  It has
+    # its own bounded retry/backoff contract, so it remains safe to launch
+    # while Qdrant recovery is intentionally skipped by the UI launcher.
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sidecarScript -Action Start -NoWait | Out-Null
+  } catch {
+    Write-Warning "Projection sidecar start failed; BHM core remains authoritative: $($_.Exception.Message)"
+  }
+}
+
 function Get-BhmCallerToken {
   foreach ($target in @('Process', 'User')) {
     $value = [Environment]::GetEnvironmentVariable('BHM_CALLER_TOKEN', $target)
@@ -342,16 +355,7 @@ if ($ForceRestart -and $initial.reachable) {
   $initial = Get-ContractSnapshot -BaseUrl $BaseUrl
 }
 if ($initial.authoritative) {
-  if (-not $SkipProjectionRecovery) {
-    $projectionSidecarScript = Join-Path $repoRoot 'scripts\start-bhm-projection-sidecar.ps1'
-    if (Test-Path -LiteralPath $projectionSidecarScript) {
-      try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $projectionSidecarScript -Action Start -NoWait | Out-Null
-      } catch {
-        Write-Warning "Projection sidecar start failed; BHM remains authoritative: $($_.Exception.Message)"
-      }
-    }
-  }
+  Start-ProjectionSidecar
   [pscustomobject]@{
     ok = $true
     action = 'already-authoritative'
@@ -405,16 +409,7 @@ Start-BhmDetachedHidden -FilePath 'powershell.exe' `
   -ArgumentList (@('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $serviceScript, '-SkipInstall', '-Authoritative') + $(if ($SemanticFusion) { @('-SemanticFusion') } else { @() })) `
   -WorkingDirectory $repoRoot -StdoutPath $serviceStdout -StderrPath $serviceStderr
 if ($NoWait) {
-  if (-not $SkipProjectionRecovery) {
-    $projectionSidecarScript = Join-Path $repoRoot 'scripts\start-bhm-projection-sidecar.ps1'
-    if (Test-Path -LiteralPath $projectionSidecarScript) {
-      try {
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $projectionSidecarScript -Action Start -NoWait | Out-Null
-      } catch {
-        Write-Warning "Projection sidecar start failed; BHM core remains authoritative: $($_.Exception.Message)"
-      }
-    }
-  }
+  Start-ProjectionSidecar
   [pscustomobject]@{
     ok = $true
     action = 'spawned'
@@ -450,19 +445,13 @@ if (-not $SkipProjectionRecovery) {
     $qdrantOutput | Set-Content -LiteralPath $qdrantStdout -Encoding UTF8
   }
 
-  # Keep the Qdrant projection current in a separate, explicit sidecar. The
-  # authoritative BHM process remains worker-disabled; the sidecar consumes only
-  # SQLite outbox events in sqlite-shadow mode and never changes Qdrant/LM Studio
-  # lifecycle.
-  $projectionSidecarScript = Join-Path $repoRoot 'scripts\start-bhm-projection-sidecar.ps1'
-  if (Test-Path -LiteralPath $projectionSidecarScript) {
-    try {
-      & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $projectionSidecarScript -Action Start -NoWait | Out-Null
-    } catch {
-      Write-Warning "Projection sidecar start failed; BHM remains authoritative: $($_.Exception.Message)"
-    }
-  }
 }
+
+# `-SkipProjectionRecovery` skips the potentially expensive Docker/Qdrant
+# recovery attempt only. The separate sidecar must still start: it drains the
+# authoritative SQLite outbox when Qdrant is available and boundedly backs off
+# when it is not, preventing a healthy core from accumulating projection work.
+Start-ProjectionSidecar
 
 [pscustomobject]@{
   ok = $true

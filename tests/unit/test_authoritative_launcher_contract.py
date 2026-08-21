@@ -78,6 +78,20 @@ def test_authoritative_launcher_stops_projection_sidecar_on_stop_and_restart():
     assert text.index("if ($ForceRestart") < text.index("Stop-ProjectionSidecar", text.index("if ($ForceRestart"))
 
 
+def test_authoritative_launcher_starts_sidecar_when_qdrant_recovery_is_skipped():
+    text = LAUNCHER.read_text(encoding="utf-8")
+
+    assert "function Start-ProjectionSidecar" in text
+    initial_ready_block = text[
+        text.index("if ($initial.authoritative)") : text.index("if ($NoWait)")
+    ]
+    assert "Start-ProjectionSidecar" in initial_ready_block
+    no_wait_block = text[text.index("if ($NoWait)") : text.index("$result = Wait-Authoritative")]
+    assert "Start-ProjectionSidecar" in no_wait_block
+    final_start = text[text.index("# `-SkipProjectionRecovery`") :]
+    assert "Start-ProjectionSidecar" in final_start
+
+
 def test_service_authoritative_switch_sets_complete_writer_gate_contract():
     text = SERVICE.read_text(encoding="utf-8")
     authoritative_block = text[
