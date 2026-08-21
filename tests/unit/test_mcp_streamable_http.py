@@ -736,6 +736,13 @@ def test_jsonrpc_errors_and_results_redact_secret_assignments() -> None:
     assert "super-secret-token" not in success["result"]["content"][0]["text"]
     assert "REDACTED" in success["result"]["content"][0]["text"]
 
+    nested = bhm_app._jsonrpc_success(
+        3,
+        {"outer": {"password": "fixture-password-value", "safe": "retain-me"}},
+    )
+    assert nested["result"]["outer"]["password"] == "[REDACTED:sensitive-key]"
+    assert nested["result"]["outer"]["safe"] == "retain-me"
+
 
 def test_streamable_http_initialize_uses_fifo_admission_without_eviction():
     async def dispatch(message: dict[str, Any]) -> dict[str, Any]:

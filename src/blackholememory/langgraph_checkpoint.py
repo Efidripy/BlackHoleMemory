@@ -28,6 +28,7 @@ from langgraph.checkpoint.base import WRITES_IDX_MAP
 from langgraph.checkpoint.base import get_checkpoint_metadata
 
 from .filesystem_boundaries import assert_safe_path
+from .observation_security import redact_secret_text
 
 
 CHECKPOINT_SCHEMA_VERSION = "bhm.langgraph.checkpoint.sqlite.v1"
@@ -87,6 +88,8 @@ def _redact(value: Any, *, key: str = "") -> Any:
         return [_redact(item, key=key) for item in value]
     if isinstance(value, set):
         return sorted(_redact(item, key=key) for item in value)
+    if isinstance(value, str):
+        return redact_secret_text(value).value
     return value
 
 
@@ -496,7 +499,7 @@ class SQLiteLangGraphCheckpointSaver(BaseCheckpointSaver[str]):
         total_size = len(checkpoint_blob) + len(metadata_blob)
         for channel, version in (new_versions or {}).items():
             if channel in values:
-                value_type, value_blob, value_digest = self._dump(values[channel])
+                value_type, value_blob, value_digest = self._dump(_redact(values[channel], key=str(channel)))
             else:
                 value_type, value_blob, value_digest = "empty", b"", _digest(b"")
             blob_rows.append((str(channel), _version_key(version), value_type, value_blob, value_digest))
@@ -576,7 +579,7 @@ class SQLiteLangGraphCheckpointSaver(BaseCheckpointSaver[str]):
         total = 0
         for index, (channel, value) in enumerate(writes):
             channel_name = _text(channel, name="write_channel")
-            value_type, value_blob, value_digest = self._dump(value)
+            value_type, value_blob, value_digest = self._dump(_redact(value, key=channel_name))
             self._check_size(len(value_blob), limit=self.max_write_bytes, error="checkpoint_write_too_large")
             total += len(value_blob)
             serialized.append((channel_name, WRITES_IDX_MAP.get(channel_name, index), value_type, value_blob, value_digest))

@@ -90,6 +90,26 @@ def test_checkpoint_metadata_redacts_private_keys_and_credentials() -> None:
     }
 
 
+def test_checkpoint_channels_and_writes_redact_nested_sensitive_values(tmp_path: Path) -> None:
+    saver = _saver(tmp_path)
+    checkpoint = empty_checkpoint()
+    checkpoint.update(
+        id="0001",
+        channel_values={"state": {"nested": {"password": "fixture-password-value"}}},
+        channel_versions={"state": "0001"},
+    )
+    config = saver.put(_config(), checkpoint, {}, {"state": "0001"})
+    saver.put_writes(config, [("state", {"authorization": "Bearer fixture-token-value"})], "node")
+
+    loaded = saver.get_tuple(config)
+    assert loaded is not None
+    assert loaded.checkpoint["channel_values"]["state"]["nested"]["password"] == "[REDACTED]"
+    assert loaded.pending_writes == [("node", "state", {"authorization": "[REDACTED]"})]
+    serialized = (tmp_path / "disposable-checkpoints.sqlite3").read_bytes()
+    assert b"fixture-password-value" not in serialized
+    assert b"fixture-token-value" not in serialized
+
+
 def test_authoritative_database_requires_explicit_operator_gate(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="authoritative_sqlite"):
         SQLiteLangGraphCheckpointSaver(
