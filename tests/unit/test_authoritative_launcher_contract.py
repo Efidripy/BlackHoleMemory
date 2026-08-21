@@ -6,6 +6,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = REPO_ROOT / "scripts" / "start-bhm-authoritative.ps1"
 SERVICE = REPO_ROOT / "scripts" / "run-service.ps1"
+RUNTIME_ENDPOINTS = REPO_ROOT / "scripts" / "runtime-endpoints.ps1"
 
 
 def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
@@ -64,6 +65,43 @@ def test_workspace_launcher_delegates_to_canonical_authoritative_startup() -> No
     assert 'scripts\\start-bhm-authoritative.ps1' in text
     assert 'scripts\\run-service.ps1' not in text
     assert 'scripts\\start-qdrant.ps1' not in text
+
+
+def test_operator_launcher_probe_timeouts_have_one_explicit_owner() -> None:
+    endpoints = RUNTIME_ENDPOINTS.read_text(encoding="utf-8")
+    authoritative = LAUNCHER.read_text(encoding="utf-8")
+    service = SERVICE.read_text(encoding="utf-8")
+    workspace = (REPO_ROOT / "scripts" / "start-bhm-workspace.ps1").read_text(encoding="utf-8")
+
+    for name, seconds in (
+        ("local_llm_models", 2),
+        ("authoritative_health", 10),
+        ("authoritative_ready", 3),
+        ("workspace_availability", 2),
+    ):
+        assert f"{name} = {seconds}" in endpoints
+        assert f"'{name}'" in endpoints
+
+    assert "Get-BhmOperatorProbeTimeout -Name 'local_llm_models'" in authoritative
+    assert "Get-BhmOperatorProbeTimeout -Name 'authoritative_health'" in authoritative
+    assert "Get-BhmOperatorProbeTimeout -Name 'authoritative_ready'" in authoritative
+    assert "Get-BhmOperatorProbeTimeout -Name 'local_llm_models'" in service
+    assert "Get-BhmOperatorProbeTimeout -Name 'workspace_availability'" in workspace
+    assert "-TimeoutSec 10" not in authoritative
+    assert "-TimeoutSec 3" not in authoritative
+    assert "-TimeoutSec 2" not in authoritative
+    assert "-TimeoutSec 2" not in service
+    assert "-TimeoutSec 2" not in workspace
+
+
+def test_authoritative_launcher_readiness_deadline_encloses_each_probe() -> None:
+    authoritative = LAUNCHER.read_text(encoding="utf-8")
+
+    assert "[ValidateRange(5, 300)][int]$TimeoutSec = 120" in authoritative
+    assert "$remainingSeconds = [Math]::Floor(($deadline - [DateTime]::UtcNow).TotalSeconds)" in authoritative
+    assert "$readyProbeTimeoutSec = [Math]::Min($authoritativeReadyProbeTimeoutSec, [int]$remainingSeconds)" in authoritative
+    assert "$contractProbeTimeoutSec = [Math]::Min($authoritativeHealthProbeTimeoutSec, [int]$remainingSeconds)" in authoritative
+    assert "Get-ContractSnapshot -BaseUrl $BaseUrl -ProbeTimeoutSec $contractProbeTimeoutSec" in authoritative
 
 
 def test_authoritative_launcher_does_not_enable_projection_worker():
