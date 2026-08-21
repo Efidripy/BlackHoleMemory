@@ -2,6 +2,7 @@ param(
   [switch]$Force,
   [switch]$WhatIf,
   [ValidateRange(5, 300)][int]$TimeoutSec = 120,
+  [ValidateRange(1, 30)][int]$HealthProbeTimeoutSec = 5,
   [ValidateRange(1, 10)][int]$PollSeconds = 1
 )
 
@@ -84,7 +85,9 @@ function Test-DockerReady {
 
 function Test-QdrantReady {
   try {
-    $response = Invoke-WebRequest -UseBasicParsing -Uri $qdrantHealthUrl -TimeoutSec 5
+    # This bounds one HTTP health probe; the overall recovery deadline remains
+    # $TimeoutSec and Docker process bounds remain owned by Invoke-DockerBounded.
+    $response = Invoke-WebRequest -UseBasicParsing -Uri $qdrantHealthUrl -TimeoutSec $HealthProbeTimeoutSec
     return [pscustomobject]@{ ready = [int]$response.StatusCode -eq 200; detail = "HTTP $([int]$response.StatusCode)" }
   } catch {
     return [pscustomobject]@{ ready = $false; detail = $_.Exception.Message }

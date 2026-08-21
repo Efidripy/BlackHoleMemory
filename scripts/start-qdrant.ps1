@@ -1,5 +1,6 @@
 param(
     [ValidateRange(5, 300)][int]$TimeoutSec = 120,
+    [ValidateRange(1, 30)][int]$HealthProbeTimeoutSec = 5,
     [ValidateRange(1, 10)][int]$PollSeconds = 1
 )
 
@@ -94,7 +95,9 @@ if ($composeResult.TimedOut -or $composeResult.ExitCode -ne 0) {
 $lastError = "Qdrant HTTP readiness has not completed"
 do {
     try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $qdrantHealthUrl -TimeoutSec 5
+        # This is a per-probe HTTP bound, distinct from the total startup
+        # deadline and the bounded Docker CLI process lifetime.
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $qdrantHealthUrl -TimeoutSec $HealthProbeTimeoutSec
         if ([int]$response.StatusCode -eq 200) {
             $response.Content
             exit 0
