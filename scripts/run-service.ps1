@@ -17,6 +17,7 @@ $repoRoot = [System.IO.Path]::GetFullPath($repoRoot)
 $srcPath = Join-Path $repoRoot "src"
 . (Join-Path $repoRoot "scripts\runtime-endpoints.ps1")
 . (Join-Path $repoRoot "scripts\bhm-caller-credential.ps1")
+$localLlmModelsProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'local_llm_models'
 $callerCredential = Initialize-BhmCallerCredential
 Write-Host "[INFO] BHM caller credential ready: source=$($callerCredential.source) fingerprint=$($callerCredential.fingerprint)"
 # The destructive/operator capability is deliberately separate from the
@@ -62,7 +63,7 @@ function Test-OpenAiBaseUrl {
   param([Parameter(Mandatory = $true)][string]$BaseUrl)
 
   try {
-    $response = Invoke-WebRequest -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))/models" -TimeoutSec 2
+    $response = Invoke-WebRequest -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))/models" -TimeoutSec $localLlmModelsProbeTimeoutSec
     return [int]$response.StatusCode -eq 200
   } catch {
     return $false

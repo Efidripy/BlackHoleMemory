@@ -6,7 +6,8 @@ param(
   [switch]$SkipProjectionRecovery,
   [switch]$SemanticFusion,
   [string]$BaseUrl = '',
-  [ValidateRange(5, 300)][int]$TimeoutSec = 90,
+  # Matches the SQLite storage startup budget and desktop launcher contract.
+  [ValidateRange(5, 300)][int]$TimeoutSec = 120,
   [ValidateRange(5, 300)][int]$QdrantTimeoutSec = 120,
   [ValidateRange(1, 10)][int]$PollSeconds = 1,
   [ValidateRange(1, 60)][int]$ShutdownTimeoutSec = 5
@@ -16,6 +17,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
+$localLlmModelsProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'local_llm_models'
+$authoritativeHealthProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'authoritative_health'
+$authoritativeReadyProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'authoritative_ready'
 $apiParts = Get-BhmRuntimeEndpointParts -Name 'bhm_api' -RepoRoot $repoRoot
 $lmStudioParts = Get-BhmRuntimeEndpointParts -Name 'lm_studio' -RepoRoot $repoRoot
 $lmStudioUrl = Get-BhmRuntimeEndpoint -Name 'lm_studio' -RepoRoot $repoRoot
@@ -64,7 +68,7 @@ function Test-OpenAiBaseUrl {
   param([Parameter(Mandatory = $true)][string]$BaseUrl)
 
   try {
-    $response = Invoke-WebRequest -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))/models" -TimeoutSec 2
+    $response = Invoke-WebRequest -UseBasicParsing -Uri "$($BaseUrl.TrimEnd('/'))/models" -TimeoutSec $localLlmModelsProbeTimeoutSec
     return [int]$response.StatusCode -eq 200
   } catch {
     return $false
@@ -246,7 +250,10 @@ function Get-BhmCallerHeaders {
 }
 
 function Get-ContractSnapshot {
-  param([string]$BaseUrl = '')
+  param(
+    [string]$BaseUrl = '',
+    [ValidateRange(1, 60)][int]$ProbeTimeoutSec = $authoritativeHealthProbeTimeoutSec
+  )
 
   if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot }
 
@@ -258,8 +265,8 @@ function Get-ContractSnapshot {
     if ($headers.Count -eq 0) {
       throw 'BHM_CALLER_TOKEN is unavailable for protected readiness probes.'
     }
-    $health = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/bhm/health" -Headers $headers -TimeoutSec 10
-    $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/health/cutover" -Headers $headers -TimeoutSec 10
+    $health = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/bhm/health" -Headers $headers -TimeoutSec $ProbeTimeoutSec
+    $cutover = Invoke-RestMethod -UseBasicParsing -Uri "$BaseUrl/health/cutover" -Headers $headers -TimeoutSec $ProbeTimeoutSec
     $projectionStatus = [string]$cutover.mem0.status
     $projectionStatusAllowed = @('projection-only', 'degraded') -contains $projectionStatus
     return [pscustomobject]@{
@@ -301,14 +308,20 @@ function Wait-Authoritative {
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
   $last = $null
   while ([DateTime]::UtcNow -lt $deadline) {
+    $remainingSeconds = [Math]::Floor(($deadline - [DateTime]::UtcNow).TotalSeconds)
+    if ($remainingSeconds -lt 1) { break }
+    $readyProbeTimeoutSec = [Math]::Min($authoritativeReadyProbeTimeoutSec, [int]$remainingSeconds)
     $ready = $false
     try {
-      $readyResponse = Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/health/ready" -TimeoutSec 3
+      $readyResponse = Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/health/ready" -TimeoutSec $readyProbeTimeoutSec
       $ready = [int]$readyResponse.StatusCode -eq 200
     } catch {
       $ready = $false
     }
-    $last = Get-ContractSnapshot -BaseUrl $BaseUrl
+    $remainingSeconds = [Math]::Floor(($deadline - [DateTime]::UtcNow).TotalSeconds)
+    if ($remainingSeconds -lt 1) { break }
+    $contractProbeTimeoutSec = [Math]::Min($authoritativeHealthProbeTimeoutSec, [int]$remainingSeconds)
+    $last = Get-ContractSnapshot -BaseUrl $BaseUrl -ProbeTimeoutSec $contractProbeTimeoutSec
     if ($ready -and $last.authoritative) {
       return [pscustomobject]@{ ok = $true; ready = $true; snapshot = $last; error = '' }
     }

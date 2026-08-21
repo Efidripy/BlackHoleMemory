@@ -7,6 +7,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
+$workspaceAvailabilityProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'workspace_availability'
 $apiParts = Get-BhmRuntimeEndpointParts -Name 'bhm_api' -RepoRoot $repoRoot
 $apiAddress = "$($apiParts.Host):$($apiParts.Port)"
 $bhmBaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot
@@ -14,7 +15,7 @@ $bhmBaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot
 function Test-Url {
   param(
     [Parameter(Mandatory = $true)][string]$Url,
-    [int]$TimeoutSec = 2
+    [Parameter(Mandatory = $true)][int]$TimeoutSec
   )
 
   try {
@@ -150,13 +151,13 @@ $readyUrl = "$bhmBaseUrl/health/ready"
 
 New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
 
-$ready = Test-Url -Url $readyUrl -TimeoutSec 2
+$ready = Test-Url -Url $readyUrl -TimeoutSec $workspaceAvailabilityProbeTimeoutSec
 if ($ready.ok -and $ready.status -eq 200) {
   Write-Output "[INFO] BlackHoleMemory Core is already running."
   exit 0
 }
 
-$dashboard = Test-Url -Url "$bhmBaseUrl/" -TimeoutSec 2
+$dashboard = Test-Url -Url "$bhmBaseUrl/" -TimeoutSec $workspaceAvailabilityProbeTimeoutSec
 if ($dashboard.ok -and $dashboard.status -eq 200) {
   Write-Output "[SUCCESS] BHM Core spawned in background. Track initialization live via $bhmBaseUrl/"
   exit 0

@@ -13,6 +13,30 @@ function Get-BhmRuntimeEndpointCatalog {
     throw 'runtime-endpoints.json was not found'
 }
 
+# Operator scripts deliberately own these short, per-request probe budgets.
+# They are not service startup deadlines: each caller also has its own bounded
+# poll/deadline contract. Keeping the values beside the endpoint resolver
+# prevents unrelated launcher scripts from silently drifting apart.
+$script:BhmOperatorProbeTimeouts = @{
+    local_llm_models = 2
+    authoritative_health = 10
+    authoritative_ready = 3
+    workspace_availability = 2
+}
+
+function Get-BhmOperatorProbeTimeout {
+    param(
+        [Parameter(Mandatory)][ValidateSet(
+            'local_llm_models',
+            'authoritative_health',
+            'authoritative_ready',
+            'workspace_availability'
+        )][string]$Name
+    )
+
+    return [int]$script:BhmOperatorProbeTimeouts[$Name]
+}
+
 function Get-BhmRuntimeEndpoint {
     param(
         [Parameter(Mandatory)][string]$Name,
