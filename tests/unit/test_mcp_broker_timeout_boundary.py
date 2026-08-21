@@ -96,3 +96,14 @@ def test_single_instance_lock_rejects_reparse_parent_before_creation(tmp_path, m
     with pytest.raises(FilesystemBoundaryError, match="symlink|reparse"):
         mcp_broker._SingleInstanceLock("broker").acquire()
     assert not (outside / "broker.lock").exists()
+
+
+def test_unix_socket_cleanup_rejects_non_socket_path(tmp_path) -> None:
+    from blackholememory.infra import mcp_broker
+
+    target = tmp_path / "broker.sock"
+    target.write_text("do-not-delete", encoding="utf-8")
+
+    with pytest.raises(FilesystemBoundaryError, match="not a Unix socket"):
+        mcp_broker.McpIpcBroker._remove_unix_socket(target)
+    assert target.read_text(encoding="utf-8") == "do-not-delete"
