@@ -42,6 +42,7 @@ from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 from blackholememory.project_retirement import PROJECT_RETIREMENT_ALLOWLIST_ENV
 from blackholememory.project_retirement import PROJECT_RETIREMENT_CAPABILITY_ENV
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from blackholememory.runtime_endpoints import endpoint_url
 
 
@@ -111,6 +112,7 @@ def _git(repository: Path, command: list[str]) -> str:
         text=True,
         encoding="utf-8",
         errors="replace",
+        timeout=PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS,
     ).strip()
 
 
