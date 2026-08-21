@@ -34,6 +34,7 @@ does not displace a slower light model when both satisfy the same contract.
 The active implementation is in `src/blackholememory/model_router.py`,
 `src/blackholememory/capability_router.py` and
 `src/blackholememory/llm_delegation_policy.py`. The local operational backlog
-is `.docs/WORKLIST.md`; it is intentionally ignored by the public tree and is
-the only active BHM worklist (ADR-0349).
+is `.docs/TODO.md`; completed work is indexed by `.docs/DONE.md`. Both are
+intentionally ignored by the public tree and are the only active BHM status
+files (ADR-0622).
 

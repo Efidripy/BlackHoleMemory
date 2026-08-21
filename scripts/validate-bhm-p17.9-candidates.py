@@ -13,7 +13,12 @@ def _evidence(valid: bool = True) -> dict:
     return {
         "schema_valid": valid,
         "validators": [{"name": "deterministic-validator", "passed": valid}],
-        "source_refs": [".docs/plan/bhm-only-cutover-master-plan.md"] if valid else [],
+        "source_refs": [
+            ".docs/archive/2026-08-21-pre-consolidation/plan/"
+            "bhm-only-cutover-master-plan.md"
+        ]
+        if valid
+        else [],
         "leakage_free": valid,
         "mutation_free": valid,
         "evidence_digest": "p17.9-evidence" if valid else "",
