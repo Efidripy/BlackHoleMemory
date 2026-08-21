@@ -30,6 +30,16 @@ def test_inventory_is_deterministic_and_limited_to_first_party_roots() -> None:
     assert len(first["inventory_sha256"]) == 64
     assert first["summary"]["call_sites"] > 0
     assert all(not row["path"].startswith("tests/") for row in first["call_sites"])
+    assert all(
+        row["explicit_budget"]
+        for row in first["call_sites"]
+        if row["operation"] == "process-run"
+    )
+    assert all(
+        row["explicit_budget"]
+        for row in first["call_sites"]
+        if row["operation"] == "transport"
+    )
 
 
 def test_inventory_classifies_process_filesystem_and_outbound_boundaries(tmp_path: Path) -> None:
@@ -65,4 +75,5 @@ def test_inventory_classifies_process_filesystem_and_outbound_boundaries(tmp_pat
     assert next(row for row in rows if row["callee"] == "subprocess.run")["explicit_budget"] is True
     assert next(row for row in rows if row["callee"] == "requests.get")["explicit_budget"] is True
     assert next(row for row in rows if row["callee"] == "requests.get")["operation"] == "transport"
+    assert next(row for row in rows if row["callee"] == "subprocess.run")["operation"] == "process-run"
     assert {row["scope"] for row in rows} == {"<module>"}
