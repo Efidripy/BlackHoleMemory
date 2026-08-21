@@ -128,7 +128,10 @@ _MODE_ALIASES = {
 }
 
 _DEFAULT_RUNTIME_DIR = Path(__file__).resolve().parents[2] / ".runtime"
-_MEMORY_STORE_SCHEMA_VERSION = 1
+_MEMORY_STORE_SCHEMA_VERSIONS = frozenset({1, 2})
+_FRESHNESS_SCHEMA_TABLES = frozenset(
+    {"freshness_candidates", "freshness_candidate_events", "freshness_scan_state"}
+)
 _REQUIRED_MEMORY_STORE_TABLES = frozenset(
     {
         "memory_store_meta",
@@ -161,7 +164,7 @@ def _inspect_memory_store_schema_uncached(
         connection = sqlite3.connect(uri, uri=True, timeout=SQLITE_READINESS_PROBE_TIMEOUT_SECONDS)
         try:
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            if version != _MEMORY_STORE_SCHEMA_VERSION:
+            if version not in _MEMORY_STORE_SCHEMA_VERSIONS:
                 return False, "sqlite_schema_version_invalid"
             tables = {
                 str(row[0])
@@ -171,6 +174,8 @@ def _inspect_memory_store_schema_uncached(
             }
             if not _REQUIRED_MEMORY_STORE_TABLES.issubset(tables):
                 return False, "sqlite_schema_tables_missing"
+            if version == 2 and not _FRESHNESS_SCHEMA_TABLES.issubset(tables):
+                return False, "sqlite_freshness_schema_missing_tables"
             quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0]).casefold()
             return (
                 (True, "sqlite_schema_valid")

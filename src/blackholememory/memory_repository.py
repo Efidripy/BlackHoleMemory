@@ -37,6 +37,11 @@ from .outbox import utc_now_iso
 
 
 MEMORY_STORE_SCHEMA_VERSION = 1
+MEMORY_STORE_SCHEMA_LATEST_VERSION = 2
+SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS = frozenset({MEMORY_STORE_SCHEMA_VERSION, MEMORY_STORE_SCHEMA_LATEST_VERSION})
+FRESHNESS_SCHEMA_TABLES = frozenset(
+    {"freshness_candidates", "freshness_candidate_events", "freshness_scan_state"}
+)
 MEMORY_STORE_BUSY_TIMEOUT_MS = 5_000
 MEMORY_STORE_WRITE_RETRY_DELAYS = (0.025, 0.05, 0.1, 0.2, 0.4)
 _REQUIRED_MEMORY_STORE_TABLES = frozenset(
@@ -302,7 +307,7 @@ class SQLiteMemoryRepository:
                     )
                 self._begin_immediate(connection)
                 current_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-                if current_version not in {0, MEMORY_STORE_SCHEMA_VERSION}:
+                if current_version not in {0, *SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS}:
                     raise MemoryRepositoryError(
                         f"unsupported memory store schema {current_version}; "
                         f"expected {MEMORY_STORE_SCHEMA_VERSION}"
@@ -445,7 +450,7 @@ class SQLiteMemoryRepository:
             connection = sqlite3.connect(uri, uri=True, timeout=self.busy_timeout_ms / 1000)
             try:
                 version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-                if version != MEMORY_STORE_SCHEMA_VERSION:
+                if version not in SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS:
                     return False
                 tables = {
                     str(row[0])
@@ -454,6 +459,8 @@ class SQLiteMemoryRepository:
                     ).fetchall()
                 }
                 if not _REQUIRED_MEMORY_STORE_TABLES.issubset(tables):
+                    return False
+                if version == MEMORY_STORE_SCHEMA_LATEST_VERSION and not FRESHNESS_SCHEMA_TABLES.issubset(tables):
                     return False
                 return fast or str(connection.execute("PRAGMA quick_check").fetchone()[0]).casefold() == "ok"
             finally:
