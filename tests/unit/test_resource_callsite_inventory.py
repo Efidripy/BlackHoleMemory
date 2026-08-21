@@ -40,6 +40,19 @@ def test_inventory_is_deterministic_and_limited_to_first_party_roots() -> None:
         for row in first["call_sites"]
         if row["operation"] == "transport"
     )
+    lifecycle_rows = [
+        row
+        for row in first["call_sites"]
+        if row["operation"] in {"process-lifecycle", "process-replacement"}
+    ]
+    assert lifecycle_rows
+    assert first["summary"]["lifecycle_rows"] == len(lifecycle_rows)
+    assert first["summary"]["lifecycle_verified_rows"] == len(lifecycle_rows)
+    assert first["summary"]["lifecycle_unresolved_rows"] == []
+    assert first["summary"]["lifecycle_coverage_ok"] is True
+    assert all(row["lifecycle_disposition"] for row in lifecycle_rows)
+    assert all(row["lifecycle_evidence"] for row in lifecycle_rows)
+    assert all(row["lifecycle_verified"] for row in lifecycle_rows)
 
 
 def test_inventory_classifies_process_filesystem_and_outbound_boundaries(tmp_path: Path) -> None:
@@ -77,3 +90,27 @@ def test_inventory_classifies_process_filesystem_and_outbound_boundaries(tmp_pat
     assert next(row for row in rows if row["callee"] == "requests.get")["operation"] == "transport"
     assert next(row for row in rows if row["callee"] == "subprocess.run")["operation"] == "process-run"
     assert {row["scope"] for row in rows} == {"<module>"}
+
+
+def test_unmapped_process_lifecycle_row_remains_explicitly_unresolved(tmp_path: Path) -> None:
+    module = _load_inventory_module()
+    source = tmp_path / "src" / "blackholememory"
+    source.mkdir(parents=True)
+    (source / "runtime.py").write_text(
+        "import subprocess\n\ndef start():\n    return subprocess.Popen(['ok'])\n",
+        encoding="utf-8",
+    )
+
+    report = module.inventory(tmp_path)
+    row = next(row for row in report["call_sites"] if row["operation"] == "process-lifecycle")
+
+    assert row["scope"] == "start"
+    assert row["lifecycle_disposition"] is None
+    assert row["lifecycle_evidence"] == ()
+    assert row["lifecycle_verified"] is False
+    assert report["summary"]["lifecycle_rows"] == 1
+    assert report["summary"]["lifecycle_verified_rows"] == 0
+    assert report["summary"]["lifecycle_coverage_ok"] is False
+    assert report["summary"]["lifecycle_unresolved_rows"] == [
+        {"path": "src/blackholememory/runtime.py", "line": 4, "callee": "subprocess.Popen", "scope": "start"}
+    ]

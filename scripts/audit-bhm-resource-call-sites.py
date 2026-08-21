@@ -20,7 +20,7 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = "bhm.resource-callsite-inventory.v1"
+SCHEMA_VERSION = "bhm.resource-callsite-inventory.v2"
 SCANNED_ROOTS = ("src", "scripts")
 EXCLUDED_PARTS = frozenset(
     {
@@ -121,6 +121,93 @@ WRITABLE_OPEN_NAMES = frozenset({"a", "a+", "ab", "ab+", "r+", "rb+", "w", "w+",
 
 
 @dataclass(frozen=True)
+class LifecycleExpectation:
+    """Static evidence required for an intentional long-lived process boundary.
+
+    ``Popen`` and ``exec*`` deliberately do not receive a literal ``timeout``
+    argument. Their correctness depends on who owns the child lifetime. The
+    table keeps that exceptional set small and fails review when a new
+    lifecycle call site has no explicit, source-verifiable disposition.
+    """
+
+    disposition: str
+    scope_signals: tuple[str, ...]
+    module_signals: tuple[str, ...] = ()
+
+
+LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], LifecycleExpectation] = {
+    (
+        "scripts/bhm_launcher.py",
+        "run_detached",
+        "subprocess.Popen",
+    ): LifecycleExpectation(
+        disposition="tracked-detached-process",
+        scope_signals=("DETACHED_PROCESSES.append",),
+        module_signals=("def terminate_detached_processes", "proc.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)"),
+    ),
+    (
+        "scripts/bhm_launcher.py",
+        "run_canonical_api_command",
+        "subprocess.Popen",
+    ): LifecycleExpectation(
+        disposition="bounded-command-with-tree-termination",
+        scope_signals=(
+            "proc.communicate(timeout=timeout)",
+            "terminate_process_tree(proc)",
+            "proc.communicate(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)",
+        ),
+    ),
+    (
+        "scripts/bhm_launcher.py",
+        "run_command",
+        "subprocess.Popen",
+    ): LifecycleExpectation(
+        disposition="deadline-bounded-installer-process",
+        scope_signals=(
+            "deadline = time.monotonic() + LAUNCHER_INSTALL_TIMEOUT_SECONDS",
+            "terminate_process_tree(proc)",
+            "reader.join(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)",
+            "proc.wait(timeout=LAUNCHER_INSTALL_TIMEOUT_SECONDS)",
+        ),
+    ),
+    (
+        "scripts/validate-bhm-p18.14-mcp-doctor.py",
+        "_ensure_project_runtime",
+        "os.execv",
+    ): LifecycleExpectation(
+        disposition="intentional-self-replacement",
+        scope_signals=("candidate.resolve()", "os.execv("),
+    ),
+    (
+        "src/blackholememory/app.py",
+        "_spawn_detached_restart_launcher",
+        "subprocess.Popen",
+    ): LifecycleExpectation(
+        disposition="windows-detached-restart-handoff",
+        scope_signals=(
+            '"cmd.exe"',
+            '"start"',
+            "_WINDOWS_DETACHED_PROCESS",
+            "subprocess.DEVNULL",
+        ),
+    ),
+    (
+        "src/blackholememory/safe_patch_factory.py",
+        "_run_command",
+        "subprocess.Popen",
+    ): LifecycleExpectation(
+        disposition="bounded-process-group-with-cleanup",
+        scope_signals=(
+            "process.communicate(input=input_text, timeout=timeout)",
+            "_terminate_process_group(process.pid",
+            "process.communicate(timeout=PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS)",
+            "process.kill()",
+        ),
+    ),
+}
+
+
+@dataclass(frozen=True)
 class CallSite:
     family: str
     path: str
@@ -133,6 +220,9 @@ class CallSite:
     scope: str
     explicit_budget: bool
     cleanup_signal: bool
+    lifecycle_disposition: str | None
+    lifecycle_evidence: tuple[str, ...]
+    lifecycle_verified: bool
 
 
 def _dotted_name(node: ast.expr) -> str | None:
@@ -215,6 +305,29 @@ def _is_writable_open(call: ast.Call, resolved: str | None) -> bool:
     return False
 
 
+def _lifecycle_review(
+    *,
+    path: str,
+    scope: str,
+    callee: str,
+    operation: str,
+    scope_source: str,
+    module_source: str,
+) -> tuple[str | None, tuple[str, ...], bool]:
+    """Return deterministic ownership evidence for exceptional process calls."""
+    if operation not in {"process-lifecycle", "process-replacement"}:
+        return None, (), False
+    expectation = LIFECYCLE_EXPECTATIONS.get((path, scope, callee))
+    if expectation is None:
+        return None, (), False
+    scope_evidence = tuple(f"scope:{signal}" for signal in expectation.scope_signals if signal in scope_source)
+    module_evidence = tuple(f"module:{signal}" for signal in expectation.module_signals if signal in module_source)
+    verified = len(scope_evidence) == len(expectation.scope_signals) and len(module_evidence) == len(
+        expectation.module_signals
+    )
+    return expectation.disposition, (*scope_evidence, *module_evidence), verified
+
+
 def _family_for_call(call: ast.Call, resolved: str | None) -> tuple[str, str, bool] | None:
     if resolved in PROCESS_CALLS:
         if resolved.startswith("os.exec"):
@@ -255,7 +368,8 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
     for source_path in _source_files(root):
         relative = source_path.relative_to(root)
         try:
-            tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=relative.as_posix())
+            source_text = source_path.read_text(encoding="utf-8")
+            tree = ast.parse(source_text, filename=relative.as_posix())
         except (OSError, SyntaxError) as exc:
             parse_failures.append(f"{relative.as_posix()}: {type(exc).__name__}")
             continue
@@ -269,24 +383,43 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
             if not matched:
                 continue
             family, operation, explicit_budget = matched
+            scope = _enclosing_scope(node, parents)
+            scope_node = parents.get(id(node))
+            while scope_node is not None and not isinstance(scope_node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                scope_node = parents.get(id(scope_node))
+            scope_source = ast.get_source_segment(source_text, scope_node) if scope_node is not None else source_text
+            callee = resolved or _dotted_name(node.func) or "<dynamic>"
+            lifecycle_disposition, lifecycle_evidence, lifecycle_verified = _lifecycle_review(
+                path=relative.as_posix(),
+                scope=scope,
+                callee=callee,
+                operation=operation,
+                scope_source=scope_source or "",
+                module_source=source_text,
+            )
             rows.append(
                 CallSite(
                     family=family,
                     path=relative.as_posix(),
                     line=node.lineno,
                     column=node.col_offset,
-                    callee=resolved or _dotted_name(node.func) or "<dynamic>",
+                    callee=callee,
                     operation=operation,
                     classification=_script_classification(relative),
                     owner=_owner(relative),
-                    scope=_enclosing_scope(node, parents),
+                    scope=scope,
                     explicit_budget=explicit_budget,
                     cleanup_signal=_has_cleanup_signal(node, parents.get(id(node))),
+                    lifecycle_disposition=lifecycle_disposition,
+                    lifecycle_evidence=lifecycle_evidence,
+                    lifecycle_verified=lifecycle_verified,
                 )
             )
     rows.sort(key=lambda row: (row.family, row.path, row.line, row.column, row.callee))
     counts = Counter(row.family for row in rows)
     classifications = Counter(row.classification for row in rows)
+    lifecycle_rows = [row for row in rows if row.operation in {"process-lifecycle", "process-replacement"}]
+    unresolved_lifecycle_rows = [row for row in lifecycle_rows if not row.lifecycle_verified]
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "scope": {
@@ -301,6 +434,13 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
             "by_classification": dict(sorted(classifications.items())),
             "explicit_budget_rows": sum(row.explicit_budget for row in rows),
             "cleanup_signal_rows": sum(row.cleanup_signal for row in rows),
+            "lifecycle_rows": len(lifecycle_rows),
+            "lifecycle_verified_rows": sum(row.lifecycle_verified for row in lifecycle_rows),
+            "lifecycle_unresolved_rows": [
+                {"path": row.path, "line": row.line, "callee": row.callee, "scope": row.scope}
+                for row in unresolved_lifecycle_rows
+            ],
+            "lifecycle_coverage_ok": not unresolved_lifecycle_rows,
             "parse_failures": parse_failures,
         },
         "call_sites": [asdict(row) for row in rows],
