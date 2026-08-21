@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-mcp-full-surface.py"
@@ -43,6 +45,25 @@ class _Mcp:
     async def call_tool(self, name: str, args: dict[str, Any]) -> _Result:
         self.calls.append((name, args))
         return _Result(self.payload)
+
+
+def test_repository_git_probe_uses_registry_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_check_output(*args: object, **kwargs: object) -> str:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return "ok\n"
+
+    monkeypatch.setattr(MODULE.subprocess, "check_output", fake_check_output)
+
+    assert MODULE._git(REPO_ROOT, ["rev-parse", "HEAD"]) == "ok"
+    assert captured["kwargs"] == {
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "timeout": PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS,
+    }
 
 
 def test_catalog_contract_accepts_full_surface_with_core_subset() -> None:
