@@ -1040,40 +1040,60 @@ class SQLiteMemoryRepository:
         if not project_id:
             raise ValueError("project is required")
         self.initialize()
+        with self._write_transaction() as connection:
+            return self.tombstone_project_in_transaction(connection, project_id, reason=reason)
+
+    def tombstone_project_in_transaction(
+        self,
+        connection: sqlite3.Connection,
+        project: str,
+        *,
+        reason: str = "project_retirement",
+    ) -> dict[str, Any]:
+        """Tombstone a project using a caller-owned already-open SQLite transaction.
+
+        Composite lifecycle operations such as project retirement need the memory
+        transition, dependent artifact updates and their receipt to commit or roll
+        back together. The caller is responsible for opening and completing the
+        transaction; this helper deliberately never commits or rolls back it.
+        """
+
+        project_id = str(project or "").strip()
+        if not project_id:
+            raise ValueError("project is required")
         now = utc_now_iso()
         updated: list[dict[str, Any]] = []
-        with self._write_transaction() as connection:
-            rows = connection.execute(
-                self._joined_memory_query(
-                    " WHERE m.project = ? AND m.lifecycle <> 'tombstoned' "
-                    "ORDER BY m.memory_id"
+        rows = connection.execute(
+            self._joined_memory_query(
+                " WHERE m.project = ? AND m.lifecycle <> 'tombstoned' "
+                "ORDER BY m.memory_id"
+            ),
+            (project_id,),
+        ).fetchall()
+        for row in rows:
+            memory = self._joined_memory_row_to_model(row)
+            payload = memory.to_dict()
+            metadata = dict(memory.metadata)
+            metadata["previous_lifecycle"] = memory.lifecycle.value
+            metadata["tombstoned_at"] = now
+            metadata["tombstone_reason"] = str(reason or "project_retirement")[:256]
+            payload["lifecycle"] = Lifecycle.TOMBSTONED.value
+            payload["metadata"] = metadata
+            payload["updated_at"] = now
+            tombstoned = Memory.from_dict(payload)
+            connection.execute(
+                "UPDATE memories SET lifecycle = ?, metadata_json = ?, updated_at = ? "
+                "WHERE memory_id = ? AND project = ?",
+                (
+                    tombstoned.lifecycle.value,
+                    _json_dumps(tombstoned.metadata, "memory.metadata"),
+                    tombstoned.updated_at,
+                    tombstoned.id,
+                    project_id,
                 ),
-                (project_id,),
-            ).fetchall()
-            for row in rows:
-                memory = self._joined_memory_row_to_model(row)
-                payload = memory.to_dict()
-                metadata = dict(memory.metadata)
-                metadata["previous_lifecycle"] = memory.lifecycle.value
-                metadata["tombstoned_at"] = now
-                metadata["tombstone_reason"] = str(reason or "project_retirement")[:256]
-                payload["lifecycle"] = Lifecycle.TOMBSTONED.value
-                payload["metadata"] = metadata
-                payload["updated_at"] = now
-                tombstoned = Memory.from_dict(payload)
-                connection.execute(
-                    "UPDATE memories SET lifecycle = ?, metadata_json = ?, updated_at = ? "
-                    "WHERE memory_id = ? AND project = ?",
-                    (
-                        tombstoned.lifecycle.value,
-                        _json_dumps(tombstoned.metadata, "memory.metadata"),
-                        tombstoned.updated_at,
-                        tombstoned.id,
-                        project_id,
-                    ),
-                )
-                self._append_memory_event(connection, tombstoned, inserted=False)
-                updated.append(tombstoned.to_record())
+            )
+            self._append_memory_event(connection, tombstoned, inserted=False)
+            updated.append(tombstoned.to_record())
         return {"project": project_id, "count": len(updated), "memories": updated}
 
     def list_memories(

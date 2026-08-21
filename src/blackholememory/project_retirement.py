@@ -262,11 +262,16 @@ def apply_project_retirement(
     backup = _backup_sqlite(path, root / f"memories-before-project-retirement-{project_id}-{stamp}.sqlite3")
 
     repository = SQLiteMemoryRepository(path)
-    tombstoned = repository.tombstone_project(project_id, reason="project_retirement")
+    repository.initialize()
     connection = _connect(path)
     try:
         connection.execute("BEGIN IMMEDIATE")
         _ensure_schema(connection)
+        tombstoned = repository.tombstone_project_in_transaction(
+            connection,
+            project_id,
+            reason="project_retirement",
+        )
         counts = _counts(connection, project_id)
         artifact_count = 0
         if _table_exists(connection, "memory_artifacts"):

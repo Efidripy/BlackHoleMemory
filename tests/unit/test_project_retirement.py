@@ -72,6 +72,34 @@ def test_apply_requires_explicit_allowlist_and_capability(tmp_path, monkeypatch)
         assert connection.execute("SELECT COUNT(*) FROM project_retirement_events").fetchone()[0] == 1
 
 
+def test_apply_rolls_back_tombstone_when_receipt_step_fails(tmp_path, monkeypatch):
+    database = tmp_path / "memories.sqlite3"
+    repository = SQLiteMemoryRepository(database)
+    repository.save_memory(_memory("mem_fixture_a", "fixture-project"))
+    with sqlite3.connect(database) as connection:
+        outbox_before = connection.execute("SELECT COUNT(*) FROM memory_outbox").fetchone()[0]
+
+    monkeypatch.setenv(PROJECT_RETIREMENT_ALLOWLIST_ENV, "fixture-project")
+    monkeypatch.setenv(PROJECT_RETIREMENT_CAPABILITY_ENV, "secret")
+
+    def fail_after_tombstone(*_args, **_kwargs):
+        raise RuntimeError("synthetic receipt failure")
+
+    monkeypatch.setattr(project_retirement_module, "_counts", fail_after_tombstone)
+    with pytest.raises(RuntimeError, match="synthetic receipt failure"):
+        apply_project_retirement(database, "fixture-project", capability="secret", backup_dir=tmp_path / "backups")
+
+    restored = repository.get_memory("mem_fixture_a")
+    assert restored is not None
+    assert restored.lifecycle.value == "active"
+    with sqlite3.connect(database) as connection:
+        event_table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_retirement_events'"
+        ).fetchone()
+        assert event_table is None
+        assert connection.execute("SELECT COUNT(*) FROM memory_outbox").fetchone()[0] == outbox_before
+
+
 def test_protected_project_cannot_be_applied(tmp_path, monkeypatch):
     database = tmp_path / "memories.sqlite3"
     repository = SQLiteMemoryRepository(database)
