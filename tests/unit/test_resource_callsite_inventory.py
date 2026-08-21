@@ -64,3 +64,4 @@ def test_inventory_classifies_process_filesystem_and_outbound_boundaries(tmp_pat
     assert all(row["path"].startswith(("src/", "scripts/")) for row in rows)
     assert next(row for row in rows if row["callee"] == "subprocess.run")["explicit_budget"] is True
     assert next(row for row in rows if row["callee"] == "requests.get")["explicit_budget"] is True
+    assert next(row for row in rows if row["callee"] == "requests.get")["operation"] == "transport"
