@@ -238,3 +238,10 @@ def test_doctor_read_line_closes_blocked_stdout_after_deadline() -> None:
         doctor._read_line(process, timeout_seconds=0.01)
     elapsed = time.perf_counter() - started
     assert elapsed < 0.5
+
+
+def test_doctor_does_not_retain_retired_stdio_protocol_probe() -> None:
+    source = Path(doctor.__file__).read_text(encoding="utf-8")
+
+    assert "def _stdio_protocol_probe" not in source
+    assert "retired-stdio-wrapper" not in source
