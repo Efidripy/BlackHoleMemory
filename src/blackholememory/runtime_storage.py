@@ -129,6 +129,9 @@ _MODE_ALIASES = {
 
 _DEFAULT_RUNTIME_DIR = Path(__file__).resolve().parents[2] / ".runtime"
 _MEMORY_STORE_SCHEMA_VERSIONS = frozenset({1, 2})
+# Compatibility alias for versioned contract/report scripts.  The plural set
+# remains the readiness source of truth; this scalar names the latest schema.
+_MEMORY_STORE_SCHEMA_VERSION = max(_MEMORY_STORE_SCHEMA_VERSIONS)
 _FRESHNESS_SCHEMA_TABLES = frozenset(
     {"freshness_candidates", "freshness_candidate_events", "freshness_scan_state"}
 )
