@@ -203,6 +203,7 @@ from .observation_security import OBSERVATION_COMPACT_MAX_INPUT_BYTES
 from .observation_security import OBSERVATION_IDLE_MAX_INPUT_BYTES
 from .observation_security import OBSERVATION_MAX_INPUT_BYTES
 from .observation_security import ObservationPayloadTooLarge
+from .observation_security import PayloadSanitizer
 from .observation_security import contains_secret_like
 from .observation_security import observation_body_limit
 from .observation_security import redact_secret_text
@@ -1956,16 +1957,16 @@ def _mcp_model_dump(value: Any) -> Any:
 
 
 def _jsonrpc_success(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
-    def sanitize(value: Any) -> Any:
-        if isinstance(value, str):
-            return redact_secret_text(value).value
-        if isinstance(value, dict):
-            return {key: sanitize(item) for key, item in value.items()}
-        if isinstance(value, list):
-            return [sanitize(item) for item in value]
-        return value
+    """Return a bounded JSON-RPC result without leaking nested sensitive fields."""
 
-    return {"jsonrpc": "2.0", "id": request_id, "result": sanitize(result)}
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        # MCP catalogue and bounded query responses legitimately contain more
+        # than the observation-ingress default of 128 members.  Keep their
+        # established response contract while still redacting recursively.
+        "result": PayloadSanitizer(max_collection_items=2_000).sanitize(result),
+    }
 
 
 def _jsonrpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
