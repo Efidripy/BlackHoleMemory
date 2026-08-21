@@ -282,6 +282,10 @@ MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         disposition="owned-unix-socket-lifecycle",
         scope_signals=("path = self.unix_socket_path", "server.bind(path)", "if os.path.exists(path):", "os.unlink(path)"),
     ),
+    ("src/blackholememory/infra/mcp_broker.py", "_remove_unix_socket", "os.unlink"): BoundaryExpectation(
+        disposition="owned-unix-socket-identity-checked-cleanup",
+        scope_signals=("metadata = path.lstat()", "assert_safe_path(path, reject_hardlink_target=False)", "stat.S_ISSOCK(metadata.st_mode)", "os.unlink(path)"),
+    ),
     ("src/blackholememory/retention.py", "restore_retention_backup", "shutil.copy2"): BoundaryExpectation(
         disposition="hash-verified-staging-restore",
         scope_signals=("manifest_root = source_manifest.parent.resolve()", "backup_path = assert_safe_path", "actual_hash = sha256_file", "quick_check = sqlite_quick_check", "shutil.copy2(backup_path, target_path)"),
