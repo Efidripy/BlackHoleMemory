@@ -23,6 +23,7 @@ from .domain import Lifecycle, Memory
 from .filesystem_boundaries import assert_safe_path, replace_bytes_safely
 from .memory_repository import SQLiteMemoryRepository, _json_dumps
 from .qdrant_projector import QdrantProjector, deterministic_point_id
+from .resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .retention import sha256_file, sqlite_quick_check
 
@@ -546,7 +547,10 @@ def verify_projection_absence(
 
     database_path = assert_safe_path(database).resolve()
     repository = SQLiteMemoryRepository(database_path)
-    client = QdrantClient(url=str(qdrant_url).rstrip("/"), timeout=10)
+    client = QdrantClient(
+        url=str(qdrant_url).rstrip("/"),
+        timeout=QDRANT_SDK_TIMEOUT_SECONDS,
+    )
     absent: list[str] = []
     present: list[dict[str, str]] = []
     errors: list[dict[str, str]] = []

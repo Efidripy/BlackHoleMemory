@@ -430,7 +430,7 @@ class McpIpcBroker:
             return
         try:
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                client.settimeout(0.2)
+                client.settimeout(MCP_BROKER_WAKE_TIMEOUT_SECONDS)
                 client.connect(self.unix_socket_path)
         except OSError:
             pass
