@@ -271,6 +271,7 @@ def apply_migration(
         if inject_failure:
             raise FreshnessMigrationError("injected migration failure")
         connection.commit()
+        checkpoint = connection.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
     except Exception:
         connection.rollback()
         raise
@@ -285,6 +286,7 @@ def apply_migration(
         "action": "applied",
         "plan_digest": expected_plan_digest,
         "database": after,
+        "wal_checkpoint": list(checkpoint or ()),
         "existing_full_backup": dict(plan.get("existing_full_backup") or {}),
         "execution": {"sqlite_written": True, "memory_lifecycle_written": False, "memory_outbox_written": False, "qdrant_written": False, "mem0_written": False, "automatic_scanner_started": False},
         "rollback": "stop runtime, verify existing full backup, restore it offline, then run readiness smoke",
