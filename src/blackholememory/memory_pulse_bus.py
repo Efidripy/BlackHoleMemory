@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from collections.abc import Callable
 from typing import Any
 
 from starlette.websockets import WebSocketDisconnect
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _default_project_normalizer(project: str | None) -> str:
@@ -78,6 +82,12 @@ class MemoryPulseBus:
             try:
                 await asyncio.wait_for(client.send_json(payload), timeout=self.send_timeout_seconds)
             except (RuntimeError, WebSocketDisconnect, asyncio.TimeoutError):
+                disconnected.append(client)
+            except Exception as exc:
+                _LOGGER.warning(
+                    "memory_pulse_client_send_failed",
+                    extra={"error_type": type(exc).__name__},
+                )
                 disconnected.append(client)
         if disconnected:
             with self._lock:
