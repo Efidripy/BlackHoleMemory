@@ -130,6 +130,7 @@ class CallSite:
     operation: str
     classification: str
     owner: str
+    scope: str
     explicit_budget: bool
     cleanup_signal: bool
 
@@ -192,6 +193,15 @@ def _has_cleanup_signal(node: ast.Call, parent: ast.AST | None) -> bool:
     if _has_keyword(node, {"cleanup", "delete", "remove"}):
         return True
     return isinstance(parent, (ast.With, ast.AsyncWith, ast.Try))
+
+
+def _enclosing_scope(node: ast.AST, parents: dict[int, ast.AST]) -> str:
+    current = parents.get(id(node))
+    while current is not None:
+        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return current.name
+        current = parents.get(id(current))
+    return "<module>"
 
 
 def _is_writable_open(call: ast.Call, resolved: str | None) -> bool:
@@ -263,6 +273,7 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
                     operation=operation,
                     classification=_script_classification(relative),
                     owner=_owner(relative),
+                    scope=_enclosing_scope(node, parents),
                     explicit_budget=explicit_budget,
                     cleanup_signal=_has_cleanup_signal(node, parents.get(id(node))),
                 )
