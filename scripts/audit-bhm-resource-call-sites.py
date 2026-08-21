@@ -20,7 +20,7 @@ from typing import Iterable
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCHEMA_VERSION = "bhm.resource-callsite-inventory.v3"
+SCHEMA_VERSION = "bhm.resource-callsite-inventory.v4"
 SCANNED_ROOTS = ("src", "scripts")
 EXCLUDED_PARTS = frozenset(
     {
@@ -310,6 +310,9 @@ class CallSite:
     mutation_disposition: str | None
     mutation_evidence: tuple[str, ...]
     mutation_verified: bool
+    outbound_disposition: str | None
+    outbound_evidence: tuple[str, ...]
+    outbound_verified: bool
 
 
 def _dotted_name(node: ast.expr) -> str | None:
@@ -437,6 +440,30 @@ def _mutation_review(
     return expectation.disposition, (*scope_evidence, *module_evidence), verified
 
 
+def _outbound_review(
+    *,
+    callee: str,
+    operation: str,
+    explicit_budget: bool,
+    scope_source: str,
+) -> tuple[str | None, tuple[str, ...], bool]:
+    """Classify bounded transport separately from inert request construction."""
+    if operation == "transport":
+        evidence = ("call:finite-timeout",) if explicit_budget else ()
+        return "finite-budget-transport", evidence, explicit_budget
+    if operation != "client-construction":
+        return None, (), False
+    if callee in {"httpx.Client", "httpx.AsyncClient"}:
+        required = ("timeout=", "trust_env=False", "follow_redirects=False")
+        evidence = tuple(f"scope:{signal}" for signal in required if signal in scope_source)
+        return "bounded-httpx-client", evidence, len(evidence) == len(required)
+    if callee == "urllib.request.Request":
+        required = ("open_local_url", "timeout=")
+        evidence = tuple(f"scope:{signal}" for signal in required if signal in scope_source)
+        return "local-policy-request-construction", evidence, len(evidence) == len(required)
+    return None, (), False
+
+
 def _family_for_call(call: ast.Call, resolved: str | None) -> tuple[str, str, bool] | None:
     if resolved in PROCESS_CALLS:
         if resolved.startswith("os.exec"):
@@ -514,6 +541,12 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
                 scope_source=scope_source or "",
                 module_source=source_text,
             )
+            outbound_disposition, outbound_evidence, outbound_verified = _outbound_review(
+                callee=callee,
+                operation=operation,
+                explicit_budget=explicit_budget,
+                scope_source=scope_source or "",
+            )
             rows.append(
                 CallSite(
                     family=family,
@@ -533,6 +566,9 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
                     mutation_disposition=mutation_disposition,
                     mutation_evidence=mutation_evidence,
                     mutation_verified=mutation_verified,
+                    outbound_disposition=outbound_disposition,
+                    outbound_evidence=outbound_evidence,
+                    outbound_verified=outbound_verified,
                 )
             )
     rows.sort(key=lambda row: (row.family, row.path, row.line, row.column, row.callee))
@@ -542,6 +578,8 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
     unresolved_lifecycle_rows = [row for row in lifecycle_rows if not row.lifecycle_verified]
     mutation_rows = [row for row in rows if row.operation == "filesystem-mutation"]
     unresolved_mutation_rows = [row for row in mutation_rows if not row.mutation_verified]
+    outbound_rows = [row for row in rows if row.family == "outbound-http-call-sites"]
+    unresolved_outbound_rows = [row for row in outbound_rows if not row.outbound_verified]
     payload: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
         "scope": {
@@ -570,6 +608,13 @@ def inventory(root: Path = REPO_ROOT) -> dict[str, object]:
                 for row in unresolved_mutation_rows
             ],
             "mutation_coverage_ok": not unresolved_mutation_rows,
+            "outbound_rows": len(outbound_rows),
+            "outbound_verified_rows": sum(row.outbound_verified for row in outbound_rows),
+            "outbound_unresolved_rows": [
+                {"path": row.path, "line": row.line, "callee": row.callee, "scope": row.scope}
+                for row in unresolved_outbound_rows
+            ],
+            "outbound_coverage_ok": not unresolved_outbound_rows,
             "parse_failures": parse_failures,
         },
         "call_sites": [asdict(row) for row in rows],
