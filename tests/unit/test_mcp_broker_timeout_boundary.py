@@ -22,9 +22,11 @@ def test_mcp_broker_lifecycle_timeouts_are_registry_backed() -> None:
     assert "MCP_BROKER_CAPACITY_WAIT_SECONDS" in text
     assert "MCP_BROKER_WAKE_TIMEOUT_SECONDS" in text
     assert "wake_named_pipe" in text
+    assert "client.settimeout(MCP_BROKER_WAKE_TIMEOUT_SECONDS)" in text
     assert "open(self.pipe_path" not in text
     assert "join(timeout=3.0)" not in text
     assert "wait(timeout=0.2)" not in text
+    assert "client.settimeout(0.2)" not in text
 
 
 def test_windows_named_pipe_wake_uses_bounded_probe_and_closes_handle() -> None:
