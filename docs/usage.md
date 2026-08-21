@@ -84,6 +84,32 @@ selective rollback package. Active records сначала tombstone-ятся off
 CLI, полный порядок остановки/запуска и restore описаны в
 [Data hygiene](data-hygiene.md).
 
+## Freshness and review inventory
+
+`audit-bhm-freshness-review.py` is a bounded, read-only baseline for review
+planning. It opens the SQLite authority using `mode=ro` plus `PRAGMA
+query_only=ON`; it does not write SQLite, Qdrant, Mem0, lifecycle state, or
+review status. Pin `--as-of` for a reproducible digest and treat an exit code
+of `2` as an incomplete bounded scan, not a clean baseline.
+
+```powershell
+uv run python .\scripts\audit-bhm-freshness-review.py `
+  --database .\.runtime\live-memory\memories.sqlite3 `
+  --as-of 2026-08-21T12:00:00Z `
+  --max-records 5000 `
+  --sample-limit 50 `
+  --output .\.runtime\freshness-review\baseline.json
+```
+
+The report contains only project names, aggregate counts and hashed memory
+references: never raw memory content, source references, paths, provenance or
+source digests. The reason codes (`source_changed`, `superseded_by_revision`,
+`contradicted`, `unreferenced`, `age_threshold_reached`) are review signals
+only. In particular, age alone can never archive, tombstone or delete a
+memory. Until WL-295.2 persists freshness-candidate decision events, review
+latency and freshness false-positive rate may correctly be reported as
+`unavailable` rather than fabricated as zero.
+
 ## Galaxy controls
 
 Galaxy is a visual read model of active memory records from authoritative
