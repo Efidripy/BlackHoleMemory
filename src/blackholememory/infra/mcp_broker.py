@@ -6,6 +6,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 import json
 import os
 import socket
+import stat
 import tempfile
 import threading
 import uuid
@@ -13,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..observation_security import redact_secret_text
+from ..filesystem_boundaries import FilesystemBoundaryError
 from ..filesystem_boundaries import assert_safe_path
 from ..mcp_protocol_contract import BHM_REMEMBER_ALLOWED_ARGUMENTS
 from ..mcp_protocol_contract import validate_bhm_remember_arguments
@@ -41,8 +43,26 @@ class _SingleInstanceLock:
         assert_safe_path(self.path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         assert_safe_path(self.path.parent, reject_hardlink_target=False)
-        assert_safe_path(self.path)
-        self._file = self.path.open("a+b")
+        target = assert_safe_path(self.path)
+        flags = os.O_RDWR | os.O_CREAT
+        if hasattr(os, "O_BINARY"):
+            flags |= os.O_BINARY
+        descriptor = os.open(target, flags, 0o600)
+        try:
+            opened = os.fstat(descriptor)
+            assert_safe_path(target)
+            current = target.lstat()
+            if not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(current.st_mode):
+                raise FilesystemBoundaryError(f"MCP broker lock is not a regular file: {target}")
+            if int(getattr(opened, "st_nlink", 1)) > 1 or int(getattr(current, "st_nlink", 1)) > 1:
+                raise FilesystemBoundaryError(f"MCP broker lock is a hardlink: {target}")
+            if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+                raise FilesystemBoundaryError(f"MCP broker lock changed during open: {target}")
+            self._file = os.fdopen(descriptor, "a+b")
+            descriptor = -1
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
         self._file.seek(0)
         self._file.write(b"\0")
         self._file.flush()
@@ -120,6 +140,7 @@ class McpIpcBroker:
         self._thread: threading.Thread | None = None
         self._lock = _SingleInstanceLock(pipe_name)
         self._server_socket: socket.socket | None = None
+        self._unix_socket_identity: tuple[int, int] | None = None
         self._dispatch_executor: ThreadPoolExecutor | None = None
         self._dispatch_executor_lock = threading.Lock()
 
@@ -142,6 +163,8 @@ class McpIpcBroker:
         self._handler = handler
         self._connection_close_handler = on_connection_close
         self._stop_event.clear()
+        if os.name != "nt":
+            self._validated_unix_socket_path()
         self._ensure_dispatch_executor()
         self._lock.acquire()
         target = self._serve_windows if os.name == "nt" else self._serve_unix
@@ -284,13 +307,14 @@ class McpIpcBroker:
         return validate_bhm_remember_arguments(arguments)
 
     def _serve_unix(self) -> None:
-        path = self.unix_socket_path
+        path = self._validated_unix_socket_path()
         try:
-            if os.path.exists(path):
-                os.unlink(path)
+            self._remove_unix_socket(path)
             server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             self._server_socket = server
-            server.bind(path)
+            server.bind(str(path))
+            metadata = path.lstat()
+            self._unix_socket_identity = (metadata.st_dev, metadata.st_ino)
             server.listen(self.max_clients)
             while not self._stop_event.is_set():
                 if not self._wait_for_capacity():
@@ -313,10 +337,29 @@ class McpIpcBroker:
                     pass
                 self._server_socket = None
             try:
-                if os.path.exists(path):
-                    os.unlink(path)
+                self._remove_unix_socket(path, expected_identity=self._unix_socket_identity)
             except OSError:
                 pass
+            self._unix_socket_identity = None
+
+    def _validated_unix_socket_path(self) -> Path:
+        path = assert_safe_path(Path(self.unix_socket_path), reject_hardlink_target=False)
+        assert_safe_path(path.parent, reject_hardlink_target=False)
+        return path
+
+    @staticmethod
+    def _remove_unix_socket(path: Path, *, expected_identity: tuple[int, int] | None = None) -> None:
+        try:
+            metadata = path.lstat()
+        except FileNotFoundError:
+            return
+        assert_safe_path(path, reject_hardlink_target=False)
+        if not stat.S_ISSOCK(metadata.st_mode):
+            raise FilesystemBoundaryError(f"MCP broker socket path is not a Unix socket: {path}")
+        identity = (metadata.st_dev, metadata.st_ino)
+        if expected_identity is not None and identity != expected_identity:
+            raise FilesystemBoundaryError(f"MCP broker socket changed before cleanup: {path}")
+        os.unlink(path)
 
     def _handle_socket_client(self, conn: socket.socket, connection_id: str | None = None) -> None:
         buffer = b""
@@ -429,9 +472,10 @@ class McpIpcBroker:
                 pass
             return
         try:
+            path = self._validated_unix_socket_path()
             with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
                 client.settimeout(MCP_BROKER_WAKE_TIMEOUT_SECONDS)
-                client.connect(self.unix_socket_path)
+                client.connect(str(path))
         except OSError:
             pass
 

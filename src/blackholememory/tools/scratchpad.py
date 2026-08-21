@@ -18,6 +18,10 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from ..filesystem_boundaries import append_bytes_safely
+from ..filesystem_boundaries import read_bytes_safely
+from ..filesystem_boundaries import replace_bytes_safely
+
 
 SCRATCHPAD_ENV_VAR = "BHM_SWARM_SCRATCHPAD_PATH"
 SCRATCHPAD_ERROR_PREFIX = "Scratchpad unavailable:"
@@ -250,10 +254,7 @@ def tool_write_scratchpad(
             if current_size + len(separator) + len(encoded_entry) > MAX_SCRATCHPAD_BYTES:
                 raise ValueError(f"scratchpad size limit exceeded ({MAX_SCRATCHPAD_BYTES} bytes)")
             needs_separator = current_size > 0
-            with path.open("ab") as handle:
-                if needs_separator:
-                    handle.write(separator)
-                handle.write(encoded_entry)
+            append_bytes_safely(path, separator + encoded_entry if needs_separator else encoded_entry)
         return f"Scratchpad appended by {role}."
     except Exception as exc:
         return f"{SCRATCHPAD_ERROR_PREFIX} {exc}"
@@ -275,10 +276,7 @@ def tool_read_scratchpad(
             path = _validate_path(path, isolated=isolated)
             if not path.is_file():
                 return SCRATCHPAD_EMPTY_MESSAGE
-            with path.open("rb") as handle:
-                payload = handle.read(MAX_SCRATCHPAD_BYTES + 1)
-            if len(payload) > MAX_SCRATCHPAD_BYTES:
-                raise ValueError(f"scratchpad is too large: {len(payload)} bytes > {MAX_SCRATCHPAD_BYTES} bytes")
+            payload = read_bytes_safely(path, max_bytes=MAX_SCRATCHPAD_BYTES)
             lines = payload.decode("utf-8", errors="replace").splitlines()
         if not lines:
             return SCRATCHPAD_EMPTY_MESSAGE
@@ -301,8 +299,7 @@ def tool_clear_scratchpad(
         with _SCRATCHPAD_LOCK:
             _ensure_parent(path)
             path = _validate_path(path, isolated=isolated)
-            with path.open("wb") as handle:
-                handle.write(b"")
+            replace_bytes_safely(path, b"")
         return "Scratchpad cleared."
     except Exception as exc:
         return f"{SCRATCHPAD_ERROR_PREFIX} {exc}"

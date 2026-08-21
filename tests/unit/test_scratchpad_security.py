@@ -79,6 +79,22 @@ def test_scratchpad_rejects_symlink_operator_path(monkeypatch, tmp_path):
     assert target.read_text(encoding="utf-8") == "do not follow"
 
 
+def test_scratchpad_rejects_hardlink_operator_path(monkeypatch, tmp_path):
+    target = tmp_path / "target.md"
+    link = tmp_path / "link.md"
+    target.write_text("do not overwrite", encoding="utf-8")
+    try:
+        link.hardlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("hardlink creation is unavailable on this Windows host")
+
+    monkeypatch.setenv(scratchpad.SCRATCHPAD_ENV_VAR, str(link))
+    result = scratchpad.tool_write_scratchpad("note", "operator")
+    assert result.startswith(scratchpad.SCRATCHPAD_ERROR_PREFIX)
+    assert "hardlink" in result
+    assert target.read_text(encoding="utf-8") == "do not overwrite"
+
+
 def test_scratchpad_sanitizes_control_and_bidi_characters(monkeypatch, tmp_path):
     path = tmp_path / "safe.md"
     monkeypatch.setenv(scratchpad.SCRATCHPAD_ENV_VAR, str(path))
