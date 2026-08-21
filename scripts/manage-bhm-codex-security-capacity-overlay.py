@@ -15,11 +15,16 @@ from pathlib import Path
 import tempfile
 from typing import Any
 
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import read_bytes_safely
+from blackholememory.filesystem_boundaries import write_bytes_exclusive
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY_PATH = REPO_ROOT / ".docs" / "config" / "security-scan-capacity.json"
 PROFILE_RELATIVE_PATH = Path("preflight/capability-profiles.toml")
 DEFAULT_BACKUP_SUFFIX = ".bhm-capacity-overlay.bak"
+MAX_PROFILE_BYTES = 1_048_576
 
 CAPABILITY_1 = """[capabilities.usable_worker_slots_1]
 kind = "multi_agent_capacity"
@@ -233,7 +238,7 @@ def _resolve_plugin_root(explicit: Path | None) -> Path:
 
 
 def _read_utf8(path: Path) -> tuple[bytes, str]:
-    raw = path.read_bytes()
+    raw = read_bytes_safely(assert_safe_path(path), max_bytes=MAX_PROFILE_BYTES)
     try:
         return raw, raw.decode("utf-8")
     except UnicodeDecodeError as error:
@@ -241,30 +246,33 @@ def _read_utf8(path: Path) -> tuple[bytes, str]:
 
 
 def _atomic_replace(path: Path, data: bytes, *, expected_current_hash: str) -> None:
-    current = path.read_bytes()
+    target = assert_safe_path(path)
+    parent = assert_safe_path(target.parent, reject_hardlink_target=False)
+    current = read_bytes_safely(target, max_bytes=MAX_PROFILE_BYTES)
     if _sha256(current) != expected_current_hash:
         raise OverlayError("target changed after inspection; refusing concurrent overwrite")
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=parent)
     temporary = Path(temporary_name)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.chmod(path.stat().st_mode)
-        os.replace(temporary, path)
+        assert_safe_path(temporary)
+        temporary.chmod(target.stat().st_mode)
+        assert_safe_path(target)
+        assert_safe_path(parent, reject_hardlink_target=False)
+        os.replace(temporary, target)
     finally:
         temporary.unlink(missing_ok=True)
 
 
 def _create_backup(path: Path, data: bytes, *, source_path: Path, expected_source_hash: str) -> None:
-    if _sha256(source_path.read_bytes()) != expected_source_hash:
+    source = assert_safe_path(source_path)
+    if _sha256(read_bytes_safely(source, max_bytes=MAX_PROFILE_BYTES)) != expected_source_hash:
         raise OverlayError("target changed before backup creation; refusing apply")
     try:
-        with path.open("xb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
+        write_bytes_exclusive(assert_safe_path(path), data)
     except FileExistsError as error:
         raise OverlayError("backup appeared concurrently; rerun status before apply") from error
 
