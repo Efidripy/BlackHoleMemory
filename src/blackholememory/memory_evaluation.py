@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Literal
@@ -41,6 +42,8 @@ class EvaluationCase(BaseModel):
     expected_ids: tuple[str, ...] = ()
     expected_abstention: bool = False
     project: str = Field(min_length=1, max_length=160)
+    session_id: str = Field(default="unscoped", min_length=1, max_length=160)
+    turn_id: str | None = Field(default=None, min_length=1, max_length=160)
     source_digest: str = Field(min_length=64, max_length=64)
 
     @field_validator("expected_ids", mode="before")
@@ -177,13 +180,41 @@ def _reciprocal_rank(expected: set[str], actual: tuple[str, ...]) -> float:
     return 0.0
 
 
+def _average_precision(expected: set[str], actual: tuple[str, ...]) -> float:
+    hits = 0
+    precision_sum = 0.0
+    for index, candidate in enumerate(actual, start=1):
+        if candidate in expected:
+            hits += 1
+            precision_sum += hits / index
+    return precision_sum / len(expected) if expected else 0.0
+
+
+def _ndcg(expected: set[str], actual: tuple[str, ...]) -> float:
+    if not expected:
+        return 0.0
+    actual_gain = sum(1.0 / math.log2(index + 1) for index, candidate in enumerate(actual, start=1) if candidate in expected)
+    ideal_gain = sum(1.0 / math.log2(index + 1) for index in range(1, min(len(expected), len(actual)) + 1))
+    return actual_gain / ideal_gain if ideal_gain else 0.0
+
+
+def _new_metrics() -> dict[str, float]:
+    return {"count": 0.0, "recall": 0.0, "precision": 0.0, "mrr": 0.0, "map": 0.0, "ndcg": 0.0, "abstention": 0.0}
+
+
+def _render_metrics(groups: dict[str, dict[str, float]]) -> dict[str, dict[str, float | int | None]]:
+    return {name: {"count": int(values["count"]), "recall_at_k": round(values["recall"] / values["count"], 6) if values["count"] else None, "precision_at_k": round(values["precision"] / values["count"], 6) if values["count"] else None, "mrr": round(values["mrr"] / values["count"], 6) if values["count"] else None, "map_at_k": round(values["map"] / values["count"], 6) if values["count"] else None, "ndcg_at_k": round(values["ndcg"] / values["count"], 6) if values["count"] else None, "abstention_accuracy": round(values["abstention"] / values["count"], 6) if values["count"] else None} for name, values in sorted(groups.items())}
+
+
 def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalReceipt, ...], *, k: int = 5) -> dict[str, Any]:
     """Evaluate recorded retrieval only; missing receipts fail closed in report."""
 
     if k < 1 or k > 50:
         raise ValueError("k must be between 1 and 50")
     receipt_by_case = {receipt.case_id: receipt for receipt in receipts}
-    categories: dict[str, dict[str, float]] = defaultdict(lambda: {"count": 0.0, "recall": 0.0, "precision": 0.0, "mrr": 0.0, "abstention": 0.0})
+    categories: dict[str, dict[str, float]] = defaultdict(_new_metrics)
+    sessions: dict[str, dict[str, float]] = defaultdict(_new_metrics)
+    turns: dict[str, dict[str, float]] = defaultdict(_new_metrics)
     missing: list[str] = []
     for case in manifest.cases:
         receipt = receipt_by_case.get(case.case_id)
@@ -193,23 +224,17 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
         expected = set(case.expected_ids)
         actual = receipt.retrieved_ids[:k]
         hits = len(expected & set(actual))
-        category = categories[case.category]
-        category["count"] += 1
-        if expected:
-            category["recall"] += hits / len(expected)
-            category["precision"] += hits / max(len(actual), 1)
-            category["mrr"] += _reciprocal_rank(expected, actual)
-        category["abstention"] += float(receipt.abstained is case.expected_abstention)
-    metrics = {
-        name: {
-            "count": int(values["count"]),
-            "recall_at_k": round(values["recall"] / values["count"], 6) if values["count"] else None,
-            "precision_at_k": round(values["precision"] / values["count"], 6) if values["count"] else None,
-            "mrr": round(values["mrr"] / values["count"], 6) if values["count"] else None,
-            "abstention_accuracy": round(values["abstention"] / values["count"], 6) if values["count"] else None,
-        }
-        for name, values in sorted(categories.items())
-    }
+        group_names = (case.category, case.session_id, f"{case.session_id}/{case.turn_id or case.case_id}")
+        for group, name in zip((categories, sessions, turns), group_names, strict=True):
+            values = group[name]
+            values["count"] += 1
+            if expected:
+                values["recall"] += hits / len(expected)
+                values["precision"] += hits / max(len(actual), 1)
+                values["mrr"] += _reciprocal_rank(expected, actual)
+                values["map"] += _average_precision(expected, actual)
+                values["ndcg"] += _ndcg(expected, actual)
+            values["abstention"] += float(receipt.abstained is case.expected_abstention)
     latencies = sorted(receipt.latency_seconds for receipt in receipts)
     p95_index = max(0, min(len(latencies) - 1, int(len(latencies) * 0.95) - 1)) if latencies else None
     report = {
@@ -220,7 +245,9 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
         "case_count": len(manifest.cases),
         "receipt_count": len(receipts),
         "missing_case_ids": sorted(missing),
-        "metrics_by_category": metrics,
+        "metrics_by_category": _render_metrics(categories),
+        "metrics_by_session": _render_metrics(sessions),
+        "metrics_by_turn": _render_metrics(turns),
         "latency_p95_seconds": latencies[p95_index] if p95_index is not None else None,
         "execution": {"network": False, "model_calls": 0, "sqlite_mutation": False, "qdrant_mutation": False},
     }

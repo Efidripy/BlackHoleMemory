@@ -26,7 +26,7 @@ def _manifest() -> EvaluationManifest:
         dataset_version="fixture-v1",
         dataset_digest=digest,
         cases=(
-            EvaluationCase(case_id="temporal", suite="longmemeval", category="temporal", expected_ids=("m1",), project="p", source_digest=digest),
+            EvaluationCase(case_id="temporal", suite="longmemeval", category="temporal", expected_ids=("m1",), project="p", session_id="s1", turn_id="t1", source_digest=digest),
             EvaluationCase(case_id="abstain", suite="longmemeval", category="abstention", expected_abstention=True, project="p", source_digest=digest),
         ),
     )
@@ -43,6 +43,10 @@ def test_evaluation_is_deterministic_and_separates_categories() -> None:
     assert first == second
     assert first["metrics_by_category"]["temporal"]["recall_at_k"] == 1.0
     assert first["metrics_by_category"]["temporal"]["mrr"] == 0.5
+    assert first["metrics_by_category"]["temporal"]["map_at_k"] == 0.5
+    assert first["metrics_by_category"]["temporal"]["ndcg_at_k"] == 0.63093
+    assert first["metrics_by_session"]["s1"]["recall_at_k"] == 1.0
+    assert first["metrics_by_turn"]["s1/t1"]["mrr"] == 0.5
     assert first["metrics_by_category"]["abstention"]["abstention_accuracy"] == 1.0
     assert first["execution"]["model_calls"] == 0
 
