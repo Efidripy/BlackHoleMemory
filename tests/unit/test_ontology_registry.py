@@ -5,9 +5,11 @@ import copy
 import pytest
 
 from blackholememory.ontology_registry import OntologyEntityType
+from blackholememory.ontology_registry import OntologyRelationWrite
 from blackholememory.ontology_registry import OntologyRelationType
 from blackholememory.ontology_registry import OntologySchema
 from blackholememory.ontology_registry import build_registry_artifact
+from blackholememory.ontology_registry import admit_relation_write
 from blackholememory.ontology_registry import quarantine_unknown
 from blackholememory.ontology_registry import validate_entity
 from blackholememory.ontology_registry import validate_relation
@@ -78,3 +80,39 @@ def test_quarantine_does_not_mutate_schema_or_include_unbounded_content() -> Non
     assert len(item["value"]) == 160
     assert item["status"] == "quarantined"
     assert schema.canonical_payload() == before
+
+
+def _relation_write(schema: OntologySchema, **overrides: object) -> OntologyRelationWrite:
+    values: dict[str, object] = {
+        "project": "blackholememory",
+        "schema_digest": schema.digest(),
+        "relation": "owns",
+        "source_id": "memory-source-private",
+        "source_type": "service",
+        "target_id": "memory-target-private",
+        "target_type": "repository",
+    }
+    values.update(overrides)
+    return OntologyRelationWrite.model_validate(values)
+
+
+def test_relation_write_admission_is_schema_pinned_content_free_and_non_mutating() -> None:
+    schema = _schema()
+    receipt = admit_relation_write(schema, _relation_write(schema))
+
+    assert receipt.decision == "allow"
+    assert receipt.reason_code == "ontology_relation_allowed"
+    assert receipt.source_id_digest != "memory-source-private"
+    assert receipt.target_id_digest != "memory-target-private"
+    assert receipt.sqlite_mutation is False
+    assert receipt.qdrant_mutation is False
+
+
+def test_relation_write_admission_quarantines_scope_digest_status_and_relation_mismatch() -> None:
+    schema = _schema()
+    assert admit_relation_write(schema, _relation_write(schema, project="other")).reason_code == "ontology_project_mismatch"
+    assert admit_relation_write(schema, _relation_write(schema, schema_digest="a" * 64)).reason_code == "ontology_schema_digest_mismatch"
+    assert admit_relation_write(_schema(activation_status="proposal"), _relation_write(_schema(activation_status="proposal"))).reason_code == "ontology_schema_not_declared"
+    mismatch = admit_relation_write(schema, _relation_write(schema, source_type="repository", target_type="service"))
+    assert mismatch.decision == "quarantine"
+    assert mismatch.reason_code == "ontology_relation_source_mismatch"
