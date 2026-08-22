@@ -36,10 +36,12 @@ def _canonical_schema(value: Any) -> Any:
         return {
             key: _canonical_schema(item)
             for key, item in sorted(value.items())
-            if key not in {"title"} and not (key == "default" and item is None)
+            if key not in {"title"} and key != "default"
         }
     if isinstance(value, list):
         return [_canonical_schema(item) for item in value]
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
     return value
 
 

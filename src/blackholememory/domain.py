@@ -16,6 +16,14 @@ from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
 
+from .memory_contracts import MemoryClass
+from .memory_contracts import MemoryClassSource
+from .memory_contracts import EVENT_ROLE_SCHEMA_VERSION
+from .memory_contracts import MemoryEventRole
+from .memory_contracts import ProcedureContract
+from .memory_contracts import ProcedureExecutionTraceReceipt
+from .memory_contracts import SUPPORTED_EVENT_ROLE_VERSIONS
+
 
 class DomainModelError(ValueError):
     """Raised when a persisted record cannot be represented safely."""
@@ -241,6 +249,13 @@ class Memory(_DomainModel):
     id: str
     project: str
     memory_type: str
+    memory_class: MemoryClass = MemoryClass.UNCLASSIFIED
+    memory_class_source: MemoryClassSource = MemoryClassSource.LEGACY_DEFAULT
+    memory_class_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    event_role: MemoryEventRole = MemoryEventRole.UNCLASSIFIED
+    event_role_version: str = EVENT_ROLE_SCHEMA_VERSION
+    procedure_contract: ProcedureContract | None = None
+    procedure_trace_receipt: ProcedureExecutionTraceReceipt | None = None
     lifecycle: Lifecycle = Lifecycle.ACTIVE
     current_revision: MemoryRevision
     provenance: Provenance
@@ -255,7 +270,7 @@ class Memory(_DomainModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
 
-    @field_validator("id", "project", "memory_type", mode="before")
+    @field_validator("id", "project", "memory_type", "event_role_version", mode="before")
     @classmethod
     def _required_text(cls, value: Any, info: Any) -> str:
         return _text(value, f"memory.{info.field_name}") or ""
@@ -286,6 +301,22 @@ class Memory(_DomainModel):
             raise DomainModelError("revision.memory_id must match memory.id")
         if self.provenance.source_id and self.provenance.source_id != self.id:
             raise DomainModelError("provenance.source_id must match memory.id")
+        if self.event_role_version not in SUPPORTED_EVENT_ROLE_VERSIONS:
+            raise DomainModelError(
+                f"memory.event_role_version must be {EVENT_ROLE_SCHEMA_VERSION}"
+            )
+        if self.procedure_contract is not None:
+            if self.memory_class is not MemoryClass.PROCEDURAL:
+                raise DomainModelError("procedure_contract requires memory_class=procedural")
+            if self.procedure_contract.memory_content_sha256 != self.current_revision.content_sha256:
+                raise DomainModelError("procedure_contract memory_content_sha256 does not match content")
+        if self.memory_class is MemoryClass.PROCEDURAL and self.procedure_contract is None:
+            raise DomainModelError("procedural memory requires procedure_contract")
+        if self.procedure_trace_receipt is not None:
+            if self.event_role is not MemoryEventRole.TRACE:
+                raise DomainModelError("procedure_trace_receipt requires event_role=trace")
+            if self.procedure_trace_receipt.project != self.project:
+                raise DomainModelError("procedure_trace_receipt project must match memory.project")
         return self
 
     @classmethod
@@ -297,6 +328,30 @@ class Memory(_DomainModel):
         memory_id = _first_text(raw.get("source_id"), raw.get("id"), metadata.get("source_id"))
         project = _first_text(raw.get("project"), metadata.get("project"))
         memory_type = _first_text(raw.get("memory_type"), raw.get("type"), metadata.get("memory_type"))
+        memory_class = raw.get("memory_class")
+        if memory_class is None:
+            memory_class = metadata.get("memory_class", MemoryClass.UNCLASSIFIED.value)
+        memory_class_source = raw.get("memory_class_source")
+        if memory_class_source is None:
+            memory_class_source = metadata.get(
+                "memory_class_source",
+                MemoryClassSource.LEGACY_DEFAULT.value,
+            )
+        memory_class_confidence = raw.get("memory_class_confidence")
+        if memory_class_confidence is None:
+            memory_class_confidence = metadata.get("memory_class_confidence")
+        event_role = raw.get("event_role")
+        if event_role is None:
+            event_role = metadata.get("event_role", MemoryEventRole.UNCLASSIFIED.value)
+        event_role_version = raw.get("event_role_version")
+        if event_role_version is None:
+            event_role_version = metadata.get("event_role_version", EVENT_ROLE_SCHEMA_VERSION)
+        procedure_contract = raw.get("procedure_contract")
+        if procedure_contract is None:
+            procedure_contract = metadata.get("procedure_contract")
+        procedure_trace_receipt = raw.get("procedure_trace_receipt")
+        if procedure_trace_receipt is None:
+            procedure_trace_receipt = metadata.get("procedure_trace_receipt")
         content = raw.get("content")
         if content is None:
             content = raw.get("memory")
@@ -339,6 +394,13 @@ class Memory(_DomainModel):
             "project",
             "agent_id",
             "memory_type",
+            "memory_class",
+            "memory_class_source",
+            "memory_class_confidence",
+            "event_role",
+            "event_role_version",
+            "procedure_contract",
+            "procedure_trace_receipt",
             "type",
             "content",
             "memory",
@@ -362,6 +424,13 @@ class Memory(_DomainModel):
             id=memory_id,
             project=project,
             memory_type=memory_type,
+            memory_class=memory_class,
+            memory_class_source=memory_class_source,
+            memory_class_confidence=memory_class_confidence,
+            event_role=event_role,
+            event_role_version=event_role_version,
+            procedure_contract=procedure_contract,
+            procedure_trace_receipt=procedure_trace_receipt,
             lifecycle=_lifecycle(raw, metadata),
             current_revision=revision,
             provenance=provenance,
@@ -401,6 +470,21 @@ class Memory(_DomainModel):
             "id": self.id,
             "project": self.project,
             "memory_type": self.memory_type,
+            "memory_class": self.memory_class.value,
+            "memory_class_source": self.memory_class_source.value,
+            "memory_class_confidence": self.memory_class_confidence,
+            "event_role": self.event_role.value,
+            "event_role_version": self.event_role_version,
+            "procedure_contract": (
+                self.procedure_contract.model_dump(mode="json")
+                if self.procedure_contract is not None
+                else None
+            ),
+            "procedure_trace_receipt": (
+                self.procedure_trace_receipt.model_dump(mode="json")
+                if self.procedure_trace_receipt is not None
+                else None
+            ),
             "lifecycle": self.lifecycle.value,
             "title": self.title,
             "summary": self.summary,
@@ -429,6 +513,10 @@ class Memory(_DomainModel):
             metadata.setdefault("revision_metadata", copy.deepcopy(self.current_revision.metadata))
         if self.title and not metadata.get("raw_title"):
             metadata["raw_title"] = self.title
+        if self.procedure_contract is not None:
+            metadata["procedure_contract"] = self.procedure_contract.model_dump(mode="json")
+        if self.procedure_trace_receipt is not None:
+            metadata["procedure_trace_receipt"] = self.procedure_trace_receipt.model_dump(mode="json")
         if self.lifecycle is Lifecycle.ARCHIVED:
             metadata.setdefault("archived_at", self.updated_at)
         elif self.lifecycle is Lifecycle.TOMBSTONED:
@@ -443,6 +531,11 @@ class Memory(_DomainModel):
                 "project": self.project,
                 "agent_id": self.provenance.agent_id,
                 "memory_type": self.memory_type,
+                "memory_class": self.memory_class.value,
+                "memory_class_source": self.memory_class_source.value,
+                "memory_class_confidence": self.memory_class_confidence,
+                "event_role": self.event_role.value,
+                "event_role_version": self.event_role_version,
                 "content": self.current_revision.content,
                 "summary": self.summary,
                 "tags": list(self.tags),

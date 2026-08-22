@@ -98,6 +98,8 @@ def test_bhm_remember_allowed_argument_set_is_canonical_and_immutable():
         "content",
         "project",
         "memory_type",
+        "memory_class",
+        "event_role",
         "concepts",
         "files",
         "metadata",

@@ -208,6 +208,14 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
 
 
 MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
+    ("scripts/validate-bhm-wl300-1-memory-class.py", "_fixture", "shutil.copy2"): BoundaryExpectation(
+        disposition="disposable-sqlite-fixture-copy",
+        scope_signals=("root / \"memory-v1.sqlite3\"", "root / \"memory-v2.sqlite3\""),
+    ),
+    ("scripts/validate-bhm-wl300-1-memory-class.py", "_check", "shutil.rmtree"): BoundaryExpectation(
+        disposition="disposable-validator-cleanup",
+        scope_signals=("shutil.rmtree(raw_root, ignore_errors=True)", "tempfile.mkdtemp(prefix=\"bhm-wl300-1-\")"),
+    ),
     ("scripts/audit-bhm-freshness-review.py", "main", "pathlib.Path.mkdir"): BoundaryExpectation(
         disposition="runtime-confined-read-only-inventory-report",
         scope_signals=("output = _runtime_report_path(args.output)", "Path.mkdir(output.parent, parents=True, exist_ok=True)"),

@@ -177,6 +177,9 @@ from .memory_service import SQLiteMemoryService
 from .memory_search_service import MemorySearchDependencies
 from .memory_search_service import MemorySearchService
 from .memory_search_service import read_only_side_effects
+from .typed_memory_contract import TypedMemoryContractUnavailable
+from .typed_memory_contract import classify_new_memory
+from .typed_memory_contract import typed_memory_capability_available
 from . import memory_contracts as _memory_contracts
 from .sync_service import InvalidTombstone
 from .sync_service import UndoWindowExpired
@@ -417,9 +420,15 @@ from .mcp_repair import execute_reconnect
 from .mcp_repair import execute_rollback
 from .surface_report import build_surface_report
 from .qdrant_catalog import build_qdrant_catalog
+from .typed_memory_contract import require_typed_memory_contract
+from .typed_memory_contract import typed_memory_contract_enabled
 
 
 MemoryMetadata = _memory_contracts.MemoryMetadata
+MemoryClass = _memory_contracts.MemoryClass
+MemoryClassSource = _memory_contracts.MemoryClassSource
+MemoryEventRole = _memory_contracts.MemoryEventRole
+EVENT_ROLE_SCHEMA_VERSION = _memory_contracts.EVENT_ROLE_SCHEMA_VERSION
 MetadataActionability = _memory_contracts.MetadataActionability
 MetadataDomain = _memory_contracts.MetadataDomain
 MetadataLanguage = _memory_contracts.MetadataLanguage
@@ -1002,6 +1011,8 @@ def _fallback_memory_records(
     *,
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | str | None = None,
+    event_role: MemoryEventRole | str | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     include_archived: bool = False,
@@ -1016,6 +1027,8 @@ def _fallback_memory_records(
             item,
             project=project,
             memory_type=memory_type,
+            memory_class=memory_class,
+            event_role=event_role,
             concepts=concepts,
             files=files,
             include_archived=include_archived,
@@ -1043,6 +1056,8 @@ def _fallback_rank_records(query: str, records: list[dict]) -> list[dict]:
 def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> dict:
     records = _fallback_memory_records(
         project=_effective_search_project(request.project),
+        memory_class=request.memory_class,
+        event_role=request.event_role,
         include_archived=request.include_archived,
         include_logs=request.include_logs,
         domain=request.domain,
@@ -1059,6 +1074,8 @@ def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> di
                 "source_id": record.get("source_id"),
                 "project": record.get("project"),
                 "memory_type": record.get("memory_type"),
+                "memory_class": _effective_memory_class(record),
+                "event_role": _effective_event_role(record),
                 "tags": record.get("tags") or [],
             },
             "score": 0.0,
@@ -1073,6 +1090,8 @@ def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> di
         "fallback_grace": _fallback_grace_meta("mem0.search", reason),
         "filters": {
             "project": request.project,
+            "memory_class": request.memory_class.value if request.memory_class else None,
+            "event_role": request.event_role.value if request.event_role else None,
             "domain": request.domain,
             "semantic_type": request.semantic_type,
             "priority": request.priority,
@@ -1088,6 +1107,8 @@ def _fallback_grace_memories_response(
     *,
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | str | None = None,
+    event_role: MemoryEventRole | str | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     query: str = "",
@@ -1102,6 +1123,8 @@ def _fallback_grace_memories_response(
     items = _fallback_memory_records(
         project=project,
         memory_type=memory_type,
+        memory_class=memory_class,
+        event_role=event_role,
         concepts=concepts,
         files=files,
         include_archived=include_archived,
@@ -1956,6 +1979,23 @@ def _mcp_model_dump(value: Any) -> Any:
     return value
 
 
+def _mcp_catalog_tool_dump(value: Any) -> dict[str, Any]:
+    """Publish a compact core catalog without FastMCP implementation extras."""
+
+    dumped = _mcp_model_dump(value)
+    if not isinstance(dumped, dict):
+        return {}
+    # ``outputSchema`` and ``meta.fastmcp`` are optional implementation
+    # metadata, not part of BHM's stable tool admission contract.  Omitting
+    # them keeps the default attach catalog below the bounded frame budget.
+    dumped.pop("outputSchema", None)
+    dumped.pop("meta", None)
+    description = dumped.get("description")
+    if isinstance(description, str) and len(description) > 240:
+        dumped["description"] = description[:237].rstrip() + "..."
+    return dumped
+
+
 def _jsonrpc_success(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
     """Return a bounded JSON-RPC result without leaking nested sensitive fields."""
 
@@ -2042,7 +2082,7 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
         if surface.value == "admin" and not is_admin_capability_valid(extract_mcp_capability(params)):
             requested_tools = resolve_mcp_surface("core")
         tools = filter_tools(await bhm_mcp.mcp.list_tools(), requested_tools)
-        return _jsonrpc_success(request_id, {"tools": [_mcp_model_dump(tool) for tool in tools]})
+        return _jsonrpc_success(request_id, {"tools": [_mcp_catalog_tool_dump(tool) for tool in tools]})
     if method == "tools/call":
         name = str(params.get("name") or "")
         arguments = params.get("arguments") or {}
@@ -2640,6 +2680,8 @@ class SearchRequest(BaseModel):
     top_k: int = Field(default=5, ge=1, le=200)
     domain: str | None = None
     semantic_type: str | None = None
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     priority: str | None = None
     include_archived: bool = False
     include_logs: bool = False
@@ -2648,6 +2690,8 @@ class SearchRequest(BaseModel):
 class RememberRequest(BaseModel):
     project: str = "e-github-workspace"
     type: str = "workflow"
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     content: str
     concepts: list[str] | None = None
     files: list[str] | None = None
@@ -2659,6 +2703,8 @@ class MemoryUpdateRequest(BaseModel):
     id: str
     project: str | None = None
     type: str | None = None
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     content: str | None = None
     concepts: list[str] | None = None
     files: list[str] | None = None
@@ -2690,6 +2736,8 @@ class MemoryAdvancedSearchRequest(BaseModel):
     query: str = ""
     project: str | None = None
     memory_type: str | None = None
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     concepts: list[str] | None = None
     files: list[str] | None = None
     include_archived: bool = False
@@ -2707,6 +2755,8 @@ class ContextCompileRequest(BaseModel):
     query: str
     project: str | None = None
     memory_type: str | None = None
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     concepts: list[str] | None = None
     files: list[str] | None = None
     include_archived: bool = False
@@ -2725,6 +2775,8 @@ class RetrievalExplainRequest(BaseModel):
     query: str
     project: str | None = None
     memory_type: str | None = None
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     concepts: list[str] | None = None
     files: list[str] | None = None
     include_archived: bool = False
@@ -2757,6 +2809,8 @@ class McpRepairRequest(BaseModel):
 class MemoryRecentActivityRequest(BaseModel):
     project: str | None = None
     memory_type: str | None = None
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     include_archived: bool = False
     limit: int = 10
 
@@ -2819,6 +2873,8 @@ class MemoryUpsertRequest(BaseModel):
     upsert_key: str
     project: str = "e-github-workspace"
     type: str = "workflow"
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     content: str
     concepts: list[str] | None = None
     files: list[str] | None = None
@@ -3584,6 +3640,8 @@ class MemoryTimelineRequest(BaseModel):
     project: str | None = None
     concept: str | None = None
     memory_type: str | None = None
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     include_archived: bool = False
     limit: int = 20
 
@@ -4009,6 +4067,8 @@ class TypeMigrateRequest(BaseModel):
 class HybridSearchRequest(BaseModel):
     query: str
     project: str | None = None
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     domain: str | None = None
     semantic_type: str | None = None
     priority: str | None = None
@@ -4148,6 +4208,45 @@ def _memory_service() -> SQLiteMemoryService:
             service = SQLiteMemoryService(config.database_path)
             _MEMORY_SERVICES[key] = service
         return service
+
+
+def _require_typed_memory_boundary(
+    *,
+    memory_class: MemoryClass | str | None = None,
+    event_role: MemoryEventRole | str | None = None,
+) -> None:
+    """Reject typed intent until the additive contract is operator-enabled."""
+
+    if memory_class is None and event_role is None:
+        return
+    try:
+        require_typed_memory_contract(
+            capability_available=typed_memory_capability_available(_memory_service().path)
+        )
+    except (TypedMemoryContractUnavailable, OSError, sqlite3.Error) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "typed_memory_contract_unavailable",
+                "feature_flag": "BHM_TYPED_MEMORY_CONTRACT_ENABLED",
+                "enabled": typed_memory_contract_enabled(),
+                "reason": str(exc),
+            },
+        ) from exc
+
+
+def _typed_projection_pushdown_ready() -> bool:
+    """Return the explicit operator gate for equality pushdown into Qdrant."""
+
+    raw = str(os.getenv("BHM_TYPED_MEMORY_PROJECTION_READY", "false") or "").strip().casefold()
+    if raw not in {"1", "true", "yes", "on"}:
+        return False
+    if not typed_memory_contract_enabled():
+        return False
+    try:
+        return typed_memory_capability_available(_memory_service().repository.path)
+    except (OSError, sqlite3.Error):
+        return False
 
 
 def _initialize_authoritative_memory_service() -> None:
@@ -4653,11 +4752,33 @@ def _delete_live_memory_hard(request: HardDeleteMemoryRequest) -> dict:
 
 def _serialize_memory_record(record: dict) -> dict:
     metadata = dict(record.get("metadata") or {})
+    memory_class = str(
+        record.get("memory_class")
+        or metadata.get("memory_class")
+        or MemoryClass.UNCLASSIFIED.value
+    )
     return {
         "id": record.get("source_id"),
         "title": metadata.get("raw_title") or _build_memory_title(record.get("content") or ""),
         "project": record.get("project"),
         "type": record.get("memory_type"),
+        "memory_class": memory_class,
+        "memory_class_source": (
+            record.get("memory_class_source")
+            or metadata.get("memory_class_source")
+            or MemoryClassSource.LEGACY_DEFAULT.value
+        ),
+        "memory_class_confidence": (
+            record.get("memory_class_confidence")
+            if record.get("memory_class_confidence") is not None
+            else metadata.get("memory_class_confidence")
+        ),
+        "event_role": _effective_event_role(record),
+        "event_role_version": (
+            record.get("event_role_version")
+            or metadata.get("event_role_version")
+            or EVENT_ROLE_SCHEMA_VERSION
+        ),
         "content": record.get("content"),
         "concepts": record.get("tags") or [],
         "files": metadata.get("files") or [],
@@ -4917,6 +5038,24 @@ def _memory_lifecycle(record: dict) -> str:
     return "active"
 
 
+def _effective_memory_class(record: Mapping[str, Any]) -> str:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+    return str(
+        record.get("memory_class")
+        or metadata.get("memory_class")
+        or MemoryClass.UNCLASSIFIED.value
+    ).strip().lower()
+
+
+def _effective_event_role(record: Mapping[str, Any]) -> str:
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+    return str(
+        record.get("event_role")
+        or metadata.get("event_role")
+        or MemoryEventRole.UNCLASSIFIED.value
+    ).strip().lower()
+
+
 def _metadata_matches_taxonomy_filters(
     metadata: dict[str, Any],
     domain: str | None = None,
@@ -4949,6 +5088,8 @@ def _memory_matches_filters(
     record: dict,
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | str | None = None,
+    event_role: MemoryEventRole | str | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     include_archived: bool = False,
@@ -4975,6 +5116,16 @@ def _memory_matches_filters(
         return False
     if memory_type and record.get("memory_type") != memory_type:
         return False
+    requested_memory_class = (
+        memory_class.value if isinstance(memory_class, MemoryClass) else str(memory_class or "").strip().lower()
+    )
+    if requested_memory_class and _effective_memory_class(record) != requested_memory_class:
+        return False
+    requested_event_role = (
+        event_role.value if isinstance(event_role, MemoryEventRole) else str(event_role or "").strip().lower()
+    )
+    if requested_event_role and _effective_event_role(record) != requested_event_role:
+        return False
     if concepts and not set(concepts).issubset(record_concepts):
         return False
     if files and not set(files).issubset(record_files):
@@ -4983,6 +5134,10 @@ def _memory_matches_filters(
 
 
 def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tuple[list[dict], int]:
+    _require_typed_memory_boundary(
+        memory_class=request.memory_class,
+        event_role=request.event_role,
+    )
     project = _effective_search_project(request.project)
     candidates = []
     query = (request.query or "").strip()
@@ -4991,6 +5146,8 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
             record,
             project=project,
             memory_type=request.memory_type,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
             concepts=request.concepts,
             files=request.files,
             include_archived=request.include_archived,
@@ -5009,6 +5166,18 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
                 "raw_title": metadata.get("raw_title"),
                 "tags": record.get("tags") or [],
                 "memory_type": record.get("memory_type"),
+                "memory_class": _effective_memory_class(record),
+                "memory_class_source": (
+                    record.get("memory_class_source")
+                    or metadata.get("memory_class_source")
+                    or MemoryClassSource.LEGACY_DEFAULT.value
+                ),
+                "event_role": _effective_event_role(record),
+                "event_role_version": (
+                    record.get("event_role_version")
+                    or metadata.get("event_role_version")
+                    or EVENT_ROLE_SCHEMA_VERSION
+                ),
                 "project": record.get("project"),
                 "files": metadata.get("files") or [],
                 "archived_at": metadata.get("archived_at"),
@@ -5090,12 +5259,18 @@ def _get_memory_links(memory_id: str, project: str) -> list[dict]:
 
 
 def _recent_activity_live_memories(request: MemoryRecentActivityRequest) -> list[dict]:
+    _require_typed_memory_boundary(
+        memory_class=request.memory_class,
+        event_role=request.event_role,
+    )
     items = [
         item for item in _load_live_memories()
         if _memory_matches_filters(
             item,
             project=request.project,
             memory_type=request.memory_type,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
             include_archived=request.include_archived,
         )
     ]
@@ -5107,10 +5282,13 @@ def _list_live_memories(
     *,
     project: str | None,
     memory_type: str | None,
+    memory_class: MemoryClass | str | None = None,
+    event_role: MemoryEventRole | str | None = None,
     include_archived: bool,
     limit: int,
     offset: int,
 ) -> tuple[list[dict], int, int, int]:
+    _require_typed_memory_boundary(memory_class=memory_class, event_role=event_role)
     items = [
         item
         for item in _load_live_memories()
@@ -5118,6 +5296,8 @@ def _list_live_memories(
             item,
             project=project,
             memory_type=memory_type,
+            memory_class=memory_class,
+            event_role=event_role,
             include_archived=include_archived,
         )
     ]
@@ -5822,6 +6002,8 @@ def _vector_item_matches_search_request(item: dict, request: SearchRequest) -> b
         return _memory_matches_filters(
             live_record,
             project=project,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
             include_archived=request.include_archived,
             include_logs=request.include_logs,
             domain=request.domain,
@@ -5833,6 +6015,10 @@ def _vector_item_matches_search_request(item: dict, request: SearchRequest) -> b
 
     accepted_projects = _project_aliases(project)
     if metadata.get("project") not in accepted_projects:
+        return False
+    if request.memory_class and _effective_memory_class(item) != request.memory_class.value:
+        return False
+    if request.event_role and _effective_event_role(item) != request.event_role.value:
         return False
     return _metadata_matches_taxonomy_filters(
         metadata,
@@ -5924,6 +6110,11 @@ _PROTECTED_MEMORY_METADATA_KEYS = frozenset(
         "source_system",
         "source_id",
         "memory_type",
+        "memory_class",
+        "memory_class_source",
+        "memory_class_confidence",
+        "event_role",
+        "event_role_version",
         "tags",
         "session_refs",
         "created_at",
@@ -5963,6 +6154,21 @@ def _user_memory_metadata(metadata: MemoryMetadata | dict[str, Any] | None) -> d
     }
 
 
+def _validate_procedure_contract_binding(memory_class: str, metadata: Mapping[str, Any]) -> None:
+    has_contract = isinstance(metadata.get("procedure_contract"), Mapping)
+    is_procedural = str(memory_class or "").strip().casefold() == MemoryClass.PROCEDURAL.value
+    if is_procedural and not has_contract:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "procedural_memory_requires_procedure_contract"},
+        )
+    if has_contract and not is_procedural:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "procedure_contract_requires_procedural_memory_class"},
+        )
+
+
 def _semantic_graph_node_id(item: dict) -> str:
     metadata = item.get("metadata") or {}
     return str(metadata.get("source_id") or item.get("source_id") or item.get("id") or "").strip()
@@ -5980,16 +6186,22 @@ def _semantic_graph_node_aliases(item: dict) -> list[str]:
 
 
 def _mem0_metadata_for_record(record: dict) -> dict[str, Any]:
+    metadata = record.get("metadata") or {}
     return {
+        **metadata,
         "project": record["project"],
         "source_system": record["source_system"],
         "source_id": record["source_id"],
         "memory_type": record["memory_type"],
+        "memory_class": record.get("memory_class") or metadata.get("memory_class") or MemoryClass.UNCLASSIFIED.value,
+        "memory_class_source": record.get("memory_class_source") or metadata.get("memory_class_source") or MemoryClassSource.LEGACY_DEFAULT.value,
+        "memory_class_confidence": record.get("memory_class_confidence") if record.get("memory_class_confidence") is not None else metadata.get("memory_class_confidence"),
+        "event_role": record.get("event_role") or metadata.get("event_role") or MemoryEventRole.UNCLASSIFIED.value,
+        "event_role_version": record.get("event_role_version") or metadata.get("event_role_version") or EVENT_ROLE_SCHEMA_VERSION,
         "tags": record["tags"],
         "session_refs": record["session_refs"],
         "created_at": record["created_at"],
         "updated_at": record["updated_at"],
-        **(record.get("metadata") or {}),
     }
 
 
@@ -6136,13 +6348,41 @@ def _remember_live_memory(request: RememberRequest) -> dict:
     source_id = f"mem_bhm_{uuid.uuid4().hex[:16]}"
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     project = _canonical_project(request.project)
+    user_metadata = _user_memory_metadata(request.metadata)
+    procedure_contract = request.metadata.procedure_contract if request.metadata is not None else None
+    capability_available = (
+        typed_memory_capability_available(_memory_service().repository.path)
+        if _memory_store_is_authoritative()
+        else True
+    )
+    try:
+        classification = classify_new_memory(
+            explicit_class=request.memory_class,
+            memory_type=request.type,
+            event_role=request.event_role,
+            procedure_contract=procedure_contract,
+            capability_available=capability_available,
+        )
+    except TypedMemoryContractUnavailable as exc:
+        raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
+    memory_class = classification.memory_class
+    memory_class_source = classification.source
+    event_role = request.event_role or MemoryEventRole.UNCLASSIFIED
+    _validate_procedure_contract_binding(memory_class.value, user_metadata)
     metadata = initial_decay_metadata(
         {
             "raw_title": _build_memory_title(request.content),
             "confidence": None,
             "files": request.files or [],
             "upsert_key": request.upsert_key,
-            **_user_memory_metadata(request.metadata),
+            "memory_class": memory_class.value,
+            "memory_class_source": memory_class_source.value,
+            "memory_class_confidence": classification.confidence,
+            "memory_class_rule_id": classification.rule_id,
+            "memory_class_rule_version": classification.rule_version,
+            "event_role": event_role.value,
+            "event_role_version": EVENT_ROLE_SCHEMA_VERSION,
+            **user_metadata,
         },
         created_at=now,
     )
@@ -6152,6 +6392,11 @@ def _remember_live_memory(request: RememberRequest) -> dict:
         "project": project,
         "agent_id": "workspace",
         "memory_type": request.type,
+        "memory_class": memory_class.value,
+        "memory_class_source": memory_class_source.value,
+        "memory_class_confidence": classification.confidence,
+        "event_role": event_role.value,
+        "event_role_version": EVENT_ROLE_SCHEMA_VERSION,
         "content": request.content,
         "summary": None,
         "tags": request.concepts or [],
@@ -6175,6 +6420,10 @@ def _remember_live_memory(request: RememberRequest) -> dict:
 
 
 def _update_live_memory(request: MemoryUpdateRequest) -> dict:
+    _require_typed_memory_boundary(
+        memory_class=request.memory_class,
+        event_role=request.event_role,
+    )
     if _memory_store_is_authoritative():
         item = _find_live_memory(request.id, request.project)
         if item is None:
@@ -6186,6 +6435,16 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             item["project"] = canonical_project
         if request.type:
             item["memory_type"] = request.type
+        if request.memory_class is not None:
+            item["memory_class"] = request.memory_class.value
+            item["memory_class_source"] = MemoryClassSource.CALLER_EXPLICIT.value
+            item.setdefault("metadata", {})["memory_class"] = request.memory_class.value
+            item["metadata"]["memory_class_source"] = MemoryClassSource.CALLER_EXPLICIT.value
+        if request.event_role is not None:
+            item["event_role"] = request.event_role.value
+            item["event_role_version"] = EVENT_ROLE_SCHEMA_VERSION
+            item.setdefault("metadata", {})["event_role"] = request.event_role.value
+            item["metadata"]["event_role_version"] = EVENT_ROLE_SCHEMA_VERSION
         if request.content is not None:
             item["content"] = request.content
             item.setdefault("metadata", {})["raw_title"] = _build_memory_title(request.content)
@@ -6195,6 +6454,7 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             item.setdefault("metadata", {})["files"] = request.files
         if request.metadata_patch is not None:
             item.setdefault("metadata", {}).update(_user_memory_metadata(request.metadata_patch))
+        _validate_procedure_contract_binding(_effective_memory_class(item), item.setdefault("metadata", {}))
         item["updated_at"] = now
         item["metadata"] = ensure_decay_metadata(
             item.setdefault("metadata", {}),
@@ -6205,6 +6465,8 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             "update",
             {
                 "type": request.type,
+                "memory_class": request.memory_class.value if request.memory_class else None,
+                "event_role": request.event_role.value if request.event_role else None,
                 "content_changed": request.content is not None,
                 "metadata_changed": request.metadata_patch is not None,
             },
@@ -6228,6 +6490,16 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             item["project"] = canonical_project
         if request.type:
             item["memory_type"] = request.type
+        if request.memory_class is not None:
+            item["memory_class"] = request.memory_class.value
+            item["memory_class_source"] = MemoryClassSource.CALLER_EXPLICIT.value
+            item.setdefault("metadata", {})["memory_class"] = request.memory_class.value
+            item["metadata"]["memory_class_source"] = MemoryClassSource.CALLER_EXPLICIT.value
+        if request.event_role is not None:
+            item["event_role"] = request.event_role.value
+            item["event_role_version"] = EVENT_ROLE_SCHEMA_VERSION
+            item.setdefault("metadata", {})["event_role"] = request.event_role.value
+            item["metadata"]["event_role_version"] = EVENT_ROLE_SCHEMA_VERSION
         if request.content is not None:
             item["content"] = request.content
             item.setdefault("metadata", {})["raw_title"] = _build_memory_title(request.content)
@@ -6237,6 +6509,7 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             item.setdefault("metadata", {})["files"] = request.files
         if request.metadata_patch is not None:
             item.setdefault("metadata", {}).update(_user_memory_metadata(request.metadata_patch))
+        _validate_procedure_contract_binding(_effective_memory_class(item), item.setdefault("metadata", {}))
 
         item["updated_at"] = now
         item["metadata"] = ensure_decay_metadata(
@@ -6248,6 +6521,8 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             "update",
             {
                 "type": request.type,
+                "memory_class": request.memory_class.value if request.memory_class else None,
+                "event_role": request.event_role.value if request.event_role else None,
                 "content_changed": request.content is not None,
                 "metadata_changed": request.metadata_patch is not None,
             },
@@ -6305,6 +6580,8 @@ def _upsert_live_memory(request: MemoryUpsertRequest) -> tuple[str, dict]:
             RememberRequest(
                 project=canonical_project,
                 type=request.type,
+                memory_class=request.memory_class,
+                event_role=request.event_role,
                 content=request.content,
                 concepts=request.concepts,
                 files=request.files,
@@ -6320,6 +6597,8 @@ def _upsert_live_memory(request: MemoryUpsertRequest) -> tuple[str, dict]:
             id=existing["source_id"],
             project=canonical_project,
             type=request.type,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
             content=request.content,
             concepts=request.concepts,
             files=request.files,
@@ -8250,12 +8529,18 @@ def _get_validation_snapshot(project: str) -> dict:
 
 
 def _memory_timeline(request: MemoryTimelineRequest) -> list[dict]:
+    _require_typed_memory_boundary(
+        memory_class=request.memory_class,
+        event_role=request.event_role,
+    )
     items = [
         item for item in _load_live_memories()
         if _memory_matches_filters(
             item,
             project=request.project,
             memory_type=request.memory_type,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
             concepts=[request.concept] if request.concept else None,
             include_archived=request.include_archived,
         )
@@ -8965,6 +9250,8 @@ def _search_hybrid(request: HybridSearchRequest) -> dict:
         MemoryAdvancedSearchRequest(
             query=request.query,
             project=project,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
             domain=request.domain,
             semantic_type=request.semantic_type,
             priority=request.priority,
@@ -11536,6 +11823,8 @@ def _galaxy_memory_record_node(record: dict[str, Any]) -> dict[str, Any] | None:
     content = str(record.get("content") or record.get("memory") or "").strip()
     tags = _galaxy_string_list(record.get("tags") or metadata.get("tags") or metadata.get("concepts"))
     memory_type = str(record.get("memory_type") or metadata.get("memory_type") or "memory").strip() or "memory"
+    memory_class = str(record.get("memory_class") or metadata.get("memory_class") or MemoryClass.UNCLASSIFIED.value)
+    event_role = str(record.get("event_role") or metadata.get("event_role") or MemoryEventRole.UNCLASSIFIED.value)
     updated_at = str(record.get("updated_at") or record.get("created_at") or "")
     node_payload = {
         **metadata,
@@ -11556,6 +11845,8 @@ def _galaxy_memory_record_node(record: dict[str, Any]) -> dict[str, Any] | None:
             **metadata,
             "project": project_key,
             "memory_type": memory_type,
+            "memory_class": memory_class,
+            "event_role": event_role,
             "created_at": record.get("created_at"),
             "updated_at": record.get("updated_at"),
             "lifecycle": "active",
@@ -11564,6 +11855,8 @@ def _galaxy_memory_record_node(record: dict[str, Any]) -> dict[str, Any] | None:
             "project": project_key,
             "project_key": project_key,
             "memory_type": memory_type,
+            "memory_class": memory_class,
+            "event_role": event_role,
             "source_id": memory_id,
             "product_root": "BlackHoleMemory",
             "galaxy_domain": "memory",
@@ -11579,11 +11872,26 @@ def _galaxy_memory_record_node(record: dict[str, Any]) -> dict[str, Any] | None:
 def _load_galaxy_authoritative_nodes_sync(
     project: str | None,
     limit: int | None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     project_key = _canonical_project(project) if project else None
     service = _memory_service()
-    total = service.count_records(project=project_key)
-    records = service.list_records(project=project_key, limit=limit)
+    class_value = memory_class.value if memory_class else None
+    role_value = event_role.value if event_role else None
+    if memory_class is None and event_role is None:
+        # Keep the helper compatible with lightweight operator/test service
+        # doubles that implement the pre-typed contract signature.
+        total = service.count_records(project=project_key)
+        records = service.list_records(project=project_key, limit=limit)
+    else:
+        total = service.count_records(project=project_key, memory_class=class_value, event_role=role_value)
+        records = service.list_records(
+            project=project_key,
+            memory_class=class_value,
+            event_role=role_value,
+            limit=limit,
+        )
     nodes = [node for record in records if (node := _galaxy_memory_record_node(record)) is not None]
     # A scoped Galaxy response must not disclose project names outside the
     # caller's requested scope.  ``list_projects()`` is intentionally global
@@ -11602,8 +11910,10 @@ def _load_galaxy_authoritative_nodes_sync(
 async def _load_galaxy_authoritative_nodes(
     project: str | None,
     limit: int | None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
-    return await asyncio.to_thread(_load_galaxy_authoritative_nodes_sync, project, limit)
+    return await asyncio.to_thread(_load_galaxy_authoritative_nodes_sync, project, limit, memory_class, event_role)
 
 
 def _load_galaxy_authoritative_links_sync(project: str | None) -> list[dict[str, Any]]:
@@ -11615,12 +11925,26 @@ async def _build_galaxy_data(
     project: str | None,
     limit: int | None,
     domain: str = "memory",
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
 ) -> dict[str, Any]:
     """Build a newest-first visual read model from authoritative SQLite."""
 
+    _require_typed_memory_boundary(memory_class=memory_class, event_role=event_role)
     del domain  # Kept as a compatibility query parameter for older launchers.
     requested_project = _canonical_project(project) if project else ""
-    memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(requested_project or None, limit)
+    if memory_class is None and event_role is None:
+        memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(
+            requested_project or None,
+            limit,
+        )
+    else:
+        memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(
+            requested_project or None,
+            limit,
+            memory_class,
+            event_role,
+        )
     visible_memory_ids = {str(node["id"]) for node in memory_nodes}
     persisted_links = await asyncio.to_thread(_load_galaxy_authoritative_links_sync, requested_project or None)
 
@@ -11703,6 +12027,10 @@ async def _build_galaxy_data(
         "top_projects": available_projects,
         "mode": "all" if limit is None else "limited",
         "limit": limit,
+        "filters": {
+            "memory_class": memory_class.value if memory_class else None,
+            "event_role": event_role.value if event_role else None,
+        },
         "authority": "sqlite-authoritative",
         "order": "updated_at_desc",
         "generated_at": _utc_now_iso(),
@@ -11883,6 +12211,8 @@ def _vector_hit_matches_filters(
     *,
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | str | None = None,
+    event_role: MemoryEventRole | str | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     domain: str | None = None,
@@ -11896,6 +12226,16 @@ def _vector_hit_matches_filters(
     if accepted_projects and metadata.get("project") not in accepted_projects:
         return False
     if memory_type and metadata.get("memory_type") != memory_type:
+        return False
+    requested_memory_class = (
+        memory_class.value if isinstance(memory_class, MemoryClass) else str(memory_class or "").strip().lower()
+    )
+    if requested_memory_class and _effective_memory_class(hit) != requested_memory_class:
+        return False
+    requested_event_role = (
+        event_role.value if isinstance(event_role, MemoryEventRole) else str(event_role or "").strip().lower()
+    )
+    if requested_event_role and _effective_event_role(hit) != requested_event_role:
         return False
     if concepts and not set(concepts).issubset(set(metadata.get("tags") or [])):
         return False
@@ -11924,6 +12264,11 @@ def _serialize_vector_hit(hit: dict) -> dict:
         "title": metadata.get("raw_title") or _build_memory_title(content),
         "project": metadata.get("project"),
         "type": metadata.get("memory_type"),
+        "memory_class": _effective_memory_class(hit),
+        "memory_class_source": metadata.get("memory_class_source") or MemoryClassSource.LEGACY_DEFAULT.value,
+        "memory_class_confidence": metadata.get("memory_class_confidence"),
+        "event_role": _effective_event_role(hit),
+        "event_role_version": metadata.get("event_role_version") or EVENT_ROLE_SCHEMA_VERSION,
         "content": content,
         "memory": content,
         "concepts": metadata.get("tags") or [],
@@ -11976,6 +12321,10 @@ def _context_item_from_vector_hit(hit: dict) -> dict[str, Any]:
             "agent_id": agent_id,
             "session_refs": session_refs,
             "context_origin": context_origin,
+            "memory_class": _effective_memory_class(hit),
+            "memory_class_source": metadata.get("memory_class_source") or MemoryClassSource.LEGACY_DEFAULT.value,
+            "event_role": _effective_event_role(hit),
+            "event_role_version": metadata.get("event_role_version") or EVENT_ROLE_SCHEMA_VERSION,
         },
     }
 
@@ -11985,6 +12334,8 @@ def _strict_retrieval_hits(
     *,
     project_name: str,
     memory_type: str | None = None,
+    memory_class: MemoryClass | str | None = None,
+    event_role: MemoryEventRole | str | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     domain: str | None = None,
@@ -11994,15 +12345,47 @@ def _strict_retrieval_hits(
     include_logs: bool = False,
     limit: int = 10,
 ) -> list[dict]:
-    """Apply the authoritative post-filter before exposing retrieval diagnostics."""
+    """Hydrate candidates from authoritative SQLite before exposing them.
 
-    return [
-        hit
-        for hit in hits
-        if _vector_hit_matches_filters(
-            hit,
+    Qdrant/Mem0 payloads are only ranking hints.  A missing or stale point is
+    suppressed rather than trusted, which keeps lifecycle, revision, project
+    and typed-filter decisions on the SQLite authority boundary.
+    """
+
+    source_ids: list[str] = []
+    hit_ids: dict[int, str] = {}
+    for index, hit in enumerate(hits):
+        metadata = hit.get("metadata") if isinstance(hit.get("metadata"), Mapping) else {}
+        source_id = str(
+            metadata.get("source_id")
+            or hit.get("source_id")
+            or hit.get("id")
+            or ""
+        ).strip()
+        if source_id:
+            hit_ids[index] = source_id
+            if source_id not in source_ids:
+                source_ids.append(source_id)
+    if not source_ids:
+        return []
+
+    authoritative = {
+        str(record.get("source_id") or record.get("id") or ""): record
+        for record in _memory_service().get_records(
+            source_ids,
+            project=_canonical_project(project_name),
+        )
+    }
+    accepted: list[dict] = []
+    for index, hit in enumerate(hits):
+        source_id = hit_ids.get(index)
+        record = authoritative.get(source_id or "")
+        if record is None or not _memory_matches_filters(
+            record,
             project=project_name,
             memory_type=memory_type,
+            memory_class=memory_class,
+            event_role=event_role,
             concepts=concepts,
             files=files,
             domain=domain,
@@ -12010,8 +12393,38 @@ def _strict_retrieval_hits(
             priority=priority,
             include_archived=include_archived,
             include_logs=include_logs,
+        ):
+            continue
+        enriched = dict(hit)
+        metadata = dict(enriched.get("metadata") or {})
+        authoritative_metadata = dict(record.get("metadata") or {})
+        metadata.update(
+            {
+                "source_id": source_id,
+                "project": record.get("project"),
+                "memory_type": record.get("memory_type"),
+                "memory_class": _effective_memory_class(record),
+                "memory_class_source": record.get("memory_class_source")
+                or authoritative_metadata.get("memory_class_source"),
+                "memory_class_confidence": record.get("memory_class_confidence")
+                if record.get("memory_class_confidence") is not None
+                else authoritative_metadata.get("memory_class_confidence"),
+                "event_role": _effective_event_role(record),
+                "event_role_version": record.get("event_role_version")
+                or authoritative_metadata.get("event_role_version")
+                or EVENT_ROLE_SCHEMA_VERSION,
+                "lifecycle": record.get("lifecycle") or authoritative_metadata.get("lifecycle"),
+                "revision_id": record.get("revision_id") or authoritative_metadata.get("revision_id"),
+                "content_sha256": record.get("content_sha256")
+                or authoritative_metadata.get("content_sha256"),
+            }
         )
-    ][: max(int(limit), 1)]
+        enriched["metadata"] = metadata
+        enriched["source_id"] = source_id
+        enriched["content"] = record.get("content")
+        enriched["memory"] = record.get("content")
+        accepted.append(enriched)
+    return accepted[: max(int(limit), 1)]
 
 
 async def federated_search(
@@ -12021,6 +12434,8 @@ async def federated_search(
     offset: int = 0,
     *,
     memory_type: str | None = None,
+    memory_class: MemoryClass | str | None = None,
+    event_role: MemoryEventRole | str | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     domain: str | None = None,
@@ -12031,14 +12446,31 @@ async def federated_search(
     include_graph_expansion: bool = True,
     include_global: bool = True,
 ) -> tuple[list[dict], int]:
+    _require_typed_memory_boundary(memory_class=memory_class, event_role=event_role)
     project_name = _effective_search_project(project_name)
     page_limit = max(min(limit, 200), 1)
     page_offset = max(offset, 0)
-    candidate_count = max(page_limit + page_offset, 20)
+    typed_filter_requested = memory_class is not None or event_role is not None
+    pushdown_ready = _typed_projection_pushdown_ready() if typed_filter_requested else False
+    # Legacy projections may lack typed payload fields.  Keep a bounded wide
+    # pool until an operator has proven V2 parity; final filtering remains
+    # SQLite-authoritative and therefore cannot silently lose rare classes.
+    candidate_count = max(
+        page_limit + page_offset,
+        20 if pushdown_ready or not typed_filter_requested else 200,
+    )
     candidate_filters = build_candidate_filters(
         user_id=settings.mem0_user_id,
         project_values=_project_aliases(project_name),
         memory_type=memory_type,
+        memory_class=(
+            memory_class.value if isinstance(memory_class, MemoryClass) and pushdown_ready else
+            str(memory_class).strip().lower() if memory_class is not None and pushdown_ready else None
+        ),
+        event_role=(
+            event_role.value if isinstance(event_role, MemoryEventRole) and pushdown_ready else
+            str(event_role).strip().lower() if event_role is not None and pushdown_ready else None
+        ),
         concepts=concepts or [],
         files=files or [],
         domain=domain,
@@ -12107,6 +12539,8 @@ async def federated_search(
             hit,
             project=project_name,
             memory_type=memory_type,
+            memory_class=memory_class,
+            event_role=event_role,
             concepts=concepts,
             files=files,
             domain=domain,
@@ -15819,6 +16253,8 @@ async def bhm_galaxy_data(
     project: str | None = None,
     limit: str = "200",
     domain: str = "memory",
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
 ) -> dict:
     """Return the newest SQLite-authoritative memory view for Galaxy."""
 
@@ -15832,7 +16268,15 @@ async def bhm_galaxy_data(
             raise HTTPException(status_code=422, detail={"code": "galaxy_limit_invalid"}) from exc
         if parsed_limit < 1:
             raise HTTPException(status_code=422, detail={"code": "galaxy_limit_invalid"})
-    return await _build_galaxy_data(project, parsed_limit, domain=domain)
+    if memory_class is None and event_role is None:
+        return await _build_galaxy_data(project, parsed_limit, domain=domain)
+    return await _build_galaxy_data(
+        project,
+        parsed_limit,
+        domain=domain,
+        memory_class=memory_class,
+        event_role=event_role,
+    )
 
 
 @app.get("/bhm/galaxy/stats", response_model=GalaxyStatsResponse)
@@ -16105,6 +16549,8 @@ def mem0_search(request: SearchRequest) -> dict:
                 request.query,
                 project_name,
                 limit=request.top_k,
+                memory_class=request.memory_class,
+                event_role=request.event_role,
                 domain=request.domain,
                 semantic_type=request.semantic_type,
                 priority=request.priority,
@@ -16119,6 +16565,8 @@ def mem0_search(request: SearchRequest) -> dict:
             "result": result,
             "filters": {
                 "project": request.project,
+                "memory_class": request.memory_class.value if request.memory_class else None,
+                "event_role": request.event_role.value if request.event_role else None,
                 "domain": request.domain,
                 "semantic_type": request.semantic_type,
                 "priority": request.priority,
@@ -16150,6 +16598,8 @@ def bhm_memory_get(id: str, project: str | None = None) -> dict:
 async def bhm_memories_list(
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     include_archived: bool = False,
     limit: int = 20,
     offset: int = 0,
@@ -16161,6 +16611,8 @@ async def bhm_memories_list(
             _list_live_memories,
             project=project,
             memory_type=memory_type,
+            memory_class=memory_class,
+            event_role=event_role,
             include_archived=include_archived,
             limit=limit,
             offset=offset,
@@ -16178,6 +16630,8 @@ async def bhm_memories_list(
                 exc,
                 project=project,
                 memory_type=memory_type,
+                memory_class=memory_class,
+                event_role=event_role,
                 include_archived=include_archived,
                 limit=limit,
                 offset=offset,
@@ -16226,6 +16680,8 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
             "filters": {
                 "project": request.project,
                 "memory_type": request.memory_type,
+                "memory_class": request.memory_class.value if request.memory_class else None,
+                "event_role": request.event_role.value if request.event_role else None,
                 "concepts": request.concepts or [],
                 "files": request.files or [],
                 "include_archived": request.include_archived,
@@ -16243,6 +16699,8 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 exc,
                 project=project_name,
                 memory_type=request.memory_type,
+                memory_class=request.memory_class,
+                event_role=request.event_role,
                 concepts=request.concepts,
                 files=request.files,
                 query=request.query,
@@ -16302,6 +16760,8 @@ async def bhm_context_compile(
         project_name,
         limit=candidate_limit,
         memory_type=request.memory_type,
+        memory_class=request.memory_class,
+        event_role=request.event_role,
         concepts=request.concepts,
         files=request.files,
         domain=request.domain,
@@ -16318,6 +16778,8 @@ async def bhm_context_compile(
         hits,
         project_name=project_name,
         memory_type=request.memory_type,
+        memory_class=request.memory_class,
+        event_role=request.event_role,
         concepts=request.concepts,
         files=request.files,
         domain=request.domain,
@@ -16342,6 +16804,8 @@ async def bhm_context_compile(
             value is not None
             for value in (
                 request.memory_type,
+                request.memory_class,
+                request.event_role,
                 request.concepts,
                 request.files,
                 request.domain,
@@ -16415,6 +16879,8 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
         project_name,
         limit=candidate_limit,
         memory_type=request.memory_type,
+        memory_class=request.memory_class,
+        event_role=request.event_role,
         concepts=request.concepts,
         files=request.files,
         domain=request.domain,
@@ -16427,6 +16893,8 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
         hits,
         project_name=project_name,
         memory_type=request.memory_type,
+        memory_class=request.memory_class,
+        event_role=request.event_role,
         concepts=request.concepts,
         files=request.files,
         domain=request.domain,
@@ -16451,6 +16919,8 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
         },
         "filters": {
             "memory_type": request.memory_type,
+            "memory_class": request.memory_class.value if request.memory_class else None,
+            "event_role": request.event_role.value if request.event_role else None,
             "concepts": request.concepts or [],
             "files": request.files or [],
             "include_archived": request.include_archived,
@@ -16534,6 +17004,8 @@ def bhm_recent_activity(request: MemoryRecentActivityRequest) -> dict:
         "filters": {
             "project": request.project,
             "memory_type": request.memory_type,
+            "memory_class": request.memory_class.value if request.memory_class else None,
+            "event_role": request.event_role.value if request.event_role else None,
             "include_archived": request.include_archived,
         },
     }
@@ -17687,6 +18159,7 @@ async def bhm_remember(request: RememberRequest) -> dict:
             "title": record["metadata"]["raw_title"],
             "project": record["project"],
             "type": record["memory_type"],
+            "memoryClass": _effective_memory_class(record),
             "createdAt": record["created_at"],
         },
     }

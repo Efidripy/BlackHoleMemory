@@ -11,6 +11,8 @@ def build_candidate_filters(
     user_id: str,
     project_values: Iterable[str] = (),
     memory_type: str | None = None,
+    memory_class: str | None = None,
+    event_role: str | None = None,
     concepts: Iterable[str] = (),
     files: Iterable[str] = (),
     domain: str | None = None,
@@ -34,6 +36,10 @@ def build_candidate_filters(
         must.append({"project": {"in": projects}})
     if memory_type:
         must.append({"memory_type": memory_type})
+    if memory_class:
+        must.append({"memory_class": memory_class})
+    if event_role:
+        must.append({"event_role": event_role})
     for field, values in (("tags", concepts), ("files", files)):
         for value in sorted({str(item).strip() for item in values if str(item).strip()}):
             must.append({field: [value]})

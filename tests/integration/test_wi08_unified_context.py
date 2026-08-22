@@ -5,6 +5,21 @@ from fastapi.testclient import TestClient
 from blackholememory import app as bhm_app
 
 
+class _AuthoritativeStub:
+    def get_records(self, memory_ids, *, project=None):
+        return [
+            {
+                "source_id": "memory-1",
+                "project": "blackholememory",
+                "memory_type": "knowledge",
+                "content": "Runbook evidence",
+                "metadata": {"source_kind": "docs", "source_system": "bhm"},
+            }
+            for memory_id in memory_ids
+            if str(memory_id) == "memory-1" and (project is None or project == "blackholememory")
+        ]
+
+
 def test_unified_context_hidden_api_preserves_public_mcp_and_source_channels(monkeypatch) -> None:
     async def fake_ready():
         return None
@@ -28,6 +43,7 @@ def test_unified_context_hidden_api_preserves_public_mcp_and_source_channels(mon
         ], 1
 
     monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _AuthoritativeStub())
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
     client = TestClient(bhm_app.app)
     response = client.post(

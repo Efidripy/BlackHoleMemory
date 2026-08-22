@@ -37,8 +37,11 @@ from .outbox import utc_now_iso
 
 
 MEMORY_STORE_SCHEMA_VERSION = 1
-MEMORY_STORE_SCHEMA_LATEST_VERSION = 2
-SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS = frozenset({MEMORY_STORE_SCHEMA_VERSION, MEMORY_STORE_SCHEMA_LATEST_VERSION})
+FRESHNESS_SCHEMA_VERSION = 2
+MEMORY_STORE_SCHEMA_LATEST_VERSION = FRESHNESS_SCHEMA_VERSION
+SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS = frozenset(
+    {MEMORY_STORE_SCHEMA_VERSION, FRESHNESS_SCHEMA_VERSION}
+)
 FRESHNESS_SCHEMA_TABLES = frozenset(
     {"freshness_candidates", "freshness_candidate_events", "freshness_scan_state"}
 )
@@ -133,6 +136,8 @@ class MemoryRepository(Protocol):
         self,
         *,
         project: str | None = None,
+        memory_class: str | None = None,
+        event_role: str | None = None,
         include_archived: bool = False,
         include_tombstoned: bool = False,
         limit: int = 100,
@@ -143,6 +148,8 @@ class MemoryRepository(Protocol):
         self,
         *,
         project: str | None = None,
+        memory_class: str | None = None,
+        event_role: str | None = None,
         include_archived: bool = False,
         include_tombstoned: bool = False,
     ) -> int: ...
@@ -271,6 +278,7 @@ class SQLiteMemoryRepository:
         self._initialize_lock = threading.Lock()
         self._write_lock = threading.RLock()
         self._initialized = False
+        self._memory_columns_cache: frozenset[str] | None = None
 
     def _connect(self) -> sqlite3.Connection:
         assert_safe_path(self.path)
@@ -292,6 +300,7 @@ class SQLiteMemoryRepository:
             if self._initialized:
                 return
             if self._schema_is_ready_without_writes():
+                self._refresh_memory_columns()
                 self._initialized = True
                 return
             assert_safe_path(self.path)
@@ -431,6 +440,9 @@ class SQLiteMemoryRepository:
                 connection.execute(f"PRAGMA user_version={MEMORY_STORE_SCHEMA_VERSION}")
                 connection.execute("PRAGMA wal_autocheckpoint=1000")
                 connection.commit()
+                self._memory_columns_cache = frozenset(
+                    str(row[1]) for row in connection.execute("PRAGMA table_info(memories)").fetchall()
+                )
                 self._initialized = True
             except Exception:
                 connection.rollback()
@@ -460,7 +472,7 @@ class SQLiteMemoryRepository:
                 }
                 if not _REQUIRED_MEMORY_STORE_TABLES.issubset(tables):
                     return False
-                if version == MEMORY_STORE_SCHEMA_LATEST_VERSION and not FRESHNESS_SCHEMA_TABLES.issubset(tables):
+                if version >= FRESHNESS_SCHEMA_VERSION and not FRESHNESS_SCHEMA_TABLES.issubset(tables):
                     return False
                 return fast or str(connection.execute("PRAGMA quick_check").fetchone()[0]).casefold() == "ok"
             finally:
@@ -508,6 +520,18 @@ class SQLiteMemoryRepository:
     def _read_connection(self) -> sqlite3.Connection:
         self._ensure_initialized()
         return self._connect()
+
+    def _refresh_memory_columns(self) -> frozenset[str]:
+        if self._memory_columns_cache is not None:
+            return self._memory_columns_cache
+        connection = self._connect()
+        try:
+            self._memory_columns_cache = frozenset(
+                str(row[1]) for row in connection.execute("PRAGMA table_info(memories)").fetchall()
+            )
+            return self._memory_columns_cache
+        finally:
+            connection.close()
 
     @staticmethod
     def _revision_row_to_model(row: sqlite3.Row) -> MemoryRevision:
@@ -652,11 +676,46 @@ class SQLiteMemoryRepository:
             raise MemoryRepositoryIntegrityError(
                 f"memory {row['memory_id']} references invalid revision {row['current_revision_id']}"
             )
+        metadata = _json_loads(str(row["metadata_json"]), "memory.metadata")
+        memory_class = (
+            row["memory_class"]
+            if "memory_class" in row.keys()
+            else metadata.get("memory_class", "unclassified")
+        )
+        memory_class_source = (
+            row["memory_class_source"]
+            if "memory_class_source" in row.keys()
+            else metadata.get("memory_class_source", "legacy-default")
+        )
+        memory_class_confidence = (
+            row["memory_class_confidence"]
+            if "memory_class_confidence" in row.keys()
+            else metadata.get("memory_class_confidence")
+        )
+        event_role = (
+            row["event_role"]
+            if "event_role" in row.keys()
+            else metadata.get("event_role", "unclassified")
+        )
+        event_role_version = (
+            row["event_role_version"]
+            if "event_role_version" in row.keys()
+            else metadata.get("event_role_version", "1")
+        )
+        procedure_contract = metadata.get("procedure_contract")
+        procedure_trace_receipt = metadata.get("procedure_trace_receipt")
         return Memory.from_dict(
             {
                 "id": row["memory_id"],
                 "project": row["project"],
                 "memory_type": row["memory_type"],
+                "memory_class": memory_class,
+                "memory_class_source": memory_class_source,
+                "memory_class_confidence": memory_class_confidence,
+                "event_role": event_role,
+                "event_role_version": event_role_version,
+                "procedure_contract": procedure_contract,
+                "procedure_trace_receipt": procedure_trace_receipt,
                 "lifecycle": row["lifecycle"],
                 "title": row["title"],
                 "summary": row["summary"],
@@ -679,7 +738,7 @@ class SQLiteMemoryRepository:
                     ),
                 },
                 "provenance": _json_loads(str(row["provenance_json"]), "memory.provenance"),
-                "metadata": _json_loads(str(row["metadata_json"]), "memory.metadata"),
+                "metadata": metadata,
                 "extra": _json_loads(str(row["extra_json"]), "memory.extra"),
             }
         )
@@ -762,47 +821,68 @@ class SQLiteMemoryRepository:
                 )
                 revision_inserted = True
 
-        values = (
-            memory.id,
-            memory.project,
-            memory.memory_type,
-            memory.lifecycle.value,
-            memory.title,
-            memory.summary,
-            _json_dumps(list(memory.tags), "memory.tags"),
-            _json_dumps(list(memory.files), "memory.files"),
-            _json_dumps(list(memory.session_refs), "memory.session_refs"),
-            memory.upsert_key,
-            memory.created_at,
-            memory.updated_at,
-            _json_dumps(memory.provenance.to_dict(), "memory.provenance"),
-            _json_dumps(memory.metadata, "memory.metadata"),
-            _json_dumps(memory.extra, "memory.extra"),
-            memory.current_revision.revision_id,
+        memory_columns = (
+            self._memory_columns_cache
+            if self._memory_columns_cache is not None
+            else self._refresh_memory_columns()
+        )
+        has_memory_class_columns = {
+            "memory_class",
+            "memory_class_source",
+            "memory_class_confidence",
+        }.issubset(memory_columns)
+        has_event_role_columns = {"event_role", "event_role_version"}.issubset(memory_columns)
+        column_values: list[tuple[str, Any]] = [
+            ("memory_id", memory.id),
+            ("project", memory.project),
+            ("memory_type", memory.memory_type),
+        ]
+        if has_memory_class_columns:
+            column_values.extend(
+                [
+                    ("memory_class", memory.memory_class.value),
+                    ("memory_class_source", memory.memory_class_source.value),
+                    ("memory_class_confidence", memory.memory_class_confidence),
+                ]
+            )
+        if has_event_role_columns:
+            column_values.extend(
+                [
+                    ("event_role", memory.event_role.value),
+                    ("event_role_version", memory.event_role_version),
+                ]
+            )
+        column_values.extend(
+            [
+                ("lifecycle", memory.lifecycle.value),
+                ("title", memory.title),
+                ("summary", memory.summary),
+                ("tags_json", _json_dumps(list(memory.tags), "memory.tags")),
+                ("files_json", _json_dumps(list(memory.files), "memory.files")),
+                ("session_refs_json", _json_dumps(list(memory.session_refs), "memory.session_refs")),
+                ("upsert_key", memory.upsert_key),
+                ("created_at", memory.created_at),
+                ("updated_at", memory.updated_at),
+                ("provenance_json", _json_dumps(memory.provenance.to_dict(), "memory.provenance")),
+                ("metadata_json", _json_dumps(memory.metadata, "memory.metadata")),
+                ("extra_json", _json_dumps(memory.extra, "memory.extra")),
+                ("current_revision_id", memory.current_revision.revision_id),
+            ]
         )
         if inserted:
+            names = ", ".join(name for name, _value in column_values)
+            placeholders = ", ".join("?" for _name, _value in column_values)
             connection.execute(
-                """
-                INSERT INTO memories(
-                    memory_id, project, memory_type, lifecycle, title, summary,
-                    tags_json, files_json, session_refs_json, upsert_key,
-                    created_at, updated_at, provenance_json, metadata_json,
-                    extra_json, current_revision_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                values,
+                f"INSERT INTO memories({names}) VALUES ({placeholders})",
+                tuple(value for _name, value in column_values),
             )
         else:
+            assignments = ", ".join(
+                f"{name} = ?" for name, _value in column_values if name != "memory_id"
+            )
             connection.execute(
-                """
-                UPDATE memories SET
-                    project = ?, memory_type = ?, lifecycle = ?, title = ?, summary = ?,
-                    tags_json = ?, files_json = ?, session_refs_json = ?, upsert_key = ?,
-                    created_at = ?, updated_at = ?, provenance_json = ?, metadata_json = ?,
-                    extra_json = ?, current_revision_id = ?
-                WHERE memory_id = ?
-                """,
-                values[1:] + (memory.id,),
+                f"UPDATE memories SET {assignments} WHERE memory_id = ?",
+                tuple(value for name, value in column_values if name != "memory_id") + (memory.id,),
             )
         outbox_event_id = self._append_memory_event(
             connection,
@@ -1107,24 +1187,47 @@ class SQLiteMemoryRepository:
         self,
         *,
         project: str | None = None,
+        memory_class: str | None = None,
+        event_role: str | None = None,
         include_archived: bool = False,
         include_tombstoned: bool = False,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Memory]:
         limit, offset = _bounded_page(limit, offset)
-        clauses: list[str] = []
-        parameters: list[Any] = []
-        if project is not None:
-            clauses.append("m.project = ?")
-            parameters.append(project)
-        if not include_archived:
-            clauses.append("m.lifecycle = 'active'")
-        elif not include_tombstoned:
-            clauses.append("m.lifecycle <> 'tombstoned'")
-        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         connection = self._read_connection()
         try:
+            memory_columns = (
+                self._memory_columns_cache
+                if self._memory_columns_cache is not None
+                else self._refresh_memory_columns()
+            )
+            clauses: list[str] = []
+            parameters: list[Any] = []
+            if project is not None:
+                clauses.append("m.project = ?")
+                parameters.append(project)
+            if memory_class is not None:
+                expression = (
+                    "m.memory_class"
+                    if "memory_class" in memory_columns
+                    else "COALESCE(json_extract(m.metadata_json, '$.memory_class'), 'unclassified')"
+                )
+                clauses.append(f"{expression} = ?")
+                parameters.append(memory_class)
+            if event_role is not None:
+                expression = (
+                    "m.event_role"
+                    if "event_role" in memory_columns
+                    else "COALESCE(json_extract(m.metadata_json, '$.event_role'), 'unclassified')"
+                )
+                clauses.append(f"{expression} = ?")
+                parameters.append(event_role)
+            if not include_archived:
+                clauses.append("m.lifecycle = 'active'")
+            elif not include_tombstoned:
+                clauses.append("m.lifecycle <> 'tombstoned'")
+            where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
             rows = connection.execute(
                 self._joined_memory_query(where)
                 + " ORDER BY m.updated_at DESC, m.memory_id LIMIT ? OFFSET ?",
@@ -1138,21 +1241,44 @@ class SQLiteMemoryRepository:
         self,
         *,
         project: str | None = None,
+        memory_class: str | None = None,
+        event_role: str | None = None,
         include_archived: bool = False,
         include_tombstoned: bool = False,
     ) -> int:
-        clauses: list[str] = []
-        parameters: list[Any] = []
-        if project is not None:
-            clauses.append("project = ?")
-            parameters.append(project)
-        if not include_archived:
-            clauses.append("lifecycle = 'active'")
-        elif not include_tombstoned:
-            clauses.append("lifecycle <> 'tombstoned'")
-        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         connection = self._read_connection()
         try:
+            memory_columns = (
+                self._memory_columns_cache
+                if self._memory_columns_cache is not None
+                else self._refresh_memory_columns()
+            )
+            clauses: list[str] = []
+            parameters: list[Any] = []
+            if project is not None:
+                clauses.append("project = ?")
+                parameters.append(project)
+            if memory_class is not None:
+                expression = (
+                    "memory_class"
+                    if "memory_class" in memory_columns
+                    else "COALESCE(json_extract(metadata_json, '$.memory_class'), 'unclassified')"
+                )
+                clauses.append(f"{expression} = ?")
+                parameters.append(memory_class)
+            if event_role is not None:
+                expression = (
+                    "event_role"
+                    if "event_role" in memory_columns
+                    else "COALESCE(json_extract(metadata_json, '$.event_role'), 'unclassified')"
+                )
+                clauses.append(f"{expression} = ?")
+                parameters.append(event_role)
+            if not include_archived:
+                clauses.append("lifecycle = 'active'")
+            elif not include_tombstoned:
+                clauses.append("lifecycle <> 'tombstoned'")
+            where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
             row = connection.execute(f"SELECT COUNT(*) FROM memories{where}", parameters).fetchone()
             return int(row[0] if row else 0)
         finally:

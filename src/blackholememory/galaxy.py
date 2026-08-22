@@ -250,6 +250,8 @@ def _normalize_memory_records(
         metadata = dict(item.get("metadata") or {})
         project = item.get("project") or metadata.get("project") or "unscoped"
         memory_type = item.get("memory_type") or metadata.get("memory_type") or "memory"
+        memory_class = item.get("memory_class") or metadata.get("memory_class") or "unclassified"
+        event_role = item.get("event_role") or metadata.get("event_role") or "unclassified"
         source_system = item.get("source_system") or metadata.get("source_system") or "bhm"
         content = item.get("content") or item.get("memory") or ""
         tags = item.get("tags") or metadata.get("tags") or []
@@ -264,6 +266,8 @@ def _normalize_memory_records(
             "id": source_id,
             "project": project,
             "memory_type": memory_type,
+            "memory_class": str(memory_class).strip().lower() or "unclassified",
+            "event_role": str(event_role).strip().lower() or "unclassified",
             "source_system": source_system,
             "content": content,
             "tags": tags,
@@ -508,6 +512,20 @@ def build_galaxy_graph(
         memory_type: _majority_domain([record for record in memory_records if record.get("memory_type") == memory_type], memory_type)
         for memory_type in sorted({item["memory_type"] for item in memory_records})
     }
+    class_domains = {
+        memory_class: _majority_domain(
+            [record for record in memory_records if record.get("memory_class") == memory_class],
+            memory_class,
+        )
+        for memory_class in sorted({item["memory_class"] for item in memory_records})
+    }
+    role_domains = {
+        event_role: _majority_domain(
+            [record for record in memory_records if record.get("event_role") == event_role],
+            event_role,
+        )
+        for event_role in sorted({item["event_role"] for item in memory_records})
+    }
     tag_domains = {
         tag: _majority_domain([record for record in memory_records if tag in _normalized_tags(record)], tag)
         for tag in top_tags
@@ -593,6 +611,44 @@ def build_galaxy_graph(
             }
         )
 
+    class_nodes: dict[str, str] = {}
+    for memory_class in sorted({item["memory_class"] for item in memory_records}):
+        node_id = f"class::{_slugify(memory_class)}"
+        class_nodes[memory_class] = node_id
+        add_node(
+            {
+                "id": node_id,
+                "label": memory_class,
+                "type": "memory_class",
+                "val": 7,
+                "color": TYPE_COLORS["memory_type"],
+                "meta": {
+                    "memory_class": memory_class,
+                    "kind": "memory_class",
+                    "domain": class_domains.get(memory_class) or infer_domain(memory_class),
+                },
+            }
+        )
+
+    role_nodes: dict[str, str] = {}
+    for event_role in sorted({item["event_role"] for item in memory_records}):
+        node_id = f"role::{_slugify(event_role)}"
+        role_nodes[event_role] = node_id
+        add_node(
+            {
+                "id": node_id,
+                "label": event_role,
+                "type": "event_role",
+                "val": 6,
+                "color": TYPE_COLORS["memory_type"],
+                "meta": {
+                    "event_role": event_role,
+                    "kind": "event_role",
+                    "domain": role_domains.get(event_role) or infer_domain(event_role),
+                },
+            }
+        )
+
     tag_nodes: dict[str, str] = {}
     for tag in sorted(top_tags):
         node_id = f"tag::{_slugify(tag)}"
@@ -629,6 +685,8 @@ def build_galaxy_graph(
                 "meta": {
                     "project": record["project"],
                     "memory_type": record["memory_type"],
+                    "memory_class": record["memory_class"],
+                    "event_role": record["event_role"],
                     "source_id": record["id"],
                     "source_system": record["source_system"],
                     "domain": record["domain"],
@@ -645,6 +703,8 @@ def build_galaxy_graph(
 
         add_link(f"project::{record['project']}", node_id, "belongs_to_project", 2.8)
         add_link(type_nodes[record["memory_type"]], node_id, "has_memory_type", 1.8)
+        add_link(class_nodes[record["memory_class"]], node_id, "has_memory_class", 1.6)
+        add_link(role_nodes[record["event_role"]], node_id, "has_event_role", 1.4)
 
         for tag in record.get("tags") or []:
             normalized = str(tag).strip().lower()

@@ -54,6 +54,7 @@ _GENERIC_MCP_FIELD_ALIASES = {
 _TYPE_COERCION_COMPATIBILITY_FIELDS = {
     ("bhm_observe", "timestamp"),  # MCP string -> REST datetime parser
 }
+_TYPED_CONTRACT_FIELDS = frozenset({"memory_class", "event_role"})
 
 
 def _mcp_field_alias(tool_name: str, field: str) -> str:
@@ -71,24 +72,34 @@ def _schema_default(schema: Any) -> Any:
     return schema.get("default") if isinstance(schema, dict) and "default" in schema else None
 
 
-def _normalize_mcp_schema(tool_name: str, value: Any) -> Any:
-    """Normalize nested MCP model keys without changing the public catalog."""
+def _normalize_mcp_schema(tool_name: str, value: Any, *, depth: int = 0) -> Any:
+    """Normalize transport aliases only at the tool argument boundary.
+
+    A field such as ``schema_version`` inside ``procedure_trace_receipt`` is
+    data, not an MCP wrapper alias.  Recursing aliases into nested payloads
+    created false REST/MCP drift for typed-memory contracts.
+    """
 
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             if key == "properties" and isinstance(item, dict):
                 normalized[key] = {
-                    _mcp_field_alias(tool_name, str(field)): _normalize_mcp_schema(tool_name, field_schema)
+                    _mcp_field_alias(tool_name, str(field)) if depth == 0 else str(field): _normalize_mcp_schema(
+                        tool_name, field_schema, depth=depth + 1
+                    )
                     for field, field_schema in item.items()
                 }
             elif key == "required" and isinstance(item, list):
-                normalized[key] = [_mcp_field_alias(tool_name, str(field)) for field in item]
+                normalized[key] = [
+                    _mcp_field_alias(tool_name, str(field)) if depth == 0 else str(field)
+                    for field in item
+                ]
             else:
-                normalized[key] = _normalize_mcp_schema(tool_name, item)
+                normalized[key] = _normalize_mcp_schema(tool_name, item, depth=depth)
         return normalized
     if isinstance(value, list):
-        return [_normalize_mcp_schema(tool_name, item) for item in value]
+        return [_normalize_mcp_schema(tool_name, item, depth=depth) for item in value]
     return value
 
 
@@ -123,10 +134,12 @@ def _canonical(value: Any) -> Any:
         return {
             key: _canonical(item)
             for key, item in sorted(value.items())
-            if key not in {"title", "$schema"} and not (key == "default" and item is None)
+            if key not in {"title", "$schema", "default"}
         }
     if isinstance(value, list):
         return [_canonical(item) for item in value]
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
     return value
 
 
@@ -234,6 +247,7 @@ def build_rest_mcp_parity_inventory() -> dict[str, Any]:
         if path not in all_paths
     ]
     mismatches: list[dict[str, Any]] = []
+    field_gaps: list[dict[str, Any]] = []
     compatibility_aliases: list[dict[str, Any]] = []
     compatibility_defaults: list[dict[str, Any]] = []
     comparable = 0
@@ -250,8 +264,21 @@ def build_rest_mcp_parity_inventory() -> dict[str, Any]:
         comparable += 1
         mcp_properties = schema.get("properties", {})
         rest_properties = operation["properties"]
+        mapped_fields = {_mcp_field_alias(name, str(field)) for field in mcp_properties}
         mapped_required = {_mcp_field_alias(name, str(field)) for field in schema.get("required", [])}
         rest_required = set(operation["required"])
+        for rest_field in sorted(rest_properties):
+            if rest_field in mapped_fields:
+                continue
+            field_gaps.append(
+                {
+                    "tool": name,
+                    "path": path,
+                    "rest_field": rest_field,
+                    "required": rest_field in rest_required,
+                    "typed_contract": rest_field in _TYPED_CONTRACT_FIELDS,
+                }
+            )
 
         # A compatibility wrapper may supply a REST-required project from its
         # stable MCP default.  Keep that fact visible, but do not call it a
@@ -359,8 +386,8 @@ def build_rest_mcp_parity_inventory() -> dict[str, Any]:
                 )
     return {
         "schema_version": SCHEMA_VERSION,
-        "status": "residual" if mismatches else "aligned",
-        "ok": not missing_routes,
+        "status": "residual" if mismatches or any(item["typed_contract"] for item in field_gaps) else "aligned",
+        "ok": not missing_routes and not mismatches and not any(item["typed_contract"] for item in field_gaps),
         "route_wrappers": len(route_map),
         "direct_route_references": len(route_refs),
         "comparable_single_route_tools": comparable,
@@ -368,6 +395,10 @@ def build_rest_mcp_parity_inventory() -> dict[str, Any]:
         "mismatch_count": len(mismatches),
         "mismatches": mismatches[:128],
         "mismatches_truncated": len(mismatches) > 128,
+        "field_gap_count": len(field_gaps),
+        "field_gaps": field_gaps[:128],
+        "field_gaps_truncated": len(field_gaps) > 128,
+        "typed_field_gap_count": sum(1 for item in field_gaps if item["typed_contract"]),
         "compatibility_aliases": compatibility_aliases[:128],
         "compatibility_aliases_truncated": len(compatibility_aliases) > 128,
         "compatibility_defaults": compatibility_defaults[:128],
