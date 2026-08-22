@@ -1,0 +1,36 @@
+{
+  "fixture_schema_version": "bhm.memory-evaluation.fixture.v1",
+  "license": {
+    "name": "0BSD",
+    "source": "BHM-owned"
+  },
+  "dataset": {
+    "suite": "bhm-fixture",
+    "dataset_version": "bhm-smoke-v1",
+    "cases": [
+      {"case_id": "single-hop", "suite": "bhm-fixture", "category": "single_hop", "expected_ids": ["m-single"], "project": "blackholememory", "source_digest": "4d7a7df9de4dd5bc20c70e1a124d4eaa7c6a40a26b8e31a4d4a3310a5f6ff2af"},
+      {"case_id": "multi-hop", "suite": "bhm-fixture", "category": "multi_hop", "expected_ids": ["m-hop-a", "m-hop-b"], "project": "blackholememory", "source_digest": "77be844e2850482fcebb9d75bcf2b7f7b887d72493e1c5930cffb33529f05fb6"},
+      {"case_id": "temporal", "suite": "bhm-fixture", "category": "temporal", "expected_ids": ["m-temporal-current"], "project": "blackholememory", "source_digest": "12ab1583045fad1ab589406520340498696bf50790034e5c7de46862a21ad095"},
+      {"case_id": "knowledge-update", "suite": "bhm-fixture", "category": "knowledge_update", "expected_ids": ["m-update-v2"], "project": "blackholememory", "source_digest": "ce9856349cee5ee95f0c8d68cd6d84b32ea8c8b4df2dc471da9a6c33e8b720ce"},
+      {"case_id": "abstention", "suite": "bhm-fixture", "category": "abstention", "expected_abstention": true, "project": "blackholememory", "source_digest": "af9f38f0fe9a50f7bf1b3880d16c5b777a15f271413735d43c15712c45ce79d8"},
+      {"case_id": "assistant-fact", "suite": "bhm-fixture", "category": "assistant_fact", "expected_ids": ["m-assistant"], "project": "blackholememory", "source_digest": "d3b46cf9c6e9d4368429c05c2004f6b7d554c30bd0d213c66d056e80c74c6be1"},
+      {"case_id": "preference", "suite": "bhm-fixture", "category": "preference", "expected_ids": ["m-preference"], "project": "blackholememory", "source_digest": "24e9f8297b60c667cc5612b0dcaeca7c6622d889a3d04c854fae6bcc17396237"},
+      {"case_id": "changing-fact", "suite": "bhm-fixture", "category": "changing_fact", "expected_ids": ["m-change-current"], "project": "blackholememory", "source_digest": "1b8a0d98e047777ca6b138a3e391c263bd5d4f3ba1123f0f3f9178e91ac3587e"},
+      {"case_id": "implicit", "suite": "bhm-fixture", "category": "implicit_connection", "expected_ids": ["m-implicit"], "project": "blackholememory", "source_digest": "8b0faab5b50c42db1b645c4bc1c6c2bebfea3e8e15a30c48e4fb23e8b58485e1"},
+      {"case_id": "adversarial", "suite": "bhm-fixture", "category": "adversarial", "expected_abstention": true, "project": "blackholememory", "source_digest": "e55a878bc403d8206096f0d408b12b6597d95c17848a962040cd9893ac208758"}
+    ]
+  },
+  "dataset_digest": "2e93ded49be6a284b20db62136a073a457ff308c01a28fc0358aa99fed8f8569",
+  "recorded_receipts": [
+    {"case_id": "single-hop", "retrieved_ids": ["m-single"], "latency_seconds": 0.012, "route": "local"},
+    {"case_id": "multi-hop", "retrieved_ids": ["m-hop-a", "m-hop-b"], "latency_seconds": 0.018, "route": "local"},
+    {"case_id": "temporal", "retrieved_ids": ["m-temporal-current"], "latency_seconds": 0.021, "route": "temporal"},
+    {"case_id": "knowledge-update", "retrieved_ids": ["m-update-v2"], "latency_seconds": 0.016, "route": "local"},
+    {"case_id": "abstention", "retrieved_ids": [], "abstained": true, "latency_seconds": 0.011, "route": "local"},
+    {"case_id": "assistant-fact", "retrieved_ids": ["m-assistant"], "latency_seconds": 0.014, "route": "local"},
+    {"case_id": "preference", "retrieved_ids": ["m-preference"], "latency_seconds": 0.013, "route": "local"},
+    {"case_id": "changing-fact", "retrieved_ids": ["m-change-current"], "latency_seconds": 0.017, "route": "temporal"},
+    {"case_id": "implicit", "retrieved_ids": ["m-implicit"], "latency_seconds": 0.019, "route": "local"},
+    {"case_id": "adversarial", "retrieved_ids": [], "abstained": true, "latency_seconds": 0.01, "route": "local"}
+  ]
+}
