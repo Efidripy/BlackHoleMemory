@@ -443,18 +443,6 @@ class QdrantProjector:
                         existing_payload = dict(getattr(points[0], "payload", None) or {})
                 except Exception:
                     existing_payload = {}
-            existing_marker = str(existing_payload.get("projection_payload_digest") or "")
-            existing_schema = str(existing_payload.get("projection_payload_schema") or "")
-            existing_contract_digest = ""
-            if existing_payload:
-                existing_contract_digest = projection_payload_digest_from_payload(
-                    existing_payload,
-                    schema_version=(
-                        _PROJECTION_PAYLOAD_SCHEMA_V1
-                        if existing_schema in {"", _PROJECTION_PAYLOAD_SCHEMA_V1}
-                        else _PROJECTION_PAYLOAD_SCHEMA_V2
-                    ),
-                )
             identity_matches = bool(existing_payload) and all(
                 (
                     str(existing_payload.get("source_id") or "") == memory.id,
@@ -464,19 +452,20 @@ class QdrantProjector:
                     str(existing_payload.get("lifecycle") or "") == memory.lifecycle.value,
                 )
             )
-            existing_digest_valid = bool(existing_marker) and existing_marker == existing_contract_digest
-            desired_digest = projection_payload_digest(memory, collection_name)
-            # A stale marker alone is metadata drift when the actual stable
-            # payload still equals the authoritative SQLite projection. In
-            # that case the vector was built for the same immutable content
-            # identity, so rewriting the payload is sufficient. Conversely,
-            # an actual payload mismatch remains a full re-projection: this
-            # preserves the tamper-repair boundary for ``data``/``content``.
-            existing_payload_matches_desired = existing_contract_digest == desired_digest
+            # A stale marker or a filter-only payload difference is metadata
+            # drift when the immutable vector identity and both searchable
+            # text fields still equal SQLite.  That includes additive temporal
+            # fields and avoids unnecessary embedding work. Conversely, a
+            # ``data``/``content`` mismatch remains a full re-projection and
+            # preserves the tamper-repair boundary.
+            vector_content_matches = all(
+                existing_payload.get(field) == payload.get(field)
+                for field in ("data", "content")
+            )
             metadata_only = (
                 identity_matches
+                and vector_content_matches
                 and callable(set_payload)
-                and (existing_digest_valid or existing_payload_matches_desired)
             )
             if metadata_only and callable(set_payload):
                 set_payload(

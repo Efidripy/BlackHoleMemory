@@ -179,6 +179,36 @@ def test_metadata_only_change_refreshes_payload_without_reembedding(tmp_path):
         assert point.payload["projection_payload_digest"] == projection_payload_digest(updated, collection_name)
 
 
+def test_additive_temporal_payload_field_is_refreshed_without_reembedding(tmp_path, monkeypatch):
+    monkeypatch.setenv("BHM_TEMPORAL_CONTRACT_ENABLED", "true")
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _FakeQdrant()
+    vector_calls = []
+    projector = QdrantProjector(
+        client,
+        lambda _memory: vector_calls.append(True) or [0.25, 0.75],
+        expected_dimensions=2,
+    )
+    assert projector.run_once(repository).completed == 1
+
+    for collection_name in projector.collection_names(memory):
+        point = client.points[(collection_name, deterministic_point_id(collection_name, memory.id))]
+        point.payload.pop("open_interval", None)
+
+    updated = memory.model_copy(update={"metadata": {**memory.metadata, "temporal_refresh": True}})
+    repository.save_memory(updated, expected_revision_id=memory.current_revision.revision_id)
+    refreshed = projector.run_once(repository)
+
+    assert refreshed.completed == 1
+    assert len(vector_calls) == 1
+    for collection_name in projector.collection_names(updated):
+        point = client.points[(collection_name, deterministic_point_id(collection_name, updated.id))]
+        assert point.payload["open_interval"] == 1
+        assert point.payload["projection_payload_digest"] == projection_payload_digest(updated, collection_name)
+
+
 def test_tampered_payload_with_invalid_digest_contract_is_fully_reprojected(tmp_path):
     repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
     memory = _memory()
