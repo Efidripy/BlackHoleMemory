@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 SCHEMA_VERSION = "bhm.governed-shared-memory.v1"
@@ -103,6 +103,8 @@ class SharedMemoryGrant(BaseModel):
     operations: tuple[SharedOperation, ...]
     issued_at: str
     expires_at: str | None = None
+    revoked_at: str | None = None
+    revocation_receipt_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     lease_id: str | None = None
     policy_version: str = SCHEMA_VERSION
 
@@ -111,7 +113,7 @@ class SharedMemoryGrant(BaseModel):
     def _required(cls, value: Any, info: Any) -> str:
         return _text(value, f"grant.{info.field_name}")
 
-    @field_validator("issued_at", "expires_at", mode="before")
+    @field_validator("issued_at", "expires_at", "revoked_at", mode="before")
     @classmethod
     def _time(cls, value: Any, info: Any) -> str | None:
         return None if value is None else _timestamp(value, f"grant.{info.field_name}")
@@ -130,6 +132,12 @@ class SharedMemoryGrant(BaseModel):
     def _window(self) -> "SharedMemoryGrant":
         if self.expires_at and self.expires_at <= self.issued_at:
             raise SharedMemoryPolicyError("grant.expires_at must be later than issued_at")
+        if self.revoked_at and self.revoked_at < self.issued_at:
+            raise SharedMemoryPolicyError("grant.revoked_at must not be earlier than issued_at")
+        if self.revoked_at and self.revocation_receipt_digest is None:
+            raise SharedMemoryPolicyError("revoked grant requires revocation_receipt_digest")
+        if self.revoked_at is None and self.revocation_receipt_digest is not None:
+            raise SharedMemoryPolicyError("active grant cannot carry revocation_receipt_digest")
         return self
 
 
@@ -202,17 +210,30 @@ def decide_shared_memory(request: SharedMemoryRequest, grants: tuple[SharedMemor
     elif request.visibility is SharedVisibility.PRIVATE_AGENT and request.identity.actor_id == request.owner_id:
         decision, reason = PolicyDecision.ALLOW, "shared_private_owner_allowed"
     else:
-        active = [
-            grant
-            for grant in matching
-            if request.operation in grant.operations and (grant.expires_at is None or grant.expires_at > request.at)
-        ]
-        if len(active) == 1:
-            decision, reason = PolicyDecision.ALLOW, "shared_grant_allowed"
-        elif len(active) > 1:
-            reason = "shared_policy_ambiguous_grants"
-        elif any(grant.expires_at is not None and grant.expires_at <= request.at for grant in matching):
-            reason = "shared_grant_expired"
+        grant_ids = [grant.grant_id for grant in matching]
+        if len(grant_ids) != len(set(grant_ids)):
+            reason = "shared_policy_duplicate_grant_id"
+        else:
+            revoked = [
+                grant
+                for grant in matching
+                if grant.revoked_at is not None and grant.revoked_at <= request.at
+            ]
+            active = [
+                grant
+                for grant in matching
+                if request.operation in grant.operations
+                and (grant.expires_at is None or grant.expires_at > request.at)
+                and (grant.revoked_at is None or grant.revoked_at > request.at)
+            ]
+            if len(active) == 1:
+                decision, reason = PolicyDecision.ALLOW, "shared_grant_allowed"
+            elif len(active) > 1:
+                reason = "shared_policy_ambiguous_grants"
+            elif revoked:
+                reason = "shared_grant_revoked"
+            elif any(grant.expires_at is not None and grant.expires_at <= request.at for grant in matching):
+                reason = "shared_grant_expired"
     if request.sensitivity == "restricted" and decision is PolicyDecision.ALLOW and "restricted:read" not in request.identity.capabilities:
         decision, reason = PolicyDecision.ASK, "shared_restricted_requires_review"
     return PolicyReceipt(

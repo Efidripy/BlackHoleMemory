@@ -83,3 +83,47 @@ def test_grant_time_window_and_operations_are_validated() -> None:
         _grant(expires_at="2026-08-20T00:00:00Z")
     with pytest.raises(ValueError, match="must not be empty"):
         _grant(operations=[])
+
+
+def test_revocation_is_digest_bound_and_replay_fails_closed() -> None:
+    request = _request()
+    receipt = decide_shared_memory(
+        request,
+        (
+            _grant(
+                revoked_at="2026-08-21T12:00:00Z",
+                revocation_receipt_digest="a" * 64,
+            ),
+        ),
+    )
+    assert receipt.decision is PolicyDecision.DENY
+    assert receipt.reason_code == "shared_grant_revoked"
+    assert receipt == decide_shared_memory(
+        request,
+        (
+            _grant(
+                revoked_at="2026-08-21T12:00:00Z",
+                revocation_receipt_digest="a" * 64,
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="requires"):
+        _grant(revoked_at="2026-08-21T12:00:00Z")
+    with pytest.raises(ValueError):
+        _grant(revoked_at="2026-08-21T12:00:00Z", revocation_receipt_digest="not-a-digest")
+
+
+def test_duplicate_grant_id_fails_closed_even_if_one_record_is_revoked() -> None:
+    request = _request()
+    receipt = decide_shared_memory(
+        request,
+        (
+            _grant(),
+            _grant(
+                revoked_at="2026-08-21T12:00:00Z",
+                revocation_receipt_digest="b" * 64,
+            ),
+        ),
+    )
+    assert receipt.decision is PolicyDecision.DENY
+    assert receipt.reason_code == "shared_policy_duplicate_grant_id"
