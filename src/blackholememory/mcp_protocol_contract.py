@@ -26,6 +26,14 @@ BHM_REMEMBER_ALLOWED_ARGUMENTS = frozenset(
         "metadata",
         "memory_class",
         "event_role",
+        "observed_at",
+        "valid_from",
+        "valid_to",
+        "open_interval",
+        "supersedes_revision_id",
+        "source_episode_id",
+        "source_uri",
+        "source_digest",
     }
 )
 

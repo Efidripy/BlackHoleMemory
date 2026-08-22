@@ -422,6 +422,15 @@ from .surface_report import build_surface_report
 from .qdrant_catalog import build_qdrant_catalog
 from .typed_memory_contract import require_typed_memory_contract
 from .typed_memory_contract import typed_memory_contract_enabled
+from .temporal_contract import TemporalContractUnavailable
+from .temporal_contract import TemporalValidationError
+from .temporal_contract import normalize_temporal_fields
+from .temporal_contract import normalize_temporal_timestamp
+from .temporal_contract import require_temporal_contract
+from .temporal_contract import temporal_capability_available
+from .temporal_contract import temporal_contract_enabled
+from .temporal_contract import temporal_intent_requested
+from .temporal_contract import temporal_matches
 
 
 MemoryMetadata = _memory_contracts.MemoryMetadata
@@ -1020,6 +1029,10 @@ def _fallback_memory_records(
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
 ) -> list[dict]:
     return [
         item for item in _load_live_memories()
@@ -1036,6 +1049,10 @@ def _fallback_memory_records(
             domain=domain,
             semantic_type=semantic_type,
             priority=priority,
+            as_of=as_of,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown,
         )
     ]
 
@@ -1063,6 +1080,10 @@ def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> di
         domain=request.domain,
         semantic_type=request.semantic_type,
         priority=request.priority,
+        as_of=request.as_of,
+        valid_from=request.valid_from,
+        valid_to=request.valid_to,
+        include_temporal_unknown=request.include_temporal_unknown,
     )
     records = _fallback_rank_records(request.query, records)[: max(min(request.top_k, 200), 1)]
     results = [
@@ -1116,6 +1137,10 @@ def _fallback_grace_memories_response(
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool = False,
     limit: int = 20,
     offset: int = 0,
@@ -1132,6 +1157,10 @@ def _fallback_grace_memories_response(
         domain=domain,
         semantic_type=semantic_type,
         priority=priority,
+        as_of=as_of,
+        valid_from=valid_from,
+        valid_to=valid_to,
+        include_temporal_unknown=include_temporal_unknown,
     )
     items = _fallback_rank_records(query, items)
     total = len(items)
@@ -2682,6 +2711,10 @@ class SearchRequest(BaseModel):
     semantic_type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    as_of: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    include_temporal_unknown: bool = False
     priority: str | None = None
     include_archived: bool = False
     include_logs: bool = False
@@ -2692,6 +2725,14 @@ class RememberRequest(BaseModel):
     type: str = "workflow"
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    observed_at: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    open_interval: bool | None = None
+    supersedes_revision_id: str | None = None
+    source_episode_id: str | None = None
+    source_uri: str | None = None
+    source_digest: str | None = None
     content: str
     concepts: list[str] | None = None
     files: list[str] | None = None
@@ -2705,6 +2746,14 @@ class MemoryUpdateRequest(BaseModel):
     type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    observed_at: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    open_interval: bool | None = None
+    supersedes_revision_id: str | None = None
+    source_episode_id: str | None = None
+    source_uri: str | None = None
+    source_digest: str | None = None
     content: str | None = None
     concepts: list[str] | None = None
     files: list[str] | None = None
@@ -2738,6 +2787,10 @@ class MemoryAdvancedSearchRequest(BaseModel):
     memory_type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    as_of: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    include_temporal_unknown: bool = False
     concepts: list[str] | None = None
     files: list[str] | None = None
     include_archived: bool = False
@@ -2757,6 +2810,10 @@ class ContextCompileRequest(BaseModel):
     memory_type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    as_of: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    include_temporal_unknown: bool = False
     concepts: list[str] | None = None
     files: list[str] | None = None
     include_archived: bool = False
@@ -2777,6 +2834,10 @@ class RetrievalExplainRequest(BaseModel):
     memory_type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    as_of: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    include_temporal_unknown: bool = False
     concepts: list[str] | None = None
     files: list[str] | None = None
     include_archived: bool = False
@@ -2811,6 +2872,10 @@ class MemoryRecentActivityRequest(BaseModel):
     memory_type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    as_of: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    include_temporal_unknown: bool = False
     include_archived: bool = False
     limit: int = 10
 
@@ -2875,6 +2940,14 @@ class MemoryUpsertRequest(BaseModel):
     type: str = "workflow"
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    observed_at: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    open_interval: bool | None = None
+    supersedes_revision_id: str | None = None
+    source_episode_id: str | None = None
+    source_uri: str | None = None
+    source_digest: str | None = None
     content: str
     concepts: list[str] | None = None
     files: list[str] | None = None
@@ -3642,6 +3715,10 @@ class MemoryTimelineRequest(BaseModel):
     memory_type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    as_of: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    include_temporal_unknown: bool = False
     include_archived: bool = False
     limit: int = 20
 
@@ -4069,6 +4146,10 @@ class HybridSearchRequest(BaseModel):
     project: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    as_of: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    include_temporal_unknown: bool = False
     domain: str | None = None
     semantic_type: str | None = None
     priority: str | None = None
@@ -4247,6 +4328,48 @@ def _typed_projection_pushdown_ready() -> bool:
         return typed_memory_capability_available(_memory_service().repository.path)
     except (OSError, sqlite3.Error):
         return False
+
+
+def _temporal_capability_available_for_runtime() -> bool:
+    if not _memory_store_is_authoritative():
+        return True
+    return temporal_capability_available(_memory_service().repository.path)
+
+
+def _require_temporal_memory_boundary(
+    *,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
+    write_fields: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    fields = dict(write_fields or {})
+    requested = temporal_intent_requested(
+        as_of=as_of,
+        valid_from=valid_from,
+        valid_to=valid_to,
+        include_temporal_unknown=True if include_temporal_unknown else None,
+        **fields,
+    )
+    if not requested:
+        return {}
+    try:
+        require_temporal_contract(
+            capability_available=_temporal_capability_available_for_runtime()
+        )
+        if fields:
+            return normalize_temporal_fields({"metadata": fields})
+        normalize_temporal_timestamp(as_of, "as_of", allow_none=False) if as_of is not None else None
+        normalize_temporal_timestamp(valid_from, "query_valid_from")
+        normalize_temporal_timestamp(valid_to, "query_valid_to")
+        if valid_from is not None and valid_to is not None and normalize_temporal_timestamp(valid_from, "query_valid_from") >= normalize_temporal_timestamp(valid_to, "query_valid_to"):
+            raise TemporalValidationError("query_valid_from must be earlier than query_valid_to")
+        return {}
+    except (TemporalContractUnavailable, TemporalValidationError, OSError, sqlite3.Error) as exc:
+        code = str(exc)
+        status = 409 if isinstance(exc, TemporalContractUnavailable) else 422
+        raise HTTPException(status_code=status, detail={"code": code}) from exc
 
 
 def _initialize_authoritative_memory_service() -> None:
@@ -4779,6 +4902,19 @@ def _serialize_memory_record(record: dict) -> dict:
             or metadata.get("event_role_version")
             or EVENT_ROLE_SCHEMA_VERSION
         ),
+        "observed_at": record.get("observed_at") or metadata.get("observed_at"),
+        "observed_at_source": record.get("observed_at_source") or metadata.get("observed_at_source") or "legacy-unknown",
+        "valid_from": record.get("valid_from") or metadata.get("valid_from"),
+        "valid_to": record.get("valid_to") or metadata.get("valid_to"),
+        "open_interval": (
+            record.get("open_interval")
+            if record.get("open_interval") is not None
+            else metadata.get("open_interval", True)
+        ),
+        "supersedes_revision_id": record.get("supersedes_revision_id") or metadata.get("supersedes_revision_id"),
+        "source_episode_id": record.get("source_episode_id") or metadata.get("source_episode_id"),
+        "source_uri": record.get("source_uri") or metadata.get("source_uri"),
+        "source_digest": record.get("source_digest") or metadata.get("source_digest"),
         "content": record.get("content"),
         "concepts": record.get("tags") or [],
         "files": metadata.get("files") or [],
@@ -5097,6 +5233,10 @@ def _memory_matches_filters(
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
 ) -> bool:
     metadata = record.get("metadata") or {}
     record_concepts = set(record.get("tags") or [])
@@ -5111,6 +5251,17 @@ def _memory_matches_filters(
         include_archived=include_archived,
         include_logs=include_logs,
     ):
+        return False
+    try:
+        if not temporal_matches(
+            record,
+            as_of=as_of,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown,
+        ):
+            return False
+    except TemporalValidationError:
         return False
     if accepted_projects and record.get("project") not in accepted_projects:
         return False
@@ -5155,6 +5306,10 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
             domain=request.domain,
             semantic_type=request.semantic_type,
             priority=request.priority,
+            as_of=request.as_of,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            include_temporal_unknown=request.include_temporal_unknown,
         ):
             continue
 
@@ -5262,6 +5417,10 @@ def _recent_activity_live_memories(request: MemoryRecentActivityRequest) -> list
     _require_typed_memory_boundary(
         memory_class=request.memory_class,
         event_role=request.event_role,
+        as_of=request.as_of,
+        valid_from=request.valid_from,
+        valid_to=request.valid_to,
+        include_temporal_unknown=request.include_temporal_unknown,
     )
     items = [
         item for item in _load_live_memories()
@@ -5271,6 +5430,10 @@ def _recent_activity_live_memories(request: MemoryRecentActivityRequest) -> list
             memory_type=request.memory_type,
             memory_class=request.memory_class,
             event_role=request.event_role,
+            as_of=request.as_of,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            include_temporal_unknown=request.include_temporal_unknown,
             include_archived=request.include_archived,
         )
     ]
@@ -5284,11 +5447,21 @@ def _list_live_memories(
     memory_type: str | None,
     memory_class: MemoryClass | str | None = None,
     event_role: MemoryEventRole | str | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool,
     limit: int,
     offset: int,
 ) -> tuple[list[dict], int, int, int]:
     _require_typed_memory_boundary(memory_class=memory_class, event_role=event_role)
+    _require_temporal_memory_boundary(
+        as_of=as_of,
+        valid_from=valid_from,
+        valid_to=valid_to,
+        include_temporal_unknown=include_temporal_unknown,
+    )
     items = [
         item
         for item in _load_live_memories()
@@ -5298,6 +5471,10 @@ def _list_live_memories(
             memory_type=memory_type,
             memory_class=memory_class,
             event_role=event_role,
+            as_of=as_of,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
         )
     ]
@@ -6348,6 +6525,35 @@ def _remember_live_memory(request: RememberRequest) -> dict:
     source_id = f"mem_bhm_{uuid.uuid4().hex[:16]}"
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     project = _canonical_project(request.project)
+    temporal_request_fields = {
+        key: getattr(request, key)
+        for key in (
+            "observed_at",
+            "valid_from",
+            "valid_to",
+            "open_interval",
+            "supersedes_revision_id",
+            "source_episode_id",
+            "source_uri",
+            "source_digest",
+        )
+        if getattr(request, key) is not None
+    }
+    if temporal_request_fields or temporal_contract_enabled():
+        _require_temporal_memory_boundary(write_fields=temporal_request_fields)
+    temporal_fields = {}
+    if temporal_contract_enabled():
+        temporal_fields = normalize_temporal_fields(
+            {
+                "metadata": {
+                    **temporal_request_fields,
+                    "observed_at": request.observed_at or now,
+                    "observed_at_source": "explicit" if request.observed_at else "transaction-clock",
+                    "open_interval": request.open_interval if request.open_interval is not None else True,
+                }
+            },
+            require_observed=True,
+        )
     user_metadata = _user_memory_metadata(request.metadata)
     procedure_contract = request.metadata.procedure_contract if request.metadata is not None else None
     capability_available = (
@@ -6397,6 +6603,7 @@ def _remember_live_memory(request: RememberRequest) -> dict:
         "memory_class_confidence": classification.confidence,
         "event_role": event_role.value,
         "event_role_version": EVENT_ROLE_SCHEMA_VERSION,
+        **temporal_fields,
         "content": request.content,
         "summary": None,
         "tags": request.concepts or [],
@@ -6419,6 +6626,38 @@ def _remember_live_memory(request: RememberRequest) -> dict:
     return record
 
 
+def _temporal_request_fields(request: Any) -> dict[str, Any]:
+    return {
+        key: getattr(request, key)
+        for key in (
+            "observed_at",
+            "valid_from",
+            "valid_to",
+            "open_interval",
+            "supersedes_revision_id",
+            "source_episode_id",
+            "source_uri",
+            "source_digest",
+        )
+        if getattr(request, key, None) is not None
+    }
+
+
+def _apply_temporal_update(item: dict[str, Any], request: Any, *, now: str) -> None:
+    request_fields = _temporal_request_fields(request)
+    if not request_fields and not temporal_contract_enabled():
+        return
+    if temporal_contract_enabled():
+        _require_temporal_memory_boundary(write_fields=request_fields)
+        existing = normalize_temporal_fields(item)
+        merged = {**existing, **request_fields}
+        if "observed_at" not in request_fields:
+            merged["observed_at"] = now
+            merged["observed_at_source"] = "transaction-clock"
+        normalized = normalize_temporal_fields({"metadata": merged}, require_observed=True)
+        item.update(normalized)
+
+
 def _update_live_memory(request: MemoryUpdateRequest) -> dict:
     _require_typed_memory_boundary(
         memory_class=request.memory_class,
@@ -6430,6 +6669,7 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             raise HTTPException(status_code=404, detail="memory not found in live store")
         item = copy.deepcopy(item)
         now = _utc_now_iso()
+        _apply_temporal_update(item, request, now=now)
         canonical_project = _canonical_project(request.project) if request.project else None
         if canonical_project:
             item["project"] = canonical_project
@@ -6485,6 +6725,8 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             continue
         if request.project and item.get("project") not in accepted_projects:
             continue
+
+        _apply_temporal_update(item, request, now=now)
 
         if canonical_project:
             item["project"] = canonical_project
@@ -6582,6 +6824,14 @@ def _upsert_live_memory(request: MemoryUpsertRequest) -> tuple[str, dict]:
                 type=request.type,
                 memory_class=request.memory_class,
                 event_role=request.event_role,
+                observed_at=request.observed_at,
+                valid_from=request.valid_from,
+                valid_to=request.valid_to,
+                open_interval=request.open_interval,
+                supersedes_revision_id=request.supersedes_revision_id,
+                source_episode_id=request.source_episode_id,
+                source_uri=request.source_uri,
+                source_digest=request.source_digest,
                 content=request.content,
                 concepts=request.concepts,
                 files=request.files,
@@ -6599,6 +6849,14 @@ def _upsert_live_memory(request: MemoryUpsertRequest) -> tuple[str, dict]:
             type=request.type,
             memory_class=request.memory_class,
             event_role=request.event_role,
+            observed_at=request.observed_at,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            open_interval=request.open_interval,
+            supersedes_revision_id=request.supersedes_revision_id,
+            source_episode_id=request.source_episode_id,
+            source_uri=request.source_uri,
+            source_digest=request.source_digest,
             content=request.content,
             concepts=request.concepts,
             files=request.files,
@@ -8542,6 +8800,10 @@ def _memory_timeline(request: MemoryTimelineRequest) -> list[dict]:
             memory_class=request.memory_class,
             event_role=request.event_role,
             concepts=[request.concept] if request.concept else None,
+            as_of=request.as_of,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            include_temporal_unknown=request.include_temporal_unknown,
             include_archived=request.include_archived,
         )
     ]
@@ -9252,6 +9514,10 @@ def _search_hybrid(request: HybridSearchRequest) -> dict:
             project=project,
             memory_class=request.memory_class,
             event_role=request.event_role,
+            as_of=request.as_of,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            include_temporal_unknown=request.include_temporal_unknown,
             domain=request.domain,
             semantic_type=request.semantic_type,
             priority=request.priority,
@@ -12218,6 +12484,10 @@ def _vector_hit_matches_filters(
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool = False,
     include_logs: bool = False,
 ) -> bool:
@@ -12241,6 +12511,18 @@ def _vector_hit_matches_filters(
         return False
     if files and not set(files).issubset(set(metadata.get("files") or [])):
         return False
+    if any(value is not None for value in (as_of, valid_from, valid_to)) or include_temporal_unknown:
+        try:
+            if not temporal_matches(
+                metadata,
+                as_of=as_of,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                include_temporal_unknown=include_temporal_unknown,
+            ):
+                return False
+        except TemporalValidationError:
+            return False
     return _metadata_matches_taxonomy_filters(
         metadata,
         domain=domain,
@@ -12341,6 +12623,10 @@ def _strict_retrieval_hits(
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool = False,
     include_logs: bool = False,
     limit: int = 10,
@@ -12391,6 +12677,10 @@ def _strict_retrieval_hits(
             domain=domain,
             semantic_type=semantic_type,
             priority=priority,
+            as_of=as_of,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
             include_logs=include_logs,
         ):
@@ -12417,6 +12707,20 @@ def _strict_retrieval_hits(
                 "revision_id": record.get("revision_id") or authoritative_metadata.get("revision_id"),
                 "content_sha256": record.get("content_sha256")
                 or authoritative_metadata.get("content_sha256"),
+                "observed_at": record.get("observed_at") or authoritative_metadata.get("observed_at"),
+                "observed_at_source": record.get("observed_at_source")
+                or authoritative_metadata.get("observed_at_source"),
+                "valid_from": record.get("valid_from") or authoritative_metadata.get("valid_from"),
+                "valid_to": record.get("valid_to") or authoritative_metadata.get("valid_to"),
+                "open_interval": record.get("open_interval")
+                if record.get("open_interval") is not None
+                else authoritative_metadata.get("open_interval"),
+                "supersedes_revision_id": record.get("supersedes_revision_id")
+                or authoritative_metadata.get("supersedes_revision_id"),
+                "source_episode_id": record.get("source_episode_id")
+                or authoritative_metadata.get("source_episode_id"),
+                "source_uri": record.get("source_uri") or authoritative_metadata.get("source_uri"),
+                "source_digest": record.get("source_digest") or authoritative_metadata.get("source_digest"),
             }
         )
         enriched["metadata"] = metadata
@@ -12441,23 +12745,39 @@ async def federated_search(
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool = False,
     include_logs: bool = False,
     include_graph_expansion: bool = True,
     include_global: bool = True,
 ) -> tuple[list[dict], int]:
     _require_typed_memory_boundary(memory_class=memory_class, event_role=event_role)
+    _require_temporal_memory_boundary(
+        as_of=as_of,
+        valid_from=valid_from,
+        valid_to=valid_to,
+        include_temporal_unknown=include_temporal_unknown,
+    )
     project_name = _effective_search_project(project_name)
     page_limit = max(min(limit, 200), 1)
     page_offset = max(offset, 0)
     typed_filter_requested = memory_class is not None or event_role is not None
+    temporal_filter_requested = (
+        as_of is not None
+        or valid_from is not None
+        or valid_to is not None
+        or include_temporal_unknown
+    )
     pushdown_ready = _typed_projection_pushdown_ready() if typed_filter_requested else False
     # Legacy projections may lack typed payload fields.  Keep a bounded wide
     # pool until an operator has proven V2 parity; final filtering remains
     # SQLite-authoritative and therefore cannot silently lose rare classes.
     candidate_count = max(
         page_limit + page_offset,
-        20 if pushdown_ready or not typed_filter_requested else 200,
+        20 if (pushdown_ready or not typed_filter_requested) and not temporal_filter_requested else 200,
     )
     candidate_filters = build_candidate_filters(
         user_id=settings.mem0_user_id,
@@ -12532,6 +12852,29 @@ async def federated_search(
     local_hits = _apply_decay_to_vector_hits(local_hits, now)
     global_hits = _apply_decay_to_vector_hits(global_hits, now)
     combined_results = merge_and_sort_hits(local_hits, global_hits)
+    if temporal_filter_requested:
+        # Temporal fields in Qdrant are an optional projection.  Hydrate from
+        # SQLite before filtering so stale or missing projection payloads never
+        # become authoritative for historical retrieval.
+        combined_results = _strict_retrieval_hits(
+            combined_results,
+            project_name=project_name,
+            memory_type=memory_type,
+            memory_class=memory_class,
+            event_role=event_role,
+            concepts=concepts,
+            files=files,
+            domain=domain,
+            semantic_type=semantic_type,
+            priority=priority,
+            as_of=as_of,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown,
+            include_archived=include_archived,
+            include_logs=include_logs,
+            limit=candidate_count,
+        )
     filtered = [
         hit
         for hit in combined_results
@@ -12546,6 +12889,10 @@ async def federated_search(
             domain=domain,
             semantic_type=semantic_type,
             priority=priority,
+            as_of=as_of,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
             include_logs=include_logs,
         )
@@ -16600,6 +16947,10 @@ async def bhm_memories_list(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool = False,
     limit: int = 20,
     offset: int = 0,
@@ -16613,6 +16964,10 @@ async def bhm_memories_list(
             memory_type=memory_type,
             memory_class=memory_class,
             event_role=event_role,
+            as_of=as_of,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
             limit=limit,
             offset=offset,
@@ -16632,6 +16987,10 @@ async def bhm_memories_list(
                 memory_type=memory_type,
                 memory_class=memory_class,
                 event_role=event_role,
+                as_of=as_of,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                include_temporal_unknown=include_temporal_unknown,
                 include_archived=include_archived,
                 limit=limit,
                 offset=offset,
@@ -16682,6 +17041,10 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 "memory_type": request.memory_type,
                 "memory_class": request.memory_class.value if request.memory_class else None,
                 "event_role": request.event_role.value if request.event_role else None,
+                "as_of": request.as_of,
+                "valid_from": request.valid_from,
+                "valid_to": request.valid_to,
+                "include_temporal_unknown": request.include_temporal_unknown,
                 "concepts": request.concepts or [],
                 "files": request.files or [],
                 "include_archived": request.include_archived,
@@ -16701,6 +17064,10 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 memory_type=request.memory_type,
                 memory_class=request.memory_class,
                 event_role=request.event_role,
+                as_of=request.as_of,
+                valid_from=request.valid_from,
+                valid_to=request.valid_to,
+                include_temporal_unknown=request.include_temporal_unknown,
                 concepts=request.concepts,
                 files=request.files,
                 query=request.query,
@@ -16762,6 +17129,10 @@ async def bhm_context_compile(
         memory_type=request.memory_type,
         memory_class=request.memory_class,
         event_role=request.event_role,
+        as_of=request.as_of,
+        valid_from=request.valid_from,
+        valid_to=request.valid_to,
+        include_temporal_unknown=request.include_temporal_unknown,
         concepts=request.concepts,
         files=request.files,
         domain=request.domain,
@@ -16780,6 +17151,10 @@ async def bhm_context_compile(
         memory_type=request.memory_type,
         memory_class=request.memory_class,
         event_role=request.event_role,
+        as_of=request.as_of,
+        valid_from=request.valid_from,
+        valid_to=request.valid_to,
+        include_temporal_unknown=request.include_temporal_unknown,
         concepts=request.concepts,
         files=request.files,
         domain=request.domain,
@@ -16806,6 +17181,10 @@ async def bhm_context_compile(
                 request.memory_type,
                 request.memory_class,
                 request.event_role,
+                request.as_of,
+                request.valid_from,
+                request.valid_to,
+                request.include_temporal_unknown,
                 request.concepts,
                 request.files,
                 request.domain,
@@ -16845,6 +17224,22 @@ async def bhm_context_compile(
         "omissions": compiled["omissions"],
         "query": request.query,
         "project": project_name,
+        "filters": {
+            "memory_type": request.memory_type,
+            "memory_class": request.memory_class.value if request.memory_class else None,
+            "event_role": request.event_role.value if request.event_role else None,
+            "as_of": request.as_of,
+            "valid_from": request.valid_from,
+            "valid_to": request.valid_to,
+            "include_temporal_unknown": request.include_temporal_unknown,
+            "concepts": request.concepts or [],
+            "files": request.files or [],
+            "include_archived": effective_include_archived,
+            "include_logs": effective_include_logs,
+            "domain": request.domain,
+            "semantic_type": request.semantic_type,
+            "priority": request.priority,
+        },
         "profile": context_profile.as_dict(),
         "profile_recommendation": profile_recommendation,
         "context_confidence": context_confidence,
@@ -16881,6 +17276,10 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
         memory_type=request.memory_type,
         memory_class=request.memory_class,
         event_role=request.event_role,
+        as_of=request.as_of,
+        valid_from=request.valid_from,
+        valid_to=request.valid_to,
+        include_temporal_unknown=request.include_temporal_unknown,
         concepts=request.concepts,
         files=request.files,
         domain=request.domain,
@@ -16895,6 +17294,10 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
         memory_type=request.memory_type,
         memory_class=request.memory_class,
         event_role=request.event_role,
+        as_of=request.as_of,
+        valid_from=request.valid_from,
+        valid_to=request.valid_to,
+        include_temporal_unknown=request.include_temporal_unknown,
         concepts=request.concepts,
         files=request.files,
         domain=request.domain,
@@ -16921,6 +17324,10 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
             "memory_type": request.memory_type,
             "memory_class": request.memory_class.value if request.memory_class else None,
             "event_role": request.event_role.value if request.event_role else None,
+            "as_of": request.as_of,
+            "valid_from": request.valid_from,
+            "valid_to": request.valid_to,
+            "include_temporal_unknown": request.include_temporal_unknown,
             "concepts": request.concepts or [],
             "files": request.files or [],
             "include_archived": request.include_archived,
@@ -17006,6 +17413,10 @@ def bhm_recent_activity(request: MemoryRecentActivityRequest) -> dict:
             "memory_type": request.memory_type,
             "memory_class": request.memory_class.value if request.memory_class else None,
             "event_role": request.event_role.value if request.event_role else None,
+            "as_of": request.as_of,
+            "valid_from": request.valid_from,
+            "valid_to": request.valid_to,
+            "include_temporal_unknown": request.include_temporal_unknown,
             "include_archived": request.include_archived,
         },
     }
@@ -17511,6 +17922,12 @@ def bhm_memory_timeline(request: MemoryTimelineRequest) -> dict:
             "project": request.project,
             "concept": request.concept,
             "memory_type": request.memory_type,
+            "memory_class": request.memory_class.value if request.memory_class else None,
+            "event_role": request.event_role.value if request.event_role else None,
+            "as_of": request.as_of,
+            "valid_from": request.valid_from,
+            "valid_to": request.valid_to,
+            "include_temporal_unknown": request.include_temporal_unknown,
             "include_archived": request.include_archived,
         },
     }

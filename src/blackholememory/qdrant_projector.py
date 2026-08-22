@@ -21,6 +21,8 @@ from .mem0_adapter import global_collection_name
 from .mem0_adapter import local_collection_name
 from .outbox import OutboxEvent
 from .vector_routing import route_vector_targets
+from .temporal_contract import temporal_contract_enabled
+from .temporal_contract import temporal_projection_fields
 
 _LOGGER = logging.getLogger(__name__)
 _VOLATILE_PROJECTION_KEYS = {
@@ -69,6 +71,15 @@ _STABLE_PROJECTION_FIELDS = (
     "session_refs",
     "metadata",
     "vector_collection",
+    "observed_at",
+    "observed_at_source",
+    "valid_from",
+    "valid_to",
+    "open_interval",
+    "supersedes_revision_id",
+    "source_episode_id",
+    "source_uri",
+    "source_digest",
 )
 
 
@@ -217,7 +228,7 @@ def _finite_vector(vector: Sequence[float], *, expected_dimensions: int | None =
 
 def _projection_payload_body(memory: Memory, collection_name: str) -> dict[str, Any]:
     content = memory.current_revision.content
-    return {
+    payload = {
         "source_id": memory.id,
         # Mem0 requires a user scope on every search.  The authoritative
         # projector writes directly to Qdrant, so preserve that scope in the
@@ -245,6 +256,9 @@ def _projection_payload_body(memory: Memory, collection_name: str) -> dict[str, 
         "metadata": copy.deepcopy(memory.metadata),
         "vector_collection": collection_name,
     }
+    if temporal_contract_enabled():
+        payload.update(temporal_projection_fields(memory.to_record()))
+    return payload
 
 
 def _stable_projection_value(value: Any) -> Any:
