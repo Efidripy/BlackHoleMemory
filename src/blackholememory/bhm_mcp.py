@@ -24,6 +24,8 @@ from .resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
 from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
 
 MemoryMetadata = _memory_contracts.MemoryMetadata
+MemoryClass = _memory_contracts.MemoryClass
+MemoryEventRole = _memory_contracts.MemoryEventRole
 MetadataActionability = _memory_contracts.MetadataActionability
 MetadataDomain = _memory_contracts.MetadataDomain
 MetadataLanguage = _memory_contracts.MetadataLanguage
@@ -47,6 +49,8 @@ TAXONOMY_METADATA_HINT = (
     "verification=unverified|peer-reviewed|trusted; actionability=task|info|decision|query; "
     "stakeholder=core-team|devops|frontend-squad|product-owner; language=en|ru|code-python|code-ts; "
     "semantic_type=architecture|bugfix|feature|refactor|knowledge|fact|log|error|decision-log|requirement; "
+    "memory_class=episodic|semantic|procedural|working|unclassified; "
+    "event_role=fact|decision|qa|trace|feedback|skill_run|unclassified; "
     "version=string; importance_score=1..10."
 )
 
@@ -67,6 +71,8 @@ class BhmBatchUpsertItem(BaseModel):
     content: str
     project: str | None = None
     memory_type: str = "workflow"
+    memory_class: MemoryClass | None = None
+    event_role: MemoryEventRole | None = None
     concepts: list[str] | None = None
     files: list[str] | None = None
     metadata: MemoryMetadata | None = None
@@ -312,7 +318,13 @@ def bhm_preflight(project: str = DEFAULT_PROJECT, query: str | None = None, limi
 def bhm_search(
     query: str = "",
     project: str | None = None,
+    memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
+    concepts_csv: str | None = None,
+    files_csv: str | None = None,
     limit: int = 10,
+    offset: int = 0,
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
@@ -322,11 +334,22 @@ def bhm_search(
     body = {
         "query": query,
         "limit": limit,
+        "offset": offset,
         "include_archived": include_archived,
         "include_logs": include_logs,
     }
     if project:
         body["project"] = project
+    if memory_type:
+        body["memory_type"] = memory_type
+    if memory_class:
+        body["memory_class"] = memory_class.value
+    if event_role:
+        body["event_role"] = event_role.value
+    if concepts_csv is not None:
+        body["concepts"] = _parse_csv(concepts_csv) or []
+    if files_csv is not None:
+        body["files"] = _parse_csv(files_csv) or []
     if domain:
         body["domain"] = domain
     if semantic_type:
@@ -340,6 +363,11 @@ def bhm_search(
 def bhm_context_compile(
     query: str,
     project: str | None = None,
+    memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
+    concepts_csv: str | None = None,
+    files_csv: str | None = None,
     profile: str | None = None,
     token_budget: Annotated[int | None, Field(ge=64, le=MAX_CONTEXT_TOKEN_BUDGET)] = None,
     limit: Annotated[int | None, Field(ge=1, le=50)] = None,
@@ -363,6 +391,16 @@ def bhm_context_compile(
         body["limit"] = limit
     if project:
         body["project"] = project
+    if memory_type:
+        body["memory_type"] = memory_type
+    if memory_class:
+        body["memory_class"] = memory_class.value
+    if event_role:
+        body["event_role"] = event_role.value
+    if concepts_csv is not None:
+        body["concepts"] = _parse_csv(concepts_csv) or []
+    if files_csv is not None:
+        body["files"] = _parse_csv(files_csv) or []
     if domain:
         body["domain"] = domain
     if semantic_type:
@@ -378,6 +416,8 @@ def bhm_explain_retrieval(
     project: str | None = None,
     limit: Annotated[int, Field(ge=1, le=50)] = 10,
     memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     domain: str | None = None,
@@ -396,6 +436,10 @@ def bhm_explain_retrieval(
         body["project"] = project
     if memory_type:
         body["memory_type"] = memory_type
+    if memory_class:
+        body["memory_class"] = memory_class.value
+    if event_role:
+        body["event_role"] = event_role.value
     if concepts_csv is not None:
         body["concepts"] = _parse_csv(concepts_csv) or []
     if files_csv is not None:
@@ -433,6 +477,8 @@ def bhm_get_memory(id: str, project: str | None = None) -> dict[str, Any]:
 def bhm_list_memories(
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     include_archived: bool = False,
     limit: int = 20,
     offset: int = 0,
@@ -442,6 +488,10 @@ def bhm_list_memories(
         params["project"] = project
     if memory_type:
         params["memory_type"] = memory_type
+    if memory_class:
+        params["memory_class"] = memory_class.value
+    if event_role:
+        params["event_role"] = event_role.value
     return _get("/bhm/memories", params)
 
 
@@ -450,6 +500,8 @@ def bhm_update_memory(
     id: str,
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     content: str | None = None,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
@@ -460,6 +512,10 @@ def bhm_update_memory(
         body["project"] = project
     if memory_type:
         body["type"] = memory_type
+    if memory_class:
+        body["memory_class"] = memory_class.value
+    if event_role:
+        body["event_role"] = event_role.value
     if content is not None:
         body["content"] = content
     if concepts_csv is not None:
@@ -536,6 +592,8 @@ def bhm_search_advanced(
     query: str = "",
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     include_archived: bool = False,
@@ -557,6 +615,10 @@ def bhm_search_advanced(
         body["project"] = project
     if memory_type:
         body["memory_type"] = memory_type
+    if memory_class:
+        body["memory_class"] = memory_class.value
+    if event_role:
+        body["event_role"] = event_role.value
     if concepts_csv is not None:
         body["concepts"] = _parse_csv(concepts_csv) or []
     if files_csv is not None:
@@ -574,6 +636,8 @@ def bhm_search_advanced(
 def bhm_recent_activity(
     project: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     include_archived: bool = False,
     limit: int = 10,
 ) -> dict[str, Any]:
@@ -585,6 +649,10 @@ def bhm_recent_activity(
         body["project"] = project
     if memory_type:
         body["memory_type"] = memory_type
+    if memory_class:
+        body["memory_class"] = memory_class.value
+    if event_role:
+        body["event_role"] = event_role.value
     return _post("/bhm/recent-activity", body)
 
 
@@ -594,6 +662,8 @@ def bhm_upsert_memory(
     content: str,
     project: str = DEFAULT_PROJECT,
     memory_type: str = "workflow",
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     metadata_json: str | None = None,
@@ -608,6 +678,10 @@ def bhm_upsert_memory(
     }
     if metadata_json is not None:
         body["metadata"] = _metadata_json_object(metadata_json)
+    if memory_class:
+        body["memory_class"] = memory_class.value
+    if event_role:
+        body["event_role"] = event_role.value
     return _post(
         "/bhm/memory/upsert",
         body,
@@ -1224,6 +1298,8 @@ def bhm_memory_timeline(
     project: str | None = None,
     concept: str | None = None,
     memory_type: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     include_archived: bool = False,
     limit: int = 20,
 ) -> dict[str, Any]:
@@ -1233,6 +1309,8 @@ def bhm_memory_timeline(
             "project": project,
             "concept": concept,
             "memory_type": memory_type,
+            "memory_class": memory_class.value if memory_class else None,
+            "event_role": event_role.value if event_role else None,
             "include_archived": include_archived,
             "limit": limit,
         },
@@ -1392,6 +1470,8 @@ def bhm_memory_type_migrate(id: str, new_type: str, project: str | None = None) 
 def bhm_search_hybrid(
     query: str,
     project: str | None = None,
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
@@ -1407,6 +1487,10 @@ def bhm_search_hybrid(
     }
     if project:
         body["project"] = project
+    if memory_class:
+        body["memory_class"] = memory_class.value
+    if event_role:
+        body["event_role"] = event_role.value
     if domain:
         body["domain"] = domain
     if semantic_type:
@@ -1749,6 +1833,8 @@ def bhm_remember(
     content: str,
     project: str = DEFAULT_PROJECT,
     memory_type: str = "workflow",
+    memory_class: MemoryClass | None = None,
+    event_role: MemoryEventRole | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     metadata: MemoryMetadata | None = None,
@@ -1757,6 +1843,8 @@ def bhm_remember(
         "content": content,
         "project": project,
         "type": memory_type,
+        "memory_class": memory_class.value if memory_class else None,
+        "event_role": event_role.value if event_role else None,
         "concepts": concepts or [],
         "files": files or [],
     }

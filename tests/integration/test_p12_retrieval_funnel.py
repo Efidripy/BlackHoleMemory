@@ -5,6 +5,19 @@ from fastapi.testclient import TestClient
 from blackholememory import app as bhm_app
 
 
+class _AuthoritativeStub:
+    def __init__(self, records):
+        self._records = {str(record["source_id"]): record for record in records}
+
+    def get_records(self, memory_ids, *, project=None):
+        return [
+            record
+            for memory_id in memory_ids
+            if (record := self._records.get(str(memory_id))) is not None
+            and (project is None or record.get("project") == project)
+        ]
+
+
 def test_context_compile_and_explicit_memory_used_feed_retrieval_funnel(monkeypatch):
     async def fake_ready():
         return None
@@ -31,6 +44,26 @@ def test_context_compile_and_explicit_memory_used_feed_retrieval_funnel(monkeypa
     async def fake_fetch(memory_id: str, _project: str):
         return hit if memory_id == "memory-funnel-1" else None
 
+    monkeypatch.setattr(
+        bhm_app,
+        "_memory_service",
+        lambda: _AuthoritativeStub(
+            [
+                {
+                    "source_id": "memory-funnel-1",
+                    "project": "blackholememory",
+                    "memory_type": "knowledge",
+                    "content": "durable retrieval evidence",
+                    "metadata": {
+                        "semantic_type": "knowledge",
+                        "source_system": "bhm",
+                        "source_kind": "mcp",
+                        "source_refs": ["references/architecture/0081.md"],
+                    },
+                }
+            ]
+        ),
+    )
     monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
     monkeypatch.setattr(bhm_app, "_fetch_qdrant_hit_by_source_id", fake_fetch)

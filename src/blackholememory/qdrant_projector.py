@@ -30,11 +30,33 @@ _VOLATILE_PROJECTION_KEYS = {
     "last_used_at",
     "projection_event_id",
 }
-_STABLE_PROJECTION_FIELDS = (
+_PROJECTION_PAYLOAD_SCHEMA_V1 = "bhm.qdrant.payload.v1"
+_PROJECTION_PAYLOAD_SCHEMA_V2 = "bhm.qdrant.payload.v2"
+_V1_STABLE_PROJECTION_FIELDS = (
     "source_id",
     "user_id",
     "project",
     "memory_type",
+    "data",
+    "content",
+    "lifecycle",
+    "revision_id",
+    "content_sha256",
+    "source_system",
+    "agent_id",
+    "tags",
+    "files",
+    "session_refs",
+    "metadata",
+    "vector_collection",
+)
+_STABLE_PROJECTION_FIELDS = (
+    *_V1_STABLE_PROJECTION_FIELDS[:4],
+    "memory_class",
+    "memory_class_source",
+    "memory_class_confidence",
+    "event_role",
+    "event_role_version",
     "data",
     "content",
     "lifecycle",
@@ -203,6 +225,11 @@ def _projection_payload_body(memory: Memory, collection_name: str) -> dict[str, 
         "user_id": settings.mem0_user_id,
         "project": memory.project,
         "memory_type": memory.memory_type,
+        "memory_class": memory.memory_class.value,
+        "memory_class_source": memory.memory_class_source.value,
+        "memory_class_confidence": memory.memory_class_confidence,
+        "event_role": memory.event_role.value,
+        "event_role_version": memory.event_role_version,
         # Mem0's Qdrant adapter reads the searchable body from ``data``.
         # Keep ``content`` as the BHM-native alias for direct readers.
         "data": content,
@@ -238,10 +265,19 @@ def projection_payload_digest(memory: Memory, collection_name: str) -> str:
     return projection_payload_digest_from_payload(_projection_payload_body(memory, collection_name))
 
 
-def projection_payload_digest_from_payload(payload: Mapping[str, Any]) -> str:
+def projection_payload_digest_from_payload(
+    payload: Mapping[str, Any],
+    *,
+    schema_version: str | None = None,
+) -> str:
     """Fingerprint actual stable payload fields instead of trusting its marker."""
 
-    stable_payload = {key: copy.deepcopy(payload.get(key)) for key in _STABLE_PROJECTION_FIELDS}
+    selected_fields = (
+        _V1_STABLE_PROJECTION_FIELDS
+        if schema_version == _PROJECTION_PAYLOAD_SCHEMA_V1
+        else _STABLE_PROJECTION_FIELDS
+    )
+    stable_payload = {key: copy.deepcopy(payload.get(key)) for key in selected_fields}
     canonical = json.dumps(
         _stable_projection_value(stable_payload),
         ensure_ascii=False,
@@ -256,6 +292,7 @@ def build_point_payload(event_id: str, memory: Memory, collection_name: str) -> 
     """Build a flat, filterable payload while retaining the full user metadata."""
 
     payload = _projection_payload_body(memory, collection_name)
+    payload["projection_payload_schema"] = _PROJECTION_PAYLOAD_SCHEMA_V2
     payload["projection_payload_digest"] = projection_payload_digest(memory, collection_name)
     payload["projection_event_id"] = event_id
     return payload
@@ -393,20 +430,28 @@ class QdrantProjector:
                 except Exception:
                     existing_payload = {}
             existing_marker = str(existing_payload.get("projection_payload_digest") or "")
-            existing_contract_digest = (
-                projection_payload_digest_from_payload(existing_payload)
-                if existing_payload
-                else ""
-            )
-            metadata_only = bool(existing_payload) and bool(existing_marker) and all(
+            existing_schema = str(existing_payload.get("projection_payload_schema") or "")
+            existing_contract_digest = ""
+            if existing_payload:
+                existing_contract_digest = projection_payload_digest_from_payload(
+                    existing_payload,
+                    schema_version=(
+                        _PROJECTION_PAYLOAD_SCHEMA_V1
+                        if existing_schema in {"", _PROJECTION_PAYLOAD_SCHEMA_V1}
+                        else _PROJECTION_PAYLOAD_SCHEMA_V2
+                    ),
+                )
+            identity_matches = bool(existing_payload) and all(
                 (
-                    existing_marker == existing_contract_digest,
                     str(existing_payload.get("source_id") or "") == memory.id,
+                    str(existing_payload.get("project") or "") == memory.project,
                     str(existing_payload.get("revision_id") or "") == memory.current_revision.revision_id,
                     str(existing_payload.get("content_sha256") or "") == memory.current_revision.content_sha256,
                     str(existing_payload.get("lifecycle") or "") == memory.lifecycle.value,
                 )
             )
+            existing_digest_valid = bool(existing_marker) and existing_marker == existing_contract_digest
+            metadata_only = identity_matches and existing_digest_valid and callable(set_payload)
             if metadata_only and callable(set_payload):
                 set_payload(
                     collection_name=collection_name,

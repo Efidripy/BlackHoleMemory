@@ -7,7 +7,7 @@ from typing import Any, Mapping
 from .error_taxonomy import error_contract_snapshot
 
 
-PROTOCOL_CONTRACT_SCHEMA_VERSION = "bhm.mcp.protocol-conformance.v1"
+PROTOCOL_CONTRACT_SCHEMA_VERSION = "bhm.mcp.protocol-conformance.v2"
 CURRENT_PROTOCOL_VERSION = "2025-06-18"
 LEGACY_PROTOCOL_VERSIONS = ("2024-11-05",)
 SUPPORTED_PROTOCOL_VERSIONS = (CURRENT_PROTOCOL_VERSION, *LEGACY_PROTOCOL_VERSIONS)
@@ -17,7 +17,16 @@ JSONRPC_METHOD_NOT_FOUND = -32601
 JSONRPC_INVALID_PARAMS = -32602
 
 BHM_REMEMBER_ALLOWED_ARGUMENTS = frozenset(
-    {"content", "project", "memory_type", "concepts", "files", "metadata"}
+    {
+        "content",
+        "project",
+        "memory_type",
+        "concepts",
+        "files",
+        "metadata",
+        "memory_class",
+        "event_role",
+    }
 )
 
 
@@ -47,6 +56,12 @@ def validate_bhm_remember_arguments(arguments: Mapping[str, Any]) -> str | None:
         return "bhm_remember files must be an array"
     if "metadata" in arguments and arguments["metadata"] is not None and not isinstance(arguments["metadata"], dict):
         return "bhm_remember metadata must be an object"
+    for key, allowed in {
+        "memory_class": {"episodic", "semantic", "procedural", "working", "unclassified"},
+        "event_role": {"fact", "decision", "qa", "trace", "feedback", "skill_run", "unclassified"},
+    }.items():
+        if key in arguments and arguments[key] is not None and arguments[key] not in allowed:
+            return f"bhm_remember {key} is unsupported"
     return None
 
 

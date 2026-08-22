@@ -187,6 +187,8 @@ class SQLiteMemoryService:
         self,
         *,
         project: str | None = None,
+        memory_class: str | None = None,
+        event_role: str | None = None,
         include_archived: bool = False,
         include_tombstoned: bool = False,
         limit: int | None = None,
@@ -213,6 +215,8 @@ class SQLiteMemoryService:
             page_limit = 10_000 if remaining is None else min(10_000, remaining)
             page = self.repository.list_memories(
                 project=project,
+                memory_class=memory_class,
+                event_role=event_role,
                 include_archived=include_archived,
                 include_tombstoned=include_tombstoned,
                 limit=page_limit,
@@ -271,12 +275,16 @@ class SQLiteMemoryService:
         self,
         *,
         project: str | None = None,
+        memory_class: str | None = None,
+        event_role: str | None = None,
         include_archived: bool = False,
         include_tombstoned: bool = False,
     ) -> int:
         self._ensure_ready(verify_integrity=False)
         return self.repository.count_memories(
             project=project,
+            memory_class=memory_class,
+            event_role=event_role,
             include_archived=include_archived,
             include_tombstoned=include_tombstoned,
         )

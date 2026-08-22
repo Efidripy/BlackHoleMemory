@@ -68,6 +68,8 @@ class MemorySearchService:
                 limit=request.limit,
                 offset=request.offset,
                 memory_type=request.memory_type,
+                memory_class=getattr(request, "memory_class", None),
+                event_role=getattr(request, "event_role", None),
                 concepts=request.concepts,
                 files=request.files,
                 domain=request.domain,
@@ -96,6 +98,16 @@ class MemorySearchService:
                 "filters": {
                     "project": request.project,
                     "memory_type": request.memory_type,
+                    "memory_class": (
+                        getattr(request.memory_class, "value", None)
+                        if getattr(getattr(request, "memory_class", None), "value", None)
+                        else getattr(request, "memory_class", None)
+                    ),
+                    "event_role": (
+                        getattr(request.event_role, "value", None)
+                        if getattr(getattr(request, "event_role", None), "value", None)
+                        else getattr(request, "event_role", None)
+                    ),
                     "concepts": request.concepts or [],
                     "files": request.files or [],
                     "include_archived": request.include_archived,
@@ -120,6 +132,8 @@ class MemorySearchService:
                 exc,
                 project=project_name,
                 memory_type=request.memory_type,
+                memory_class=getattr(request, "memory_class", None),
+                event_role=getattr(request, "event_role", None),
                 concepts=request.concepts,
                 files=request.files,
                 query=request.query,

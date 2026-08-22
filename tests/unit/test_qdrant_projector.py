@@ -11,8 +11,11 @@ from blackholememory.mem0_adapter import global_collection_name
 from blackholememory.mem0_adapter import local_collection_name
 from blackholememory.outbox import OutboxStatus
 from blackholememory.qdrant_projector import QdrantProjector
+from blackholememory.qdrant_projector import _PROJECTION_PAYLOAD_SCHEMA_V1
+from blackholememory.qdrant_projector import _projection_payload_body
 from blackholememory.qdrant_projector import deterministic_point_id
 from blackholememory.qdrant_projector import projection_payload_digest
+from blackholememory.qdrant_projector import projection_payload_digest_from_payload
 from blackholememory.qdrant_projector import _vector_targets
 from blackholememory.qdrant_projector import is_projection_infrastructure_error
 from blackholememory.vector_routing import route_vector_targets
@@ -248,6 +251,103 @@ def test_legacy_point_without_payload_digest_is_fully_reprojected(tmp_path):
     assert point.payload["projection_payload_digest"] == projection_payload_digest(
         memory, local_name
     )
+
+
+def test_valid_legacy_v1_point_is_upgraded_with_set_payload_without_reembedding(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _FakeQdrant()
+    vector_calls = []
+    projector = QdrantProjector(
+        client,
+        lambda _memory: vector_calls.append(True) or [0.25, 0.75],
+        expected_dimensions=2,
+    )
+    local_name = local_collection_name(memory.project)
+    for collection_name in projector.collection_names(memory):
+        point_id = deterministic_point_id(collection_name, memory.id)
+        legacy_payload = _projection_payload_body(memory, collection_name)
+        for key in ("memory_class", "memory_class_source", "memory_class_confidence", "event_role", "event_role_version"):
+            legacy_payload.pop(key, None)
+        legacy_payload["projection_payload_schema"] = _PROJECTION_PAYLOAD_SCHEMA_V1
+        legacy_payload["projection_payload_digest"] = projection_payload_digest_from_payload(
+            legacy_payload,
+            schema_version=_PROJECTION_PAYLOAD_SCHEMA_V1,
+        )
+        client.points[(collection_name, point_id)] = _StoredPoint(vector=[9.0, 9.0], payload=legacy_payload)
+
+    projected = projector.run_once(repository)
+
+    assert projected.completed == 1
+    assert vector_calls == []
+    point = client.points[(local_name, deterministic_point_id(local_name, memory.id))]
+    assert point.vector == [9.0, 9.0]
+    assert point.payload["projection_payload_schema"] == "bhm.qdrant.payload.v2"
+    assert point.payload["memory_class"] == "unclassified"
+    assert point.payload["event_role"] == "unclassified"
+    assert point.payload["projection_payload_digest"] == projection_payload_digest(memory, local_name)
+
+
+def test_valid_legacy_marker_without_schema_is_treated_as_v1_metadata_upgrade(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _FakeQdrant()
+    vector_calls = []
+    projector = QdrantProjector(
+        client,
+        lambda _memory: vector_calls.append(True) or [0.25, 0.75],
+        expected_dimensions=2,
+    )
+    local_name = local_collection_name(memory.project)
+    for collection_name in projector.collection_names(memory):
+        point_id = deterministic_point_id(collection_name, memory.id)
+        legacy_payload = _projection_payload_body(memory, collection_name)
+        for key in ("memory_class", "memory_class_source", "memory_class_confidence", "event_role", "event_role_version"):
+            legacy_payload.pop(key, None)
+        legacy_payload["projection_payload_digest"] = projection_payload_digest_from_payload(
+            legacy_payload,
+            schema_version=_PROJECTION_PAYLOAD_SCHEMA_V1,
+        )
+        client.points[(collection_name, point_id)] = _StoredPoint(vector=[9.0, 9.0], payload=legacy_payload)
+
+    assert projector.run_once(repository).completed == 1
+    assert vector_calls == []
+    local_point = client.points[(local_name, deterministic_point_id(local_name, memory.id))]
+    assert local_point.payload["projection_payload_schema"] == "bhm.qdrant.payload.v2"
+
+
+def test_tampered_legacy_v1_payload_requires_full_reprojection(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _FakeQdrant()
+    vector_calls = []
+    projector = QdrantProjector(
+        client,
+        lambda _memory: vector_calls.append(True) or [0.25, 0.75],
+        expected_dimensions=2,
+    )
+    local_name = local_collection_name(memory.project)
+    for collection_name in projector.collection_names(memory):
+        point_id = deterministic_point_id(collection_name, memory.id)
+        legacy_payload = _projection_payload_body(memory, collection_name)
+        for key in ("memory_class", "memory_class_source", "memory_class_confidence", "event_role", "event_role_version"):
+            legacy_payload.pop(key, None)
+        legacy_payload["projection_payload_schema"] = _PROJECTION_PAYLOAD_SCHEMA_V1
+        legacy_payload["projection_payload_digest"] = projection_payload_digest_from_payload(
+            legacy_payload,
+            schema_version=_PROJECTION_PAYLOAD_SCHEMA_V1,
+        )
+        legacy_payload["content"] = "tampered projection"
+        legacy_payload["data"] = "tampered projection"
+        client.points[(collection_name, point_id)] = _StoredPoint(vector=[9.0, 9.0], payload=legacy_payload)
+
+    assert projector.run_once(repository).completed == 1
+    assert vector_calls == [True]
+    local_point = client.points[(local_name, deterministic_point_id(local_name, memory.id))]
+    assert local_point.payload["content"] == memory.current_revision.content
 
 
 def test_retrying_stale_event_cannot_regress_newer_authoritative_revision(tmp_path):

@@ -32,6 +32,21 @@ if str(REPO_ROOT) not in sys.path:
 from blackholememory import app as bhm_app
 from blackholememory import bhm_mcp
 from blackholememory import galaxy as bhm_galaxy
+
+
+class _AuthoritativeStub:
+    def __init__(self, records):
+        self._records = {str(record["source_id"]): record for record in records}
+
+    def get_records(self, memory_ids, *, project=None):
+        return [
+            record
+            for memory_id in memory_ids
+            if (record := self._records.get(str(memory_id))) is not None
+            and (project is None or record.get("project") == project)
+        ]
+
+
 from blackholememory.agents import developer_agent
 from blackholememory.hook_queue import HookJobCollision
 from blackholememory.hook_queue import HookJobQueue
@@ -2818,6 +2833,25 @@ def test_context_compile_is_bounded_and_fails_closed_on_project_archive_and_log_
         return None
 
     project_name = "blackholememory"
+    monkeypatch.setattr(
+        bhm_app,
+        "_memory_service",
+        lambda: _AuthoritativeStub(
+            [
+                {
+                    "source_id": "allowed",
+                    "project": project_name,
+                    "memory_type": "knowledge-crystal",
+                    "content": "canonical project context",
+                    "metadata": {
+                        "semantic_type": "knowledge",
+                        "source_system": "bhm",
+                        "source_kind": "mcp",
+                    },
+                }
+            ]
+        ),
+    )
     hits = [
         {
             "id": "allowed",
@@ -2992,6 +3026,21 @@ def test_explain_retrieval_returns_rank_and_routing_diagnostics_without_raw_meta
         )
 
     monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(
+        bhm_app,
+        "_memory_service",
+        lambda: _AuthoritativeStub(
+            [
+                {
+                    "source_id": "explain-source-1",
+                    "project": "blackholememory",
+                    "memory_type": "knowledge",
+                    "content": "ranked explanation body",
+                    "metadata": {"semantic_type": "knowledge"},
+                }
+            ]
+        ),
+    )
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
 
     response = TestClient(bhm_app.app).post(
@@ -3105,6 +3154,42 @@ def test_memory_used_records_only_explicit_live_project_access(monkeypatch):
     async def fake_fetch(memory_id: str, _project: str):
         return hits.get(memory_id)
 
+    monkeypatch.setattr(
+        bhm_app,
+        "_memory_service",
+        lambda: _AuthoritativeStub(
+            [
+                {
+                    "source_id": "used-source",
+                    "project": "blackholememory",
+                    "memory_type": "knowledge",
+                    "content": "used memory",
+                    "metadata": {"semantic_type": "knowledge"},
+                },
+                {
+                    "source_id": "other-source",
+                    "project": "other-project",
+                    "memory_type": "knowledge",
+                    "content": "other project",
+                    "metadata": {"semantic_type": "knowledge"},
+                },
+                {
+                    "source_id": "archived-source",
+                    "project": "blackholememory",
+                    "memory_type": "knowledge",
+                    "content": "archived memory",
+                    "metadata": {"semantic_type": "knowledge", "lifecycle": "archived"},
+                },
+                {
+                    "source_id": "log-source",
+                    "project": "blackholememory",
+                    "memory_type": "knowledge",
+                    "content": "log memory",
+                    "metadata": {"semantic_type": "log"},
+                },
+            ]
+        ),
+    )
     monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "_fetch_qdrant_hit_by_source_id", fake_fetch)
     monkeypatch.setattr(bhm_app, "_schedule_vector_access_updates", lambda items: scheduled.append(items))
@@ -3637,6 +3722,54 @@ def test_galaxy_scoped_project_list_does_not_leak_global_project_names(monkeypat
     assert total == 1
     assert [node["meta"]["project_key"] for node in nodes] == ["lookatme"]
     assert projects == ["lookatme"]
+
+
+def test_galaxy_typed_filters_use_authoritative_service_and_expose_typed_metadata(monkeypatch):
+    calls: list[tuple[str, str | None, str | None]] = []
+
+    class FakeMemoryService:
+        def count_records(self, *, project=None, memory_class=None, event_role=None):
+            calls.append(("count", memory_class, event_role))
+            return 1
+
+        def list_records(self, *, project=None, memory_class=None, event_role=None, limit=None):
+            calls.append(("list", memory_class, event_role))
+            return [
+                {
+                    "source_id": "typed-galaxy-memory",
+                    "project": project or "blackholememory",
+                    "memory_type": "knowledge",
+                    "memory_class": memory_class,
+                    "event_role": event_role,
+                    "content": "typed Galaxy record",
+                    "updated_at": "2026-08-22T10:00:00Z",
+                    "metadata": {"semantic_type": "knowledge"},
+                }
+            ]
+
+        def list_projects(self):
+            return ["blackholememory"]
+
+        def list_links(self, *, project=None, limit=None):
+            return []
+
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeMemoryService())
+    monkeypatch.setattr(bhm_app, "_require_typed_memory_boundary", lambda **_kwargs: None)
+
+    data = asyncio.run(
+        bhm_app._build_galaxy_data(
+            "blackholememory",
+            50,
+            memory_class=bhm_app.MemoryClass.SEMANTIC,
+            event_role=bhm_app.MemoryEventRole.FACT,
+        )
+    )
+
+    assert calls == [("count", "semantic", "fact"), ("list", "semantic", "fact")]
+    node = next(item for item in data["nodes"] if item["type"] == "memory")
+    assert node["meta"]["memory_class"] == "semantic"
+    assert node["meta"]["event_role"] == "fact"
+    assert data["summary"]["filters"] == {"memory_class": "semantic", "event_role": "fact"}
 
 
 def test_galaxy_all_mode_has_no_numeric_cap(monkeypatch):

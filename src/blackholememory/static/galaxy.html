@@ -1695,6 +1695,31 @@
               </div>
               <div class="mini-note">Пусто — вся база. Введи или выбери проект, чтобы посмотреть его отдельно.</div>
             </div>
+            <div class="field">
+              <label for="memoryClass">Класс памяти</label>
+              <select id="memoryClass">
+                <option value="" selected>Все классы</option>
+                <option value="episodic">Episodic</option>
+                <option value="semantic">Semantic</option>
+                <option value="procedural">Procedural</option>
+                <option value="working">Working</option>
+                <option value="unclassified">Unclassified</option>
+              </select>
+              <div class="mini-note">Типизированный фильтр; старые записи остаются unclassified до backfill.</div>
+            </div>
+            <div class="field">
+              <label for="eventRole">Роль события</label>
+              <select id="eventRole">
+                <option value="" selected>Все роли</option>
+                <option value="fact">Fact</option>
+                <option value="decision">Decision</option>
+                <option value="qa">QA</option>
+                <option value="trace">Trace</option>
+                <option value="feedback">Feedback</option>
+                <option value="skill_run">Skill run</option>
+                <option value="unclassified">Unclassified</option>
+              </select>
+            </div>
             <div class="field" hidden>
               <label for="galaxyDomain">Слой данных</label>
               <select id="galaxyDomain" aria-describedby="galaxyDomainHint">
@@ -2298,6 +2323,8 @@
     const edgeFiltersEl = document.getElementById("edgeFilters");
     const controls = {
       project: document.getElementById("project"),
+      memoryClass: document.getElementById("memoryClass"),
+      eventRole: document.getElementById("eventRole"),
       limit: document.getElementById("limit"),
       domain: document.getElementById("galaxyDomain"),
       layoutMode: document.getElementById("layoutMode"),
@@ -2312,6 +2339,8 @@
     const edgeLabels = {
       belongs_to_project: "Project spine",
       has_memory_type: "Type anchors",
+      has_memory_class: "Class anchors",
+      has_event_role: "Event-role anchors",
       tagged: "Top tags",
       shared_file: "Shared files",
       shared_session: "Shared sessions",
@@ -2391,6 +2420,8 @@
     const memoryPulseDurationMs = 800;
     const memoryPulseDecayRate = 7;
     controls.project.value = params.get("project") || "";
+    controls.memoryClass.value = ["", "episodic", "semantic", "procedural", "working", "unclassified"].includes(params.get("memory_class")) ? (params.get("memory_class") || "") : "";
+    controls.eventRole.value = ["", "fact", "decision", "qa", "trace", "feedback", "skill_run", "unclassified"].includes(params.get("event_role")) ? (params.get("event_role") || "") : "";
     controls.limit.value = ["50", "200", "500", "1000", "all"].includes(params.get("limit")) ? params.get("limit") : "200";
     controls.domain.value = "memory";
     state.preset = ["knowledge", "balanced", "custom"].includes(params.get("preset")) ? params.get("preset") : "knowledge";
@@ -3008,6 +3039,8 @@
       redrawFilteredGraph(true);
     });
     controls.limit.addEventListener("change", () => loadGalaxy(true));
+    controls.memoryClass.addEventListener("change", () => loadGalaxy(true));
+    controls.eventRole.addEventListener("change", () => loadGalaxy(true));
     controls.hopDepth.addEventListener("input", () => {
       state.hopDepth = Number(controls.hopDepth.value || "1");
       updateHopDepthLabel();
@@ -3801,6 +3834,8 @@
     function buildUrl(updateHistory) {
       const query = new URLSearchParams();
       if (controls.project.value.trim()) query.set("project", controls.project.value.trim());
+      if (controls.memoryClass.value) query.set("memory_class", controls.memoryClass.value);
+      if (controls.eventRole.value) query.set("event_role", controls.eventRole.value);
       query.set("limit", controls.limit.value || "200");
       query.set("domain", "memory");
       query.set("preset", state.preset);

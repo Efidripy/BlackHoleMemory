@@ -16,7 +16,7 @@ from typing import Any, Mapping
 
 from .filesystem_boundaries import assert_safe_path
 from .memory_repository import FRESHNESS_SCHEMA_TABLES
-from .memory_repository import MEMORY_STORE_SCHEMA_LATEST_VERSION
+from .memory_repository import FRESHNESS_SCHEMA_VERSION
 from .memory_repository import MEMORY_STORE_SCHEMA_VERSION
 
 
@@ -177,7 +177,7 @@ def _expected_manifest() -> dict[str, Any]:
             }
         ),
         "sql_sha256": hashlib.sha256(SQL_MANIFEST.encode("utf-8")).hexdigest(),
-        "target_user_version": MEMORY_STORE_SCHEMA_LATEST_VERSION,
+        "target_user_version": FRESHNESS_SCHEMA_VERSION,
     }
 
 
@@ -248,7 +248,7 @@ def apply_migration(
     database_path = assert_safe_path(database).resolve()
     backup_path = assert_safe_path(existing_backup).resolve()
     current = _database_fingerprint(database, require_base_v1=False)
-    if current["user_version"] == MEMORY_STORE_SCHEMA_LATEST_VERSION and MIGRATION_TABLES.issubset(set(current["tables"])):
+    if current["user_version"] >= FRESHNESS_SCHEMA_VERSION and MIGRATION_TABLES.issubset(set(current["tables"])):
         return {
             "schema_version": MIGRATION_SCHEMA_VERSION,
             "ok": True,
@@ -267,7 +267,7 @@ def apply_migration(
             statement = statement.strip()
             if statement:
                 connection.execute(statement)
-        connection.execute(f"PRAGMA user_version={MEMORY_STORE_SCHEMA_LATEST_VERSION}")
+        connection.execute(f"PRAGMA user_version={FRESHNESS_SCHEMA_VERSION}")
         if inject_failure:
             raise FreshnessMigrationError("injected migration failure")
         connection.commit()
@@ -278,7 +278,7 @@ def apply_migration(
     finally:
         connection.close()
     after = _database_fingerprint(database, require_base_v1=False)
-    if after["user_version"] != MEMORY_STORE_SCHEMA_LATEST_VERSION or not MIGRATION_TABLES.issubset(set(after["tables"])):
+    if after["user_version"] != FRESHNESS_SCHEMA_VERSION or not MIGRATION_TABLES.issubset(set(after["tables"])):
         raise FreshnessMigrationError("post-migration schema verification failed")
     return {
         "schema_version": MIGRATION_SCHEMA_VERSION,
