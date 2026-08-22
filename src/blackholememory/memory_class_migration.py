@@ -444,9 +444,13 @@ def apply_migration(
                     values[key] = value
             if "memory_class_confidence" in metadata:
                 value = metadata["memory_class_confidence"]
-                if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
-                    raise MemoryClassMigrationError(f"invalid memory_class_confidence in metadata for {row[0]}")
-                values["memory_class_confidence"] = value
+                # Legacy records frequently carry the key with a JSON null.
+                # Null is the documented unknown confidence and must remain
+                # unknown; only a concrete value is subject to numeric bounds.
+                if value is not None:
+                    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= 1:
+                        raise MemoryClassMigrationError(f"invalid memory_class_confidence in metadata for {row[0]}")
+                    values["memory_class_confidence"] = value
             if "event_role_version" in metadata and str(metadata["event_role_version"]) != "1":
                 raise MemoryClassMigrationError(f"invalid event_role_version in metadata for {row[0]}")
             if values:
