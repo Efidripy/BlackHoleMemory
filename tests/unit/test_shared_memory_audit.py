@@ -79,8 +79,12 @@ def test_app_preflight_uses_authenticated_principal_and_never_enables_shared_io(
         captured["event"] = event
         return event.to_artifact().to_record(), True
 
+    class FakeService:
+        def list_artifact_records(self, **_kwargs):
+            return []
+
     monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: object())
+    monkeypatch.setattr(bhm_app, "_memory_service", FakeService)
     result = bhm_app._shared_memory_policy_preflight(
         bhm_app.SharedMemoryPolicyPreflightRequest(
             project="blackholememory",

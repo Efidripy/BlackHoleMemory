@@ -187,6 +187,9 @@ from .governed_shared_memory import decide_shared_memory
 from .shared_memory_audit import append_shared_memory_audit
 from .shared_memory_audit import build_shared_memory_audit_event
 from .shared_memory_audit import caller_identity_from_principal
+from .shared_memory_grants import GRANT_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_ARTIFACT_TYPE
+from .shared_memory_grants import REVOCATION_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_REVOCATION_ARTIFACT_TYPE
+from .shared_memory_grants import resolve_effective_grants
 from .memory_search_service import MemorySearchDependencies
 from .memory_search_service import MemorySearchService
 from .memory_search_service import read_only_side_effects
@@ -4387,17 +4390,26 @@ def _shared_memory_policy_preflight(
             sensitivity=request.sensitivity,
             expected_revision=request.expected_revision,
         )
-        # Grant issuance is not part of this slice. The empty grant set makes
-        # project/team/org preflight default-deny; no policy result is wired to
-        # a memory read/write path yet.
-        receipt = decide_shared_memory(policy_request)
+        service = _memory_service()
+        grants = resolve_effective_grants(
+            service.list_artifact_records(
+                artifact_type=SHARED_MEMORY_GRANT_ARTIFACT_TYPE, project=project, limit=None,
+            ),
+            service.list_artifact_records(
+                artifact_type=SHARED_MEMORY_GRANT_REVOCATION_ARTIFACT_TYPE, project=project, limit=None,
+            ),
+            project=project,
+        )
+        # A grant can influence the preflight result only. No policy result is
+        # wired to an actual memory read/write path in this slice.
+        receipt = decide_shared_memory(policy_request, grants)
         event = build_shared_memory_audit_event(
             request=policy_request,
             receipt=receipt,
             principal=principal,
             auth_kind=auth_kind,
         )
-        _record, inserted = append_shared_memory_audit(_memory_service(), event)
+        _record, inserted = append_shared_memory_audit(service, event)
     except (MemoryServiceNotReady, OSError, ValueError) as exc:
         raise HTTPException(
             status_code=409,
