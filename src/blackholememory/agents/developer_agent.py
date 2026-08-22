@@ -22,6 +22,8 @@ from typing import Any, Callable, Literal, TypedDict
 import httpx
 from langgraph.graph import END, START, StateGraph
 
+from ..langgraph_activation import create_durable_checkpoint_saver
+from ..langgraph_activation import resolve_durable_checkpoint_activation
 from ..langgraph_contract import build_langgraph_contract
 
 from blackholememory.tools.code_ast import ASTCodeManager
@@ -3883,6 +3885,7 @@ class BHMAgentExecutor:
         llm_api_key: str | None = None,
         sandbox_runner: Callable[[str, int], dict[str, Any]] | None = None,
         hypothesis_count: int = DEFAULT_SANDBOX_HYPOTHESIS_COUNT,
+        checkpoint_runtime_dir: Path | None = None,
     ):
         self.bhm = BHMRestClient(bhm_base_url or os.getenv("BHM_BASE_URL", endpoint_url("bhm_api")), self.timeout)
         self.llm = LocalLLMClient(
@@ -3893,6 +3896,7 @@ class BHMAgentExecutor:
         )
         self.sandbox_runner = sandbox_runner or sandbox_exec
         self.hypothesis_count = max(1, min(int(hypothesis_count or 1), DEFAULT_SANDBOX_HYPOTHESIS_COUNT))
+        self._checkpoint_runtime_dir = checkpoint_runtime_dir
         self.logger: ChronicleLogger | None = None
         self._current_project = "blackholememory"
 
@@ -3999,7 +4003,61 @@ class BHMAgentExecutor:
         logger.log_retrieval(context, mode, _summarize_retrieval_payload(payload))
         return next_state
 
-    def execute_loop(self, task_id: str, task_query: str, domain: str, project: str):
+    def _resolve_execution_checkpoint(
+        self,
+        *,
+        task_id: str,
+        project: str,
+        resumable: bool | None,
+    ) -> tuple[Any | None, bool, dict[str, Any] | None]:
+        """Resolve an opt-in durable execution scope without ambient fallback.
+
+        ``None`` lets the explicit process activation policy decide.  Callers
+        may pass ``False`` to force a one-shot graph even while an activation
+        window is open.  A requested durable run never silently falls back to
+        ephemeral execution: incomplete activation configuration raises before
+        compiling a graph or writing authoritative SQLite.
+        """
+
+        activation = resolve_durable_checkpoint_activation(
+            runtime_dir=self._checkpoint_runtime_dir,
+        )
+        use_durable = activation.enabled if resumable is None else bool(resumable)
+        if not use_durable:
+            return None, False, None
+        if not activation.enabled:
+            raise RuntimeError(activation.reason)
+
+        session_id = activation.session_id or f"task:{task_id}"
+        saver = create_durable_checkpoint_saver(
+            project=project,
+            task_id=task_id,
+            session_id=session_id,
+            activation=activation,
+        )
+        return (
+            saver,
+            True,
+            {
+                "configurable": {
+                    "thread_id": task_id,
+                    "project": project,
+                    "caller_id": activation.caller_id,
+                    "task_id": task_id,
+                    "session_id": session_id,
+                }
+            },
+        )
+
+    def execute_loop(
+        self,
+        task_id: str,
+        task_query: str,
+        domain: str,
+        project: str,
+        *,
+        resumable: bool | None = None,
+    ):
         self._current_project = project
         self.logger = ChronicleLogger(task_id)
         start = time.monotonic()
@@ -4022,7 +4080,17 @@ class BHMAgentExecutor:
         }
         final_state: DeveloperAgentState = dict(initial_state)
         try:
-            final_state = _run_coroutine_sync(self.build_langgraph().ainvoke(initial_state))
+            checkpointer, graph_resumable, invocation_config = self._resolve_execution_checkpoint(
+                task_id=task_id,
+                project=project,
+                resumable=resumable,
+            )
+            compiled = self.build_langgraph(
+                checkpointer=checkpointer,
+                resumable=graph_resumable,
+            )
+            invoke_kwargs = {"config": invocation_config} if invocation_config is not None else {}
+            final_state = _run_coroutine_sync(compiled.ainvoke(initial_state, **invoke_kwargs))
         except (httpx.HTTPError, RuntimeError, json.JSONDecodeError, KeyError, IndexError, ValueError) as exc:
             final_state = dict(initial_state)
             final_state["status"] = "SUSPENDED"
