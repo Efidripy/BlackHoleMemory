@@ -62,8 +62,20 @@ def build_task_graph(
     events: Sequence[Mapping[str, Any]] = (),
     as_of: str | None = None,
     fail_after_stage: str | None = None,
+    source_kind: str = "task",
+    connection: sqlite3.Connection | None = None,
+    publish: bool = True,
+    summary_extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Build and publish one bounded task-graph snapshot.
+
+    ``connection`` is intentionally optional.  The default keeps the existing
+    self-contained transaction behaviour; a bounded importer can provide one
+    authoritative transaction so its companion rows and the graph publication
+    either commit together or roll back together.
+    """
     project_name = _required_project(project)
+    normalized_source_kind = _clip(source_kind, 80) or "task"
     effective_as_of = _normalize_time(as_of) if as_of else _utc_now()
     nodes: dict[str, dict[str, Any]] = {}
     edges: dict[str, dict[str, Any]] = {}
@@ -84,7 +96,7 @@ def build_task_graph(
         key = _node_key(project_name, "task", task_id)
         dependencies = _bounded_strings(item.get("dependencies") or item.get("depends_on") or item.get("blocked_by"), 180, 32)
         payload = {"title": _clip(item.get("title"), 180), "status": _clip(item.get("status"), 40) or "open", "owner": _clip(item.get("owner") or item.get("owner_id"), 100), "dependencies": dependencies, "intent": _clip(item.get("intent"), 320), "evidence_backed": bool(item.get("evidence_backed"))}
-        node = _node(key, "task", task_id, temporal, "task", task_id, payload, item)
+        node = _node(key, "task", task_id, temporal, normalized_source_kind, task_id, payload, item)
         nodes[key] = node
         task_map[task_id] = node
     for task_id, node in sorted(task_map.items()):
@@ -93,7 +105,7 @@ def build_task_graph(
             if target_key not in nodes:
                 quarantine.append({"kind": "edge", "id": f"{task_id}->{dependency}", "reason": "unresolved_endpoint"})
                 continue
-            _add_edge(edges, _edge(project_name, node, nodes[target_key], "depends_on", "task", f"{task_id}->{dependency}", node["valid_from"], {"dependency": dependency}))
+            _add_edge(edges, _edge(project_name, node, nodes[target_key], "depends_on", normalized_source_kind, f"{task_id}->{dependency}", node["valid_from"], {"dependency": dependency}))
     active_claims: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for raw in list(claims)[:TASK_GRAPH_MAX_EDGES]:
         item = dict(raw)
@@ -178,39 +190,59 @@ def build_task_graph(
     graph_digest = _sha256(_canonical_json({"nodes": nodes_list, "edges": edges_list, "quarantine": quarantine}))
     snapshot_id = f"tgraph_{_sha256(f'{project_name}:{graph_digest}')[:24]}"
     summary = {"node_count": len(nodes_list), "edge_count": len(edges_list), "quarantine_count": len(quarantine), "conflict_count": conflict_count, "lease_expired_count": sum(1 for edge in edges_list if edge["relation"] == "claims" and edge["payload"].get("expired")), "ready_count": sum(1 for node in nodes_list if node["entity_type"] == "task" and node["payload"].get("ready")), "evidence_backed_close_count": sum(1 for node in nodes_list if node["entity_type"] == "task" and node["payload"].get("evidence_backed_close"))}
+    if summary_extra:
+        summary["source_contract"] = dict(summary_extra)
     if len(nodes_list) > TASK_GRAPH_MAX_NODES or len(edges_list) > TASK_GRAPH_MAX_EDGES:
         raise TaskGraphError("task graph bounds exceeded")
     path = assert_safe_path(Path(database_path))
     path.parent.mkdir(parents=True, exist_ok=True)
     assert_safe_path(path.parent, reject_hardlink_target=False)
     assert_safe_path(path)
-    connection = _connect_rw(path)
+    owns_connection = connection is None
+    active_connection = connection if connection is not None else _connect_rw(path)
+    if active_connection is None:
+        raise TaskGraphError("task graph database unavailable")
+    active_connection.row_factory = sqlite3.Row
     now = _utc_now()
     try:
-        _initialize_schema(connection)
-        connection.execute("BEGIN IMMEDIATE")
-        connection.execute("DELETE FROM task_graph_nodes WHERE snapshot_id = ?", (snapshot_id,))
-        connection.execute("DELETE FROM task_graph_edges WHERE snapshot_id = ?", (snapshot_id,))
-        connection.execute("DELETE FROM task_graph_quarantine WHERE snapshot_id = ?", (snapshot_id,))
-        connection.execute("DELETE FROM task_graph_snapshots WHERE snapshot_id = ?", (snapshot_id,))
-        connection.execute("INSERT INTO task_graph_snapshots(snapshot_id,project,graph_digest,build_version,status,as_of,summary_json,created_at) VALUES (?,?,?,?, 'building',?,?,?)", (snapshot_id, project_name, graph_digest, TASK_GRAPH_BUILD_VERSION, effective_as_of, _canonical_json(summary), now))
+        _initialize_schema(active_connection)
+        if owns_connection:
+            active_connection.execute("BEGIN IMMEDIATE")
+        else:
+            active_connection.execute("SAVEPOINT task_graph_build")
+        active_connection.execute("DELETE FROM task_graph_nodes WHERE snapshot_id = ?", (snapshot_id,))
+        active_connection.execute("DELETE FROM task_graph_edges WHERE snapshot_id = ?", (snapshot_id,))
+        active_connection.execute("DELETE FROM task_graph_quarantine WHERE snapshot_id = ?", (snapshot_id,))
+        active_connection.execute("DELETE FROM task_graph_snapshots WHERE snapshot_id = ?", (snapshot_id,))
+        active_connection.execute("INSERT INTO task_graph_snapshots(snapshot_id,project,graph_digest,build_version,status,as_of,summary_json,created_at) VALUES (?,?,?,?, 'building',?,?,?)", (snapshot_id, project_name, graph_digest, TASK_GRAPH_BUILD_VERSION, effective_as_of, _canonical_json(summary), now))
         for node in nodes_list:
-            connection.execute("INSERT INTO task_graph_nodes(snapshot_id,node_key,project,entity_type,entity_id,valid_from,valid_until,recorded_at,source_kind,source_id,source_sha256,payload_json,node_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (snapshot_id, node["node_key"], project_name, node["entity_type"], node["entity_id"], node["valid_from"], node["valid_until"], node["recorded_at"], node["source_kind"], node["source_id"], node["source_sha256"], _canonical_json(node["payload"]), node["node_sha256"]))
+            active_connection.execute("INSERT INTO task_graph_nodes(snapshot_id,node_key,project,entity_type,entity_id,valid_from,valid_until,recorded_at,source_kind,source_id,source_sha256,payload_json,node_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", (snapshot_id, node["node_key"], project_name, node["entity_type"], node["entity_id"], node["valid_from"], node["valid_until"], node["recorded_at"], node["source_kind"], node["source_id"], node["source_sha256"], _canonical_json(node["payload"]), node["node_sha256"]))
         for edge in edges_list:
-            connection.execute("INSERT INTO task_graph_edges(snapshot_id,edge_key,project,source_node_key,target_node_key,relation,valid_from,valid_until,recorded_at,source_kind,source_id,source_sha256,confidence,payload_json,edge_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (snapshot_id, edge["edge_key"], project_name, edge["source_node_key"], edge["target_node_key"], edge["relation"], edge["valid_from"], edge["valid_until"], edge["recorded_at"], edge["source_kind"], edge["source_id"], edge["source_sha256"], edge["confidence"], _canonical_json(edge["payload"]), edge["edge_sha256"]))
+            active_connection.execute("INSERT INTO task_graph_edges(snapshot_id,edge_key,project,source_node_key,target_node_key,relation,valid_from,valid_until,recorded_at,source_kind,source_id,source_sha256,confidence,payload_json,edge_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", (snapshot_id, edge["edge_key"], project_name, edge["source_node_key"], edge["target_node_key"], edge["relation"], edge["valid_from"], edge["valid_until"], edge["recorded_at"], edge["source_kind"], edge["source_id"], edge["source_sha256"], edge["confidence"], _canonical_json(edge["payload"]), edge["edge_sha256"]))
         for item in quarantine:
-            connection.execute("INSERT INTO task_graph_quarantine(snapshot_id,project,kind,entity_id,reason,payload_json,created_at) VALUES (?,?,?,?,?,?,?)", (snapshot_id, project_name, item.get("kind", ""), item.get("id", ""), item.get("reason", "unknown"), _canonical_json(item), now))
+            active_connection.execute("INSERT INTO task_graph_quarantine(snapshot_id,project,kind,entity_id,reason,payload_json,created_at) VALUES (?,?,?,?,?,?,?)", (snapshot_id, project_name, item.get("kind", ""), item.get("id", ""), item.get("reason", "unknown"), _canonical_json(item), now))
         if fail_after_stage == "before_publish":
             raise TaskGraphError("injected publish failure")
-        connection.execute("UPDATE task_graph_snapshots SET status = 'published' WHERE snapshot_id = ?", (snapshot_id,))
-        connection.execute("INSERT INTO task_graph_current(project,snapshot_id,updated_at) VALUES (?,?,?) ON CONFLICT(project) DO UPDATE SET snapshot_id=excluded.snapshot_id, updated_at=excluded.updated_at", (project_name, snapshot_id, now))
-        connection.commit()
+        if publish:
+            active_connection.execute("UPDATE task_graph_snapshots SET status = 'published' WHERE snapshot_id = ?", (snapshot_id,))
+            active_connection.execute("INSERT INTO task_graph_current(project,snapshot_id,updated_at) VALUES (?,?,?) ON CONFLICT(project) DO UPDATE SET snapshot_id=excluded.snapshot_id, updated_at=excluded.updated_at", (project_name, snapshot_id, now))
+        else:
+            active_connection.execute("UPDATE task_graph_snapshots SET status = 'staged' WHERE snapshot_id = ?", (snapshot_id,))
+        if owns_connection:
+            active_connection.commit()
+        else:
+            active_connection.execute("RELEASE SAVEPOINT task_graph_build")
     except Exception:
-        connection.rollback()
+        if owns_connection:
+            active_connection.rollback()
+        else:
+            active_connection.execute("ROLLBACK TO SAVEPOINT task_graph_build")
+            active_connection.execute("RELEASE SAVEPOINT task_graph_build")
         raise
     finally:
-        connection.close()
-    return {"schema_version": TASK_GRAPH_SCHEMA_VERSION, "ok": True, "action": "build", "project": project_name, "snapshot_id": snapshot_id, "graph_digest": graph_digest, "summary": summary, "quarantine": quarantine, "execution": {"writes_sqlite": True, "writes_qdrant": False, "writes_mem0": False, "agents_started": False, "model_started": False, "public_mcp": False}}
+        if owns_connection:
+            active_connection.close()
+    return {"schema_version": TASK_GRAPH_SCHEMA_VERSION, "ok": True, "action": "build", "publication": "published" if publish else "staged", "project": project_name, "snapshot_id": snapshot_id, "graph_digest": graph_digest, "summary": summary, "quarantine": quarantine, "execution": {"writes_sqlite": True, "writes_qdrant": False, "writes_mem0": False, "agents_started": False, "model_started": False, "public_mcp": False}}
 
 
 def query_task_graph(database_path: Path | str, *, project: str, operation: str = "status", query: str = "", snapshot_id: str | None = None, limit: int = 64, max_tokens: int = 4_096, time_budget_ms: float = 500.0) -> dict[str, Any]:

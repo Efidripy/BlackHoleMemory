@@ -12,23 +12,23 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "bhm.sidecar-mapping-plan.v1"
+SCHEMA_VERSION = "bhm.sidecar-mapping-plan.v2"
 NULL_FIELD_POLICY = {
-    "schema_version": "bhm.sidecar-null-policy.v1",
-    "mode": "explicit_block_until_policy_approved",
+    "schema_version": "bhm.sidecar-null-policy.v2",
+    "mode": "lossless_incomplete_artifact",
     "session-records.json": {
         "done": {
-            "missing": "blocked",
-            "null": "blocked",
-            "empty_string": "blocked",
+            "missing": "preserve_as_incomplete_archived_artifact",
+            "null": "preserve_as_incomplete_archived_artifact",
+            "empty_string": "preserve_as_incomplete_archived_artifact",
             "default_invention": "forbidden",
         }
     },
     "apply_authorized": False,
 }
 GRAPH_BUILDER_CONTRACT = {
-    "schema_version": "bhm.task-graph-builder-contract.v1",
-    "status": "design_only",
+    "schema_version": "bhm.task-graph-builder-contract.v2",
+    "status": "implemented_staged_only",
     "required": {
         "snapshot_id": "deterministic per canonical project, source digest and builder version",
         "graph_digest": "SHA-256 over canonical ordered node and edge material",
@@ -36,6 +36,7 @@ GRAPH_BUILDER_CONTRACT = {
         "node_sha256": "SHA-256 over canonical node identity and payload",
         "edge_key": "stable source/target/relation identity",
         "relation": "explicit allowlisted relation; never inferred from absent dependencies",
+        "edge_completeness": "unknown when no explicit edge source is present; staged snapshots must not publish task_graph_current",
     },
     "parity_receipt_required": True,
     "apply_authorized": False,
@@ -97,7 +98,7 @@ MAPPING_SPECS: dict[str, dict[str, Any]] = {
         "artifact_type": "session_record",
         "source_key": ["id"],
         "target_key": ["artifact_type", "artifact_id"],
-        "required_fields": ["id", "project", "title", "done", "next", "checks"],
+        "required_fields": ["id", "project", "title", "checks"],
         "field_map": {
             "id": "artifact_id",
             "project": "project",
@@ -105,6 +106,7 @@ MAPPING_SPECS: dict[str, dict[str, Any]] = {
             "created_at": "created_at",
             "updated_at": "updated_at",
             "all remaining source fields": "payload_json (canonical JSON)",
+            "missing/empty done,next": "lossless legacy payload + incomplete archived artifact; no default value",
         },
         "conflict_policy": [
             "reject duplicate (artifact_type, artifact_id)",
@@ -113,7 +115,7 @@ MAPPING_SPECS: dict[str, dict[str, Any]] = {
         ],
     },
     "tasks.json": {
-        "status": "blocked",
+        "status": "candidate_staged_only",
         "target_tables": [
             "task_graph_snapshots",
             "task_graph_nodes",
@@ -127,13 +129,13 @@ MAPPING_SPECS: dict[str, dict[str, Any]] = {
             "task_id": "task_graph_nodes.entity_id",
             "project": "task_graph_nodes.project",
             "title/status/intent/scope": "task_graph_nodes.payload_json",
-            "dependencies": "task_graph_edges (not present as a deterministic source contract)",
-            "snapshot identity/digest": "task_graph_snapshots (requires graph-builder contract)",
+            "dependencies": "task_graph_edges only when explicitly present in source",
+            "snapshot identity/digest": "canonical task graph builder; staged snapshot with edge_completeness=unknown",
         },
         "conflict_policy": [
             "reject duplicate task_id",
-            "do not invent snapshot_id, graph_digest or edge relations",
-            "require canonical task graph builder and parity receipt before staging",
+            "do not invent edge relations; absent dependencies mean edge_completeness=unknown",
+            "use canonical task graph builder, stage the snapshot and do not update task_graph_current",
         ],
     },
 }
@@ -290,8 +292,6 @@ def _mapping_report(
         blockers.append("unresolved_project_identity_collision")
     if missing_targets:
         blockers.append("target_tables_missing:" + ",".join(missing_targets))
-    if name == "tasks.json":
-        blockers.append("graph_snapshot_and_edge_contract_missing")
     status = "blocked" if blockers else str(spec["status"])
     return {
         "source": name,
