@@ -66,8 +66,35 @@ class TemporalValidationError(ValueError):
     """Raised when temporal fields cannot be represented safely."""
 
 
+def _runtime_flag(name: str) -> str:
+    """Read an explicit process flag, then the local BHM runtime config.
+
+    The authoritative launcher intentionally does not import a user's entire
+    environment file into its process.  Temporal activation still needs a
+    durable local operator setting, so only the requested non-secret flag is
+    read as a fallback.  A process value always wins for tests and rollback.
+    """
+
+    process_value = os.getenv(name)
+    if process_value is not None and process_value.strip():
+        return process_value
+    config_path = Path.home() / ".bhm" / ".env"
+    try:
+        lines = config_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for line in lines:
+        item = line.strip()
+        if not item or item.startswith("#") or "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        if key.strip() == name:
+            return value.split("#", 1)[0].strip()
+    return ""
+
+
 def temporal_contract_enabled() -> bool:
-    raw = str(os.getenv(FEATURE_FLAG, "false") or "").strip().casefold()
+    raw = _runtime_flag(FEATURE_FLAG).strip().casefold()
     if raw in _FALSE_VALUES:
         return False
     if raw in _TRUE_VALUES:
@@ -76,7 +103,7 @@ def temporal_contract_enabled() -> bool:
 
 
 def temporal_projection_ready() -> bool:
-    raw = str(os.getenv(PROJECTION_READY_FLAG, "false") or "").strip().casefold()
+    raw = _runtime_flag(PROJECTION_READY_FLAG).strip().casefold()
     return raw in _TRUE_VALUES
 
 
