@@ -21,7 +21,7 @@ from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, Sequence
 from uuid import uuid4
 
 from .domain import Artifact
@@ -179,6 +179,10 @@ class MemoryRepository(Protocol):
     ) -> list[Artifact]: ...
 
     def save_link(self, link: MemoryLink) -> MemoryLink: ...
+
+    def replace_links(self, links: Sequence[MemoryLink]) -> list[MemoryLink]: ...
+
+    def delete_links(self, link_ids: Sequence[str]) -> int: ...
 
     def list_links(
         self,
@@ -1520,6 +1524,77 @@ class SQLiteMemoryRepository:
                 ),
             )
         return link
+
+    def replace_links(self, links: Sequence[MemoryLink]) -> list[MemoryLink]:
+        """Atomically replace a complete canonical link snapshot.
+
+        This is a compatibility primitive for bounded legacy load/mutate/save
+        paths.  It never reads a JSON sidecar, and input ambiguity is rejected
+        before the transaction begins.
+        """
+
+        normalized = list(links)
+        ids = [link.id for link in normalized]
+        if len(set(ids)) != len(ids):
+            raise MemoryRepositoryIntegrityError("link snapshot contains duplicate link ids")
+        identities = [
+            (link.project, link.source_id, link.target_id, link.relation)
+            for link in normalized
+        ]
+        if len(set(identities)) != len(identities):
+            raise MemoryRepositoryIntegrityError("link snapshot contains duplicate relation identities")
+
+        with self._write_transaction() as connection:
+            if ids:
+                placeholders = ", ".join("?" for _ in ids)
+                connection.execute(
+                    f"DELETE FROM memory_links WHERE link_id NOT IN ({placeholders})",
+                    tuple(ids),
+                )
+            else:
+                connection.execute("DELETE FROM memory_links")
+            for link in normalized:
+                connection.execute(
+                    """
+                    INSERT INTO memory_links(
+                        link_id, project, source_id, target_id, relation,
+                        created_at, updated_at, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(link_id) DO UPDATE SET
+                        project = excluded.project,
+                        source_id = excluded.source_id,
+                        target_id = excluded.target_id,
+                        relation = excluded.relation,
+                        created_at = excluded.created_at,
+                        updated_at = excluded.updated_at,
+                        metadata_json = excluded.metadata_json
+                    """,
+                    (
+                        link.id,
+                        link.project,
+                        link.source_id,
+                        link.target_id,
+                        link.relation,
+                        link.created_at,
+                        link.updated_at,
+                        _json_dumps(link.metadata, "link.metadata"),
+                    ),
+                )
+        return normalized
+
+    def delete_links(self, link_ids: Sequence[str]) -> int:
+        """Delete an explicit, reviewed set of canonical links."""
+
+        normalized = tuple(dict.fromkeys(str(link_id).strip() for link_id in link_ids if str(link_id).strip()))
+        if not normalized:
+            return 0
+        with self._write_transaction() as connection:
+            placeholders = ", ".join("?" for _ in normalized)
+            cursor = connection.execute(
+                f"DELETE FROM memory_links WHERE link_id IN ({placeholders})",
+                normalized,
+            )
+            return max(int(cursor.rowcount), 0)
 
     def list_links(
         self,
