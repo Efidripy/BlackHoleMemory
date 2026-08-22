@@ -6,6 +6,7 @@ import hashlib
 import json
 import sqlite3
 from collections import defaultdict
+from math import ceil
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -14,6 +15,20 @@ from .filesystem_boundaries import assert_safe_path
 
 SCHEMA_VERSION = "bhm.memory-doctor.v1"
 SQLITE_SNAPSHOT_SCHEMA_VERSION = "bhm.memory-doctor.sqlite-snapshot.v1"
+QDRANT_SNAPSHOT_SCHEMA_VERSION = "bhm.memory-doctor.qdrant-snapshot.v1"
+PROJECTION_PARITY_SCHEMA_VERSION = "bhm.memory-doctor.projection-parity.v1"
+_MAX_SNAPSHOT_RECORDS = 10_000
+_DEFAULT_QDRANT_PAGE_SIZE = 256
+_SAFE_PROJECTION_FIELDS = (
+    "source_id",
+    "project",
+    "lifecycle",
+    "revision_id",
+    "content_sha256",
+    "source_digest",
+    "projection_payload_digest",
+    "projection_payload_schema",
+)
 
 
 class MemoryDoctorSnapshotError(RuntimeError):
@@ -31,6 +46,7 @@ def _safe_record(record: Mapping[str, Any]) -> dict[str, Any]:
         "project": str(record.get("project") or metadata.get("project") or ""),
         "content_digest": str(record.get("content_sha256") or metadata.get("content_sha256") or _digest(str(record.get("content") or record.get("memory") or ""))),
         "lifecycle": str(record.get("lifecycle") or metadata.get("lifecycle") or "active"),
+        "revision_id": str(record.get("revision_id") or metadata.get("revision_id") or ""),
         "source_digest": str(record.get("source_digest") or metadata.get("source_digest") or ""),
         "schema_digest": str(record.get("schema_digest") or metadata.get("schema_digest") or ""),
         "projection_seq": record.get("projection_seq") or metadata.get("projection_seq"),
@@ -59,6 +75,7 @@ def _sqlite_snapshot_digest(records: tuple[Mapping[str, Any], ...]) -> str:
                 "project": item["project"],
                 "content_digest": item["content_digest"],
                 "lifecycle": item["lifecycle"],
+                "revision_id": item["revision_id"],
                 "source_digest": item["source_digest"],
                 "schema_digest": item["schema_digest"],
                 "authority_seq": item["authority_seq"],
@@ -84,7 +101,7 @@ def load_authoritative_sqlite_snapshot(
     create or repair an authority database while inspecting it.
     """
 
-    if limit < 1 or limit > 10_000:
+    if limit < 1 or limit > _MAX_SNAPSHOT_RECORDS:
         raise MemoryDoctorSnapshotError("limit must be within 1..10000")
     project_value = str(project or "").strip()
     safe_path = assert_safe_path(database).resolve()
@@ -126,7 +143,7 @@ def load_authoritative_sqlite_snapshot(
         where = "WHERE m.project = ?" if project_value else ""
         parameters: tuple[Any, ...] = (project_value, limit) if project_value else (limit,)
         rows = connection.execute(
-            "SELECT m.memory_id, m.project, m.lifecycle, m.metadata_json, "
+            "SELECT m.memory_id, m.project, m.lifecycle, m.metadata_json, r.revision_id, "
             "r.content_sha256, "
             f"{typed['authority_seq']}, {typed['projection_seq']}, "
             f"{typed['source_digest']}, {typed['schema_digest']}, "
@@ -154,6 +171,7 @@ def load_authoritative_sqlite_snapshot(
                 "project": str(row["project"]),
                 "content_digest": str(row["content_sha256"] or ""),
                 "lifecycle": str(row["lifecycle"]),
+                "revision_id": str(row["revision_id"] or ""),
                 "source_digest": str(row["source_digest"] or metadata.get("source_digest") or ""),
                 "schema_digest": str(row["schema_digest"] or metadata.get("schema_digest") or ""),
                 "authority_seq": row["authority_seq"] if row["authority_seq"] is not None else metadata.get("authority_seq"),
@@ -206,6 +224,228 @@ def run_authoritative_sqlite_memory_doctor(
     return report
 
 
+def _qdrant_snapshot_digest(records: tuple[Mapping[str, Any], ...]) -> str:
+    """Bind a projection receipt to allowed identity fields, never raw payloads."""
+
+    return _digest(
+        [
+            {
+                "collection": item["collection"],
+                "point_id": item["point_id"],
+                **{field: item[field] for field in _SAFE_PROJECTION_FIELDS},
+            }
+            for item in records
+        ]
+    )
+
+
+def _safe_projection_record(collection: str, point: Any) -> dict[str, Any]:
+    payload = getattr(point, "payload", None)
+    if not isinstance(payload, Mapping):
+        payload = {}
+    return {
+        "collection": collection,
+        "point_id": str(getattr(point, "id", "") or ""),
+        **{field: str(payload.get(field) or "") for field in _SAFE_PROJECTION_FIELDS},
+    }
+
+
+def load_qdrant_projection_snapshot(
+    client: Any,
+    collections: tuple[str, ...] | list[str],
+    *,
+    project: str | None = None,
+    limit: int = _MAX_SNAPSHOT_RECORDS,
+    page_size: int = _DEFAULT_QDRANT_PAGE_SIZE,
+    max_pages: int | None = None,
+) -> dict[str, Any]:
+    """Read a bounded, content-free Qdrant projection snapshot.
+
+    A client must be injected by the caller.  The adapter intentionally calls
+    only ``scroll`` with vectors disabled; it never discovers, creates,
+    repairs, deletes, or otherwise mutates a Qdrant collection.
+    """
+
+    if limit < 1 or limit > _MAX_SNAPSHOT_RECORDS:
+        raise MemoryDoctorSnapshotError("limit must be within 1..10000")
+    if page_size < 1 or page_size > 1_000:
+        raise MemoryDoctorSnapshotError("page_size must be within 1..1000")
+    page_budget = max_pages if max_pages is not None else ceil(limit / page_size)
+    if page_budget < 1 or page_budget > _MAX_SNAPSHOT_RECORDS:
+        raise MemoryDoctorSnapshotError("max_pages must be within 1..10000")
+    scroll = getattr(client, "scroll", None)
+    if not callable(scroll):
+        raise MemoryDoctorSnapshotError("Qdrant client does not provide read-only scroll")
+    collection_names = tuple(sorted({str(name).strip() for name in collections if str(name).strip()}))
+    if not collection_names:
+        raise MemoryDoctorSnapshotError("at least one Qdrant collection is required")
+    project_value = str(project or "").strip()
+    records: list[dict[str, Any]] = []
+    pages_scanned = 0
+    complete = True
+    try:
+        for collection in collection_names:
+            offset: Any = None
+            while len(records) < limit:
+                if pages_scanned == page_budget:
+                    complete = False
+                    break
+                points, offset = scroll(
+                    collection_name=collection,
+                    limit=min(page_size, limit - len(records)),
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                pages_scanned += 1
+                for point in points or ():
+                    record = _safe_projection_record(collection, point)
+                    if not project_value or record["project"] == project_value:
+                        records.append(record)
+                        if len(records) == limit:
+                            break
+                if offset is None or not points:
+                    break
+            if not complete:
+                break
+            if len(records) == limit:
+                complete = False
+                break
+    except Exception as exc:
+        raise MemoryDoctorSnapshotError("Qdrant projection snapshot read failed") from exc
+
+    records_tuple = tuple(
+        sorted(
+            records,
+            key=lambda item: (
+                item["collection"],
+                item["source_id"],
+                item["revision_id"],
+                item["point_id"],
+            ),
+        )
+    )
+    return {
+        "schema_version": QDRANT_SNAPSHOT_SCHEMA_VERSION,
+        "authority": "qdrant-rebuildable-projection",
+        "collections": collection_names,
+        "record_count": len(records_tuple),
+        "coverage": "complete" if complete else "bounded_partial",
+        "scan": {
+            "page_count": pages_scanned,
+            "page_budget": page_budget,
+            "complete": complete,
+            "limit_reached": len(records_tuple) == limit,
+        },
+        "records": records_tuple,
+        "snapshot_digest": _qdrant_snapshot_digest(records_tuple),
+        "execution": {
+            "read_only": True,
+            "sqlite_mutation": False,
+            "qdrant_mutation": False,
+            "mem0_mutation": False,
+            "raw_payload_disclosed": False,
+            "vectors_requested": False,
+        },
+    }
+
+
+def _projection_parity_findings(
+    authority_records: tuple[Mapping[str, Any], ...],
+    projection_records: tuple[Mapping[str, Any], ...],
+) -> list[dict[str, Any]]:
+    """Compare observed projection identity against selected SQLite authority."""
+
+    authority_by_id = {str(record["memory_id"]): record for record in authority_records}
+    findings: list[dict[str, Any]] = []
+    for projection in projection_records:
+        source_id = str(projection["source_id"])
+        point_ref = {"collection": projection["collection"], "point_id": projection["point_id"]}
+        if not source_id or not projection["project"] or not projection["revision_id"] or not projection["content_sha256"]:
+            findings.append({"severity": "high", "reason_code": "projection_identity_incomplete", **point_ref})
+            continue
+        authority = authority_by_id.get(source_id)
+        if authority is None:
+            findings.append(
+                {
+                    "severity": "medium",
+                    "reason_code": "projection_source_missing_in_authority_snapshot",
+                    "source_id": source_id,
+                    **point_ref,
+                }
+            )
+            continue
+        for field, reason_code in (
+            ("project", "projection_project_mismatch"),
+            ("lifecycle", "projection_lifecycle_mismatch"),
+            ("revision_id", "projection_revision_mismatch"),
+            ("content_sha256", "projection_content_digest_mismatch"),
+        ):
+            if str(projection[field]) != str(authority[field if field != "content_sha256" else "content_digest"]):
+                findings.append(
+                    {
+                        "severity": "medium",
+                        "reason_code": reason_code,
+                        "source_id": source_id,
+                        **point_ref,
+                    }
+                )
+    return findings
+
+
+def run_authoritative_projection_memory_doctor(
+    database: str | Path,
+    client: Any,
+    collections: tuple[str, ...] | list[str],
+    *,
+    project: str | None = None,
+    limit: int = _MAX_SNAPSHOT_RECORDS,
+    page_size: int = _DEFAULT_QDRANT_PAGE_SIZE,
+    max_pages: int | None = None,
+    projection_watermark: int | None = None,
+) -> dict[str, Any]:
+    """Return a redacted, read-only SQLite-to-Qdrant projection parity report."""
+
+    authority_snapshot = load_authoritative_sqlite_snapshot(database, project=project, limit=limit)
+    projection_snapshot = load_qdrant_projection_snapshot(
+        client,
+        collections,
+        project=project,
+        limit=limit,
+        page_size=page_size,
+        max_pages=max_pages,
+    )
+    report = run_memory_doctor(
+        authority_snapshot["records"], projection_watermark=projection_watermark
+    )
+    report["schema_version"] = PROJECTION_PARITY_SCHEMA_VERSION
+    report["findings"] = sorted(
+        [
+            *report["findings"],
+            *_projection_parity_findings(authority_snapshot["records"], projection_snapshot["records"]),
+        ],
+        key=lambda item: (
+            item["severity"],
+            item["reason_code"],
+            str(item.get("source_id", "")),
+            str(item.get("collection", "")),
+            str(item.get("point_id", "")),
+            str(item.get("memory_id", "")),
+        ),
+    )
+    report["authority_snapshot"] = {
+        key: authority_snapshot[key]
+        for key in ("schema_version", "authority", "record_count", "snapshot_digest", "database")
+    }
+    report["projection_snapshot"] = {
+        key: projection_snapshot[key]
+        for key in ("schema_version", "authority", "collections", "record_count", "coverage", "scan", "snapshot_digest")
+    }
+    report["execution"].update(projection_snapshot["execution"])
+    report["report_digest"] = _digest({key: value for key, value in report.items() if key != "report_digest"})
+    return report
+
+
 def run_memory_doctor(records: tuple[Mapping[str, Any], ...], *, projection_watermark: int | None = None) -> dict[str, Any]:
     """Return a redacted report. It never returns raw memory content or mutates."""
 
@@ -238,9 +478,13 @@ def run_memory_doctor(records: tuple[Mapping[str, Any], ...], *, projection_wate
 
 __all__ = [
     "MemoryDoctorSnapshotError",
+    "PROJECTION_PARITY_SCHEMA_VERSION",
+    "QDRANT_SNAPSHOT_SCHEMA_VERSION",
     "SCHEMA_VERSION",
     "SQLITE_SNAPSHOT_SCHEMA_VERSION",
     "load_authoritative_sqlite_snapshot",
+    "load_qdrant_projection_snapshot",
+    "run_authoritative_projection_memory_doctor",
     "run_authoritative_sqlite_memory_doctor",
     "run_memory_doctor",
 ]
