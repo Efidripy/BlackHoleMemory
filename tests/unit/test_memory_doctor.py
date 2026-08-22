@@ -7,7 +7,9 @@ import pytest
 
 from blackholememory.memory_doctor import MemoryDoctorSnapshotError
 from blackholememory.memory_doctor import load_authoritative_sqlite_snapshot
+from blackholememory.memory_doctor import load_qdrant_projection_snapshot
 from blackholememory.memory_doctor import run_authoritative_sqlite_memory_doctor
+from blackholememory.memory_doctor import run_authoritative_projection_memory_doctor
 from blackholememory.memory_doctor import run_memory_doctor
 
 
@@ -97,3 +99,94 @@ def test_authoritative_sqlite_snapshot_fails_closed_for_missing_or_unbounded_inp
         load_authoritative_sqlite_snapshot(tmp_path / "missing.sqlite3")
     with pytest.raises(MemoryDoctorSnapshotError, match="within"):
         load_authoritative_sqlite_snapshot(tmp_path / "missing.sqlite3", limit=10_001)
+
+
+class _ProjectionPoint:
+    def __init__(self, point_id: str, payload: dict[str, str]) -> None:
+        self.id = point_id
+        self.payload = payload
+
+
+class _ReadOnlyQdrantClient:
+    def __init__(self, pages: dict[str, list[list[_ProjectionPoint]]]) -> None:
+        self.pages = pages
+        self.calls: list[dict[str, object]] = []
+
+    def scroll(self, **kwargs):
+        self.calls.append(kwargs)
+        collection = str(kwargs["collection_name"])
+        index = int(kwargs["offset"] or 0)
+        page = self.pages[collection][index]
+        next_offset = index + 1 if index + 1 < len(self.pages[collection]) else None
+        return page, next_offset
+
+
+def test_qdrant_snapshot_is_injected_bounded_deterministic_and_redacted() -> None:
+    client = _ReadOnlyQdrantClient(
+        {
+            "z": [[_ProjectionPoint("p2", {"source_id": "m2", "project": "project-a", "lifecycle": "active", "revision_id": "r2", "content_sha256": "digest-2", "data": "secret two", "metadata": "never disclose"})]],
+            "a": [[_ProjectionPoint("p1", {"source_id": "m1", "project": "project-a", "lifecycle": "active", "revision_id": "r1", "content_sha256": "digest-1", "content": "secret one", "projection_payload_digest": "payload-1"})]],
+        }
+    )
+
+    snapshot = load_qdrant_projection_snapshot(client, ["z", "a"], project="project-a")
+
+    assert [item["collection"] for item in snapshot["records"]] == ["a", "z"]
+    assert snapshot["record_count"] == 2
+    assert snapshot["coverage"] == "complete"
+    assert snapshot["execution"]["qdrant_mutation"] is False
+    assert snapshot["execution"]["vectors_requested"] is False
+    assert "secret one" not in str(snapshot)
+    assert "secret two" not in str(snapshot)
+    assert "never disclose" not in str(snapshot)
+    assert all(call["with_vectors"] is False for call in client.calls)
+    assert all(call["with_payload"] is True for call in client.calls)
+    assert all(set(call) == {"collection_name", "limit", "offset", "with_payload", "with_vectors"} for call in client.calls)
+
+
+def test_qdrant_snapshot_declares_bounded_partial_coverage(tmp_path) -> None:
+    database = tmp_path / "memories.sqlite3"
+    _authoritative_fixture(database)
+    client = _ReadOnlyQdrantClient(
+        {
+            "project-a": [
+                [_ProjectionPoint("p1", {"source_id": "m1", "project": "other", "lifecycle": "active", "revision_id": "r1", "content_sha256": "d1"})],
+                [_ProjectionPoint("p2", {"source_id": "m2", "project": "project-a", "lifecycle": "active", "revision_id": "r2", "content_sha256": "d2"})],
+            ]
+        }
+    )
+
+    snapshot = load_qdrant_projection_snapshot(
+        client, ["project-a"], project="project-a", max_pages=1
+    )
+
+    assert snapshot["record_count"] == 0
+    assert snapshot["coverage"] == "bounded_partial"
+    assert snapshot["scan"] == {
+        "page_count": 1,
+        "page_budget": 1,
+        "complete": False,
+        "limit_reached": False,
+    }
+
+
+def test_qdrant_parity_reports_missing_and_mismatched_projection_identity(tmp_path) -> None:
+    database = tmp_path / "memories.sqlite3"
+    _authoritative_fixture(database)
+    client = _ReadOnlyQdrantClient(
+        {
+            "project-a": [[
+                _ProjectionPoint("p-mismatch", {"source_id": "m1", "project": "project-a", "lifecycle": "active", "revision_id": "obsolete", "content_sha256": "wrong"}),
+                _ProjectionPoint("p-missing", {"source_id": "missing", "project": "project-a", "lifecycle": "active", "revision_id": "r9", "content_sha256": "d9"}),
+                _ProjectionPoint("p-incomplete", {"source_id": "m2", "project": "project-a"}),
+            ]]
+        }
+    )
+
+    report = run_authoritative_projection_memory_doctor(database, client, ["project-a"], project="project-a")
+
+    codes = {item["reason_code"] for item in report["findings"]}
+    assert {"projection_revision_mismatch", "projection_content_digest_mismatch", "projection_source_missing_in_authority_snapshot", "projection_identity_incomplete"} <= codes
+    assert report["authority_snapshot"]["authority"] == "sqlite-authoritative"
+    assert report["projection_snapshot"]["authority"] == "qdrant-rebuildable-projection"
+    assert report["execution"]["qdrant_mutation"] is False
