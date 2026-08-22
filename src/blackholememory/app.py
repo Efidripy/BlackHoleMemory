@@ -22,7 +22,7 @@ from collections import Counter
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Literal, Mapping
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from fastapi import FastAPI
 from fastapi import HTTPException
@@ -162,6 +162,10 @@ from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
 from .context_compiler import compile_context
 from .context_profiles import resolve_context_profile
 from .context_profiles import load_context_profiles
+from .context_tiers import ContextTier
+from .context_tiers import TierBudget
+from .context_tiers import TieredContextItem
+from .context_tiers import compile_tiered_context
 from .adaptive_profile import recommend_context_profile
 from .adaptive_profile import summarize_explicit_usefulness
 from .context_confidence import assess_context_confidence
@@ -2839,6 +2843,7 @@ class ContextCompileRequest(BaseModel):
     semantic_type: str | None = None
     priority: str | None = None
     profile: str | None = None
+    tiered_context: bool = False
     limit: int | None = Field(default=None, ge=1, le=50)
     token_budget: int | None = Field(default=None, ge=64, le=MAX_CONTEXT_TOKEN_BUDGET)
 
@@ -12963,6 +12968,87 @@ def _strict_retrieval_hits(
     return accepted[: max(int(limit), 1)]
 
 
+def _tier_for_context_hit(hit: Mapping[str, Any]) -> ContextTier:
+    """Classify a retrieved hit without changing its authority or lifecycle."""
+
+    metadata = hit.get("metadata") if isinstance(hit.get("metadata"), Mapping) else {}
+    if _memory_lifecycle(hit) == "archived":
+        return ContextTier.ARCHIVAL
+    if _effective_memory_class(dict(hit)) == MemoryClass.WORKING.value:
+        return ContextTier.WORKING
+    session_refs = metadata.get("session_refs") or hit.get("session_refs") or []
+    scope = str(metadata.get("scope") or metadata.get("visibility") or "").strip().casefold()
+    return ContextTier.SESSION if session_refs or scope == "session" else ContextTier.PROJECT
+
+
+def _tier_budget_for_context(token_budget: int) -> TierBudget:
+    """Derive bounded per-tier byte budgets from the existing token budget."""
+
+    total_bytes = max(4, int(token_budget) * 4)
+    working = max(1, total_bytes // 5)
+    session = max(1, total_bytes // 4)
+    archival = max(1, total_bytes // 10)
+    return TierBudget(
+        working_bytes=working,
+        session_bytes=session,
+        project_bytes=max(1, total_bytes - working - session - archival),
+        archival_bytes=archival,
+    )
+
+
+def _compile_tiered_context_candidates(
+    hits: Sequence[Mapping[str, Any]], *, token_budget: int
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Select context candidates through the explicit, read-only tier contract."""
+
+    items: list[TieredContextItem] = []
+    candidates: dict[str, dict[str, Any]] = {}
+    source_ids: dict[str, str] = {}
+    for index, raw_hit in enumerate(hits, start=1):
+        hit = dict(raw_hit)
+        projected = _context_item_from_vector_hit(hit)
+        source_id = str(projected.get("id") or f"tier-context-{index}")[:160]
+        candidate_id = source_id if source_id not in candidates else f"{source_id[:140]}-{index}"
+        content = str(projected.get("content") or "").strip()
+        metadata = projected.get("metadata") if isinstance(projected.get("metadata"), Mapping) else {}
+        digest = str(
+            metadata.get("content_sha256")
+            or metadata.get("content_digest")
+            or hit.get("content_sha256")
+            or hit.get("content_digest")
+            or ""
+        ).strip().lower()
+        if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+            digest = hashlib.sha256(
+                json.dumps({"id": source_id, "content": content}, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+        observed_at = str(metadata.get("observed_at") or hit.get("observed_at") or "") or None
+        items.append(
+            TieredContextItem(
+                memory_id=candidate_id,
+                tier=_tier_for_context_hit(hit),
+                text=content or "[empty]",
+                source_digest=digest,
+                observed_at=observed_at,
+                priority=max(-100, min(100, int(round(float(hit.get("score") or 0.0) * 100)))),
+            )
+        )
+        candidates[candidate_id] = projected
+        source_ids[candidate_id] = source_id
+
+    report = compile_tiered_context(tuple(items), _tier_budget_for_context(token_budget))
+    selected = [candidates[item["memory_id"]] for item in report["included"]]
+    return selected, {
+        **report,
+        "included": [
+            {"id": source_ids[item["memory_id"]], "tier": item["tier"], "source_digest": item["source_digest"], "reason": item["reason"]}
+            for item in report["included"]
+        ],
+        "omitted": [{**item, "id": source_ids.get(item["memory_id"], item["memory_id"])} for item in report["omitted"]],
+        "execution": {"sqlite_mutation": False, "qdrant_mutation": False, "promotion": "none", "selection": "explicit-tiered-context"},
+    }
+
+
 async def federated_search(
     query: str,
     project_name: str,
@@ -17396,8 +17482,15 @@ async def bhm_context_compile(
         include_logs=effective_include_logs,
         limit=effective_limit,
     )
+    context_hits: Sequence[Mapping[str, Any]] = strict_hits
+    tier_report: dict[str, Any] | None = None
+    if request.tiered_context:
+        context_hits, tier_report = _compile_tiered_context_candidates(
+            strict_hits,
+            token_budget=effective_token_budget,
+        )
     compiled = compile_context(
-        [_context_item_from_vector_hit(hit) for hit in strict_hits],
+        context_hits if request.tiered_context else [_context_item_from_vector_hit(hit) for hit in strict_hits],
         token_budget=effective_token_budget,
         max_item_chars=context_profile.max_item_chars,
     )
@@ -17473,6 +17566,7 @@ async def bhm_context_compile(
             "priority": request.priority,
         },
         "profile": context_profile.as_dict(),
+        **({"tiers": tier_report} if tier_report is not None else {}),
         "profile_recommendation": profile_recommendation,
         "context_confidence": context_confidence,
         "retrieval": {

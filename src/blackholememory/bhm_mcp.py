@@ -393,6 +393,7 @@ def bhm_context_compile(
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     profile: str | None = None,
+    tiered_context: bool = False,
     token_budget: Annotated[int | None, Field(ge=64, le=MAX_CONTEXT_TOKEN_BUDGET)] = None,
     limit: Annotated[int | None, Field(ge=1, le=50)] = None,
     domain: str | None = None,
@@ -406,6 +407,7 @@ def bhm_context_compile(
         "include_archived": include_archived,
         "include_logs": include_logs,
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
+        **({"tiered_context": True} if tiered_context else {}),
     }
     active_profile = profile or _read_native_env_value("BHM_CONTEXT_PROFILE")
     if active_profile:

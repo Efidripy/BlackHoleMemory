@@ -2986,6 +2986,74 @@ def test_mcp_context_compile_wrapper_can_select_a_native_profile(monkeypatch):
     ]
 
 
+def test_context_compile_can_explicitly_apply_deterministic_tiers(monkeypatch):
+    async def fake_ready():
+        return None
+
+    hits = [
+        {
+            "id": "project-memory",
+            "content": "project evidence",
+            "score": 0.5,
+            "metadata": {"source_id": "project-memory", "project": "blackholememory"},
+        },
+        {
+            "id": "working-memory",
+            "content": "working evidence",
+            "score": 0.1,
+            "metadata": {
+                "source_id": "working-memory",
+                "project": "blackholememory",
+                "memory_class": "working",
+            },
+        },
+        {
+            "id": "session-memory",
+            "content": "session evidence",
+            "score": 0.9,
+            "metadata": {
+                "source_id": "session-memory",
+                "project": "blackholememory",
+                "session_refs": ["session-1"],
+            },
+        },
+    ]
+
+    async def fake_federated_search(*_args, **_kwargs):
+        return hits, len(hits)
+
+    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
+    monkeypatch.setattr(bhm_app, "_strict_retrieval_hits", lambda items, **_kwargs: items)
+
+    response = TestClient(bhm_app.app).post(
+        "/bhm/context/compile",
+        json={"query": "tiers", "project": "blackholememory", "tiered_context": True, "token_budget": 64},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["tier"] for item in payload["tiers"]["included"]] == ["working", "session", "project"]
+    assert payload["tiers"]["execution"] == {
+        "sqlite_mutation": False,
+        "qdrant_mutation": False,
+        "promotion": "none",
+        "selection": "explicit-tiered-context",
+    }
+    assert payload["retrieval"]["included_count"] == 3
+
+
+def test_mcp_context_compile_wrapper_forwards_tiered_context_only_when_enabled(monkeypatch):
+    calls: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr("blackholememory.bhm_mcp._post", lambda path, body: calls.append((path, body)) or {"ok": True})
+    monkeypatch.setattr("blackholememory.bhm_mcp._read_native_env_value", lambda _key: None)
+    from blackholememory.bhm_mcp import bhm_context_compile
+
+    assert bhm_context_compile("tiers", project="blackholememory", tiered_context=True) == {"ok": True}
+    assert calls[0][1]["tiered_context"] is True
+
+
 def test_explain_retrieval_returns_rank_and_routing_diagnostics_without_raw_metadata(monkeypatch):
     async def fake_ready():
         return None
