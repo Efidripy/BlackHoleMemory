@@ -81,3 +81,36 @@ def test_link_tool_forwards_only_a_digest_pinned_ontology_contract(monkeypatch) 
             "ontology_schema_digest": "a" * 64,
         },
     }
+
+
+def test_shared_memory_policy_preflight_forwards_only_governance_fields(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_post(path: str, body: dict) -> dict:
+        observed.update({"path": path, "body": body})
+        return {"ok": True}
+
+    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+
+    assert bhm_mcp.bhm_shared_memory_policy_preflight(
+        request_id="request-1",
+        operation="read",
+        visibility="project",
+        owner_id="owner-1",
+        at="2026-08-23T12:00:00Z",
+        project="blackholememory",
+        memory_id="memory-1",
+    ) == {"ok": True}
+    assert observed == {
+        "path": "/bhm/shared-memory/policy/evaluate",
+        "body": {
+            "request_id": "request-1",
+            "operation": "read",
+            "visibility": "project",
+            "owner_id": "owner-1",
+            "at": "2026-08-23T12:00:00Z",
+            "project": "blackholememory",
+            "sensitivity": "internal",
+            "memory_id": "memory-1",
+        },
+    }

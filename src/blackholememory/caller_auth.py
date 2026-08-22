@@ -151,6 +151,7 @@ _EXPLICIT_PROJECT_SCOPE_PATHS = frozenset(
         "/bhm/triage-queue/apply",
         "/bhm/schema/validate-strict",
         "/bhm/memory/normalize-metadata",
+        "/bhm/shared-memory/policy/evaluate",
     }
 )
 _PROJECT_KEYS = frozenset(
