@@ -21,10 +21,11 @@ def test_immutable_grant_and_matching_revocation_materialize_one_revoked_grant()
     grant = _grant()
     revocation = SharedGrantRevocation(grant_id="g1", project="blackholememory", grant_digest=grant_digest(grant), revoked_at="2026-08-23T12:01:00Z", revocation_receipt_digest="a" * 64)
 
-    effective = resolve_effective_grants([
-        {"artifact_type":"shared_memory_grant", **build_grant_artifact(grant).to_record()},
-        {"artifact_type":"shared_memory_grant_revocation", **build_revocation_artifact(revocation).to_record()},
-    ], project="blackholememory")
+    effective = resolve_effective_grants(
+        [build_grant_artifact(grant).to_record()],
+        [build_revocation_artifact(revocation).to_record()],
+        project="blackholememory",
+    )
 
     assert len(effective) == 1
     assert effective[0].revoked_at == "2026-08-23T12:01:00Z"
@@ -33,9 +34,9 @@ def test_immutable_grant_and_matching_revocation_materialize_one_revoked_grant()
 
 def test_ledger_fails_closed_on_duplicate_or_mismatched_revision() -> None:
     grant = _grant()
-    duplicate = {"artifact_type":"shared_memory_grant", **build_grant_artifact(grant).to_record()}
+    duplicate = build_grant_artifact(grant).to_record()
     with pytest.raises(SharedMemoryPolicyError, match="ambiguous"):
-        resolve_effective_grants([duplicate, duplicate], project="blackholememory")
+        resolve_effective_grants([duplicate, duplicate], [], project="blackholememory")
     invalid = SharedGrantRevocation(grant_id="g1", project="blackholememory", grant_digest="b" * 64, revoked_at="2026-08-23T12:01:00Z", revocation_receipt_digest="a" * 64)
     with pytest.raises(SharedMemoryPolicyError, match="does not match"):
-        resolve_effective_grants([duplicate, {"artifact_type":"shared_memory_grant_revocation", **build_revocation_artifact(invalid).to_record()}], project="blackholememory")
+        resolve_effective_grants([duplicate], [build_revocation_artifact(invalid).to_record()], project="blackholememory")

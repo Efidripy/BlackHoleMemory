@@ -78,27 +78,32 @@ def build_revocation_artifact(revocation: SharedGrantRevocation) -> Artifact:
     )
 
 
-def resolve_effective_grants(records: list[Mapping[str, Any]], *, project: str) -> tuple[SharedMemoryGrant, ...]:
+def resolve_effective_grants(
+    grant_records: list[Mapping[str, Any]],
+    revocation_records: list[Mapping[str, Any]],
+    *,
+    project: str,
+) -> tuple[SharedMemoryGrant, ...]:
     """Materialize one effective immutable grant per id or fail closed."""
 
     grants: dict[str, SharedMemoryGrant] = {}
     revocations: dict[str, SharedGrantRevocation] = {}
-    for record in records:
-        artifact_type = str(record.get("artifact_type") or "")
+    for record in grant_records:
         if str(record.get("project") or "") != project:
             continue
-        if artifact_type == GRANT_ARTIFACT_TYPE:
-            payload = record.get("grant")
-            grant = SharedMemoryGrant.model_validate(payload)
-            if grant.project != project or grant.grant_id in grants:
-                raise SharedMemoryPolicyError("shared grant ledger is ambiguous")
-            grants[grant.grant_id] = grant
-        elif artifact_type == REVOCATION_ARTIFACT_TYPE:
-            payload = record.get("revocation")
-            revocation = SharedGrantRevocation.model_validate(payload)
-            if revocation.project != project or revocation.grant_id in revocations:
-                raise SharedMemoryPolicyError("shared grant revocation ledger is ambiguous")
-            revocations[revocation.grant_id] = revocation
+        payload = record.get("grant")
+        grant = SharedMemoryGrant.model_validate(payload)
+        if grant.project != project or grant.grant_id in grants:
+            raise SharedMemoryPolicyError("shared grant ledger is ambiguous")
+        grants[grant.grant_id] = grant
+    for record in revocation_records:
+        if str(record.get("project") or "") != project:
+            continue
+        payload = record.get("revocation")
+        revocation = SharedGrantRevocation.model_validate(payload)
+        if revocation.project != project or revocation.grant_id in revocations:
+            raise SharedMemoryPolicyError("shared grant revocation ledger is ambiguous")
+        revocations[revocation.grant_id] = revocation
     effective: list[SharedMemoryGrant] = []
     for grant_id, grant in grants.items():
         revocation = revocations.get(grant_id)
