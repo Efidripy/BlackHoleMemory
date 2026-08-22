@@ -38,6 +38,38 @@ SQLite authority boundary.
 Автоматический режим не выполняет backup или `VACUUM`. Операторский flow и
 rollback описаны в [SQLite retention](sqlite-retention.md).
 
+## Durable LangGraph checkpoints
+
+Developer-agent graphs are **ephemeral by default**. Durable resume is an
+operator-controlled SQLite feature, not a consequence of merely installing
+LangGraph. The saver keeps orchestration tuples in dedicated
+`bhm_langgraph_checkpoint_*` tables in the existing authoritative SQLite file;
+it never writes Mem0 or Qdrant.
+
+Activation is fail-closed and needs all four variables in the process that
+executes `BHMAgentExecutor.execute_loop`:
+
+```text
+BHM_LANGGRAPH_DURABLE_CHECKPOINT_ENABLED=true
+BHM_LANGGRAPH_DURABLE_CHECKPOINT_ALLOW_AUTHORITATIVE=true
+BHM_LANGGRAPH_DURABLE_CHECKPOINT_SCHEMA=bhm.langgraph.checkpoint.sqlite.v1
+BHM_LANGGRAPH_DURABLE_CHECKPOINT_CALLER_ID=<stable-local-caller-id>
+```
+
+`BHM_LANGGRAPH_DURABLE_CHECKPOINT_SESSION_ID` is optional; if omitted, the
+task ID supplies a stable resume scope. The caller ID is an identifier, never a
+bearer token or secret. A missing acknowledgement, schema mismatch, or empty
+caller ID rejects a requested resumable run before graph compilation and before
+SQLite schema creation. Passing `resumable=False` to `execute_loop` forces a
+one-shot ephemeral graph even during an activation window.
+
+Before enabling the variables for a live runtime, create a verified SQLite
+backup, run the crash/reopen/concurrency/prune drill, and keep the rollback as
+removing the two enablement variables and restarting only the affected agent
+process. Disabling the feature does not modify BHM memory lifecycle records or
+Qdrant; existing checkpoint rows remain inert until explicitly pruned through a
+separate reviewed operation.
+
 ## One-time data hygiene
 
 `config/data-hygiene-policy.json` — точный одноразовый allowlist disposable
