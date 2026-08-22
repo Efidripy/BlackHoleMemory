@@ -21,6 +21,8 @@ REPAIR_PROPOSAL_SCHEMA_VERSION = "bhm.memory-doctor.repair-proposal.v1"
 _MAX_SNAPSHOT_RECORDS = 10_000
 _DEFAULT_QDRANT_PAGE_SIZE = 256
 _MAX_REPAIR_PROPOSALS = 256
+_SHARED_VISIBILITIES = frozenset({"private/agent", "session", "project", "team", "org/tenant"})
+_SENSITIVITIES = frozenset({"public", "internal", "restricted"})
 _SAFE_PROJECTION_FIELDS = (
     "source_id",
     "project",
@@ -43,6 +45,7 @@ def _digest(value: Any) -> str:
 
 def _safe_record(record: Mapping[str, Any]) -> dict[str, Any]:
     metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+    owner_id = str(record.get("owner_id") or metadata.get("owner_id") or "").strip()
     return {
         "memory_id": str(record.get("source_id") or record.get("id") or record.get("memory_id") or ""),
         "project": str(record.get("project") or metadata.get("project") or ""),
@@ -54,6 +57,14 @@ def _safe_record(record: Mapping[str, Any]) -> dict[str, Any]:
         "projection_seq": record.get("projection_seq") or metadata.get("projection_seq"),
         "authority_seq": record.get("authority_seq") or metadata.get("authority_seq"),
         "supersedes_revision_id": str(record.get("supersedes_revision_id") or metadata.get("supersedes_revision_id") or ""),
+        "ontology_schema_digest": str(
+            record.get("ontology_schema_digest") or metadata.get("ontology_schema_digest") or ""
+        ).casefold(),
+        "shared_visibility": str(
+            record.get("shared_visibility") or metadata.get("shared_visibility") or ""
+        ).casefold(),
+        "shared_owner_digest": hashlib.sha256(owner_id.encode("utf-8")).hexdigest() if owner_id else "",
+        "sensitivity": str(record.get("sensitivity") or metadata.get("sensitivity") or "").casefold(),
     }
 
 
@@ -83,6 +94,10 @@ def _sqlite_snapshot_digest(records: tuple[Mapping[str, Any], ...]) -> str:
                 "authority_seq": item["authority_seq"],
                 "projection_seq": item["projection_seq"],
                 "supersedes_revision_id": item["supersedes_revision_id"],
+                "ontology_schema_digest": item["ontology_schema_digest"],
+                "shared_visibility": item["shared_visibility"],
+                "shared_owner_digest": item["shared_owner_digest"],
+                "sensitivity": item["sensitivity"],
             }
             for item in records
         ]
@@ -181,6 +196,14 @@ def load_authoritative_sqlite_snapshot(
                 "supersedes_revision_id": str(
                     row["supersedes_revision_id"] or metadata.get("supersedes_revision_id") or ""
                 ),
+                "ontology_schema_digest": str(metadata.get("ontology_schema_digest") or "").casefold(),
+                "shared_visibility": str(metadata.get("shared_visibility") or "").casefold(),
+                "shared_owner_digest": (
+                    hashlib.sha256(str(metadata.get("owner_id") or "").strip().encode("utf-8")).hexdigest()
+                    if str(metadata.get("owner_id") or "").strip()
+                    else ""
+                ),
+                "sensitivity": str(metadata.get("sensitivity") or "").casefold(),
             }
         )
     records_tuple = tuple(records)
@@ -575,10 +598,19 @@ def build_memory_doctor_repair_proposal(
     return result
 
 
-def run_memory_doctor(records: tuple[Mapping[str, Any], ...], *, projection_watermark: int | None = None) -> dict[str, Any]:
+def run_memory_doctor(
+    records: tuple[Mapping[str, Any], ...],
+    *,
+    projection_watermark: int | None = None,
+    expected_ontology_digests: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """Return a redacted report. It never returns raw memory content or mutates."""
 
     clean = [_safe_record(record) for record in records]
+    expected_digests = {
+        str(project): _required_digest(str(digest), "expected_ontology_digest")
+        for project, digest in (expected_ontology_digests or {}).items()
+    }
     findings: list[dict[str, Any]] = []
     grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     ids: set[str] = set()
@@ -596,6 +628,17 @@ def run_memory_doctor(records: tuple[Mapping[str, Any], ...], *, projection_wate
             findings.append({"severity": "medium", "reason_code": "projection_watermark_lag", "memory_id": item["memory_id"], "project": item["project"]})
         if item["supersedes_revision_id"] and not item["source_digest"]:
             findings.append({"severity": "medium", "reason_code": "supersession_lineage_incomplete", "memory_id": item["memory_id"], "project": item["project"]})
+        ontology_digest = item["ontology_schema_digest"]
+        if ontology_digest and (len(ontology_digest) != 64 or any(char not in "0123456789abcdef" for char in ontology_digest)):
+            findings.append({"severity": "high", "reason_code": "ontology_schema_digest_invalid", "memory_id": item["memory_id"], "project": item["project"]})
+        elif ontology_digest and item["project"] in expected_digests and ontology_digest != expected_digests[item["project"]]:
+            findings.append({"severity": "medium", "reason_code": "ontology_schema_digest_mismatch", "memory_id": item["memory_id"], "project": item["project"]})
+        if item["shared_visibility"] and item["shared_visibility"] not in _SHARED_VISIBILITIES:
+            findings.append({"severity": "high", "reason_code": "shared_visibility_invalid", "memory_id": item["memory_id"], "project": item["project"]})
+        elif item["shared_visibility"] and not item["shared_owner_digest"]:
+            findings.append({"severity": "high", "reason_code": "shared_owner_missing", "memory_id": item["memory_id"], "project": item["project"]})
+        if item["sensitivity"] and item["sensitivity"] not in _SENSITIVITIES:
+            findings.append({"severity": "high", "reason_code": "shared_sensitivity_invalid", "memory_id": item["memory_id"], "project": item["project"]})
     for (project, content_digest), matches in grouped.items():
         if len(matches) > 1:
             findings.append({"severity": "low", "reason_code": "exact_active_duplicate", "project": project, "content_digest": content_digest, "memory_ids": sorted(item["memory_id"] for item in matches)})
