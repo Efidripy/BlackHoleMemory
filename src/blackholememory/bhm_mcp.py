@@ -92,6 +92,7 @@ class BhmBatchLinkItem(BaseModel):
     relation: str
     project: str
     metadata: MemoryMetadata | None = None
+    ontology_schema_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None
 
 
 def _read_process_or_user_env_value(key: str) -> str | None:
@@ -815,6 +816,7 @@ def bhm_link_memories(
     relation: str,
     project: str,
     metadata_json: str | None = None,
+    ontology_schema_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")] | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "source_id": source_id,
@@ -824,6 +826,8 @@ def bhm_link_memories(
     }
     if metadata_json is not None:
         body["metadata"] = _metadata_json_object(metadata_json)
+    if ontology_schema_digest is not None:
+        body["ontology_schema_digest"] = ontology_schema_digest
     return _post("/bhm/memory/link", body)
 
 

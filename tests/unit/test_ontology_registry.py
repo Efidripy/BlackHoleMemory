@@ -8,9 +8,12 @@ from blackholememory.ontology_registry import OntologyEntityType
 from blackholememory.ontology_registry import OntologyRelationWrite
 from blackholememory.ontology_registry import OntologyRelationType
 from blackholememory.ontology_registry import OntologySchema
+from blackholememory.ontology_registry import OntologyRegistryError
+from blackholememory.ontology_registry import build_activation_artifact
 from blackholememory.ontology_registry import build_registry_artifact
 from blackholememory.ontology_registry import admit_relation_write
 from blackholememory.ontology_registry import quarantine_unknown
+from blackholememory.ontology_registry import resolve_active_schema
 from blackholememory.ontology_registry import validate_entity
 from blackholememory.ontology_registry import validate_relation
 
@@ -71,6 +74,51 @@ def test_registry_artifact_is_sqlite_authoritative_and_proposal_safe() -> None:
     assert payload["learned_values_require_review"] is True
     assert payload["schema_digest"] == schema.digest()
     assert "schema" in payload
+
+
+def test_activation_marker_resolves_declared_schema_and_disables_without_mutation() -> None:
+    schema = _schema(activation_status="declared")
+    registry = build_registry_artifact(schema).to_record()
+    marker = build_activation_artifact(
+        schema,
+        enabled=True,
+        updated_at="2026-08-23T00:00:00Z",
+    ).to_record()
+
+    assert resolve_active_schema(
+        project=schema.project,
+        registry_records=[registry],
+        activation_record=marker,
+    ).digest() == schema.digest()
+
+    disabled = build_activation_artifact(
+        schema,
+        enabled=False,
+        updated_at="2026-08-23T00:01:00Z",
+    ).to_record()
+    assert resolve_active_schema(
+        project=schema.project,
+        registry_records=[registry],
+        activation_record=disabled,
+    ) is None
+
+
+def test_activation_marker_fails_closed_on_digest_mismatch() -> None:
+    schema = _schema(activation_status="declared")
+    registry = build_registry_artifact(schema).to_record()
+    marker = build_activation_artifact(
+        schema,
+        enabled=True,
+        updated_at="2026-08-23T00:00:00Z",
+    ).to_record()
+    marker["schema_digest"] = "a" * 64
+
+    with pytest.raises(OntologyRegistryError, match="digest mismatch"):
+        resolve_active_schema(
+            project=schema.project,
+            registry_records=[registry],
+            activation_record=marker,
+        )
 
 
 def test_quarantine_does_not_mutate_schema_or_include_unbounded_content() -> None:

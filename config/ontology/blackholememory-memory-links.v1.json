@@ -1,0 +1,29 @@
+{
+  "schema_version": "bhm.ontology-registry.v1",
+  "project": "blackholememory",
+  "revision": 1,
+  "owner": "blackholememory-maintainers",
+  "activation_status": "declared",
+  "provenance": {
+    "basis": "BHM explicit memory-link API and relation suggestion taxonomy",
+    "review": "WL-300.3"
+  },
+  "entity_types": [
+    {
+      "name": "memory",
+      "aliases": ["memory_aggregate"],
+      "attributes": {
+        "project": "string",
+        "memory_type": "string"
+      }
+    }
+  ],
+  "relation_types": [
+    {"name": "conflicts_with", "source_types": ["memory"], "target_types": ["memory"], "cardinality": "many"},
+    {"name": "depends_on", "source_types": ["memory"], "target_types": ["memory"], "cardinality": "many"},
+    {"name": "duplicate_of", "source_types": ["memory"], "target_types": ["memory"], "cardinality": "many"},
+    {"name": "relates_to", "source_types": ["memory"], "target_types": ["memory"], "cardinality": "many"},
+    {"name": "supersedes", "source_types": ["memory"], "target_types": ["memory"], "cardinality": "many"},
+    {"name": "supports", "source_types": ["memory"], "target_types": ["memory"], "cardinality": "many"}
+  ]
+}

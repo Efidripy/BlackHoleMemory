@@ -19,6 +19,7 @@ from .domain import Memory
 from .domain import MemoryLink
 from .domain import MemoryRevision
 from .domain import Lifecycle
+from .domain import Artifact
 from .domain import content_sha256
 from .filesystem_boundaries import assert_safe_path
 from .memory_repository import MemoryRepositoryError
@@ -292,6 +293,45 @@ class SQLiteMemoryService:
 
         self._ensure_ready(verify_integrity=False)
         return self.repository.delete_links(link_ids)
+
+    def save_artifact(self, artifact: Artifact) -> dict[str, Any]:
+        """Persist a typed SQLite-authoritative artifact without an outbox write."""
+
+        self._ensure_ready(verify_integrity=False)
+        return self.repository.save_artifact(artifact).to_record()
+
+    def list_artifact_records(
+        self,
+        *,
+        artifact_type: str | None = None,
+        project: str | None = None,
+        include_archived: bool = False,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return artifact records with safe paging; SQLite remains authority."""
+
+        self._ensure_ready(verify_integrity=False)
+        remaining = None if limit is None else max(0, int(limit))
+        if remaining == 0:
+            return []
+        artifacts = []
+        offset = 0
+        while remaining is None or remaining > 0:
+            page_limit = 10_000 if remaining is None else min(10_000, remaining)
+            page = self.repository.list_artifacts(
+                artifact_type=artifact_type,
+                project=project,
+                include_archived=include_archived,
+                limit=page_limit,
+                offset=offset,
+            )
+            artifacts.extend(page)
+            offset += len(page)
+            if remaining is not None:
+                remaining -= len(page)
+            if len(page) < page_limit:
+                break
+        return [artifact.to_record() for artifact in artifacts]
 
     def count_records(
         self,
