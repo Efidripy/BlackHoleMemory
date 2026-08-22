@@ -437,3 +437,5 @@ REST/WS,DELETE,/bhm/slot,bhm_slot_delete,src/blackholememory/app.py,16186,defaul
 REST/WS,POST,/bhm/slot/reflect,bhm_slot_reflect,src/blackholememory/app.py,16197,default
 REST/WS,GET,/openapi-public.json,openapi_public,src/blackholememory/app.py,16230,false
 REST/WS,GET,/openapi-admin.json,openapi_admin,src/blackholememory/app.py,16235,false
+MCP_STATIC,TOOL,bhm_shared_memory_policy_preflight,bhm_shared_memory_policy_preflight,src/blackholememory/bhm_mcp.py,1969,n/a
+REST/WS,POST,/bhm/shared-memory/policy/evaluate,bhm_shared_memory_policy_evaluate,src/blackholememory/app.py,18658,default
