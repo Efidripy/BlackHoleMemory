@@ -207,6 +207,39 @@ def test_qdrant_parity_reports_missing_and_mismatched_projection_identity(tmp_pa
     assert report["execution"]["qdrant_mutation"] is False
 
 
+def test_qdrant_parity_reports_expected_missing_only_after_complete_coverage(tmp_path) -> None:
+    database = tmp_path / "memories.sqlite3"
+    _authoritative_fixture(database)
+    empty_client = _ReadOnlyQdrantClient({"project-a": [[]]})
+
+    complete = run_authoritative_projection_memory_doctor(
+        database,
+        empty_client,
+        ["project-a"],
+        project="project-a",
+        expected_collections_by_project={"project-a": ["project-a"]},
+    )
+
+    missing = [item for item in complete["findings"] if item["reason_code"] == "projection_expected_point_missing"]
+    assert {item["memory_id"] for item in missing} == {"m1", "m2"}
+    assert complete["projection_snapshot"]["expected_collections_by_project"] == {"project-a": ("project-a",)}
+
+    partial_client = _ReadOnlyQdrantClient(
+        {"project-a": [[_ProjectionPoint("noise", {"source_id": "noise", "project": "other", "lifecycle": "active", "revision_id": "r", "content_sha256": "d"})], []]}
+    )
+    partial = run_authoritative_projection_memory_doctor(
+        database,
+        partial_client,
+        ["project-a"],
+        project="project-a",
+        max_pages=1,
+        expected_collections_by_project={"project-a": ["project-a"]},
+    )
+    codes = {item["reason_code"] for item in partial["findings"]}
+    assert "projection_expected_coverage_unproven" in codes
+    assert "projection_expected_point_missing" not in codes
+
+
 def test_doctor_repair_proposals_are_bounded_deterministic_and_non_executable() -> None:
     report = run_memory_doctor(
         (

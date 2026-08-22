@@ -378,6 +378,9 @@ def load_qdrant_projection_snapshot(
 def _projection_parity_findings(
     authority_records: tuple[Mapping[str, Any], ...],
     projection_records: tuple[Mapping[str, Any], ...],
+    *,
+    expected_collections_by_project: Mapping[str, tuple[str, ...]] | None = None,
+    projection_complete: bool,
 ) -> list[dict[str, Any]]:
     """Compare observed projection identity against selected SQLite authority."""
 
@@ -415,7 +418,54 @@ def _projection_parity_findings(
                         **point_ref,
                     }
                 )
+    expected = expected_collections_by_project or {}
+    if expected and not projection_complete:
+        findings.extend(
+            {
+                "severity": "medium",
+                "reason_code": "projection_expected_coverage_unproven",
+                "project": project,
+            }
+            for project in sorted(expected)
+        )
+    elif expected:
+        observed_pairs = {
+            (str(projection["source_id"]), str(projection["collection"]))
+            for projection in projection_records
+        }
+        for authority in authority_records:
+            project = str(authority["project"])
+            if authority["lifecycle"] != "active" or project not in expected:
+                continue
+            for collection in expected[project]:
+                if (str(authority["memory_id"]), collection) not in observed_pairs:
+                    findings.append(
+                        {
+                            "severity": "medium",
+                            "reason_code": "projection_expected_point_missing",
+                            "memory_id": str(authority["memory_id"]),
+                            "project": project,
+                            "collection": collection,
+                        }
+                    )
     return findings
+
+
+def _expected_collection_mapping(
+    value: Mapping[str, tuple[str, ...] | list[str]] | None,
+) -> dict[str, tuple[str, ...]]:
+    if value is None:
+        return {}
+    result: dict[str, tuple[str, ...]] = {}
+    for project, collections in value.items():
+        project_name = str(project or "").strip()
+        if not project_name or isinstance(collections, str):
+            raise MemoryDoctorSnapshotError("expected collection mapping must be project-scoped arrays")
+        normalized = tuple(sorted({str(name or "").strip() for name in collections if str(name or "").strip()}))
+        if not normalized:
+            raise MemoryDoctorSnapshotError("expected collection mapping must not be empty")
+        result[project_name] = normalized
+    return result
 
 
 def run_authoritative_projection_memory_doctor(
@@ -428,6 +478,7 @@ def run_authoritative_projection_memory_doctor(
     page_size: int = _DEFAULT_QDRANT_PAGE_SIZE,
     max_pages: int | None = None,
     projection_watermark: int | None = None,
+    expected_collections_by_project: Mapping[str, tuple[str, ...] | list[str]] | None = None,
 ) -> dict[str, Any]:
     """Return a redacted, read-only SQLite-to-Qdrant projection parity report."""
 
@@ -440,6 +491,7 @@ def run_authoritative_projection_memory_doctor(
         page_size=page_size,
         max_pages=max_pages,
     )
+    expected_mapping = _expected_collection_mapping(expected_collections_by_project)
     report = run_memory_doctor(
         authority_snapshot["records"], projection_watermark=projection_watermark
     )
@@ -447,7 +499,12 @@ def run_authoritative_projection_memory_doctor(
     report["findings"] = sorted(
         [
             *report["findings"],
-            *_projection_parity_findings(authority_snapshot["records"], projection_snapshot["records"]),
+            *_projection_parity_findings(
+                authority_snapshot["records"],
+                projection_snapshot["records"],
+                expected_collections_by_project=expected_mapping,
+                projection_complete=projection_snapshot["coverage"] == "complete",
+            ),
         ],
         key=lambda item: (
             item["severity"],
@@ -466,6 +523,7 @@ def run_authoritative_projection_memory_doctor(
         key: projection_snapshot[key]
         for key in ("schema_version", "authority", "collections", "record_count", "coverage", "scan", "snapshot_digest")
     }
+    report["projection_snapshot"]["expected_collections_by_project"] = expected_mapping
     report["execution"].update(projection_snapshot["execution"])
     report["report_digest"] = _digest({key: value for key, value in report.items() if key != "report_digest"})
     return report
