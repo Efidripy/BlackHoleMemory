@@ -116,7 +116,7 @@ def _write_fixture(root: Path, *, project_variants: tuple[str, str] = ("demo", "
     return live
 
 
-def test_mapping_plan_is_read_only_and_blocks_tasks_without_graph_contract(tmp_path: Path) -> None:
+def test_mapping_plan_is_read_only_and_stages_tasks_without_invented_edges(tmp_path: Path) -> None:
     module = _load_module()
     live = _write_fixture(tmp_path)
     before = (live / "memories.sqlite3").read_bytes()
@@ -127,13 +127,13 @@ def test_mapping_plan_is_read_only_and_blocks_tasks_without_graph_contract(tmp_p
     assert report["read_only"] is True
     assert report["migration_authorized"] is False
     assert report["parity_proven"] is False
-    assert report["staging_ready"] is False
+    assert report["staging_ready"] is True
     by_source = {item["source"]: item for item in report["mappings"]}
     assert by_source["memory-links.json"]["staging_ready"] is True
-    assert by_source["tasks.json"]["status"] == "blocked"
-    assert "graph_snapshot_and_edge_contract_missing" in by_source["tasks.json"]["blockers"]
-    assert report["null_field_policy"]["session-records.json"]["done"]["empty_string"] == "blocked"
-    assert report["graph_builder_contract"]["status"] == "design_only"
+    assert by_source["tasks.json"]["status"] == "candidate_staged_only"
+    assert by_source["tasks.json"]["blockers"] == []
+    assert report["null_field_policy"]["session-records.json"]["done"]["empty_string"] == "preserve_as_incomplete_archived_artifact"
+    assert report["graph_builder_contract"]["status"] == "implemented_staged_only"
     assert report["graph_builder_contract"]["parity_receipt_required"] is True
     assert by_source["tasks.json"]["graph_builder_contract"]["required"]["edge_key"]
     assert (live / "memories.sqlite3").read_bytes() == before
