@@ -180,6 +180,13 @@ from .ontology_registry import OntologyRegistryError
 from .ontology_registry import OntologyRelationWrite
 from .ontology_registry import admit_relation_write
 from .ontology_registry import resolve_active_schema
+from .governed_shared_memory import SharedMemoryRequest
+from .governed_shared_memory import SharedOperation
+from .governed_shared_memory import SharedVisibility
+from .governed_shared_memory import decide_shared_memory
+from .shared_memory_audit import append_shared_memory_audit
+from .shared_memory_audit import build_shared_memory_audit_event
+from .shared_memory_audit import caller_identity_from_principal
 from .memory_search_service import MemorySearchDependencies
 from .memory_search_service import MemorySearchService
 from .memory_search_service import read_only_side_effects
@@ -2987,6 +2994,20 @@ class MemoryLinkDeleteRequest(BaseModel):
     project: str
 
 
+class SharedMemoryPolicyPreflightRequest(BaseModel):
+    """Evaluate governance only; this request cannot read or write memory."""
+
+    project: str = Field(min_length=1, max_length=256)
+    request_id: str = Field(min_length=1, max_length=256)
+    operation: SharedOperation
+    visibility: SharedVisibility
+    owner_id: str = Field(min_length=1, max_length=256)
+    at: str = Field(min_length=20, max_length=64)
+    memory_id: str | None = Field(default=None, min_length=1, max_length=256)
+    sensitivity: Literal["public", "internal", "restricted"] = "internal"
+    expected_revision: str | None = Field(default=None, min_length=1, max_length=256)
+
+
 class MemoryCrystallizeRequest(BaseModel):
     source_ids: list[str]
     project: str
@@ -4340,6 +4361,58 @@ def _active_ontology_schema(project: str):
             status_code=409,
             detail={"code": "ontology_registry_activation_invalid", "reason": str(exc)},
         ) from exc
+
+
+def _shared_memory_policy_preflight(
+    request: SharedMemoryPolicyPreflightRequest,
+    *,
+    principal: Any,
+    auth_kind: str,
+) -> dict[str, Any]:
+    """Record a governed policy decision without enabling shared-memory I/O."""
+
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+    project = _canonical_project(request.project)
+    try:
+        identity = caller_identity_from_principal(principal, project=project)
+        policy_request = SharedMemoryRequest(
+            request_id=request.request_id,
+            operation=request.operation,
+            visibility=request.visibility,
+            identity=identity,
+            owner_id=request.owner_id,
+            memory_id=request.memory_id,
+            at=request.at,
+            sensitivity=request.sensitivity,
+            expected_revision=request.expected_revision,
+        )
+        # Grant issuance is not part of this slice. The empty grant set makes
+        # project/team/org preflight default-deny; no policy result is wired to
+        # a memory read/write path yet.
+        receipt = decide_shared_memory(policy_request)
+        event = build_shared_memory_audit_event(
+            request=policy_request,
+            receipt=receipt,
+            principal=principal,
+            auth_kind=auth_kind,
+        )
+        _record, inserted = append_shared_memory_audit(_memory_service(), event)
+    except (MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "shared_policy_preflight_unavailable", "reason": _safe_exception_text(exc)},
+        ) from exc
+    return {
+        "schema_version": "bhm.governed-shared-memory.preflight.v1",
+        "mode": "policy-preflight-only",
+        "shared_read_enabled": False,
+        "shared_write_enabled": False,
+        "decision": receipt.decision.value,
+        "reason_code": receipt.reason_code,
+        "policy_digest": receipt.policy_digest,
+        "audit": {"event_id": event.event_id, "appended": inserted, "authority": "sqlite-authoritative"},
+    }
 
 
 def _require_typed_memory_boundary(
@@ -18568,6 +18641,22 @@ async def bhm_memory_link_create(request: MemoryLinkRequest) -> dict:
 async def bhm_memory_link_delete(request: MemoryLinkDeleteRequest) -> dict:
     deleted = await _run_bounded_write("bhm.memory.link.delete", _delete_memory_link, request)
     return {"success": True, "deleted": deleted}
+
+
+@app.post("/bhm/shared-memory/policy/evaluate")
+async def bhm_shared_memory_policy_evaluate(
+    request: SharedMemoryPolicyPreflightRequest,
+    http_request: Request,
+) -> dict:
+    principal = getattr(http_request.state, "bhm_caller_principal", None)
+    auth_kind = str(getattr(http_request.state, "bhm_auth_kind", "") or "")
+    return await _run_bounded_write(
+        "bhm.shared_memory.policy_preflight",
+        _shared_memory_policy_preflight,
+        request,
+        principal=principal,
+        auth_kind=auth_kind,
+    )
 
 
 @app.get("/bhm/profile")

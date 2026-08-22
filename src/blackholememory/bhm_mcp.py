@@ -1966,6 +1966,34 @@ def bhm_policy_guard(content: str, project: str | None = None, memory_type: str 
     return _post("/bhm/policy-guard", {"content": content, "project": project, "memory_type": memory_type})
 
 
+@mcp.tool(name="bhm_shared_memory_policy_preflight", description="Evaluate governed shared-memory policy and append a content-free SQLite audit receipt. This tool never reads or writes shared memory.")
+def bhm_shared_memory_policy_preflight(
+    request_id: Annotated[str, Field(min_length=1, max_length=256)],
+    operation: Literal["read", "write", "update", "transition", "delete"],
+    visibility: Literal["private/agent", "session", "project", "team", "org/tenant"],
+    owner_id: Annotated[str, Field(min_length=1, max_length=256)],
+    at: Annotated[str, Field(min_length=20, max_length=64)],
+    project: Annotated[str, Field(min_length=1, max_length=256)],
+    memory_id: Annotated[str, Field(min_length=1, max_length=256)] | None = None,
+    sensitivity: Literal["public", "internal", "restricted"] = "internal",
+    expected_revision: Annotated[str, Field(min_length=1, max_length=256)] | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "request_id": request_id,
+        "operation": operation,
+        "visibility": visibility,
+        "owner_id": owner_id,
+        "at": at,
+        "project": project,
+        "sensitivity": sensitivity,
+    }
+    if memory_id is not None:
+        body["memory_id"] = memory_id
+    if expected_revision is not None:
+        body["expected_revision"] = expected_revision
+    return _post("/bhm/shared-memory/policy/evaluate", body)
+
+
 @mcp.tool(name="bhm_remember", description=f"Save a durable memory entry into BHM. {TAXONOMY_METADATA_HINT}")
 def bhm_remember(
     content: str,

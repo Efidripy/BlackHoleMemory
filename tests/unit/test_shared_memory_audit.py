@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from blackholememory import app as bhm_app
 from blackholememory.caller_auth import CallerPrincipal
 from blackholememory.governed_shared_memory import SharedMemoryRequest
 from blackholememory.governed_shared_memory import decide_shared_memory
@@ -68,3 +69,35 @@ def test_audit_event_is_content_free_deterministic_and_append_only(tmp_path) -> 
     assert event.memory_id_digest != request.memory_id
     assert "untrusted-client-request-id" not in str(first)
     assert "memory_private_id" not in str(first)
+
+
+def test_app_preflight_uses_authenticated_principal_and_never_enables_shared_io(monkeypatch) -> None:
+    principal = _principal()
+    captured: dict[str, object] = {}
+
+    def fake_append(_service, event):
+        captured["event"] = event
+        return event.to_artifact().to_record(), True
+
+    monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: object())
+    result = bhm_app._shared_memory_policy_preflight(
+        bhm_app.SharedMemoryPolicyPreflightRequest(
+            project="blackholememory",
+            request_id="untrusted-client-request-id",
+            operation="read",
+            visibility="project",
+            owner_id="agent_owner",
+            memory_id="memory_private_id",
+            at="2026-08-23T12:00:00Z",
+        ),
+        principal=principal,
+        auth_kind="caller_bearer",
+    )
+
+    assert result["mode"] == "policy-preflight-only"
+    assert result["shared_read_enabled"] is False
+    assert result["shared_write_enabled"] is False
+    assert result["decision"] == "deny"
+    assert result["audit"]["appended"] is True
+    assert "memory_private_id" not in str(captured["event"])
