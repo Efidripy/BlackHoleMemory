@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import threading
+
 import pytest
 
 from blackholememory.governed_shared_memory import SharedMemoryGrant
@@ -9,6 +12,7 @@ from blackholememory.shared_memory_grants import build_grant_artifact
 from blackholememory.shared_memory_grants import build_revocation_artifact
 from blackholememory.shared_memory_grants import grant_digest
 from blackholememory.shared_memory_grants import resolve_effective_grants
+from blackholememory.memory_service import SQLiteMemoryService
 
 
 def _grant(**overrides: object) -> SharedMemoryGrant:
@@ -40,3 +44,28 @@ def test_ledger_fails_closed_on_duplicate_or_mismatched_revision() -> None:
     invalid = SharedGrantRevocation(grant_id="g1", project="blackholememory", grant_digest="b" * 64, revoked_at="2026-08-23T12:01:00Z", revocation_receipt_digest="a" * 64)
     with pytest.raises(SharedMemoryPolicyError, match="does not match"):
         resolve_effective_grants([duplicate], [build_revocation_artifact(invalid).to_record()], project="blackholememory")
+
+
+def test_concurrent_conflicting_grant_appends_are_visible_and_fail_closed(tmp_path) -> None:
+    database = tmp_path / "memories.sqlite3"
+    SQLiteMemoryService(database, allow_create=True).repository.initialize()
+    artifacts = [
+        build_grant_artifact(_grant(owner_id="owner-a")),
+        build_grant_artifact(_grant(owner_id="owner-b")),
+    ]
+    barrier = threading.Barrier(2)
+
+    def append(artifact):
+        service = SQLiteMemoryService(database, allow_create=True)
+        barrier.wait(timeout=5)
+        return service.append_artifact(artifact)[1]
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        inserted = list(pool.map(append, artifacts))
+
+    assert inserted == [True, True]
+    records = SQLiteMemoryService(database, allow_create=True).list_artifact_records(
+        artifact_type="shared_memory_grant", project="blackholememory", limit=None,
+    )
+    with pytest.raises(SharedMemoryPolicyError, match="ambiguous"):
+        resolve_effective_grants(records, [], project="blackholememory")
