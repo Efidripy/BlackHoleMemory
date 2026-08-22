@@ -46,8 +46,24 @@ class DurableCheckpointActivation:
 
 
 def _value(name: str, environ: Mapping[str, str] | None) -> str:
-    source = os.environ if environ is None else environ
-    return str(source.get(name) or "").strip()
+    if environ is not None:
+        return str(environ.get(name) or "").strip()
+    direct = str(os.getenv(name) or "").strip()
+    if direct:
+        return direct
+    env_path = Path.home() / ".bhm" / ".env"
+    try:
+        rows = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for raw_line in rows:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        current_key, current_value = line.split("=", 1)
+        if current_key.strip() == name:
+            return current_value.split("#", 1)[0].strip()
+    return ""
 
 
 def _enabled(name: str, environ: Mapping[str, str] | None) -> bool:
