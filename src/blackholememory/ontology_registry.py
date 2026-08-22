@@ -182,6 +182,50 @@ class OntologyValidationResult(BaseModel):
     target_type: str | None = None
 
 
+class OntologyRelationWrite(BaseModel):
+    """Content-free intent envelope for a relation write before storage."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    project: str = Field(min_length=1, max_length=160)
+    schema_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    relation: str
+    source_id: str = Field(min_length=1, max_length=256)
+    source_type: str
+    target_id: str = Field(min_length=1, max_length=256)
+    target_type: str
+
+    @field_validator("project", mode="before")
+    @classmethod
+    def _project(cls, value: Any) -> str:
+        return _name(value, "relation_write.project")
+
+    @field_validator("relation", "source_type", "target_type", mode="before")
+    @classmethod
+    def _ontology_name(cls, value: Any, info: Any) -> str:
+        return _name(value, f"relation_write.{info.field_name}")
+
+
+class OntologyRelationAdmissionReceipt(BaseModel):
+    """Deterministic allow/quarantine receipt; it never performs a write."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: str = SCHEMA_VERSION
+    project: str
+    schema_digest: str
+    decision: Literal["allow", "quarantine"]
+    reason_code: str
+    relation: str
+    source_type: str | None = None
+    target_type: str | None = None
+    source_id_digest: str
+    target_id_digest: str
+    content_free: bool = True
+    sqlite_mutation: bool = False
+    qdrant_mutation: bool = False
+
+
 def validate_entity(schema: OntologySchema, entity_type: str) -> OntologyValidationResult:
     entity = schema.entity(entity_type)
     if entity is None or entity.deprecated:
@@ -227,6 +271,49 @@ def validate_relation(schema: OntologySchema, relation: str, source_type: str, t
         canonical_type=relation_spec.name if relation_spec else None,
         source_type=source.name if source else None,
         target_type=target.name if target else None,
+    )
+
+
+def admit_relation_write(
+    schema: OntologySchema,
+    relation_write: OntologyRelationWrite,
+) -> OntologyRelationAdmissionReceipt:
+    """Validate a relation intent for disposable adapters, not live storage.
+
+    The caller must bind the request to the exact schema revision.  Proposals
+    never become implicit write authority, and the receipt retains only hashed
+    endpoint identities so it can be safely logged before an eventual route is
+    explicitly activated.
+    """
+
+    source_id_digest = hashlib.sha256(relation_write.source_id.encode("utf-8")).hexdigest()
+    target_id_digest = hashlib.sha256(relation_write.target_id.encode("utf-8")).hexdigest()
+    schema_digest = schema.digest()
+    validation: OntologyValidationResult | None = None
+    if relation_write.project != schema.project:
+        reason_code = "ontology_project_mismatch"
+    elif relation_write.schema_digest != schema_digest:
+        reason_code = "ontology_schema_digest_mismatch"
+    elif schema.activation_status not in {"declared", "active"}:
+        reason_code = "ontology_schema_not_declared"
+    else:
+        validation = validate_relation(
+            schema,
+            relation_write.relation,
+            relation_write.source_type,
+            relation_write.target_type,
+        )
+        reason_code = validation.reason_code
+    return OntologyRelationAdmissionReceipt(
+        project=relation_write.project,
+        schema_digest=schema_digest,
+        decision="allow" if validation is not None and validation.ok else "quarantine",
+        reason_code=reason_code,
+        relation=relation_write.relation,
+        source_type=validation.source_type if validation is not None else None,
+        target_type=validation.target_type if validation is not None else None,
+        source_id_digest=source_id_digest,
+        target_id_digest=target_id_digest,
     )
 
 
@@ -276,11 +363,14 @@ __all__ = [
     "CARDINALITIES",
     "NAME_PATTERN",
     "OntologyEntityType",
+    "OntologyRelationAdmissionReceipt",
     "OntologyRegistryError",
     "OntologyRelationType",
+    "OntologyRelationWrite",
     "OntologySchema",
     "OntologyValidationResult",
     "SCHEMA_VERSION",
+    "admit_relation_write",
     "build_registry_artifact",
     "quarantine_unknown",
     "validate_entity",
