@@ -73,6 +73,14 @@ class BhmBatchUpsertItem(BaseModel):
     memory_type: str = "workflow"
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
+    observed_at: str | None = None
+    valid_from: str | None = None
+    valid_to: str | None = None
+    open_interval: bool | None = None
+    supersedes_revision_id: str | None = None
+    source_episode_id: str | None = None
+    source_uri: str | None = None
+    source_digest: str | None = None
     concepts: list[str] | None = None
     files: list[str] | None = None
     metadata: MemoryMetadata | None = None
@@ -321,6 +329,10 @@ def bhm_search(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     limit: int = 10,
@@ -337,6 +349,7 @@ def bhm_search(
         "offset": offset,
         "include_archived": include_archived,
         "include_logs": include_logs,
+        **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     if project:
         body["project"] = project
@@ -346,6 +359,12 @@ def bhm_search(
         body["memory_class"] = memory_class.value
     if event_role:
         body["event_role"] = event_role.value
+    if as_of:
+        body["as_of"] = as_of
+    if valid_from:
+        body["valid_from"] = valid_from
+    if valid_to:
+        body["valid_to"] = valid_to
     if concepts_csv is not None:
         body["concepts"] = _parse_csv(concepts_csv) or []
     if files_csv is not None:
@@ -366,6 +385,10 @@ def bhm_context_compile(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     profile: str | None = None,
@@ -381,6 +404,7 @@ def bhm_context_compile(
         "query": query,
         "include_archived": include_archived,
         "include_logs": include_logs,
+        **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     active_profile = profile or _read_native_env_value("BHM_CONTEXT_PROFILE")
     if active_profile:
@@ -397,6 +421,12 @@ def bhm_context_compile(
         body["memory_class"] = memory_class.value
     if event_role:
         body["event_role"] = event_role.value
+    if as_of:
+        body["as_of"] = as_of
+    if valid_from:
+        body["valid_from"] = valid_from
+    if valid_to:
+        body["valid_to"] = valid_to
     if concepts_csv is not None:
         body["concepts"] = _parse_csv(concepts_csv) or []
     if files_csv is not None:
@@ -418,6 +448,10 @@ def bhm_explain_retrieval(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     domain: str | None = None,
@@ -431,6 +465,7 @@ def bhm_explain_retrieval(
         "limit": limit,
         "include_archived": include_archived,
         "include_logs": include_logs,
+        **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     if project:
         body["project"] = project
@@ -440,6 +475,12 @@ def bhm_explain_retrieval(
         body["memory_class"] = memory_class.value
     if event_role:
         body["event_role"] = event_role.value
+    if as_of:
+        body["as_of"] = as_of
+    if valid_from:
+        body["valid_from"] = valid_from
+    if valid_to:
+        body["valid_to"] = valid_to
     if concepts_csv is not None:
         body["concepts"] = _parse_csv(concepts_csv) or []
     if files_csv is not None:
@@ -479,11 +520,17 @@ def bhm_list_memories(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool = False,
     limit: int = 20,
     offset: int = 0,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {"limit": limit, "offset": offset, "include_archived": include_archived}
+    if include_temporal_unknown:
+        params["include_temporal_unknown"] = True
     if project:
         params["project"] = project
     if memory_type:
@@ -492,6 +539,12 @@ def bhm_list_memories(
         params["memory_class"] = memory_class.value
     if event_role:
         params["event_role"] = event_role.value
+    if as_of:
+        params["as_of"] = as_of
+    if valid_from:
+        params["valid_from"] = valid_from
+    if valid_to:
+        params["valid_to"] = valid_to
     return _get("/bhm/memories", params)
 
 
@@ -502,6 +555,14 @@ def bhm_update_memory(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    observed_at: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    open_interval: bool | None = None,
+    supersedes_revision_id: str | None = None,
+    source_episode_id: str | None = None,
+    source_uri: str | None = None,
+    source_digest: str | None = None,
     content: str | None = None,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
@@ -516,6 +577,18 @@ def bhm_update_memory(
         body["memory_class"] = memory_class.value
     if event_role:
         body["event_role"] = event_role.value
+    for key, value in {
+        "observed_at": observed_at,
+        "valid_from": valid_from,
+        "valid_to": valid_to,
+        "open_interval": open_interval,
+        "supersedes_revision_id": supersedes_revision_id,
+        "source_episode_id": source_episode_id,
+        "source_uri": source_uri,
+        "source_digest": source_digest,
+    }.items():
+        if value is not None:
+            body[key] = value
     if content is not None:
         body["content"] = content
     if concepts_csv is not None:
@@ -594,6 +667,10 @@ def bhm_search_advanced(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     include_archived: bool = False,
@@ -608,6 +685,7 @@ def bhm_search_advanced(
         "query": query,
         "include_archived": include_archived,
         "include_logs": include_logs,
+        **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
         "limit": limit,
         "offset": offset,
     }
@@ -619,6 +697,12 @@ def bhm_search_advanced(
         body["memory_class"] = memory_class.value
     if event_role:
         body["event_role"] = event_role.value
+    if as_of:
+        body["as_of"] = as_of
+    if valid_from:
+        body["valid_from"] = valid_from
+    if valid_to:
+        body["valid_to"] = valid_to
     if concepts_csv is not None:
         body["concepts"] = _parse_csv(concepts_csv) or []
     if files_csv is not None:
@@ -638,12 +722,17 @@ def bhm_recent_activity(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool = False,
     limit: int = 10,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "include_archived": include_archived,
         "limit": limit,
+        **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     if project:
         body["project"] = project
@@ -653,6 +742,12 @@ def bhm_recent_activity(
         body["memory_class"] = memory_class.value
     if event_role:
         body["event_role"] = event_role.value
+    if as_of:
+        body["as_of"] = as_of
+    if valid_from:
+        body["valid_from"] = valid_from
+    if valid_to:
+        body["valid_to"] = valid_to
     return _post("/bhm/recent-activity", body)
 
 
@@ -664,6 +759,14 @@ def bhm_upsert_memory(
     memory_type: str = "workflow",
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    observed_at: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    open_interval: bool | None = None,
+    supersedes_revision_id: str | None = None,
+    source_episode_id: str | None = None,
+    source_uri: str | None = None,
+    source_digest: str | None = None,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
     metadata_json: str | None = None,
@@ -682,6 +785,18 @@ def bhm_upsert_memory(
         body["memory_class"] = memory_class.value
     if event_role:
         body["event_role"] = event_role.value
+    for key, value in {
+        "observed_at": observed_at,
+        "valid_from": valid_from,
+        "valid_to": valid_to,
+        "open_interval": open_interval,
+        "supersedes_revision_id": supersedes_revision_id,
+        "source_episode_id": source_episode_id,
+        "source_uri": source_uri,
+        "source_digest": source_digest,
+    }.items():
+        if value is not None:
+            body[key] = value
     return _post(
         "/bhm/memory/upsert",
         body,
@@ -1300,6 +1415,10 @@ def bhm_memory_timeline(
     memory_type: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     include_archived: bool = False,
     limit: int = 20,
 ) -> dict[str, Any]:
@@ -1311,6 +1430,10 @@ def bhm_memory_timeline(
             "memory_type": memory_type,
             "memory_class": memory_class.value if memory_class else None,
             "event_role": event_role.value if event_role else None,
+            "as_of": as_of,
+            "valid_from": valid_from,
+            "valid_to": valid_to,
+            **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
             "include_archived": include_archived,
             "limit": limit,
         },
@@ -1472,6 +1595,10 @@ def bhm_search_hybrid(
     project: str | None = None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    as_of: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    include_temporal_unknown: bool = False,
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
@@ -1484,6 +1611,7 @@ def bhm_search_hybrid(
         "include_archived": include_archived,
         "include_logs": include_logs,
         "limit": limit,
+        **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     if project:
         body["project"] = project
@@ -1491,6 +1619,12 @@ def bhm_search_hybrid(
         body["memory_class"] = memory_class.value
     if event_role:
         body["event_role"] = event_role.value
+    if as_of:
+        body["as_of"] = as_of
+    if valid_from:
+        body["valid_from"] = valid_from
+    if valid_to:
+        body["valid_to"] = valid_to
     if domain:
         body["domain"] = domain
     if semantic_type:
@@ -1835,6 +1969,14 @@ def bhm_remember(
     memory_type: str = "workflow",
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    observed_at: str | None = None,
+    valid_from: str | None = None,
+    valid_to: str | None = None,
+    open_interval: bool | None = None,
+    supersedes_revision_id: str | None = None,
+    source_episode_id: str | None = None,
+    source_uri: str | None = None,
+    source_digest: str | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     metadata: MemoryMetadata | None = None,
@@ -1848,6 +1990,18 @@ def bhm_remember(
         "concepts": concepts or [],
         "files": files or [],
     }
+    for key, value in {
+        "observed_at": observed_at,
+        "valid_from": valid_from,
+        "valid_to": valid_to,
+        "open_interval": open_interval,
+        "supersedes_revision_id": supersedes_revision_id,
+        "source_episode_id": source_episode_id,
+        "source_uri": source_uri,
+        "source_digest": source_digest,
+    }.items():
+        if value is not None:
+            body[key] = value
     if metadata is not None:
         body["metadata"] = _metadata_payload(metadata)
     return _post(

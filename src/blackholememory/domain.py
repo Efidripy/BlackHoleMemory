@@ -23,6 +23,9 @@ from .memory_contracts import MemoryEventRole
 from .memory_contracts import ProcedureContract
 from .memory_contracts import ProcedureExecutionTraceReceipt
 from .memory_contracts import SUPPORTED_EVENT_ROLE_VERSIONS
+from .temporal_contract import normalize_temporal_fields
+from .temporal_contract import normalize_temporal_timestamp
+from .temporal_contract import validate_temporal_interval
 
 
 class DomainModelError(ValueError):
@@ -254,6 +257,15 @@ class Memory(_DomainModel):
     memory_class_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     event_role: MemoryEventRole = MemoryEventRole.UNCLASSIFIED
     event_role_version: str = EVENT_ROLE_SCHEMA_VERSION
+    observed_at: str | None = None
+    observed_at_source: str = "legacy-unknown"
+    valid_from: str | None = None
+    valid_to: str | None = None
+    open_interval: bool = True
+    supersedes_revision_id: str | None = None
+    source_episode_id: str | None = None
+    source_uri: str | None = None
+    source_digest: str | None = None
     procedure_contract: ProcedureContract | None = None
     procedure_trace_receipt: ProcedureExecutionTraceReceipt | None = None
     lifecycle: Lifecycle = Lifecycle.ACTIVE
@@ -284,6 +296,35 @@ class Memory(_DomainModel):
     @classmethod
     def _normalize_timestamps(cls, value: Any, info: Any) -> str:
         return _timestamp(value, f"memory.{info.field_name}") or ""
+
+    @field_validator("observed_at", "valid_from", "valid_to", mode="before")
+    @classmethod
+    def _normalize_temporal_timestamps(cls, value: Any, info: Any) -> str | None:
+        try:
+            return normalize_temporal_timestamp(value, f"memory.{info.field_name}")
+        except ValueError as exc:
+            raise DomainModelError(str(exc)) from exc
+
+    @field_validator("observed_at_source", mode="before")
+    @classmethod
+    def _normalize_observed_source(cls, value: Any) -> str:
+        normalized = _text(value, "memory.observed_at_source", required=False)
+        return normalized or "legacy-unknown"
+
+    @field_validator("supersedes_revision_id", "source_episode_id", "source_uri", mode="before")
+    @classmethod
+    def _normalize_temporal_text(cls, value: Any, info: Any) -> str | None:
+        return _text(value, f"memory.{info.field_name}", required=False)
+
+    @field_validator("source_digest", mode="before")
+    @classmethod
+    def _normalize_source_digest(cls, value: Any) -> str | None:
+        normalized = _text(value, "memory.source_digest", required=False)
+        if normalized is not None and (
+            len(normalized) != 64 or any(ch not in "0123456789abcdefABCDEF" for ch in normalized)
+        ):
+            raise DomainModelError("memory.source_digest must be a SHA-256 hex digest")
+        return normalized.lower() if normalized else None
 
     @field_validator("tags", "files", "session_refs", mode="before")
     @classmethod
@@ -317,6 +358,16 @@ class Memory(_DomainModel):
                 raise DomainModelError("procedure_trace_receipt requires event_role=trace")
             if self.procedure_trace_receipt.project != self.project:
                 raise DomainModelError("procedure_trace_receipt project must match memory.project")
+        try:
+            _start, _end, _open = validate_temporal_interval(
+                self.valid_from,
+                self.valid_to,
+                self.open_interval,
+            )
+        except ValueError as exc:
+            raise DomainModelError(str(exc)) from exc
+        if self.observed_at is None and self.observed_at_source != "legacy-unknown":
+            raise DomainModelError("observed_at_source requires observed_at")
         return self
 
     @classmethod
@@ -346,6 +397,7 @@ class Memory(_DomainModel):
         event_role_version = raw.get("event_role_version")
         if event_role_version is None:
             event_role_version = metadata.get("event_role_version", EVENT_ROLE_SCHEMA_VERSION)
+        temporal = normalize_temporal_fields(raw)
         procedure_contract = raw.get("procedure_contract")
         if procedure_contract is None:
             procedure_contract = metadata.get("procedure_contract")
@@ -399,6 +451,15 @@ class Memory(_DomainModel):
             "memory_class_confidence",
             "event_role",
             "event_role_version",
+            "observed_at",
+            "observed_at_source",
+            "valid_from",
+            "valid_to",
+            "open_interval",
+            "supersedes_revision_id",
+            "source_episode_id",
+            "source_uri",
+            "source_digest",
             "procedure_contract",
             "procedure_trace_receipt",
             "type",
@@ -429,6 +490,15 @@ class Memory(_DomainModel):
             memory_class_confidence=memory_class_confidence,
             event_role=event_role,
             event_role_version=event_role_version,
+            observed_at=temporal["observed_at"],
+            observed_at_source=temporal["observed_at_source"],
+            valid_from=temporal["valid_from"],
+            valid_to=temporal["valid_to"],
+            open_interval=temporal["open_interval"],
+            supersedes_revision_id=temporal["supersedes_revision_id"],
+            source_episode_id=temporal["source_episode_id"],
+            source_uri=temporal["source_uri"],
+            source_digest=temporal["source_digest"],
             procedure_contract=procedure_contract,
             procedure_trace_receipt=procedure_trace_receipt,
             lifecycle=_lifecycle(raw, metadata),
@@ -475,6 +545,15 @@ class Memory(_DomainModel):
             "memory_class_confidence": self.memory_class_confidence,
             "event_role": self.event_role.value,
             "event_role_version": self.event_role_version,
+            "observed_at": self.observed_at,
+            "observed_at_source": self.observed_at_source,
+            "valid_from": self.valid_from,
+            "valid_to": self.valid_to,
+            "open_interval": self.open_interval,
+            "supersedes_revision_id": self.supersedes_revision_id,
+            "source_episode_id": self.source_episode_id,
+            "source_uri": self.source_uri,
+            "source_digest": self.source_digest,
             "procedure_contract": (
                 self.procedure_contract.model_dump(mode="json")
                 if self.procedure_contract is not None
@@ -536,6 +615,15 @@ class Memory(_DomainModel):
                 "memory_class_confidence": self.memory_class_confidence,
                 "event_role": self.event_role.value,
                 "event_role_version": self.event_role_version,
+                "observed_at": self.observed_at,
+                "observed_at_source": self.observed_at_source,
+                "valid_from": self.valid_from,
+                "valid_to": self.valid_to,
+                "open_interval": self.open_interval,
+                "supersedes_revision_id": self.supersedes_revision_id,
+                "source_episode_id": self.source_episode_id,
+                "source_uri": self.source_uri,
+                "source_digest": self.source_digest,
                 "content": self.current_revision.content,
                 "summary": self.summary,
                 "tags": list(self.tags),

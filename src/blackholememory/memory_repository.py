@@ -34,6 +34,7 @@ from .outbox import OutboxEvent
 from .outbox import OutboxLeaseLost
 from .outbox import OutboxStatus
 from .outbox import utc_now_iso
+from .temporal_contract import normalize_temporal_timestamp
 
 
 MEMORY_STORE_SCHEMA_VERSION = 1
@@ -138,6 +139,10 @@ class MemoryRepository(Protocol):
         project: str | None = None,
         memory_class: str | None = None,
         event_role: str | None = None,
+        as_of: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        include_temporal_unknown: bool = False,
         include_archived: bool = False,
         include_tombstoned: bool = False,
         limit: int = 100,
@@ -150,6 +155,10 @@ class MemoryRepository(Protocol):
         project: str | None = None,
         memory_class: str | None = None,
         event_role: str | None = None,
+        as_of: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        include_temporal_unknown: bool = False,
         include_archived: bool = False,
         include_tombstoned: bool = False,
     ) -> int: ...
@@ -702,6 +711,27 @@ class SQLiteMemoryRepository:
             if "event_role_version" in row.keys()
             else metadata.get("event_role_version", "1")
         )
+        temporal_values = {
+            "observed_at": row["observed_at"] if "observed_at" in row.keys() else metadata.get("observed_at"),
+            "observed_at_source": (
+                row["observed_at_source"] if "observed_at_source" in row.keys() else metadata.get("observed_at_source")
+            ) or "legacy-unknown",
+            "valid_from": row["valid_from"] if "valid_from" in row.keys() else metadata.get("valid_from"),
+            "valid_to": row["valid_to"] if "valid_to" in row.keys() else metadata.get("valid_to"),
+            "open_interval": (
+                bool(row["open_interval"]) if "open_interval" in row.keys() else metadata.get("open_interval", True)
+            ),
+            "supersedes_revision_id": (
+                row["supersedes_revision_id"]
+                if "supersedes_revision_id" in row.keys()
+                else metadata.get("supersedes_revision_id")
+            ),
+            "source_episode_id": (
+                row["source_episode_id"] if "source_episode_id" in row.keys() else metadata.get("source_episode_id")
+            ),
+            "source_uri": row["source_uri"] if "source_uri" in row.keys() else metadata.get("source_uri"),
+            "source_digest": row["source_digest"] if "source_digest" in row.keys() else metadata.get("source_digest"),
+        }
         procedure_contract = metadata.get("procedure_contract")
         procedure_trace_receipt = metadata.get("procedure_trace_receipt")
         return Memory.from_dict(
@@ -714,6 +744,7 @@ class SQLiteMemoryRepository:
                 "memory_class_confidence": memory_class_confidence,
                 "event_role": event_role,
                 "event_role_version": event_role_version,
+                **temporal_values,
                 "procedure_contract": procedure_contract,
                 "procedure_trace_receipt": procedure_trace_receipt,
                 "lifecycle": row["lifecycle"],
@@ -832,6 +863,17 @@ class SQLiteMemoryRepository:
             "memory_class_confidence",
         }.issubset(memory_columns)
         has_event_role_columns = {"event_role", "event_role_version"}.issubset(memory_columns)
+        has_temporal_columns = {
+            "observed_at",
+            "observed_at_source",
+            "valid_from",
+            "valid_to",
+            "open_interval",
+            "supersedes_revision_id",
+            "source_episode_id",
+            "source_uri",
+            "source_digest",
+        }.issubset(memory_columns)
         column_values: list[tuple[str, Any]] = [
             ("memory_id", memory.id),
             ("project", memory.project),
@@ -850,6 +892,20 @@ class SQLiteMemoryRepository:
                 [
                     ("event_role", memory.event_role.value),
                     ("event_role_version", memory.event_role_version),
+                ]
+            )
+        if has_temporal_columns:
+            column_values.extend(
+                [
+                    ("observed_at", memory.observed_at),
+                    ("observed_at_source", memory.observed_at_source),
+                    ("valid_from", memory.valid_from),
+                    ("valid_to", memory.valid_to),
+                    ("open_interval", int(memory.open_interval)),
+                    ("supersedes_revision_id", memory.supersedes_revision_id),
+                    ("source_episode_id", memory.source_episode_id),
+                    ("source_uri", memory.source_uri),
+                    ("source_digest", memory.source_digest),
                 ]
             )
         column_values.extend(
@@ -1189,6 +1245,10 @@ class SQLiteMemoryRepository:
         project: str | None = None,
         memory_class: str | None = None,
         event_role: str | None = None,
+        as_of: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        include_temporal_unknown: bool = False,
         include_archived: bool = False,
         include_tombstoned: bool = False,
         limit: int = 100,
@@ -1223,6 +1283,33 @@ class SQLiteMemoryRepository:
                 )
                 clauses.append(f"{expression} = ?")
                 parameters.append(event_role)
+            temporal_requested = any(value is not None for value in (as_of, valid_from, valid_to))
+            if temporal_requested:
+                observed_expression = "m.observed_at" if "observed_at" in memory_columns else "json_extract(m.metadata_json, '$.observed_at')"
+                valid_from_expression = "m.valid_from" if "valid_from" in memory_columns else "json_extract(m.metadata_json, '$.valid_from')"
+                valid_to_expression = "m.valid_to" if "valid_to" in memory_columns else "json_extract(m.metadata_json, '$.valid_to')"
+                if as_of is not None:
+                    normalized_as_of = normalize_temporal_timestamp(as_of, "as_of", allow_none=False)
+                    if include_temporal_unknown:
+                        clauses.append(f"({observed_expression} IS NULL OR {observed_expression} <= ?)")
+                    else:
+                        clauses.append(f"{observed_expression} IS NOT NULL AND {observed_expression} <= ?")
+                    parameters.append(normalized_as_of)
+                    clauses.append(f"({valid_from_expression} IS NULL OR {valid_from_expression} <= ?)")
+                    parameters.append(normalized_as_of)
+                    clauses.append(f"({valid_to_expression} IS NULL OR {valid_to_expression} > ?)")
+                    parameters.append(normalized_as_of)
+                if valid_from is not None or valid_to is not None:
+                    normalized_from = normalize_temporal_timestamp(valid_from, "query_valid_from")
+                    normalized_to = normalize_temporal_timestamp(valid_to, "query_valid_to")
+                    if normalized_from is not None and normalized_to is not None and normalized_from >= normalized_to:
+                        raise ValueError("query_valid_from must be earlier than query_valid_to")
+                    if normalized_to is not None:
+                        clauses.append(f"({valid_from_expression} IS NULL OR {valid_from_expression} < ?)")
+                        parameters.append(normalized_to)
+                    if normalized_from is not None:
+                        clauses.append(f"({valid_to_expression} IS NULL OR {valid_to_expression} > ?)")
+                        parameters.append(normalized_from)
             if not include_archived:
                 clauses.append("m.lifecycle = 'active'")
             elif not include_tombstoned:
@@ -1243,6 +1330,10 @@ class SQLiteMemoryRepository:
         project: str | None = None,
         memory_class: str | None = None,
         event_role: str | None = None,
+        as_of: str | None = None,
+        valid_from: str | None = None,
+        valid_to: str | None = None,
+        include_temporal_unknown: bool = False,
         include_archived: bool = False,
         include_tombstoned: bool = False,
     ) -> int:
@@ -1274,6 +1365,33 @@ class SQLiteMemoryRepository:
                 )
                 clauses.append(f"{expression} = ?")
                 parameters.append(event_role)
+            temporal_requested = any(value is not None for value in (as_of, valid_from, valid_to))
+            if temporal_requested:
+                observed_expression = "observed_at" if "observed_at" in memory_columns else "json_extract(metadata_json, '$.observed_at')"
+                valid_from_expression = "valid_from" if "valid_from" in memory_columns else "json_extract(metadata_json, '$.valid_from')"
+                valid_to_expression = "valid_to" if "valid_to" in memory_columns else "json_extract(metadata_json, '$.valid_to')"
+                if as_of is not None:
+                    normalized_as_of = normalize_temporal_timestamp(as_of, "as_of", allow_none=False)
+                    if include_temporal_unknown:
+                        clauses.append(f"({observed_expression} IS NULL OR {observed_expression} <= ?)")
+                    else:
+                        clauses.append(f"{observed_expression} IS NOT NULL AND {observed_expression} <= ?")
+                    parameters.append(normalized_as_of)
+                    clauses.append(f"({valid_from_expression} IS NULL OR {valid_from_expression} <= ?)")
+                    parameters.append(normalized_as_of)
+                    clauses.append(f"({valid_to_expression} IS NULL OR {valid_to_expression} > ?)")
+                    parameters.append(normalized_as_of)
+                if valid_from is not None or valid_to is not None:
+                    normalized_from = normalize_temporal_timestamp(valid_from, "query_valid_from")
+                    normalized_to = normalize_temporal_timestamp(valid_to, "query_valid_to")
+                    if normalized_from is not None and normalized_to is not None and normalized_from >= normalized_to:
+                        raise ValueError("query_valid_from must be earlier than query_valid_to")
+                    if normalized_to is not None:
+                        clauses.append(f"({valid_from_expression} IS NULL OR {valid_from_expression} < ?)")
+                        parameters.append(normalized_to)
+                    if normalized_from is not None:
+                        clauses.append(f"({valid_to_expression} IS NULL OR {valid_to_expression} > ?)")
+                        parameters.append(normalized_from)
             if not include_archived:
                 clauses.append("lifecycle = 'active'")
             elif not include_tombstoned:
