@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from blackholememory.memory_doctor import MemoryDoctorSnapshotError
+from blackholememory.memory_doctor import build_memory_doctor_repair_proposal
 from blackholememory.memory_doctor import load_authoritative_sqlite_snapshot
 from blackholememory.memory_doctor import load_qdrant_projection_snapshot
 from blackholememory.memory_doctor import run_authoritative_sqlite_memory_doctor
@@ -190,3 +191,39 @@ def test_qdrant_parity_reports_missing_and_mismatched_projection_identity(tmp_pa
     assert report["authority_snapshot"]["authority"] == "sqlite-authoritative"
     assert report["projection_snapshot"]["authority"] == "qdrant-rebuildable-projection"
     assert report["execution"]["qdrant_mutation"] is False
+
+
+def test_doctor_repair_proposals_are_bounded_deterministic_and_non_executable() -> None:
+    report = run_memory_doctor(
+        (
+            {"source_id": "m1", "project": "p", "content": "private", "authority_seq": 2, "projection_seq": 1},
+            {"source_id": "m2", "project": "p", "content": "private"},
+            {"source_id": "m3", "project": "p", "content": "other", "supersedes_revision_id": "r1"},
+        )
+    )
+
+    proposal = build_memory_doctor_repair_proposal(
+        report, authority_snapshot_digest="a" * 64
+    )
+
+    assert proposal == build_memory_doctor_repair_proposal(
+        report, authority_snapshot_digest="a" * 64
+    )
+    assert {item["repair_kind"] for item in proposal["proposals"]} >= {
+        "duplicate_merge_review",
+        "projection_rebuild_review",
+        "supersession_review",
+    }
+    assert all(item["apply_performed"] is False for item in proposal["proposals"])
+    assert proposal["execution"]["auto_apply"] is False
+    assert proposal["execution"]["sqlite_mutation"] is False
+    assert "private" not in str(proposal)
+
+
+def test_doctor_repair_proposals_fail_closed_for_unbound_or_malformed_reports() -> None:
+    with pytest.raises(MemoryDoctorSnapshotError, match="report_digest"):
+        build_memory_doctor_repair_proposal({"findings": []})
+    with pytest.raises(MemoryDoctorSnapshotError, match="finding"):
+        build_memory_doctor_repair_proposal(
+            {"report_digest": "a" * 64, "findings": ["not-an-object"]}
+        )

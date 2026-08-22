@@ -17,8 +17,10 @@ SCHEMA_VERSION = "bhm.memory-doctor.v1"
 SQLITE_SNAPSHOT_SCHEMA_VERSION = "bhm.memory-doctor.sqlite-snapshot.v1"
 QDRANT_SNAPSHOT_SCHEMA_VERSION = "bhm.memory-doctor.qdrant-snapshot.v1"
 PROJECTION_PARITY_SCHEMA_VERSION = "bhm.memory-doctor.projection-parity.v1"
+REPAIR_PROPOSAL_SCHEMA_VERSION = "bhm.memory-doctor.repair-proposal.v1"
 _MAX_SNAPSHOT_RECORDS = 10_000
 _DEFAULT_QDRANT_PAGE_SIZE = 256
+_MAX_REPAIR_PROPOSALS = 256
 _SAFE_PROJECTION_FIELDS = (
     "source_id",
     "project",
@@ -446,6 +448,133 @@ def run_authoritative_projection_memory_doctor(
     return report
 
 
+def _required_digest(value: str | None, field_name: str) -> str:
+    digest = str(value or "").strip().casefold()
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        raise MemoryDoctorSnapshotError(f"{field_name} must be a SHA-256 digest")
+    return digest
+
+
+def _repair_kind(reason_code: str) -> str:
+    if reason_code == "exact_active_duplicate":
+        return "duplicate_merge_review"
+    if reason_code in {
+        "projection_stale",
+        "projection_watermark_lag",
+        "projection_identity_incomplete",
+        "projection_source_missing_in_authority_snapshot",
+        "projection_project_mismatch",
+        "projection_lifecycle_mismatch",
+        "projection_revision_mismatch",
+        "projection_content_digest_mismatch",
+    }:
+        return "projection_rebuild_review"
+    if reason_code == "supersession_lineage_incomplete":
+        return "supersession_review"
+    if reason_code in {"memory_identity_missing", "memory_id_duplicate"}:
+        return "identity_review"
+    return "manual_review"
+
+
+def _repair_references(finding: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep only already-redacted identifiers needed for a later typed review."""
+
+    references: dict[str, Any] = {}
+    for field in ("memory_id", "source_id", "collection", "point_id", "project"):
+        value = str(finding.get(field) or "").strip()
+        if value:
+            references[field] = value
+    memory_ids = finding.get("memory_ids")
+    if isinstance(memory_ids, (list, tuple)):
+        references["memory_ids"] = tuple(sorted({str(item).strip() for item in memory_ids if str(item).strip()}))
+    return references
+
+
+def build_memory_doctor_repair_proposal(
+    report: Mapping[str, Any],
+    *,
+    authority_snapshot_digest: str | None = None,
+) -> dict[str, Any]:
+    """Convert redacted findings into deterministic, non-executable proposals.
+
+    This function deliberately has no storage, Qdrant, Mem0, or process
+    dependency.  The output is an operator review worklist, never an apply
+    plan: every future mutation must re-check the same authoritative snapshot,
+    create a verified backup and pass its own typed dry-run boundary.
+    """
+
+    report_digest = _required_digest(str(report.get("report_digest") or ""), "report_digest")
+    snapshot_digest = (
+        _required_digest(authority_snapshot_digest, "authority_snapshot_digest")
+        if authority_snapshot_digest is not None
+        else None
+    )
+    raw_findings = report.get("findings")
+    if not isinstance(raw_findings, (list, tuple)):
+        raise MemoryDoctorSnapshotError("doctor report findings must be an array")
+    proposals: list[dict[str, Any]] = []
+    for finding in raw_findings:
+        if not isinstance(finding, Mapping):
+            raise MemoryDoctorSnapshotError("doctor report finding must be an object")
+        reason_code = str(finding.get("reason_code") or "").strip()
+        severity = str(finding.get("severity") or "").strip()
+        if not reason_code or not severity:
+            raise MemoryDoctorSnapshotError("doctor report finding requires severity and reason_code")
+        references = _repair_references(finding)
+        canonical = {
+            "report_digest": report_digest,
+            "authority_snapshot_digest": snapshot_digest,
+            "reason_code": reason_code,
+            "severity": severity,
+            "repair_kind": _repair_kind(reason_code),
+            "references": references,
+        }
+        proposals.append(
+            {
+                "proposal_id": _digest(canonical),
+                **canonical,
+                "status": "operator_review_required",
+                "required_gates": (
+                    "same_snapshot_recheck",
+                    "hash_verified_backup",
+                    "typed_dry_run",
+                    "explicit_operator_approval",
+                    "post_apply_parity_smoke",
+                ),
+                "apply_performed": False,
+            }
+        )
+    ordered = sorted(
+        proposals,
+        key=lambda item: (
+            item["repair_kind"],
+            item["reason_code"],
+            _digest(item["references"]),
+            item["proposal_id"],
+        ),
+    )
+    bounded = ordered[:_MAX_REPAIR_PROPOSALS]
+    result = {
+        "schema_version": REPAIR_PROPOSAL_SCHEMA_VERSION,
+        "source_report_digest": report_digest,
+        "authority_snapshot_digest": snapshot_digest,
+        "proposal_count": len(bounded),
+        "omitted_count": len(ordered) - len(bounded),
+        "proposals": bounded,
+        "execution": {
+            "read_only": True,
+            "sqlite_mutation": False,
+            "qdrant_mutation": False,
+            "mem0_mutation": False,
+            "backup_created": False,
+            "repair_apply": False,
+            "auto_apply": False,
+        },
+    }
+    result["proposal_digest"] = _digest(result)
+    return result
+
+
 def run_memory_doctor(records: tuple[Mapping[str, Any], ...], *, projection_watermark: int | None = None) -> dict[str, Any]:
     """Return a redacted report. It never returns raw memory content or mutates."""
 
@@ -480,10 +609,12 @@ __all__ = [
     "MemoryDoctorSnapshotError",
     "PROJECTION_PARITY_SCHEMA_VERSION",
     "QDRANT_SNAPSHOT_SCHEMA_VERSION",
+    "REPAIR_PROPOSAL_SCHEMA_VERSION",
     "SCHEMA_VERSION",
     "SQLITE_SNAPSHOT_SCHEMA_VERSION",
     "load_authoritative_sqlite_snapshot",
     "load_qdrant_projection_snapshot",
+    "build_memory_doctor_repair_proposal",
     "run_authoritative_projection_memory_doctor",
     "run_authoritative_sqlite_memory_doctor",
     "run_memory_doctor",
