@@ -70,6 +70,24 @@ def test_activation_constructs_authoritative_saver_only_after_all_gates(tmp_path
     assert saver.database_path.exists()
 
 
+def test_activation_reads_the_canonical_local_env_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env_dir = tmp_path / ".bhm"
+    env_dir.mkdir()
+    (env_dir / ".env").write_text(
+        "\n".join(f"{key}={value}" for key, value in _enabled_env().items()) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("blackholememory.langgraph_activation.Path.home", lambda: tmp_path)
+
+    activation = resolve_durable_checkpoint_activation(runtime_dir=tmp_path)
+
+    assert activation.enabled is True
+    assert activation.caller_id == "local-operator"
+
+
 def test_saver_construction_rejects_a_disabled_activation(tmp_path: Path) -> None:
     activation = resolve_durable_checkpoint_activation(runtime_dir=tmp_path, environ={})
 
