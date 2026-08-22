@@ -47,7 +47,12 @@ def _v2_database(tmp_path: Path) -> tuple[Path, Path]:
     return database, backup_v2
 
 
-def _seeded_v2_database(tmp_path: Path, *, invalid_typed_metadata: bool = False) -> tuple[Path, Path]:
+def _seeded_v2_database(
+    tmp_path: Path,
+    *,
+    invalid_typed_metadata: bool = False,
+    null_typed_confidence: bool = False,
+) -> tuple[Path, Path]:
     database = tmp_path / "memory.sqlite3"
     repository = SQLiteMemoryRepository(database)
     repository.initialize()
@@ -64,7 +69,7 @@ def _seeded_v2_database(tmp_path: Path, *, invalid_typed_metadata: bool = False)
                 "metadata": {
                     "memory_class": "semantic",
                     "memory_class_source": "review-confirmed",
-                    "memory_class_confidence": 0.95,
+                    "memory_class_confidence": None if null_typed_confidence else 0.95,
                     "event_role": "fact",
                     "event_role_version": "1",
                     "semantic_type": "knowledge",
@@ -319,3 +324,24 @@ def test_invalid_seeded_metadata_fails_closed_and_rolls_back_schema(tmp_path: Pa
     assert MEMORY_CLASS_INDEX not in indexes
     assert marker is None
     assert typed_memory_capability_available(database) is False
+
+
+def test_null_legacy_typed_confidence_stays_unknown_without_blocking_migration(tmp_path: Path) -> None:
+    database, backup = _seeded_v2_database(tmp_path, null_typed_confidence=True)
+    plan = build_migration_plan(database, backup)
+
+    result = apply_migration(
+        database,
+        backup,
+        plan,
+        expected_plan_digest=plan["plan_digest"],
+        confirm_operator=True,
+        offline_verified=True,
+    )
+
+    assert result["post_commit_confirmation"]["ok"] is True
+    with sqlite3.connect(database) as connection:
+        value = connection.execute(
+            "SELECT memory_class_confidence FROM memories WHERE memory_id = 'mem_bhm_seed_typed'"
+        ).fetchone()[0]
+    assert value is None
