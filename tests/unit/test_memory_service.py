@@ -231,6 +231,29 @@ def test_service_artifact_roundtrip_is_project_scoped_and_paged(tmp_path):
     }]
 
 
+def test_service_append_artifact_is_idempotent_but_rejects_a_different_collision(tmp_path):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    artifact = Artifact(
+        id="audit-event",
+        artifact_type="shared_memory_policy_audit",
+        project="blackholememory",
+        created_at="2026-08-23T12:00:00Z",
+        updated_at="2026-08-23T12:00:00Z",
+        payload={"decision": "deny"},
+    )
+
+    first, first_inserted = service.append_artifact(artifact)
+    second, second_inserted = service.append_artifact(artifact)
+
+    assert first_inserted is True
+    assert second_inserted is False
+    assert first == second
+    with pytest.raises(Exception, match="immutable artifact id collision"):
+        service.append_artifact(
+            artifact.model_copy(update={"payload": {"decision": "allow"}})
+        )
+
+
 def test_service_bulk_upsert_rolls_back_on_second_outbox_failure(tmp_path, monkeypatch):
     service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
     original_append = service.repository._append_memory_event

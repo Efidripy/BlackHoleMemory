@@ -300,6 +300,13 @@ class SQLiteMemoryService:
         self._ensure_ready(verify_integrity=False)
         return self.repository.save_artifact(artifact).to_record()
 
+    def append_artifact(self, artifact: Artifact) -> tuple[dict[str, Any], bool]:
+        """Append an immutable SQLite artifact with replay-safe identity."""
+
+        self._ensure_ready(verify_integrity=False)
+        stored, inserted = self.repository.append_artifact(artifact)
+        return stored.to_record(), inserted
+
     def list_artifact_records(
         self,
         *,

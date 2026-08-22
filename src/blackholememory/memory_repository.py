@@ -167,6 +167,8 @@ class MemoryRepository(Protocol):
 
     def save_artifact(self, artifact: Artifact) -> Artifact: ...
 
+    def append_artifact(self, artifact: Artifact) -> tuple[Artifact, bool]: ...
+
     def list_artifacts(
         self,
         *,
@@ -1447,6 +1449,57 @@ class SQLiteMemoryRepository:
                 ),
             )
         return artifact
+
+    def append_artifact(self, artifact: Artifact) -> tuple[Artifact, bool]:
+        """Append one immutable artifact, rejecting an id collision.
+
+        ``save_artifact`` remains the explicit upsert primitive for mutable
+        operator pointers. Audit receipts instead need replay idempotency
+        without turning a retry into an overwrite, so their identity is
+        inserted exactly once in the same SQLite transaction.
+        """
+
+        with self._write_transaction() as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO memory_artifacts(
+                    artifact_type, artifact_id, project, memory_id, lifecycle,
+                    created_at, updated_at, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(artifact_type, artifact_id) DO NOTHING
+                """,
+                (
+                    artifact.artifact_type,
+                    artifact.id,
+                    artifact.project,
+                    artifact.memory_id,
+                    artifact.lifecycle.value,
+                    artifact.created_at,
+                    artifact.updated_at,
+                    _json_dumps(artifact.payload, "artifact.payload"),
+                ),
+            )
+            if cursor.rowcount == 1:
+                return artifact, True
+            row = connection.execute(
+                "SELECT * FROM memory_artifacts WHERE artifact_type = ? AND artifact_id = ?",
+                (artifact.artifact_type, artifact.id),
+            ).fetchone()
+            if row is None:
+                raise MemoryRepositoryIntegrityError("artifact append collision could not be read")
+            existing = Artifact(
+                id=str(row["artifact_id"]),
+                artifact_type=str(row["artifact_type"]),
+                project=str(row["project"]),
+                memory_id=row["memory_id"],
+                lifecycle=Lifecycle(str(row["lifecycle"])),
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                payload=_json_loads(str(row["payload_json"]), "artifact.payload"),
+            )
+            if existing != artifact:
+                raise MemoryRepositoryIntegrityError("immutable artifact id collision")
+            return existing, False
 
     def list_artifacts(
         self,
