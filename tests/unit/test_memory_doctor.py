@@ -33,6 +33,20 @@ def test_doctor_exposes_invalid_identity_without_failing_open() -> None:
     assert report["findings"][0]["reason_code"] == "memory_identity_missing"
 
 
+def test_doctor_checks_explicit_ontology_and_shared_governance_annotations_without_leaking_owner() -> None:
+    report = run_memory_doctor(
+        (
+            {"memory_id": "m1", "project": "p", "content": "hidden", "metadata": {"ontology_schema_digest": "a" * 64, "shared_visibility": "project", "owner_id": "private-owner", "sensitivity": "restricted"}},
+            {"memory_id": "m2", "project": "p", "content": "hidden", "metadata": {"ontology_schema_digest": "not-a-digest", "shared_visibility": "invalid", "sensitivity": "secret"}},
+        ),
+        expected_ontology_digests={"p": "b" * 64},
+    )
+
+    codes = {item["reason_code"] for item in report["findings"]}
+    assert {"ontology_schema_digest_mismatch", "ontology_schema_digest_invalid", "shared_visibility_invalid", "shared_sensitivity_invalid"} <= codes
+    assert "private-owner" not in str(report)
+
+
 def _authoritative_fixture(path) -> None:
     with sqlite3.connect(path) as connection:
         connection.executescript(
