@@ -53,3 +53,31 @@ def test_body_backed_delete_tools_use_json_contract(monkeypatch) -> None:
         ("/bhm/memory", {"id": "memory", "project": "jmaka"}),
         ("/bhm/memory/hard", {"id": "memory-hard", "project": "jmaka"}),
     ]
+
+
+def test_link_tool_forwards_only_a_digest_pinned_ontology_contract(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_post(path: str, body: dict) -> dict:
+        observed.update({"path": path, "body": body})
+        return {"ok": True}
+
+    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+
+    assert bhm_mcp.bhm_link_memories(
+        "source",
+        "target",
+        "relates_to",
+        "blackholememory",
+        ontology_schema_digest="a" * 64,
+    ) == {"ok": True}
+    assert observed == {
+        "path": "/bhm/memory/link",
+        "body": {
+            "source_id": "source",
+            "target_id": "target",
+            "relation": "relates_to",
+            "project": "blackholememory",
+            "ontology_schema_digest": "a" * 64,
+        },
+    }

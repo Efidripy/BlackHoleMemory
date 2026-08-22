@@ -20,6 +20,7 @@ from .domain import Artifact
 
 SCHEMA_VERSION = "bhm.ontology-registry.v1"
 ARTIFACT_TYPE = "ontology_registry"
+ACTIVATION_ARTIFACT_TYPE = "ontology_registry_activation"
 NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_.:-]{0,79}$")
 ACTIVATION_STATES = frozenset({"declared", "proposal", "active", "deprecated"})
 CARDINALITIES = frozenset({"one", "many"})
@@ -341,6 +342,70 @@ def build_registry_artifact(schema: OntologySchema) -> Artifact:
     )
 
 
+def build_activation_artifact(
+    schema: OntologySchema,
+    *,
+    enabled: bool,
+    updated_at: str,
+) -> Artifact:
+    """Build an explicit, reversible pointer to one declared schema revision.
+
+    Schema documents stay immutable/versioned.  Flipping the activation marker
+    is therefore a bounded rollback operation rather than a mutation of the
+    declared contract itself.
+    """
+
+    schema_artifact = build_registry_artifact(schema)
+    return Artifact(
+        id=f"ontology_activation_{schema.project}",
+        artifact_type=ACTIVATION_ARTIFACT_TYPE,
+        project=schema.project,
+        created_at=updated_at,
+        updated_at=updated_at,
+        payload={
+            "schema_version": SCHEMA_VERSION,
+            "project": schema.project,
+            "enabled": bool(enabled),
+            "registry_artifact_id": schema_artifact.id,
+            "schema_digest": schema.digest(),
+            "authority": "sqlite-authoritative",
+            "activation_requires_explicit_operator_action": True,
+        },
+    )
+
+
+def resolve_active_schema(
+    *,
+    project: str,
+    registry_records: list[Mapping[str, Any]],
+    activation_record: Mapping[str, Any] | None,
+) -> OntologySchema | None:
+    """Resolve one active declared schema or fail closed on an invalid marker."""
+
+    if activation_record is None:
+        return None
+    if str(activation_record.get("project") or "") != project:
+        raise OntologyRegistryError("ontology activation project mismatch")
+    if not bool(activation_record.get("enabled")):
+        return None
+    marker_id = str(activation_record.get("registry_artifact_id") or "")
+    marker_digest = str(activation_record.get("schema_digest") or "")
+    if not marker_id or not re.fullmatch(r"[0-9a-f]{64}", marker_digest):
+        raise OntologyRegistryError("ontology activation marker is invalid")
+    matches = [record for record in registry_records if str(record.get("id") or "") == marker_id]
+    if len(matches) != 1:
+        raise OntologyRegistryError("ontology activation registry artifact is unresolved")
+    payload = matches[0].get("schema")
+    if not isinstance(payload, Mapping):
+        raise OntologyRegistryError("ontology registry artifact schema is invalid")
+    schema = OntologySchema.model_validate(payload)
+    if schema.project != project or schema.digest() != marker_digest:
+        raise OntologyRegistryError("ontology activation schema digest mismatch")
+    if schema.activation_status not in {"declared", "active"}:
+        raise OntologyRegistryError("ontology activation schema is not declared")
+    return schema
+
+
 def quarantine_unknown(schema: OntologySchema, *, kind: Literal["entity", "relation"], value: str, reason_code: str) -> dict[str, Any]:
     """Return bounded quarantine metadata without silently expanding the schema."""
 
@@ -358,6 +423,7 @@ def quarantine_unknown(schema: OntologySchema, *, kind: Literal["entity", "relat
 
 
 __all__ = [
+    "ACTIVATION_ARTIFACT_TYPE",
     "ACTIVATION_STATES",
     "ARTIFACT_TYPE",
     "CARDINALITIES",
@@ -371,8 +437,10 @@ __all__ = [
     "OntologyValidationResult",
     "SCHEMA_VERSION",
     "admit_relation_write",
+    "build_activation_artifact",
     "build_registry_artifact",
     "quarantine_unknown",
+    "resolve_active_schema",
     "validate_entity",
     "validate_relation",
 ]

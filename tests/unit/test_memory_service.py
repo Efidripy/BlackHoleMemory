@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import blackholememory.memory_service as memory_service_module
+from blackholememory.domain import Artifact
 from blackholememory.memory_service import MemoryServiceNotReady
 from blackholememory.memory_service import MemoryServiceValidationError
 from blackholememory.memory_service import SQLiteMemoryService
@@ -193,6 +194,41 @@ def test_service_all_mode_walks_every_bounded_repository_page(tmp_path, monkeypa
 
     assert len(records) == 10_001
     assert calls == [(10_000, 0), (10_000, 10_000)]
+
+
+def test_service_artifact_roundtrip_is_project_scoped_and_paged(tmp_path):
+    service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
+    service.save_artifact(
+        Artifact(
+            id="artifact-primary",
+            artifact_type="ontology_registry",
+            project="blackholememory",
+            created_at="2026-08-23T12:00:00Z",
+            payload={"schema_digest": "a" * 64},
+        )
+    )
+    service.save_artifact(
+        Artifact(
+            id="artifact-foreign",
+            artifact_type="ontology_registry",
+            project="other-project",
+            created_at="2026-08-23T12:01:00Z",
+            payload={"schema_digest": "b" * 64},
+        )
+    )
+
+    assert service.list_artifact_records(
+        artifact_type="ontology_registry",
+        project="blackholememory",
+        limit=1,
+    ) == [{
+        "id": "artifact-primary",
+        "project": "blackholememory",
+        "memory_id": None,
+        "created_at": "2026-08-23T12:00:00Z",
+        "updated_at": None,
+        "schema_digest": "a" * 64,
+    }]
 
 
 def test_service_bulk_upsert_rolls_back_on_second_outbox_failure(tmp_path, monkeypatch):

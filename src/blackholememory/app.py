@@ -174,6 +174,12 @@ from .runtime_storage import runtime_storage_state as memory_runtime_storage_sta
 from .runtime_storage import resolve_runtime_storage_config
 from .memory_service import MemoryServiceNotReady
 from .memory_service import SQLiteMemoryService
+from .ontology_registry import ACTIVATION_ARTIFACT_TYPE as ONTOLOGY_ACTIVATION_ARTIFACT_TYPE
+from .ontology_registry import ARTIFACT_TYPE as ONTOLOGY_REGISTRY_ARTIFACT_TYPE
+from .ontology_registry import OntologyRegistryError
+from .ontology_registry import OntologyRelationWrite
+from .ontology_registry import admit_relation_write
+from .ontology_registry import resolve_active_schema
 from .memory_search_service import MemorySearchDependencies
 from .memory_search_service import MemorySearchService
 from .memory_search_service import read_only_side_effects
@@ -2967,6 +2973,7 @@ class MemoryLinkRequest(BaseModel):
     relation: str
     project: str
     metadata: MemoryMetadata | None = None
+    ontology_schema_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
 
 class BatchMemoryLinkItem(MemoryLinkRequest):
@@ -4290,6 +4297,49 @@ def _memory_service() -> SQLiteMemoryService:
             service = SQLiteMemoryService(config.database_path)
             _MEMORY_SERVICES[key] = service
         return service
+
+
+def _active_ontology_schema(project: str):
+    """Resolve one explicitly activated project ontology from SQLite.
+
+    No marker means compatibility mode. A malformed or dangling active marker
+    fails closed, because accepting an unpinned relation would defeat the
+    registry contract.
+    """
+
+    if not _memory_store_is_authoritative():
+        return None
+    canonical_project = _canonical_project(project)
+    try:
+        service = _memory_service()
+        markers = service.list_artifact_records(
+            artifact_type=ONTOLOGY_ACTIVATION_ARTIFACT_TYPE,
+            project=canonical_project,
+            limit=8,
+        )
+        marker = next(
+            (item for item in markers if item.get("id") == f"ontology_activation_{canonical_project}"),
+            None,
+        )
+        if marker is None:
+            return None
+        registries = service.list_artifact_records(
+            artifact_type=ONTOLOGY_REGISTRY_ARTIFACT_TYPE,
+            project=canonical_project,
+            limit=128,
+        )
+        return resolve_active_schema(
+            project=canonical_project,
+            registry_records=registries,
+            activation_record=marker,
+        )
+    except MemoryServiceNotReady as exc:
+        raise StorageNotReady(str(exc)) from exc
+    except OntologyRegistryError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "ontology_registry_activation_invalid", "reason": str(exc)},
+        ) from exc
 
 
 def _require_typed_memory_boundary(
@@ -7001,6 +7051,49 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
     if _find_live_memory(request.target_id, project) is None:
         raise HTTPException(status_code=404, detail="target memory not found")
 
+    metadata = _metadata_to_dict(request.metadata)
+    schema = _active_ontology_schema(project)
+    if schema is not None:
+        schema_digest = schema.digest()
+        if request.ontology_schema_digest is not None and request.ontology_schema_digest != schema_digest:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "ontology_schema_digest_mismatch",
+                    "expected_schema_digest": schema_digest,
+                },
+            )
+        receipt = admit_relation_write(
+            schema,
+            OntologyRelationWrite(
+                project=project,
+                schema_digest=schema_digest,
+                relation=request.relation,
+                source_id=request.source_id,
+                source_type="memory",
+                target_id=request.target_id,
+                target_type="memory",
+            ),
+        )
+        if receipt.decision != "allow":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "ontology_link_quarantined",
+                    "reason_code": receipt.reason_code,
+                    "schema_digest": receipt.schema_digest,
+                    "relation": receipt.relation,
+                },
+            )
+        metadata["ontology"] = {
+            "schema_digest": receipt.schema_digest,
+            "revision": schema.revision,
+            "relation": receipt.relation,
+            "source_type": receipt.source_type,
+            "target_type": receipt.target_type,
+            "admission": "allow",
+        }
+
     links = _load_memory_links()
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     for item in links:
@@ -7011,7 +7104,7 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
             and item.get("relation") == request.relation
         ):
             item["updated_at"] = now
-            item["metadata"] = _metadata_to_dict(request.metadata) or item.get("metadata") or {}
+            item["metadata"] = metadata or item.get("metadata") or {}
             _save_memory_links(links)
             return item
 
@@ -7023,7 +7116,7 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
         "relation": request.relation,
         "created_at": now,
         "updated_at": now,
-        "metadata": _metadata_to_dict(request.metadata),
+        "metadata": metadata,
     }
     links.append(link)
     _save_memory_links(links)
@@ -9408,6 +9501,7 @@ def _batch_link_memories(request: BatchLinkMemoriesRequest) -> dict:
                 relation=item.relation,
                 project=project,
                 metadata=item.metadata,
+                ontology_schema_digest=item.ontology_schema_digest,
             )
         )
         links.append(_serialize_memory_link(link))
