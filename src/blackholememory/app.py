@@ -2390,6 +2390,7 @@ _OBSERVATION_STORE_LOCK = threading.RLock()
 _OBSERVATION_SQLITE_STORES: dict[str, ObservationStore] = {}
 _MEMORY_SERVICE_LOCK = threading.RLock()
 _MEMORY_SERVICES: dict[str, SQLiteMemoryService] = {}
+_LINK_STORE_LOCK = threading.RLock()
 _TASK_LIFECYCLE_LOCK = threading.RLock()
 _JSON_STORE_LOCKS: dict[str, threading.RLock] = {}
 _JSON_STORE_LOCKS_LOCK = threading.RLock()
@@ -4403,6 +4404,46 @@ def _memory_link_store_path() -> Path:
     return settings.runtime_dir / "live-memory" / "memory-links.json"
 
 
+_LINK_STORAGE_METADATA_KEY = "__bhm_link_storage_metadata"
+
+
+def _link_record_for_runtime(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose legacy link metadata without making a sidecar authoritative."""
+
+    item = dict(record)
+    metadata = item.get("metadata")
+    if not isinstance(metadata, Mapping):
+        item["metadata"] = {}
+        return item
+    raw_metadata = dict(metadata)
+    legacy_metadata = raw_metadata.get("legacy_metadata")
+    if isinstance(legacy_metadata, Mapping) and isinstance(raw_metadata.get("sidecar_provenance"), Mapping):
+        item["metadata"] = dict(legacy_metadata)
+        # Public serializers omit this marker. It lets a future update retain
+        # original migration provenance inside authoritative SQLite.
+        item[_LINK_STORAGE_METADATA_KEY] = raw_metadata
+    else:
+        item["metadata"] = raw_metadata
+    return item
+
+
+def _link_record_for_storage(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Rebind a runtime link record to its canonical SQLite metadata shape."""
+
+    item = {key: value for key, value in dict(record).items() if key != _LINK_STORAGE_METADATA_KEY}
+    visible_metadata = item.get("metadata")
+    if not isinstance(visible_metadata, Mapping):
+        visible_metadata = {}
+    original = record.get(_LINK_STORAGE_METADATA_KEY)
+    if isinstance(original, Mapping) and isinstance(original.get("legacy_metadata"), Mapping):
+        preserved = dict(original)
+        preserved["legacy_metadata"] = dict(visible_metadata)
+        item["metadata"] = preserved
+    else:
+        item["metadata"] = dict(visible_metadata)
+    return item
+
+
 def _checkpoint_store_path() -> Path:
     return settings.runtime_dir / "live-memory" / "checkpoints.json"
 
@@ -6062,11 +6103,23 @@ def _append_observation(item: dict) -> None:
 
 
 def _load_memory_links() -> list[dict]:
-    return _safe_json_list(_memory_link_store_path())
+    if not _memory_store_is_authoritative():
+        return _safe_json_list(_memory_link_store_path())
+    try:
+        return [_link_record_for_runtime(record) for record in _memory_service().list_links(limit=None)]
+    except MemoryServiceNotReady as exc:
+        raise StorageNotReady(str(exc)) from exc
 
 
 def _save_memory_links(items: list[dict]) -> Path:
-    return _write_json_atomic(_memory_link_store_path(), items)
+    if not _memory_store_is_authoritative():
+        return _write_json_atomic(_memory_link_store_path(), items)
+    try:
+        with _LINK_STORE_LOCK:
+            _memory_service().replace_link_records([_link_record_for_storage(item) for item in items])
+        return _memory_service().path
+    except MemoryServiceNotReady as exc:
+        raise StorageNotReady(str(exc)) from exc
 
 
 def _query_tokens(query: str) -> list[str]:

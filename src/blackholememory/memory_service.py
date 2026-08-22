@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from .domain import Memory
+from .domain import MemoryLink
 from .domain import MemoryRevision
 from .domain import Lifecycle
 from .domain import content_sha256
@@ -278,6 +279,19 @@ class SQLiteMemoryService:
             if len(page) < page_limit:
                 break
         return [link.to_record() for link in links]
+
+    def replace_link_records(self, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Atomically persist a complete SQLite-authoritative link snapshot."""
+
+        self._ensure_ready(verify_integrity=False)
+        links = [MemoryLink.from_record(record) for record in records]
+        return [link.to_record() for link in self.repository.replace_links(links)]
+
+    def delete_link_records(self, link_ids: list[str]) -> int:
+        """Delete explicit canonical link ids without consulting a sidecar."""
+
+        self._ensure_ready(verify_integrity=False)
+        return self.repository.delete_links(link_ids)
 
     def count_records(
         self,

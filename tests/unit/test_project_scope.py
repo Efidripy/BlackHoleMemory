@@ -19,6 +19,47 @@ def _record(project: str, content: str) -> dict:
     }
 
 
+def test_authoritative_link_adapter_preserves_legacy_metadata_provenance(monkeypatch, tmp_path):
+    captured = {}
+
+    class FakeMemoryService:
+        path = tmp_path / "memories.sqlite3"
+
+        def list_links(self, *, limit=None):
+            assert limit is None
+            return [
+                {
+                    "id": "link_bhm_legacy",
+                    "project": "blackholememory",
+                    "source_id": "mem-a",
+                    "target_id": "mem-b",
+                    "relation": "depends_on",
+                    "metadata": {
+                        "legacy_metadata": {"confidence": 0.4},
+                        "sidecar_provenance": {"file": "memory-links.json", "record_sha256": "a" * 64},
+                    },
+                }
+            ]
+
+        def replace_link_records(self, records):
+            captured["records"] = records
+            return records
+
+    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeMemoryService())
+
+    links = bhm_app._load_memory_links()
+
+    assert links[0]["metadata"] == {"confidence": 0.4}
+    assert bhm_app._LINK_STORAGE_METADATA_KEY in links[0]
+    links[0]["metadata"]["confidence"] = 0.9
+    assert bhm_app._save_memory_links(links) == FakeMemoryService.path
+    stored = captured["records"][0]
+    assert bhm_app._LINK_STORAGE_METADATA_KEY not in stored
+    assert stored["metadata"]["legacy_metadata"] == {"confidence": 0.9}
+    assert stored["metadata"]["sidecar_provenance"]["file"] == "memory-links.json"
+
+
 def test_public_search_scope_defaults_to_configured_project_and_reserves_global(monkeypatch):
     monkeypatch.setattr(bhm_app.settings, "qdrant_collection", "blackholememory")
 

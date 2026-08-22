@@ -301,3 +301,28 @@ def test_repository_persists_artifacts_and_links_without_fk_assumptions(tmp_path
     assert artifacts[0].to_dict() == artifact.to_dict()
     assert len(links) == 1
     assert links[0].to_dict() == link.to_dict()
+
+
+def test_repository_replaces_and_deletes_complete_link_snapshot_atomically(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    first = MemoryLink(
+        id="link_bhm_snapshot_001",
+        project="blackholememory",
+        source_id="mem_bhm_one",
+        target_id="mem_bhm_two",
+        relation="depends_on",
+    )
+    second = MemoryLink(
+        id="link_bhm_snapshot_002",
+        project="blackholememory",
+        source_id="mem_bhm_two",
+        target_id="mem_bhm_three",
+        relation="supports",
+    )
+    repository.save_link(first)
+
+    assert repository.replace_links([second]) == [second]
+    assert [link.id for link in repository.list_links(project="blackholememory")] == [second.id]
+    assert repository.delete_links([second.id]) == 1
+    assert repository.delete_links([second.id]) == 0
+    assert repository.list_links(project="blackholememory") == []
