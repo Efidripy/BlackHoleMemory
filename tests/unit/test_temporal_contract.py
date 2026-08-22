@@ -165,6 +165,27 @@ def test_temporal_disabled_rejects_explicit_intent(monkeypatch: pytest.MonkeyPat
         require_temporal_contract(capability_available=True)
 
 
+def test_temporal_flags_can_use_explicit_local_runtime_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from blackholememory import temporal_contract
+
+    config = tmp_path / ".bhm" / ".env"
+    config.parent.mkdir()
+    config.write_text(
+        "BHM_TEMPORAL_CONTRACT_ENABLED=true\n"
+        "BHM_TEMPORAL_PROJECTION_READY=true\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("BHM_TEMPORAL_CONTRACT_ENABLED", raising=False)
+    monkeypatch.delenv("BHM_TEMPORAL_PROJECTION_READY", raising=False)
+    monkeypatch.setattr(temporal_contract.Path, "home", lambda: tmp_path)
+
+    assert temporal_contract.temporal_contract_enabled() is True
+    assert temporal_contract.temporal_projection_ready() is True
+
+
 def test_mcp_temporal_intent_is_forwarded_without_reinterpretation(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(
