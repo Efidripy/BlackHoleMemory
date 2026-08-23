@@ -118,6 +118,13 @@ def test_public_code_tools_cover_schema_search_and_coverage_without_source(monke
     assert schema.json()["parser_capabilities"]["language_inventory_digest"] == schema.json()["language_inventory_digest"]
     assert schema.json()["parser_capabilities"]["parser_backed_count"] == 142
     assert schema.json()["parser_capabilities"]["inventory_language_count"] >= 5
+    declared_schema = schema.json()["declared_graph_schema"]
+    assert declared_schema["domain"] == "repository-code-graph"
+    assert declared_schema["authority"] == "sqlite-authoritative-code-graph"
+    assert declared_schema["memory_link_bridge"] == "forbidden"
+    assert declared_schema["activation"] == "read-only-declared"
+    assert "contains" in declared_schema["edge_kinds"]
+    assert "file" in declared_schema["node_kinds"]
     assert "return 1" not in search.text
     assert search.status_code == 200
     assert search.json()["contract_digest"] == schema.json()["contract_digest"]
