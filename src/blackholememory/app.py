@@ -7579,6 +7579,27 @@ def _with_context_tier_lifecycle_receipt(request: BhmHookRequest) -> tuple[BhmHo
     return request.model_copy(update={"metadata": metadata}), receipt
 
 
+def _with_observation_tier_lifecycle_receipt(
+    request: ObservationIngressV1,
+) -> tuple[ObservationIngressV1, dict[str, Any]]:
+    """Attach the same receipt to direct REST/MCP observation lifecycle events."""
+
+    event_id = request.eventId or f"obs_bhm_{uuid.uuid4().hex}"
+    correlation_id = request.correlationId or request.sessionId
+    receipt = build_context_tier_lifecycle_receipt(
+        project=request.project,
+        session_id=request.sessionId,
+        event_id=event_id,
+        hook_type=request.hookType,
+        parent_event_id=request.parentEventId,
+    )
+    metadata = dict(request.metadata or {})
+    metadata["context_tier_lifecycle"] = receipt
+    return request.model_copy(
+        update={"eventId": event_id, "correlationId": correlation_id, "metadata": metadata}
+    ), receipt
+
+
 def _hook_compact_concepts(request: BhmHookCompactRequest) -> list[str]:
     concepts = [
         "bhm",
@@ -19157,11 +19178,12 @@ async def bhm_observe(request: ObservationIngressV1) -> dict:
         request,
         max_input_bytes=OBSERVATION_MAX_INPUT_BYTES,
     )
+    secured_request, tier_lifecycle = _with_observation_tier_lifecycle_receipt(secured_request)
 
     def write_observation() -> dict:
         item = build_observation_record(secured_request)
         _append_observation(item)
-        return {"success": True, "observation": item}
+        return {"success": True, "observation": item, "tier_lifecycle": tier_lifecycle}
 
     return await _run_bounded_write("bhm.observe", write_observation)
 

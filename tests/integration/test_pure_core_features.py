@@ -1551,6 +1551,11 @@ def test_observe_endpoint_emits_versioned_record(monkeypatch):
     assert record["data"]["token_count"] == 7
     assert bearer_value not in json.dumps(record)
     assert record["metadata"]["security"]["redactionCount"] >= 1
+    receipt = response.json()["tier_lifecycle"]
+    assert receipt["phase"] == "post_tool_use"
+    assert receipt["promotion"]["action"] == "none"
+    assert record["metadata"]["context_tier_lifecycle"] == receipt
+    assert bearer_value not in json.dumps(receipt)
     assert captured == [record]
 
 
