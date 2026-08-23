@@ -14,6 +14,15 @@ Canonical writes go through the SQLite repository/service transaction and its
 outbox boundary. A sidecar may be regenerated, compared, exported or retained
 for compatibility, but a sidecar-only update is not a valid BHM state change.
 
+The legacy semantic dependency graph is one such read model. Use
+`scripts/plan-bhm-semantic-graph-migration.py` only to produce a bounded,
+content-free, read-only classification against SQLite endpoint state and the
+explicitly active project ontology. Its output is never an apply plan:
+unregistered relations, missing/inactive endpoints and cross-project edges are
+not remapped or copied automatically. A later migration requires the exact
+same snapshot, a verified backup, a typed dry-run, explicit operator approval
+and post-apply parity smoke.
+
 ## Projection safety
 
 - Read/search routes (`/bhm/search`, `/bhm/search/advanced`,
