@@ -245,3 +245,23 @@ def test_doctor_does_not_retain_retired_stdio_protocol_probe() -> None:
 
     assert "def _stdio_protocol_probe" not in source
     assert "retired-stdio-wrapper" not in source
+
+
+def test_doctor_exposes_process_ownership_snapshot(monkeypatch, tmp_path: Path) -> None:
+    ownership = {
+        "status": "clean",
+        "invalid_record_count": 0,
+        "orphaned_count": 0,
+        "broad_process_kill": False,
+    }
+    monkeypatch.setattr(doctor, "_configured_sources", lambda _config: {"status": "aligned", "source_count": 2, "configured_count": 2, "sources": [{"client": "codex"}, {"client": "claude"}], "writes_live_state": False})
+    monkeypatch.setattr(doctor, "_duplicate_fingerprints", lambda _config: {"status": "clean", "active_conflict": False})
+    monkeypatch.setattr(doctor, "_runtime_snapshot", lambda _config: {"reachable": True, "ready": True, "cutover": True, "slo_ok": True})
+    monkeypatch.setattr(doctor, "_protocol_probe", lambda _config: ({"connected": True}, {"ok": True, "catalog": {"usable": True, "tool_count": len(CORE_TOOL_NAMES)}}))
+    monkeypatch.setattr(doctor, "_lease_snapshot", lambda _config: {"status": "detached", "pending_count": 0, "active_count": 0})
+    monkeypatch.setattr(doctor, "_connection_snapshot", lambda _config: {"status": "detached"})
+    monkeypatch.setattr(doctor, "_ownership_snapshot", lambda _config: ownership)
+
+    report = doctor.run_doctor(doctor.DoctorConfig(repo_root=tmp_path))
+
+    assert report["process_ownership"] == ownership

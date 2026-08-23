@@ -48,10 +48,12 @@ class _Response:
 
 def test_doctor_get_json_uses_local_bounded_transport(monkeypatch) -> None:
     calls: list[str] = []
+    monkeypatch.setattr(DOCTOR, "configured_caller_token", lambda: "t" * 40)
 
     def fake_open(request, *, timeout):
         calls.append(request.full_url)
         assert timeout == BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+        assert request.get_header("Authorization") == "Bearer " + ("t" * 40)
         return _Response(b'{"status":"healthy"}')
 
     monkeypatch.setattr(DOCTOR, "open_local_url", fake_open)
@@ -70,6 +72,34 @@ def test_doctor_get_json_fails_closed_on_non_200(monkeypatch) -> None:
         assert "unexpected HTTP status 503" in str(exc)
     else:  # pragma: no cover - assertion guard
         raise AssertionError("non-200 response must fail closed")
+
+
+def test_doctor_catalog_accepts_additive_tool_expansion() -> None:
+    baseline = {
+        "usable": True,
+        "tool_count": DOCTOR.MIN_EXPECTED_TOOL_COUNT,
+        "schema_hash": "a" * 64,
+        "generation": "b" * 64,
+    }
+    expanded = {**baseline, "tool_count": 35}
+    undersized = {**baseline, "tool_count": DOCTOR.MIN_EXPECTED_TOOL_COUNT - 1}
+
+    assert DOCTOR._catalog_is_compatible(baseline)
+    assert DOCTOR._catalog_is_compatible(expanded)
+    assert not DOCTOR._catalog_is_compatible(undersized)
+
+
+def test_doctor_validator_accepts_retired_legacy_ownership() -> None:
+    retired = {
+        "status": "retired",
+        "invalid_record_count": 0,
+        "orphaned_count": 0,
+        "broad_process_kill": False,
+    }
+    active_conflict = {**retired, "status": "active"}
+
+    assert DOCTOR._ownership_is_safe(retired)
+    assert not DOCTOR._ownership_is_safe(active_conflict)
 
 
 def test_panel_get_json_uses_local_bounded_transport(monkeypatch) -> None:
