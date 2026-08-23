@@ -80,6 +80,16 @@ it for `resume` events when a `PreCompact` anchor exists; forwarding the link
 only creates a content-free receipt and never enables promotion or durable
 memory mutation.
 
+## Memory doctor
+
+`scripts/bhm-memory-doctor.py` runs the bounded SQLite-authoritative doctor in
+strict read-only mode with respect to BHM state. Its standard output is
+redacted and snapshot-bound; it neither opens Qdrant nor offers backup,
+repair, migration, delete or apply switches. An explicit `--report` option
+may write that same JSON to the caller-selected local file, but never changes
+SQLite, Qdrant, Mem0 or any BHM runtime state. Projection parity and every
+maintenance action remain separate, explicitly gated operations.
+
 ## External evaluation datasets
 
 LoCoMo and LongMemEval are never fetched or evaluated by default. A later
