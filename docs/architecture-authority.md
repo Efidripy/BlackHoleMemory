@@ -109,6 +109,10 @@ metrics remain evaluation evidence and cannot enable a runtime retrieval path.
   the same content-free explicit fallback-grace route. It never includes query
   text, IDs, memory content, paths, scores or provider errors, and it cannot
   change ranking or feature flags.
+- Explicit fallback-grace responses expose only an allowlisted content-free
+  `stage` (`embedding_preparation`, `retrieval_contour`, `provider_transport`,
+  `provider_http` or `unknown`) plus the typed exception name; raw provider
+  messages, paths and request data remain excluded.
 - The opt-in exact-identifier lane begins with a bounded, project-scoped,
   active-lifecycle SQLite substring prefilter that returns IDs only. Those IDs
   are then hydrated from SQLite and rechecked by the Python exact-token and
