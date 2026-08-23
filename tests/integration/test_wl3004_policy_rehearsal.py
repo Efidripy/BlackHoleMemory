@@ -1,7 +1,7 @@
-"""Disposable WL-300.4 policy/replay rehearsal.
+"""Disposable WL-300.4 policy and governed-read rehearsals.
 
-This suite deliberately stops at the governed preflight boundary.  It does
-not call a shared-memory data route, Qdrant, Mem0, or any lifecycle writer.
+The suite uses only temporary SQLite artifacts.  It never enables the live
+feature flag, issues a live grant, calls Qdrant/Mem0, or changes lifecycle.
 """
 
 from __future__ import annotations
@@ -24,6 +24,8 @@ from blackholememory.governed_shared_memory import decide_shared_memory
 from blackholememory.memory_service import SQLiteMemoryService
 from blackholememory.shared_memory_audit import append_shared_memory_audit
 from blackholememory.shared_memory_audit import build_shared_memory_audit_event
+from blackholememory.shared_memory_audit import ARTIFACT_TYPE as SHARED_MEMORY_AUDIT_ARTIFACT_TYPE
+from blackholememory.shared_memory_grants import build_grant_artifact
 
 
 def _principal(*, caller_id: str = "agent-a", project: str = "blackholememory") -> CallerPrincipal:
@@ -287,6 +289,78 @@ def test_governed_read_requires_grant_then_returns_bounded_sqlite_record(monkeyp
         "lifecycle": "active",
     }
     assert "approved bounded content" not in str(captured["event"])
+
+
+def test_identical_concurrent_governed_reads_use_sqlite_ledger_and_replay_one_audit(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Exercise the policy decision on the read handler without live activation.
+
+    The grant and audit are real disposable SQLite artifacts.  The memory is a
+    stable in-memory fixture because this slice verifies authorization/audit
+    binding, not shared-memory ingestion or lifecycle mutation.
+    """
+
+    database = tmp_path / "governed-read-rehearsal.sqlite3"
+    seed_service = SQLiteMemoryService(database, allow_create=True)
+    seed_service.repository.initialize()
+    _grant_record, inserted = seed_service.append_artifact(build_grant_artifact(_grant()))
+    assert inserted is True
+    monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "1")
+    monkeypatch.setattr(
+        bhm_app,
+        "_memory_service",
+        lambda: SQLiteMemoryService(database, allow_create=True),
+    )
+    monkeypatch.setattr(
+        bhm_app,
+        "_find_live_memory",
+        lambda _memory_id, _project: {
+            "source_id": "memory-fixture",
+            "project": "blackholememory",
+            "memory_type": "fact",
+            "agent_id": "agent-owner",
+            "content": "disposable approved content",
+            "metadata": {"raw_title": "Disposable memory"},
+            "created_at": "2026-08-23T10:00:00Z",
+            "updated_at": "2026-08-23T10:00:00Z",
+            "lifecycle": "active",
+        },
+    )
+    request = bhm_app.SharedMemoryReadRequest(
+        project="blackholememory",
+        request_id="concurrent-governed-read",
+        visibility="project",
+        owner_id="agent-owner",
+        memory_id="memory-fixture",
+        at="2026-08-23T12:00:00Z",
+    )
+    barrier = threading.Barrier(8)
+
+    def run_read(_index: int) -> dict[str, object]:
+        barrier.wait(timeout=5)
+        return bhm_app._shared_memory_read(
+            request,
+            principal=_principal(),
+            auth_kind="caller_bearer",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(run_read, range(8)))
+
+    assert all(result["mode"] == "governed-read" for result in results)
+    assert all(result["decision"] == "allow" for result in results)
+    assert all(result["shared_write_enabled"] is False for result in results)
+    assert all(result["memory"] == results[0]["memory"] for result in results)
+    assert sum(bool(result["audit"]["appended"]) for result in results) == 1
+    audit_records = SQLiteMemoryService(database, allow_create=True).list_artifact_records(
+        artifact_type=SHARED_MEMORY_AUDIT_ARTIFACT_TYPE,
+        project="blackholememory",
+        limit=None,
+    )
+    assert len(audit_records) == 1
+    assert "disposable approved content" not in str(audit_records[0])
 
 
 def test_governed_read_audits_policy_deny_without_disclosing_memory(monkeypatch) -> None:
