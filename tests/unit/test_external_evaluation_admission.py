@@ -10,7 +10,9 @@ import pytest
 
 from blackholememory.external_evaluation_admission import ExternalEvaluationAdmissionError
 from blackholememory.external_evaluation_admission import SCHEMA_VERSION
+from blackholememory.external_evaluation_admission import load_external_evaluation_admission_report
 from blackholememory.external_evaluation_admission import validate_external_evaluation_dataset_admission
+from blackholememory.external_evaluation_admission import verify_external_evaluation_admission_report
 
 
 def _digest(data: bytes) -> str:
@@ -96,3 +98,21 @@ def test_external_dataset_admission_cli_is_bounded_and_content_free(tmp_path) ->
     assert report["ok"] is True
     assert report["execution"]["network"] is False
     assert "dataset.json" not in result.stdout
+
+
+def test_admission_report_revalidation_rejects_tampered_digest_or_mutation_flags(tmp_path) -> None:
+    manifest = _manifest(tmp_path)
+    report = validate_external_evaluation_dataset_admission(tmp_path, manifest)
+    report_path = tmp_path / "admission-report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    assert load_external_evaluation_admission_report(report_path) == report
+    assert verify_external_evaluation_admission_report(report) == report
+
+    tampered_digest = {**report, "admission_digest": "0" * 64}
+    with pytest.raises(ExternalEvaluationAdmissionError, match="digest mismatch"):
+        verify_external_evaluation_admission_report(tampered_digest)
+
+    tampered_execution = {**report, "execution": {**report["execution"], "network": True}}
+    with pytest.raises(ExternalEvaluationAdmissionError, match="execution boundary"):
+        verify_external_evaluation_admission_report(tampered_execution)

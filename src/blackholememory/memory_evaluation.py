@@ -11,11 +11,14 @@ import json
 import math
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .external_evaluation_admission import ExternalEvaluationAdmissionError
+from .external_evaluation_admission import verify_external_evaluation_admission_report
 from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import read_bytes_safely
 
 
 SCHEMA_VERSION = "bhm.memory-evaluation.v1"
@@ -24,6 +27,8 @@ MAX_SMOKE_CASES = 50
 MAX_BOUNDED_CALLS = 666
 FROZEN_FIXTURE_SCHEMA_VERSION = "bhm.memory-evaluation.fixture.v1"
 _BHM_FIXTURE_LICENSE = {"name": "0BSD", "source": "BHM-owned"}
+_MAX_RECORDED_INPUT_BYTES = 256 * 1024
+_EXTERNAL_SUITES = frozenset({"locomo", "longmemeval"})
 
 
 def _digest(value: Any) -> str:
@@ -82,6 +87,17 @@ class EvaluationManifest(BaseModel):
     dataset_digest: str = Field(min_length=64, max_length=64)
     cases: tuple[EvaluationCase, ...]
     max_model_calls: int = Field(default=MAX_SMOKE_CASES, ge=0, le=MAX_BOUNDED_CALLS)
+    admission_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _require_suite_bound_admission(self) -> "EvaluationManifest":
+        if self.suite in _EXTERNAL_SUITES and self.admission_digest is None:
+            raise ValueError("external evaluation manifests require an admission_digest")
+        if self.suite == "bhm-fixture" and self.admission_digest is not None:
+            raise ValueError("BHM-owned fixture manifests must not carry an external admission_digest")
+        if any(case.suite != self.suite for case in self.cases):
+            raise ValueError("evaluation case suite must match manifest suite")
+        return self
 
     def digest(self) -> str:
         return _digest(self.model_dump(mode="json"))
@@ -89,6 +105,76 @@ class EvaluationManifest(BaseModel):
 
 class FrozenEvaluationFixtureError(RuntimeError):
     """Raised when an offline fixture is malformed, altered, or out of scope."""
+
+
+class EvaluationAdmissionBindingError(ValueError):
+    """Raised when an external evaluation lacks a matching approved receipt."""
+
+
+def _load_bounded_json(path: str | Path, *, label: str) -> Any:
+    input_path = assert_safe_path(path).resolve()
+    if not input_path.is_file():
+        raise FrozenEvaluationFixtureError(f"{label} is missing")
+    try:
+        return json.loads(read_bytes_safely(input_path, max_bytes=_MAX_RECORDED_INPUT_BYTES).decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise FrozenEvaluationFixtureError(f"{label} must be bounded UTF-8 JSON") from exc
+
+
+def load_recorded_evaluation_manifest(path: str | Path) -> EvaluationManifest:
+    """Load one content-free recorded manifest; no dataset content is parsed."""
+
+    payload = _load_bounded_json(path, label="recorded evaluation manifest")
+    if not isinstance(payload, dict):
+        raise FrozenEvaluationFixtureError("recorded evaluation manifest root must be an object")
+    try:
+        return EvaluationManifest.model_validate(payload)
+    except ValueError as exc:
+        raise FrozenEvaluationFixtureError("recorded evaluation manifest contract is invalid") from exc
+
+
+def load_recorded_retrieval_receipts(path: str | Path) -> tuple[RetrievalReceipt, ...]:
+    """Load bounded recorded IDs/metrics only, never prompts or dataset content."""
+
+    payload = _load_bounded_json(path, label="recorded retrieval receipts")
+    if not isinstance(payload, list) or len(payload) > MAX_SMOKE_CASES:
+        raise FrozenEvaluationFixtureError("recorded retrieval receipts must be a bounded array")
+    try:
+        return tuple(RetrievalReceipt.model_validate(item) for item in payload)
+    except ValueError as exc:
+        raise FrozenEvaluationFixtureError("recorded retrieval receipt is invalid") from exc
+
+
+def verify_evaluation_admission_binding(
+    manifest: EvaluationManifest,
+    admission_report: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Bind an external replay to its exact local-only admission evidence."""
+
+    if manifest.suite == "bhm-fixture":
+        if admission_report is not None:
+            raise EvaluationAdmissionBindingError("BHM-owned fixture must not use an external admission report")
+        return None
+    if admission_report is None:
+        raise EvaluationAdmissionBindingError("external evaluation requires a matching admission report")
+    try:
+        verified = verify_external_evaluation_admission_report(dict(admission_report))
+    except ExternalEvaluationAdmissionError as exc:
+        raise EvaluationAdmissionBindingError("external evaluation admission report is invalid") from exc
+    dataset = verified["dataset"]
+    if (
+        verified["admission_digest"] != manifest.admission_digest
+        or dataset["suite"] != manifest.suite
+        or dataset["version"] != manifest.dataset_version
+        or dataset["dataset_digest"] != manifest.dataset_digest
+    ):
+        raise EvaluationAdmissionBindingError("external evaluation admission does not match manifest")
+    return {
+        "admission_digest": verified["admission_digest"],
+        "suite": dataset["suite"],
+        "dataset_version": dataset["version"],
+        "dataset_digest": dataset["dataset_digest"],
+    }
 
 
 def load_frozen_evaluation_fixture(path: str | Path) -> dict[str, Any]:
@@ -122,15 +208,18 @@ def load_frozen_evaluation_fixture(path: str | Path) -> dict[str, Any]:
     expected_digest = _digest(dataset)
     if str(payload.get("dataset_digest") or "") != expected_digest:
         raise FrozenEvaluationFixtureError("fixture dataset digest mismatch")
+    if dataset.get("suite") != "bhm-fixture":
+        raise FrozenEvaluationFixtureError("only BHM-owned fixtures are admitted locally")
+    raw_cases = dataset.get("cases")
+    if not isinstance(raw_cases, (list, tuple)) or any(
+        not isinstance(case, dict) or case.get("suite") != "bhm-fixture" for case in raw_cases
+    ):
+        raise FrozenEvaluationFixtureError("fixture case suite must match manifest suite")
     manifest_payload = {**dataset, "dataset_digest": expected_digest}
     try:
         manifest = EvaluationManifest.model_validate(manifest_payload)
     except ValueError as exc:
         raise FrozenEvaluationFixtureError("fixture dataset contract is invalid") from exc
-    if manifest.suite != "bhm-fixture":
-        raise FrozenEvaluationFixtureError("only BHM-owned fixtures are admitted locally")
-    if any(case.suite != manifest.suite for case in manifest.cases):
-        raise FrozenEvaluationFixtureError("fixture case suite must match manifest suite")
     if len(manifest.cases) > MAX_SMOKE_CASES:
         raise FrozenEvaluationFixtureError("frozen fixture exceeds the 50-case smoke limit")
     raw_receipts = payload.get("recorded_receipts")
@@ -219,11 +308,18 @@ def _ratio(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 6) if denominator else None
 
 
-def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalReceipt, ...], *, k: int = 5) -> dict[str, Any]:
+def evaluate_retrieval(
+    manifest: EvaluationManifest,
+    receipts: tuple[RetrievalReceipt, ...],
+    *,
+    k: int = 5,
+    admission_report: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     """Evaluate recorded retrieval only; missing receipts fail closed in report."""
 
     if k < 1 or k > 50:
         raise ValueError("k must be between 1 and 50")
+    admission = verify_evaluation_admission_binding(manifest, admission_report)
     expected_case_ids = {case.case_id for case in manifest.cases}
     receipt_candidates: dict[str, list[RetrievalReceipt]] = defaultdict(list)
     for receipt in receipts:
@@ -331,12 +427,15 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
         "latency_p95_seconds": _percentile(latencies, 0.95),
         "execution": {"network": False, "model_calls": 0, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False},
     }
+    if admission is not None:
+        report["admission"] = admission
     report["report_digest"] = _digest(report)
     return report
 
 
 __all__ = [
     "EvaluationCase",
+    "EvaluationAdmissionBindingError",
     "EvaluationManifest",
     "FROZEN_FIXTURE_SCHEMA_VERSION",
     "FrozenEvaluationFixtureError",
@@ -347,5 +446,8 @@ __all__ = [
     "SUPPORTED_SUITES",
     "evaluate_retrieval",
     "load_frozen_evaluation_fixture",
+    "load_recorded_evaluation_manifest",
+    "load_recorded_retrieval_receipts",
     "run_frozen_evaluation_fixture",
+    "verify_evaluation_admission_binding",
 ]
