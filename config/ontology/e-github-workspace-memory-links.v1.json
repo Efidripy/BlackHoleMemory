@@ -1,0 +1,30 @@
+{
+  "schema_version": "bhm.ontology-registry.v1",
+  "project": "e-github-workspace",
+  "revision": 1,
+  "owner": "workspace-maintainers",
+  "activation_status": "declared",
+  "provenance": {
+    "basis": "exact same-project active DEPENDS_ON records from the legacy semantic-graph read model",
+    "legacy_graph_digest": "4badff0005a8d34c8ea4f183422ed7dbe68a3e1013a3640d9eaec158c944b4e3",
+    "eligible_depends_on_count": "41",
+    "review": "WL-300.3"
+  },
+  "entity_types": [
+    {
+      "name": "memory",
+      "attributes": {
+        "project": "string",
+        "memory_type": "string"
+      }
+    }
+  ],
+  "relation_types": [
+    {
+      "name": "depends_on",
+      "source_types": ["memory"],
+      "target_types": ["memory"],
+      "cardinality": "many"
+    }
+  ]
+}

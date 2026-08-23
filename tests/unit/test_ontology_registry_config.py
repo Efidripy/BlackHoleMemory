@@ -41,3 +41,16 @@ def test_checked_in_multiserversubgen_ontology_is_narrow_and_evidence_bound() ->
     assert schema.provenance["eligible_depends_on_count"] == "106"
     assert len(schema.provenance["legacy_graph_digest"]) == 64
     assert len(schema.digest()) == 64
+
+
+def test_checked_in_workspace_ontology_is_narrow_and_evidence_bound() -> None:
+    schema = _load_schema("e-github-workspace-memory-links.v1.json")
+
+    assert schema.project == "e-github-workspace"
+    assert schema.activation_status == "declared"
+    assert {item.name for item in schema.entity_types} == {"memory"}
+    assert {item.name for item in schema.relation_types} == {"depends_on"}
+    assert schema.provenance["review"] == "WL-300.3"
+    assert schema.provenance["eligible_depends_on_count"] == "41"
+    assert len(schema.provenance["legacy_graph_digest"]) == 64
+    assert len(schema.digest()) == 64
