@@ -13,6 +13,7 @@ from blackholememory.memory_evaluation import EvaluationManifest
 from blackholememory.memory_evaluation import FrozenEvaluationFixtureError
 from blackholememory.memory_evaluation import MAX_BOUNDED_CALLS
 from blackholememory.memory_evaluation import RetrievalReceipt
+from blackholememory.memory_evaluation import compare_full_context_baseline
 from blackholememory.memory_evaluation import evaluate_retrieval
 from blackholememory.memory_evaluation import load_frozen_evaluation_fixture
 from blackholememory.memory_evaluation import run_frozen_evaluation_fixture
@@ -183,6 +184,12 @@ def test_bhm_owned_frozen_fixture_is_digest_bound_reproducible_and_offline() -> 
         "unproven_case_ids": [],
         "passed": True,
     }
+    baseline = report["full_context_baseline"]
+    assert baseline["policy"] == "recorded-full-context.v1"
+    assert baseline["baseline_input_integrity"] == {"valid": True, "scored_receipt_count": 10}
+    assert baseline["baseline_provenance_and_isolation"] == {"coverage": 1.0, "passed": True}
+    assert baseline["delta_retrieval_minus_full_context"]["latency_p95_seconds"] == -0.015
+    assert baseline["execution"] == report["execution"]
 
 
 def test_evaluation_reports_project_leakage_without_suppressing_metrics() -> None:
@@ -309,6 +316,29 @@ def test_recorded_external_cli_requires_matching_content_free_admission(tmp_path
     }
     assert "https://" not in accepted.stdout
     assert "recorded-manifest.json" not in accepted.stdout
+
+
+def test_full_context_baseline_fails_closed_for_incomplete_duplicate_or_cross_project_receipts() -> None:
+    fixture = load_frozen_evaluation_fixture(_FIXTURE_PATH)
+    manifest = fixture["manifest"]
+    baseline = fixture["baseline_receipts"]
+    assert baseline is not None
+
+    with pytest.raises(FrozenEvaluationFixtureError, match="complete unambiguous"):
+        compare_full_context_baseline(manifest, fixture["receipts"], baseline[:-1])
+
+    duplicate = baseline + (baseline[0],)
+    with pytest.raises(FrozenEvaluationFixtureError, match="complete unambiguous"):
+        compare_full_context_baseline(manifest, fixture["receipts"], duplicate)
+
+    foreign = (
+        RetrievalReceipt(
+            **{**baseline[0].model_dump(), "project": "foreign-project"}
+        ),
+        *baseline[1:],
+    )
+    with pytest.raises(FrozenEvaluationFixtureError, match="project and provenance"):
+        compare_full_context_baseline(manifest, fixture["receipts"], foreign)
 
 
 def test_frozen_fixture_cli_emits_offline_capability_and_isolation_metrics() -> None:
