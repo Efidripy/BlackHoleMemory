@@ -18,6 +18,8 @@ from typing import Any, Mapping, Sequence
 
 from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
+from .task_dependencies import TaskDependencyDeclaration
+from .task_dependencies import dependency_declarations_by_pair
 
 
 TASK_GRAPH_SCHEMA_VERSION = "bhm.task-graph.v1"
@@ -63,6 +65,7 @@ def build_task_graph(
     as_of: str | None = None,
     fail_after_stage: str | None = None,
     source_kind: str = "task",
+    dependency_declarations: Sequence[Mapping[str, Any] | TaskDependencyDeclaration] = (),
     connection: sqlite3.Connection | None = None,
     publish: bool = True,
     summary_extra: Mapping[str, Any] | None = None,
@@ -99,13 +102,32 @@ def build_task_graph(
         node = _node(key, "task", task_id, temporal, normalized_source_kind, task_id, payload, item)
         nodes[key] = node
         task_map[task_id] = node
+    declared_dependencies = dependency_declarations_by_pair(
+        dependency_declarations,
+        project=project_name,
+        known_task_ids=set(task_map),
+    )
+    for (task_id, dependency_id), declaration in declared_dependencies.items():
+        dependencies = task_map[task_id]["payload"]["dependencies"]
+        if dependency_id not in dependencies:
+            dependencies.append(dependency_id)
     for task_id, node in sorted(task_map.items()):
         for dependency in node["payload"].get("dependencies") or []:
             target_key = _node_key(project_name, "task", dependency)
             if target_key not in nodes:
                 quarantine.append({"kind": "edge", "id": f"{task_id}->{dependency}", "reason": "unresolved_endpoint"})
                 continue
-            _add_edge(edges, _edge(project_name, node, nodes[target_key], "depends_on", normalized_source_kind, f"{task_id}->{dependency}", node["valid_from"], {"dependency": dependency}))
+            declaration = declared_dependencies.get((task_id, dependency))
+            dependency_source_kind = "task_dependency_declaration" if declaration is not None else normalized_source_kind
+            dependency_source_id = declaration.digest() if declaration is not None else f"{task_id}->{dependency}"
+            dependency_payload = {"dependency": dependency}
+            if declaration is not None:
+                dependency_payload.update({
+                    "declaration_digest": declaration.digest(),
+                    "declared_by": declaration.declared_by,
+                    "declared_at": declaration.declared_at,
+                })
+            _add_edge(edges, _edge(project_name, node, nodes[target_key], "depends_on", dependency_source_kind, dependency_source_id, node["valid_from"], dependency_payload))
     active_claims: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for raw in list(claims)[:TASK_GRAPH_MAX_EDGES]:
         item = dict(raw)
