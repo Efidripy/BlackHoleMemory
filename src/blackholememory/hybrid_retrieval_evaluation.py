@@ -37,6 +37,7 @@ RRF_WEIGHTS = {"current_bhm": 1.0, "sqlite_fts5_bm25": 1.0}
 MAX_ACCEPTABLE_P95_REGRESSION = 0.20
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_]{1,64}")
 _FTS_STOPWORDS = frozenset({"find", "for", "the", "a", "an", "to", "with"})
+_IDENTIFIER_MIN_LENGTH = 8
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,40 @@ def build_sqlite_fts5_candidate_index(cases: Sequence[HybridRetrievalCase]) -> s
     return connection
 
 
+def build_exact_identifier_candidate_index(cases: Sequence[HybridRetrievalCase]) -> sqlite3.Connection:
+    """Build a bounded, project-scoped exact-identifier index from active fixture rows.
+
+    This models a future inexpensive exact-key route (for example, a B-tree
+    backed identifier table) rather than disguising a cached FTS5 result as a
+    latency improvement.  It deliberately indexes only high-signal tokens and
+    applies project/lifecycle/type filtering before a candidate can be read.
+    """
+
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+    connection.execute(
+        "CREATE TABLE fixture_exact_identifier("
+        "project TEXT NOT NULL, token TEXT NOT NULL, source_id TEXT NOT NULL, "
+        "PRIMARY KEY(project, token, source_id)) WITHOUT ROWID"
+    )
+    rows: set[tuple[str, str, str]] = set()
+    for case in cases:
+        for hit in case.hits:
+            metadata = _metadata(hit)
+            project = str(metadata.get("project") or "")
+            lifecycle = str(metadata.get("lifecycle") or "").casefold()
+            semantic_type = str(metadata.get("semantic_type") or "").casefold()
+            source_id = _hit_id(hit)
+            if not project or not source_id or lifecycle in {"archived", "deprecated"} or semantic_type in {"log", "error"}:
+                continue
+            rows.update((project, token, source_id) for token in _exact_identifier_tokens(str(hit.get("content") or "")))
+    connection.executemany(
+        "INSERT INTO fixture_exact_identifier(project, token, source_id) VALUES(?, ?, ?)",
+        sorted(rows),
+    )
+    return connection
+
+
 def sqlite_fts5_bm25_rank(connection: sqlite3.Connection, case: HybridRetrievalCase, *, limit: int = TOP_K) -> list[str]:
     """Return project-scoped, active non-log BM25 candidate IDs for one fixture case."""
 
@@ -136,6 +171,30 @@ def sqlite_fts5_bm25_rank(connection: sqlite3.Connection, case: HybridRetrievalC
         (match, case.case_id, case.project, bounded_limit),
     ).fetchall()
     return [str(row["source_id"]) for row in rows]
+
+
+def exact_identifier_rank(
+    connection: sqlite3.Connection,
+    case: HybridRetrievalCase,
+    *,
+    limit: int = TOP_K,
+) -> list[str]:
+    """Return active, project-scoped candidates for unambiguous query identifiers."""
+
+    bounded_limit = max(1, min(int(limit), TOP_K))
+    result: list[str] = []
+    for token in _exact_identifier_tokens(case.query):
+        rows = connection.execute(
+            "SELECT source_id FROM fixture_exact_identifier WHERE project = ? AND token = ? ORDER BY source_id LIMIT ?",
+            (case.project, token, bounded_limit - len(result)),
+        ).fetchall()
+        for row in rows:
+            normalized = str(row["source_id"])
+            if normalized and normalized not in result:
+                result.append(normalized)
+            if len(result) >= bounded_limit:
+                return result
+    return result
 
 
 def current_bhm_rank(case: HybridRetrievalCase) -> list[str]:
@@ -190,9 +249,16 @@ def evaluate_hybrid_retrieval(
     _validate_fixture(fixture)
     fixture_digest = _fixture_digest(fixture)
     connection = build_sqlite_fts5_candidate_index(fixture)
+    exact_identifier_index = build_exact_identifier_candidate_index(fixture)
     try:
         stable_runs: list[dict[str, dict[str, Any]]] = []
-        latency_samples: dict[str, list[float]] = {"current_bhm": [], "current_plus_fts5_candidate": [], "fixed_rrf": []}
+        latency_samples: dict[str, list[float]] = {
+            "current_bhm": [],
+            "current_plus_fts5_candidate": [],
+            "fixed_rrf": [],
+            "current_plus_exact_identifier": [],
+            "exact_identifier_fixed_rrf": [],
+        }
         for _ in range(repeat_count):
             per_mode = {mode: _empty_totals() for mode in latency_samples}
             for case in fixture:
@@ -204,6 +270,10 @@ def evaluate_hybrid_retrieval(
                 lexical_ids = sqlite_fts5_bm25_rank(connection, case)
                 candidate_ids = candidate_augmented_rank(current_ids, lexical_ids)
                 lexical_latency_ms = _elapsed_ms(lexical_started)
+                exact_started = time.perf_counter_ns()
+                exact_ids = exact_identifier_rank(exact_identifier_index, case)
+                exact_candidate_ids = candidate_augmented_rank(current_ids, exact_ids)
+                exact_latency_ms = _elapsed_ms(exact_started)
                 # The candidate and RRF lanes are possible additions to the
                 # current path, so their p95 budgets include the baseline
                 # ranker rather than timing only their incremental operation.
@@ -211,12 +281,19 @@ def evaluate_hybrid_retrieval(
                 rrf_started = time.perf_counter_ns()
                 rrf_ids = fixed_rrf_rank(current_ids, lexical_ids)
                 latency_samples["fixed_rrf"].append(current_latency_ms + lexical_latency_ms + _elapsed_ms(rrf_started))
+                exact_rrf_started = time.perf_counter_ns()
+                exact_rrf_ids = fixed_rrf_rank(current_ids, exact_ids)
+                latency_samples["current_plus_exact_identifier"].append(current_latency_ms + exact_latency_ms)
+                latency_samples["exact_identifier_fixed_rrf"].append(current_latency_ms + exact_latency_ms + _elapsed_ms(exact_rrf_started))
                 _record(per_mode["current_bhm"], case, current_ids)
                 _record(per_mode["current_plus_fts5_candidate"], case, candidate_ids)
                 _record(per_mode["fixed_rrf"], case, rrf_ids)
+                _record(per_mode["current_plus_exact_identifier"], case, exact_candidate_ids)
+                _record(per_mode["exact_identifier_fixed_rrf"], case, exact_rrf_ids)
             stable_runs.append({mode: _finalize_totals(totals, len(fixture)) for mode, totals in per_mode.items()})
     finally:
         connection.close()
+        exact_identifier_index.close()
 
     modes = {mode: _aggregate_mode(stable_runs, latency_samples[mode], mode) for mode in latency_samples}
     recommendation = promotion_recommendation(modes)
@@ -228,6 +305,11 @@ def evaluate_hybrid_retrieval(
         "repeat_count": repeat_count,
         "modes": modes,
         "fixed_rrf": {"k": RRF_K, "weights": dict(RRF_WEIGHTS)},
+        "exact_identifier_route": {
+            "mode": "project-scoped-active-high-signal-identifiers-only",
+            "fixture_indexed_in_memory": "sqlite-primary-key-without-rowid",
+            "production_retrieval_changed": False,
+        },
         "promotion_gate": recommendation,
         "execution": {
             "sqlite_mode": "in-memory-fts5-fixture-only",
@@ -252,25 +334,49 @@ def promotion_recommendation(modes: Mapping[str, Mapping[str, Any]]) -> dict[str
     """Apply WL-295.3's explicit, strict promotion rule to aggregate metrics."""
 
     baseline = modes.get("current_bhm") or {}
-    candidate = modes.get("current_plus_fts5_candidate") or {}
-    rrf = modes.get("fixed_rrf") or {}
     baseline_recall = float(baseline.get("recall_at_5") or 0.0)
     baseline_p95 = float(baseline.get("p95_latency_ms") or 0.0)
-    rrf_p95 = float(rrf.get("p95_latency_ms") or 0.0)
-    p95_regression = ((rrf_p95 - baseline_p95) / baseline_p95) if baseline_p95 > 0 else float("inf")
-    checks = {
-        "measurable_recall_gain": float(candidate.get("recall_at_5") or 0.0) > baseline_recall and float(rrf.get("recall_at_5") or 0.0) > baseline_recall,
-        "zero_project_isolation_regression": int(candidate.get("project_leakage_count") or 0) == 0 and int(rrf.get("project_leakage_count") or 0) == 0,
-        "p95_within_20_percent": p95_regression <= MAX_ACCEPTABLE_P95_REGRESSION,
-    }
+    candidate_specs = (
+        ("exact_identifier", "current_plus_exact_identifier", "exact_identifier_fixed_rrf"),
+        ("fts5", "current_plus_fts5_candidate", "fixed_rrf"),
+    )
+    candidate_results: dict[str, dict[str, Any]] = {}
+    for name, candidate_mode, fused_mode in candidate_specs:
+        candidate = modes.get(candidate_mode)
+        fused = modes.get(fused_mode)
+        if candidate is None or fused is None:
+            continue
+        fused_p95 = float(fused.get("p95_latency_ms") or 0.0)
+        p95_regression = ((fused_p95 - baseline_p95) / baseline_p95) if baseline_p95 > 0 else float("inf")
+        checks = {
+            "measurable_recall_gain": float(candidate.get("recall_at_5") or 0.0) > baseline_recall and float(fused.get("recall_at_5") or 0.0) > baseline_recall,
+            "zero_project_isolation_regression": int(candidate.get("project_leakage_count") or 0) == 0 and int(fused.get("project_leakage_count") or 0) == 0,
+            "p95_within_20_percent": p95_regression <= MAX_ACCEPTABLE_P95_REGRESSION,
+        }
+        candidate_results[name] = {
+            "candidate_mode": candidate_mode,
+            "fused_mode": fused_mode,
+            "eligible_for_feature_flag_proposal": all(checks.values()),
+            "checks": checks,
+            "candidate_recall_at_5": round(float(candidate.get("recall_at_5") or 0.0), 6),
+            "fused_recall_at_5": round(float(fused.get("recall_at_5") or 0.0), 6),
+            "fused_p95_regression_ratio": round(p95_regression, 6) if p95_regression != float("inf") else None,
+        }
+    selected_name = next((name for name, result in candidate_results.items() if result["eligible_for_feature_flag_proposal"]), None)
+    selected = candidate_results.get(selected_name or "")
+    fallback = candidate_results.get("fts5") or next(iter(candidate_results.values()), {})
+    report = selected or fallback
+    checks = dict(report.get("checks") or {})
     return {
-        "eligible_for_feature_flag_proposal": all(checks.values()),
-        "decision": "propose-feature-flag" if all(checks.values()) else "defer",
+        "eligible_for_feature_flag_proposal": bool(selected),
+        "decision": "propose-feature-flag" if selected else "defer",
+        "selected_candidate": selected_name,
         "checks": checks,
+        "candidates": candidate_results,
         "baseline_recall_at_5": round(baseline_recall, 6),
-        "candidate_recall_at_5": round(float(candidate.get("recall_at_5") or 0.0), 6),
-        "rrf_recall_at_5": round(float(rrf.get("recall_at_5") or 0.0), 6),
-        "rrf_p95_regression_ratio": round(p95_regression, 6) if p95_regression != float("inf") else None,
+        "candidate_recall_at_5": report.get("candidate_recall_at_5", 0.0),
+        "rrf_recall_at_5": report.get("fused_recall_at_5", 0.0),
+        "rrf_p95_regression_ratio": report.get("fused_p95_regression_ratio"),
         "max_p95_regression_ratio": MAX_ACCEPTABLE_P95_REGRESSION,
     }
 
@@ -372,6 +478,18 @@ def _fts_match(query: str) -> str:
     return " AND ".join(f'"{token.replace(chr(34), "")}"' for token in tokens[:16])
 
 
+def _exact_identifier_tokens(value: str) -> tuple[str, ...]:
+    """Return only high-signal exact identifiers; natural-language terms cannot route here."""
+
+    return tuple(
+        dict.fromkeys(
+            token.casefold()
+            for token in _TOKEN_RE.findall(str(value or ""))
+            if len(token) >= _IDENTIFIER_MIN_LENGTH and "_" in token and any(char.isdigit() for char in token)
+        )
+    )
+
+
 def _mrr(ranked_ids: Sequence[str], relevant_ids: frozenset[str]) -> float:
     for rank, source_id in enumerate(ranked_ids, start=1):
         if source_id in relevant_ids:
@@ -409,9 +527,11 @@ __all__ = [
     "RRF_K",
     "RRF_WEIGHTS",
     "build_hybrid_retrieval_cases",
+    "build_exact_identifier_candidate_index",
     "build_sqlite_fts5_candidate_index",
     "candidate_augmented_rank",
     "current_bhm_rank",
+    "exact_identifier_rank",
     "evaluate_hybrid_retrieval",
     "fixed_rrf_rank",
     "promotion_recommendation",
