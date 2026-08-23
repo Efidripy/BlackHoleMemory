@@ -78,6 +78,7 @@ def _contour_timing_stage(trace: Mapping[str, Any] | None) -> dict[str, Any] | N
             "enabled": bool(raw_embedding.get("enabled")),
             "status": "completed" if bool(raw_embedding.get("enabled")) else "skipped",
             "duration_ms": _bounded_duration_ms(raw_embedding.get("duration_ms")),
+            "deadline_ms": _bounded_duration_ms(raw_embedding.get("deadline_ms")),
         },
         "contours": contours,
     }

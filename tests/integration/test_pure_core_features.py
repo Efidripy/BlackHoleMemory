@@ -2639,7 +2639,7 @@ def test_federated_search_reuses_one_query_embedding(monkeypatch):
     monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: memory)
     monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
 
-    hits, total = asyncio.run(
+    outcome = asyncio.run(
         bhm_app.federated_search(
             "single embedding",
             "blackholememory",
@@ -2647,12 +2647,14 @@ def test_federated_search_reuses_one_query_embedding(monkeypatch):
             include_graph_expansion=False,
         )
     )
+    hits, total = outcome
 
     assert hits == []
     assert total == 0
     assert memory.embedding_model.calls == 1
     assert len(embeddings) == 2
     assert embeddings[0] is embeddings[1]
+    assert outcome.contour_trace["embedding"]["deadline_ms"] == 3000.0
 
 
 def test_lexical_scoring_logic():
