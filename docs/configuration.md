@@ -33,6 +33,13 @@ defaults BHM. IPv6 loopback опционален: указывайте bare host
 Оно не запускает, не публикует и не перенастраивает LM Studio, llama-server,
 BHM API, Qdrant или другой процесс.
 
+Для фактической локальной проверки используйте
+`uv run python scripts/validate-bhm-local-llm-dualstack.py`. Она делает только
+два bounded `GET /v1/models` без proxy и redirects: `127.0.0.1` и `::1` на
+одном порту. Статус `ipv4_only` означает, что BHM остаётся штатно доступен по
+IPv4, а provider ещё не слушает IPv6; это не ошибка и не повод включать LAN
+режим. `--require-ipv6` предназначен лишь для явного будущего dual-stack gate.
+
 ## SQLite history retention
 
 Автоматическая bounded-очистка включена через
