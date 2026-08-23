@@ -238,10 +238,24 @@ def test_opt_in_exact_identifier_snapshot_work_overlaps_vector_contours(monkeypa
             release_exact.set()
         return await task
 
-    hits, total = asyncio.run(exercise())
+    outcome = asyncio.run(exercise())
+    hits, total = outcome
 
     assert total == 1
     assert [hit["id"] for hit in hits] == ["mem-exact-overlap"]
+    assert outcome.contour_trace["schema_version"] == "bhm.retrieval-contour-trace.v1"
+    assert {entry["name"] for entry in outcome.contour_trace["contours"]} == {"local_vector", "exact_identifier"}
+
+
+def test_timed_retrieval_contour_measures_completed_worker_duration(monkeypatch):
+    ticks = iter((100.0, 100.125))
+    monkeypatch.setattr(bhm_app.time, "perf_counter", lambda: next(ticks))
+
+    outcome = asyncio.run(bhm_app._run_timed_retrieval_contour("local_vector", lambda: ["ok"]))
+
+    assert outcome.result == ["ok"]
+    assert outcome.error is None
+    assert outcome.duration_ms == 125.0
 
 
 def test_advanced_search_without_project_is_scoped_and_missing_vector_metadata_fails_closed(monkeypatch):

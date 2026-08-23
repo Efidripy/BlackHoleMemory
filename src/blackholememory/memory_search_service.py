@@ -66,7 +66,7 @@ class MemorySearchService:
         try:
             await self._dependencies.ensure_provider_warmup_ready()
             started = time.perf_counter()
-            hits, total = await self._dependencies.federated_search(
+            federated_result = await self._dependencies.federated_search(
                 request.query,
                 project_name,
                 limit=request.limit,
@@ -86,6 +86,7 @@ class MemorySearchService:
                 include_archived=request.include_archived,
                 include_logs=request.include_logs,
             )
+            hits, total = federated_result
             query_plan = build_retrieval_query_plan(
                 requested_limit=request.limit,
                 offset=request.offset,
@@ -102,6 +103,7 @@ class MemorySearchService:
                     getattr(request, field, None) is not None
                     for field in ("as_of", "valid_from", "valid_to")
                 ) or bool(getattr(request, "include_temporal_unknown", False)),
+                contour_trace=getattr(federated_result, "contour_trace", None),
             )
             memories = [self._dependencies.serialize_vector_hit(item) for item in hits]
             self._dependencies.emit_memory_pulses(memories)
