@@ -85,16 +85,21 @@ def utility_report(events: tuple[UtilityEvent, ...], *, as_of: str, half_life_da
     for (project, memory_id), group in sorted(grouped.items()):
         weighted = 0.0
         counts: dict[str, int] = defaultdict(int)
+        actor_ids: set[str] = set()
         for event in sorted(group, key=lambda item: (item.observed_at, item.event_id)):
             occurred = datetime.fromisoformat(event.observed_at.replace("Z", "+00:00"))
             age_days = max(0.0, (now - occurred).total_seconds() / 86_400)
             weighted += _WEIGHTS[event.event_type] * math.pow(0.5, age_days / half_life_days)
             counts[event.event_type.value] += 1
+            actor_ids.add(event.actor_id)
         sample_count = len(group)
         rows.append({
             "project": project,
             "memory_id": memory_id,
             "sample_count": sample_count,
+            # Actor identities never leave the immutable event store through this
+            # aggregate.  The count is enough to reject a one-sided review signal.
+            "actor_count": len(actor_ids),
             "score": round(weighted / sample_count, 6),
             "uncertainty": "high" if sample_count < min_samples else "bounded",
             "event_counts": dict(sorted(counts.items())),
