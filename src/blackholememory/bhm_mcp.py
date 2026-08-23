@@ -2153,6 +2153,7 @@ def bhm_observe(
     project: str = DEFAULT_PROJECT,
     data_json: str | None = None,
     timestamp: str | None = None,
+    parent_event_id: str | None = None,
 ) -> dict[str, Any]:
     return _post(
         "/bhm/observe",
@@ -2162,6 +2163,7 @@ def bhm_observe(
             "project": project,
             "cwd": cwd,
             "timestamp": timestamp,
+            "parentEventId": parent_event_id,
             "data": _jsonable_or_text(data_json),
         },
     )
