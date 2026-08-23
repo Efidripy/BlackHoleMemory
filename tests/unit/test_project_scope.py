@@ -339,6 +339,82 @@ def test_federated_search_uses_remaining_contour_after_one_contour_times_out(mon
     assert statuses == {"local_vector": "timed_out", "global_vector": "completed", "exact_identifier": "disabled"}
 
 
+def test_federated_search_bounds_cold_embedding_before_vector_contours(monkeypatch):
+    class BlockingEmbedder:
+        def __init__(self) -> None:
+            self.started = threading.Event()
+            self.release = threading.Event()
+            self.calls = 0
+
+        def embed(self, _query: str, *_args):
+            self.calls += 1
+            self.started.set()
+            assert self.release.wait(timeout=1.0)
+            return [1.0]
+
+    class FakeMemory:
+        def __init__(self, embedder) -> None:
+            self.embedding_model = embedder
+
+    embedder = BlockingEmbedder()
+    contour_calls: list[str] = []
+    monkeypatch.setattr(bhm_app, "BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: False)
+    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory(embedder))
+    monkeypatch.setattr(
+        bhm_app,
+        "_search_memory_collection",
+        lambda *, context_origin, **_kwargs: contour_calls.append(context_origin),
+    )
+
+    async def exercise() -> None:
+        try:
+            with pytest.raises(bhm_app.EmbeddingPreparationTimeout):
+                await bhm_app.federated_search(
+                    "cold embedding boundary",
+                    "blackholememory",
+                    limit=5,
+                    include_graph_expansion=False,
+                )
+            assert await asyncio.to_thread(embedder.started.wait, 0.2)
+        finally:
+            embedder.release.set()
+
+    asyncio.run(exercise())
+    assert embedder.calls == 1
+    assert contour_calls == []
+
+
+def test_embedding_provider_connection_error_remains_fallback_grace_eligible(monkeypatch):
+    class FailingEmbedder:
+        @staticmethod
+        def embed(_query: str, *_args):
+            raise ConnectionError("local provider unavailable")
+
+    class FakeMemory:
+        embedding_model = FailingEmbedder()
+
+    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: False)
+    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(
+        bhm_app,
+        "_search_memory_collection",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("contours must not retry failed embedding")),
+    )
+
+    with pytest.raises(ConnectionError) as exc_info:
+        asyncio.run(
+            bhm_app.federated_search(
+                "provider exception boundary",
+                "blackholememory",
+                limit=5,
+                include_graph_expansion=False,
+            )
+        )
+
+    assert bhm_app._is_fallback_grace_error(exc_info.value) is True
+
+
 def test_advanced_search_without_project_is_scoped_and_missing_vector_metadata_fails_closed(monkeypatch):
     monkeypatch.setattr(bhm_app.settings, "qdrant_collection", "blackholememory")
     monkeypatch.setattr(

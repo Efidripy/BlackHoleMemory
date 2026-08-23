@@ -65,6 +65,7 @@ from .resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
 from .resource_limits import BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS
 from .resource_limits import BHM_CODE_GRAPH_SOFT_WAIT_SECONDS
 from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
+from .resource_limits import BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS
 from .resource_limits import BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS
 from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
 from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
@@ -613,6 +614,10 @@ _WINDOWS_CREATE_NO_WINDOW = 0x08000000
 
 class ResponseTimeout(Exception):
     """Local transport/readiness timeout that should fall back to disk snapshots."""
+
+
+class EmbeddingPreparationTimeout(ResponseTimeout):
+    """A bounded federated query embedding did not complete in time."""
 
 
 _PROVIDER_WARMUP_REQUIRED = os.getenv("BHM_PROVIDER_WARMUP_DISABLED", "").lower() not in {"1", "true", "yes"}
@@ -13182,6 +13187,49 @@ def _cached_query_embedding(memory: Any, query: str) -> Any:
     return vector
 
 
+def _consume_late_read_worker(task: asyncio.Task[Any]) -> None:
+    """Consume a detached read worker so its eventual exception is not lost."""
+
+    try:
+        task.result()
+    except (asyncio.CancelledError, Exception):
+        pass
+
+
+async def _prepare_federated_query_embedding(project_name: str, query: str) -> tuple[Any, float]:
+    """Prepare one reusable embedding without letting a cold provider block search.
+
+    The provider is synchronous, so a timed-out thread cannot be stopped safely.
+    The caller detaches from it after the bounded response deadline and follows
+    the established explicit fallback-grace route.  The late read result is
+    consumed and is never used to alter storage, ranking, or the response.
+    """
+
+    started = time.perf_counter()
+
+    def prepare() -> Any:
+        memory = get_project_mem0_memory(project_name)
+        return _cached_query_embedding(memory, query)
+
+    worker_task = asyncio.create_task(asyncio.to_thread(prepare))
+    try:
+        embedding = await asyncio.wait_for(
+            asyncio.shield(worker_task),
+            timeout=BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS,
+        )
+    except TimeoutError as exc:
+        if worker_task.done():
+            # A provider-raised timeout is already part of the existing
+            # fallback taxonomy; preserve it instead of calling it a deadline.
+            raise
+        worker_task.add_done_callback(_consume_late_read_worker)
+        raise EmbeddingPreparationTimeout("federated embedding preparation timed out") from exc
+    except asyncio.CancelledError:
+        worker_task.add_done_callback(_consume_late_read_worker)
+        raise
+    return embedding, (time.perf_counter() - started) * 1000.0
+
+
 def _merge_unique_strings(*values: Any) -> list[str]:
     merged: list[str] = []
     for value in values:
@@ -13687,6 +13735,7 @@ def _federated_contour_trace(
             "enabled": embedding_enabled,
             "status": "completed" if embedding_enabled else "skipped",
             "duration_ms": _bounded_trace_duration_ms(embedding_duration_ms),
+            "deadline_ms": BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS * 1000.0,
         },
         "contours": recorded,
         "storage_mutation": False,
@@ -13863,10 +13912,12 @@ async def federated_search(
     query_embedding = None
     embedding_duration_ms = 0.0
     if query.strip():
-        embedding_started = time.perf_counter()
-        embedding_memory = await asyncio.to_thread(get_project_mem0_memory, project_name)
-        query_embedding = await asyncio.to_thread(_cached_query_embedding, embedding_memory, query)
-        embedding_duration_ms = (time.perf_counter() - embedding_started) * 1000.0
+        try:
+            query_embedding, embedding_duration_ms = await _prepare_federated_query_embedding(project_name, query)
+        except Exception:
+            if exact_task is not None:
+                exact_task.add_done_callback(_consume_late_read_worker)
+            raise
 
     local_task = asyncio.create_task(
         _run_timed_retrieval_contour(
