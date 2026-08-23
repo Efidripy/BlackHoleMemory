@@ -57,6 +57,7 @@ FILE_DOMAINS = {
     "test_wi15_security.py": "observations",
     "test_wi17_final_acceptance.py": "quality",
     "test_caller_auth_boundary.py": "observations",
+    "test_wl3004_policy_rehearsal.py": "observations",
 }
 
 # Ordered from the most specific to the broad compatibility buckets.
