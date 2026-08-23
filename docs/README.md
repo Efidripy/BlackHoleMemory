@@ -10,6 +10,7 @@
   policy, capability gates и границы эскалации.
 - [SQLite retention](sqlite-retention.md) — автоматическая и офлайн-очистка истории.
 - [Data hygiene](data-hygiene.md) — двухфазная очистка точных disposable project IDs.
+- [Local artifact cleanup](local-artifact-cleanup.md) — fail-closed очистка только воспроизводимых локальных cache/scratch-артефактов.
 - [Диагностика](troubleshooting.md) — что проверить, если runtime не стартует.
 - [Benchmarks](benchmarks/bhm-value-benchmark.md) — публичная методика и ограничения измерений.
 
