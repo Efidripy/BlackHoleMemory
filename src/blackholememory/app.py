@@ -186,6 +186,9 @@ from .ontology_registry import OntologyRegistryError
 from .ontology_registry import OntologyRelationWrite
 from .ontology_registry import admit_relation_write
 from .ontology_registry import resolve_active_schema
+from .ontology_quarantine import ARTIFACT_TYPE as ONTOLOGY_QUARANTINE_ARTIFACT_TYPE
+from .ontology_quarantine import build_quarantine_artifact
+from .ontology_quarantine import serialize_quarantine_record
 from .governed_shared_memory import SharedMemoryRequest
 from .governed_shared_memory import SharedOperation
 from .governed_shared_memory import SharedVisibility
@@ -4400,6 +4403,52 @@ def _active_ontology_schema(project: str):
         ) from exc
 
 
+def _append_ontology_quarantine(receipt: Any) -> dict[str, Any]:
+    """Persist a rejected link intent without admitting a link or projection."""
+
+    artifact = build_quarantine_artifact(receipt)
+    try:
+        stored, inserted = _memory_service().append_artifact(artifact)
+    except (MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "ontology_quarantine_unavailable", "reason": _safe_exception_text(exc)},
+        ) from exc
+    return {**serialize_quarantine_record(stored), "stored": inserted}
+
+
+def _list_ontology_quarantine(project: str, limit: int = 100) -> dict[str, Any]:
+    """Return a bounded project-local worklist; no resolution is applied here."""
+
+    canonical_project = _canonical_project(project)
+    bounded_limit = max(1, min(int(limit), 200))
+    try:
+        records = _memory_service().list_artifact_records(
+            artifact_type=ONTOLOGY_QUARANTINE_ARTIFACT_TYPE,
+            project=canonical_project,
+            limit=bounded_limit,
+        )
+    except (MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "ontology_quarantine_unavailable", "reason": _safe_exception_text(exc)},
+        ) from exc
+    items = [serialize_quarantine_record(item) for item in records]
+    return {
+        "schema_version": "bhm.ontology-quarantine-list.v1",
+        "project": canonical_project,
+        "items": items,
+        "count": len(items),
+        "limit": bounded_limit,
+        "execution": {
+            "sqlite_mutation": False,
+            "link_storage_mutation": False,
+            "qdrant_mutation": False,
+            "mem0_mutation": False,
+        },
+    }
+
+
 def _shared_memory_policy_preflight(
     request: SharedMemoryPolicyPreflightRequest,
     *,
@@ -7291,6 +7340,7 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
             ),
         )
         if receipt.decision != "allow":
+            quarantine = _append_ontology_quarantine(receipt)
             raise HTTPException(
                 status_code=409,
                 detail={
@@ -7298,6 +7348,7 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
                     "reason_code": receipt.reason_code,
                     "schema_digest": receipt.schema_digest,
                     "relation": receipt.relation,
+                    "quarantine": quarantine,
                 },
             )
         metadata["ontology"] = {
@@ -18686,6 +18737,11 @@ def bhm_relation_apply_suggestions(request: RelationApplySuggestionsRequest) -> 
 @app.post("/bhm/memory/merge-preview")
 def bhm_memory_merge_preview(request: MemoryMergePreviewRequest) -> dict:
     return _memory_merge_preview(request)
+
+
+@app.get("/bhm/ontology/quarantine")
+def bhm_ontology_quarantine_list(project: str, limit: int = 100) -> dict:
+    return _list_ontology_quarantine(project, limit)
 
 
 @app.post("/bhm/schema/upgrade-all")

@@ -37,7 +37,7 @@ def test_registered_catalog_has_no_missing_or_duplicate_core_tools():
     assert report["missing_core"] == []
     assert report["missing_extended_public"] == []
     assert report["duplicates"] == []
-    assert report["admin_count"] == 154
+    assert report["admin_count"] == 155
 
 
 def test_surface_resolution_fails_closed_and_supports_operator_aliases(monkeypatch):

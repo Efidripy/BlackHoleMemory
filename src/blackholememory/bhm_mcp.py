@@ -1706,6 +1706,11 @@ def bhm_memory_merge_preview(project: str, source_id: str, target_id: str) -> di
     return _post("/bhm/memory/merge-preview", {"project": project, "source_id": source_id, "target_id": target_id})
 
 
+@mcp.tool(name="bhm_ontology_quarantine_list", description="List bounded content-free ontology relation worklist items for one project. It never admits or modifies a link.")
+def bhm_ontology_quarantine_list(project: str, limit: int = 100) -> dict[str, Any]:
+    return _get("/bhm/ontology/quarantine", {"project": project, "limit": limit})
+
+
 @mcp.tool(name="bhm_schema_upgrade_all", description="Apply a lightweight schema upgrade pass to all live memories.")
 def bhm_schema_upgrade_all(project: str | None = None, aggregate: bool = False) -> dict[str, Any]:
     return _post("/bhm/schema/upgrade-all", {"project": project, "aggregate": aggregate})
