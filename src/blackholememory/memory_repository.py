@@ -125,6 +125,14 @@ class MemoryRepository(Protocol):
 
     def get_memories(self, memory_ids: Iterable[str], *, project: str | None = None) -> list[Memory]: ...
 
+    def find_exact_identifier_candidate_ids(
+        self,
+        project: str,
+        token: str,
+        *,
+        limit: int = 200,
+    ) -> list[str]: ...
+
     def get_memory_by_upsert_key(
         self,
         project: str,
@@ -1147,6 +1155,54 @@ class SQLiteMemoryRepository:
                     memory = self._joined_memory_row_to_model(row)
                     found[memory.id] = memory
             return [found[memory_id] for memory_id in ids if memory_id in found]
+        finally:
+            connection.close()
+
+    def find_exact_identifier_candidate_ids(
+        self,
+        project: str,
+        token: str,
+        *,
+        limit: int = 200,
+    ) -> list[str]:
+        """Return a bounded SQLite prefilter for an exact-identifier query.
+
+        This is deliberately only a *superset* prefilter. Callers must hydrate
+        the returned IDs from SQLite and perform the exact token and route
+        filters in Python before exposing a hit. Keeping that second boundary
+        avoids treating SQLite substring matching as a new retrieval authority.
+        """
+
+        project_id = str(project or "").strip()
+        normalized_token = str(token or "").strip().casefold()
+        bounded_limit = max(1, min(int(limit), 200))
+        if not project_id or not normalized_token:
+            return []
+        connection = self._read_connection()
+        try:
+            rows = connection.execute(
+                """
+                SELECT m.memory_id
+                FROM memories AS m
+                JOIN memory_revisions AS r ON r.revision_id = m.current_revision_id
+                WHERE m.project = ?
+                  AND m.lifecycle = 'active'
+                  AND (
+                    instr(lower(COALESCE(r.content, '')), ?) > 0
+                    OR instr(lower(COALESCE(m.title, '')), ?) > 0
+                    OR instr(lower(COALESCE(m.summary, '')), ?) > 0
+                    OR instr(lower(COALESCE(m.upsert_key, '')), ?) > 0
+                    OR instr(lower(COALESCE(m.tags_json, '')), ?) > 0
+                    OR instr(lower(COALESCE(m.files_json, '')), ?) > 0
+                    OR instr(lower(COALESCE(m.metadata_json, '')), ?) > 0
+                  )
+                ORDER BY m.memory_id
+                LIMIT ?
+                """,
+                (project_id, normalized_token, normalized_token, normalized_token, normalized_token,
+                 normalized_token, normalized_token, normalized_token, bounded_limit),
+            ).fetchall()
+            return [str(row["memory_id"]) for row in rows]
         finally:
             connection.close()
 

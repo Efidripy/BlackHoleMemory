@@ -160,6 +160,37 @@ def test_repository_targeted_lookup_uses_ids_and_active_upsert_key(tmp_path):
     )
 
 
+def test_repository_exact_identifier_prefilter_is_project_and_lifecycle_scoped(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    matching = _memory(
+        memory_id="mem_bhm_exact_match",
+        content="contract_321_anchor is in the canonical content",
+    )
+    metadata_match = _memory(
+        memory_id="mem_bhm_exact_metadata",
+        content="ordinary content",
+        upsert_key="contract_321_anchor:metadata",
+    )
+    archived = _memory(
+        memory_id="mem_bhm_exact_archived",
+        content="contract_321_anchor is archived",
+        lifecycle="archived",
+    )
+    foreign = _memory(
+        memory_id="mem_bhm_exact_foreign",
+        content="contract_321_anchor belongs elsewhere",
+    ).model_copy(update={"project": "other-project"})
+    repository.save_memories_atomic([matching, metadata_match, archived, foreign])
+
+    assert repository.find_exact_identifier_candidate_ids(
+        "blackholememory", "CONTRACT_321_ANCHOR"
+    ) == ["mem_bhm_exact_match", "mem_bhm_exact_metadata"]
+    assert repository.find_exact_identifier_candidate_ids("other-project", "contract_321_anchor") == [
+        "mem_bhm_exact_foreign"
+    ]
+    assert repository.find_exact_identifier_candidate_ids("blackholememory", "") == []
+
+
 def test_repository_atomic_batch_rolls_back_memories_revisions_and_outbox(tmp_path):
     repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
     first = _memory(memory_id="mem_bhm_atomic_first")

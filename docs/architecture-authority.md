@@ -105,6 +105,12 @@ metrics remain evaluation evidence and cannot enable a runtime retrieval path.
   embedding/local/global/exact contour timings. It never includes query text,
   IDs, memory content, paths, scores or provider errors, and it cannot change
   ranking or feature flags.
+- The opt-in exact-identifier lane begins with a bounded, project-scoped,
+  active-lifecycle SQLite substring prefilter that returns IDs only. Those IDs
+  are then hydrated from SQLite and rechecked by the Python exact-token and
+  route filters. The prefilter may over-return but cannot itself authorize a
+  result; it has no cache, schema migration, Qdrant/Mem0 dependency, or write
+  path.
 - `POST /bhm/memory/used` is the separate explicit access-feedback operation;
   its `side_effects.projection_update` is `explicit-access-feedback` and its
   response reports whether a bounded Qdrant payload update was scheduled.

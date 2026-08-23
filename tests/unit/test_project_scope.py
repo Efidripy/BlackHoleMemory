@@ -165,7 +165,25 @@ def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(mon
     monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: True)
     monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
     monkeypatch.setattr(bhm_app, "_search_memory_collection", lambda **_kwargs: [])
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: [record])
+
+    class FakeService:
+        @staticmethod
+        def find_exact_identifier_candidate_ids(_project, _token, *, limit):
+            assert limit > 0
+            return ["mem-exact-identifier", "foreign-false-positive"]
+
+        @staticmethod
+        def get_records(source_ids, *, project):
+            assert project == "blackholememory"
+            assert source_ids == ["mem-exact-identifier", "foreign-false-positive"]
+            return [record]
+
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(
+        bhm_app,
+        "_load_live_memories",
+        lambda: (_ for _ in ()).throw(AssertionError("full exact snapshot used")),
+    )
 
     hits, total = asyncio.run(
         bhm_app.federated_search(
@@ -207,10 +225,24 @@ def test_opt_in_exact_identifier_snapshot_work_overlaps_vector_contours(monkeypa
         "metadata": {"content_sha256": "c" * 64, "lifecycle": "active", "semantic_type": "architecture"},
     }
 
+    class FakeService:
+        @staticmethod
+        def find_exact_identifier_candidate_ids(_project, _token, *, limit):
+            exact_started.set()
+            assert limit > 0
+            assert release_exact.wait(timeout=2.0)
+            return ["mem-exact-overlap"]
+
+        @staticmethod
+        def get_records(source_ids, *, project):
+            assert source_ids == ["mem-exact-overlap"]
+            assert project == "blackholememory"
+            return [record]
+
     def blocking_snapshot():
+        """Guard against accidentally restoring a full-store exact snapshot."""
         exact_started.set()
-        assert release_exact.wait(timeout=2.0)
-        return [record]
+        raise AssertionError("full exact snapshot used")
 
     def vector_contour(**_kwargs):
         vector_started.set()
@@ -218,6 +250,7 @@ def test_opt_in_exact_identifier_snapshot_work_overlaps_vector_contours(monkeypa
 
     monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: True)
     monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
     monkeypatch.setattr(bhm_app, "_load_live_memories", blocking_snapshot)
     monkeypatch.setattr(bhm_app, "_search_memory_collection", vector_contour)
 
