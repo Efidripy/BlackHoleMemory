@@ -64,6 +64,8 @@ class RetrievalReceipt(BaseModel):
     abstained: bool = False
     latency_seconds: float = Field(ge=0.0)
     route: str = "local"
+    project: str | None = Field(default=None, min_length=1, max_length=160)
+    provenance_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("retrieved_ids", mode="before")
     @classmethod
@@ -206,6 +208,17 @@ def _render_metrics(groups: dict[str, dict[str, float]]) -> dict[str, dict[str, 
     return {name: {"count": int(values["count"]), "recall_at_k": round(values["recall"] / values["count"], 6) if values["count"] else None, "precision_at_k": round(values["precision"] / values["count"], 6) if values["count"] else None, "mrr": round(values["mrr"] / values["count"], 6) if values["count"] else None, "map_at_k": round(values["map"] / values["count"], 6) if values["count"] else None, "ndcg_at_k": round(values["ndcg"] / values["count"], 6) if values["count"] else None, "abstention_accuracy": round(values["abstention"] / values["count"], 6) if values["count"] else None} for name, values in sorted(groups.items())}
 
 
+def _percentile(values: list[float], quantile: float) -> float | None:
+    if not values:
+        return None
+    index = max(0, min(len(values) - 1, math.ceil(len(values) * quantile) - 1))
+    return values[index]
+
+
+def _ratio(numerator: int, denominator: int) -> float | None:
+    return round(numerator / denominator, 6) if denominator else None
+
+
 def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalReceipt, ...], *, k: int = 5) -> dict[str, Any]:
     """Evaluate recorded retrieval only; missing receipts fail closed in report."""
 
@@ -215,7 +228,14 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
     categories: dict[str, dict[str, float]] = defaultdict(_new_metrics)
     sessions: dict[str, dict[str, float]] = defaultdict(_new_metrics)
     turns: dict[str, dict[str, float]] = defaultdict(_new_metrics)
+    routes: dict[str, dict[str, float]] = defaultdict(_new_metrics)
     missing: list[str] = []
+    temporal_total = temporal_correct = 0
+    update_total = update_correct = 0
+    expected_abstentions = predicted_abstentions = correct_abstentions = 0
+    project_leakage_case_ids: list[str] = []
+    provenance_unproven_case_ids: list[str] = []
+    provenance_mismatch_case_ids: list[str] = []
     for case in manifest.cases:
         receipt = receipt_by_case.get(case.case_id)
         if receipt is None:
@@ -223,9 +243,11 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
             continue
         expected = set(case.expected_ids)
         actual = receipt.retrieved_ids[:k]
-        hits = len(expected & set(actual))
-        group_names = (case.category, case.session_id, f"{case.session_id}/{case.turn_id or case.case_id}")
-        for group, name in zip((categories, sessions, turns), group_names, strict=True):
+        actual_set = set(actual)
+        hits = len(expected & actual_set)
+        fully_correct = bool(expected) and expected.issubset(actual_set)
+        group_names = (case.category, case.session_id, f"{case.session_id}/{case.turn_id or case.case_id}", receipt.route)
+        for group, name in zip((categories, sessions, turns, routes), group_names, strict=True):
             values = group[name]
             values["count"] += 1
             if expected:
@@ -235,8 +257,29 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
                 values["map"] += _average_precision(expected, actual)
                 values["ndcg"] += _ndcg(expected, actual)
             values["abstention"] += float(receipt.abstained is case.expected_abstention)
+        if case.category in {"temporal", "changing_fact"}:
+            temporal_total += 1
+            temporal_correct += int(fully_correct)
+        if case.category in {"knowledge_update", "changing_fact"}:
+            update_total += 1
+            update_correct += int(fully_correct)
+        if case.expected_abstention:
+            expected_abstentions += 1
+            correct_abstentions += int(receipt.abstained)
+        if receipt.abstained:
+            predicted_abstentions += 1
+        if receipt.project is None or receipt.provenance_digest is None:
+            provenance_unproven_case_ids.append(case.case_id)
+        else:
+            if receipt.project != case.project:
+                project_leakage_case_ids.append(case.case_id)
+            if receipt.provenance_digest != case.source_digest:
+                provenance_mismatch_case_ids.append(case.case_id)
     latencies = sorted(receipt.latency_seconds for receipt in receipts)
-    p95_index = max(0, min(len(latencies) - 1, int(len(latencies) * 0.95) - 1)) if latencies else None
+    provenance_evaluated_count = len(manifest.cases) - len(missing) - len(provenance_unproven_case_ids)
+    isolation_passed: bool | None = None
+    if provenance_evaluated_count == len(manifest.cases):
+        isolation_passed = not project_leakage_case_ids and not provenance_mismatch_case_ids
     report = {
         "schema_version": SCHEMA_VERSION,
         "manifest_digest": manifest.digest(),
@@ -248,8 +291,29 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
         "metrics_by_category": _render_metrics(categories),
         "metrics_by_session": _render_metrics(sessions),
         "metrics_by_turn": _render_metrics(turns),
-        "latency_p95_seconds": latencies[p95_index] if p95_index is not None else None,
-        "execution": {"network": False, "model_calls": 0, "sqlite_mutation": False, "qdrant_mutation": False},
+        "metrics_by_route": _render_metrics(routes),
+        "capability_metrics": {
+            "temporal_accuracy": {"case_count": temporal_total, "correct_count": temporal_correct, "accuracy": _ratio(temporal_correct, temporal_total)},
+            "update_consistency": {"case_count": update_total, "correct_count": update_correct, "accuracy": _ratio(update_correct, update_total)},
+            "abstention": {
+                "expected_count": expected_abstentions,
+                "predicted_count": predicted_abstentions,
+                "correct_count": correct_abstentions,
+                "precision": _ratio(correct_abstentions, predicted_abstentions),
+                "recall": _ratio(correct_abstentions, expected_abstentions),
+            },
+        },
+        "provenance_and_isolation": {
+            "evaluated_case_count": provenance_evaluated_count,
+            "coverage": _ratio(provenance_evaluated_count, len(manifest.cases)),
+            "project_leakage_case_ids": sorted(project_leakage_case_ids),
+            "provenance_mismatch_case_ids": sorted(provenance_mismatch_case_ids),
+            "unproven_case_ids": sorted(provenance_unproven_case_ids),
+            "passed": isolation_passed,
+        },
+        "latency_p50_seconds": _percentile(latencies, 0.50),
+        "latency_p95_seconds": _percentile(latencies, 0.95),
+        "execution": {"network": False, "model_calls": 0, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False},
     }
     report["report_digest"] = _digest(report)
     return report

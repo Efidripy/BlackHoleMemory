@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -48,12 +50,31 @@ def test_evaluation_is_deterministic_and_separates_categories() -> None:
     assert first["metrics_by_session"]["s1"]["recall_at_k"] == 1.0
     assert first["metrics_by_turn"]["s1/t1"]["mrr"] == 0.5
     assert first["metrics_by_category"]["abstention"]["abstention_accuracy"] == 1.0
+    assert first["metrics_by_route"]["local"]["count"] == 2
+    assert first["capability_metrics"]["temporal_accuracy"] == {
+        "case_count": 1,
+        "correct_count": 1,
+        "accuracy": 1.0,
+    }
+    assert first["capability_metrics"]["abstention"] == {
+        "expected_count": 1,
+        "predicted_count": 1,
+        "correct_count": 1,
+        "precision": 1.0,
+        "recall": 1.0,
+    }
+    assert first["latency_p50_seconds"] == 0.1
+    assert first["latency_p95_seconds"] == 0.2
+    assert first["provenance_and_isolation"]["coverage"] == 0.0
+    assert first["provenance_and_isolation"]["passed"] is None
     assert first["execution"]["model_calls"] == 0
 
 
 def test_missing_receipts_are_reported_not_silently_scored() -> None:
     report = evaluate_retrieval(_manifest(), ())
     assert report["missing_case_ids"] == ["abstain", "temporal"]
+    assert report["provenance_and_isolation"]["coverage"] == 0.0
+    assert report["provenance_and_isolation"]["passed"] is None
 
 
 def test_bounds_reject_expensive_default_plan_and_invalid_k() -> None:
@@ -80,6 +101,51 @@ def test_bhm_owned_frozen_fixture_is_digest_bound_reproducible_and_offline() -> 
         "sqlite_mutation": False,
         "qdrant_mutation": False,
         "mem0_mutation": False,
+    }
+    assert report["metrics_by_route"]["temporal"]["count"] == 2
+    assert report["capability_metrics"]["temporal_accuracy"]["accuracy"] == 1.0
+    assert report["capability_metrics"]["update_consistency"]["accuracy"] == 1.0
+    assert report["provenance_and_isolation"] == {
+        "evaluated_case_count": 10,
+        "coverage": 1.0,
+        "project_leakage_case_ids": [],
+        "provenance_mismatch_case_ids": [],
+        "unproven_case_ids": [],
+        "passed": True,
+    }
+
+
+def test_evaluation_reports_project_leakage_without_suppressing_metrics() -> None:
+    manifest = _manifest()
+    temporal, abstention = manifest.cases
+    report = evaluate_retrieval(
+        manifest,
+        (
+            RetrievalReceipt(
+                case_id=temporal.case_id,
+                retrieved_ids=("m1",),
+                latency_seconds=0.1,
+                project="other-project",
+                provenance_digest=temporal.source_digest,
+            ),
+            RetrievalReceipt(
+                case_id=abstention.case_id,
+                abstained=True,
+                latency_seconds=0.2,
+                project=abstention.project,
+                provenance_digest=abstention.source_digest,
+            ),
+        ),
+    )
+
+    assert report["metrics_by_category"]["temporal"]["recall_at_k"] == 1.0
+    assert report["provenance_and_isolation"] == {
+        "evaluated_case_count": 2,
+        "coverage": 1.0,
+        "project_leakage_case_ids": ["temporal"],
+        "provenance_mismatch_case_ids": [],
+        "unproven_case_ids": [],
+        "passed": False,
     }
 
 
@@ -111,3 +177,26 @@ def test_frozen_fixture_rejects_case_suite_mismatch(tmp_path: Path) -> None:
 
     with pytest.raises(FrozenEvaluationFixtureError, match="case suite"):
         load_frozen_evaluation_fixture(altered)
+
+
+def test_frozen_fixture_cli_emits_offline_capability_and_isolation_metrics() -> None:
+    script = Path(__file__).resolve().parents[2] / "scripts" / "run-bhm-memory-evaluation.py"
+    result = subprocess.run(
+        [sys.executable, str(script), "--fixture", str(_FIXTURE_PATH)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["report"]["capability_metrics"]["temporal_accuracy"]["accuracy"] == 1.0
+    assert payload["report"]["provenance_and_isolation"]["passed"] is True
+    assert payload["report"]["execution"] == {
+        "network": False,
+        "model_calls": 0,
+        "sqlite_mutation": False,
+        "qdrant_mutation": False,
+        "mem0_mutation": False,
+    }
