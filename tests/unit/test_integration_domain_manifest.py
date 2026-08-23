@@ -22,10 +22,10 @@ def _integration_tests() -> list[tuple[str, str]]:
 def test_every_integration_test_has_one_domain():
     assignments = [classify_test(file_name, test_name) for file_name, test_name in _integration_tests()]
     # Keep the manifest fail-closed while accounting for the parity,
-    # semantic-readiness, security and cross-surface project-scope regression
-    # surfaces now present in the current test tree.
+    # semantic-readiness, security, cross-surface project-scope and governed
+    # shared-read concurrency regression surfaces now present in the tree.
     # Keep this exact inventory aligned with the checked-in integration
     # surface so newly added tests cannot bypass domain ownership silently.
-    assert len(assignments) == 282
+    assert len(assignments) == 283
     assert set(assignments) == set(DOMAIN_NAMES)
     assert all(assignments.count(domain) > 0 for domain in DOMAIN_NAMES)
