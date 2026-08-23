@@ -846,10 +846,12 @@ def test_fact_synthesis_provider_failure_uses_explicit_safe_fallback(monkeypatch
 
 def test_hook_compact_triggers_crystallization(monkeypatch):
     observation_calls: list[tuple[str, str, str]] = []
+    observed_metadata: list[dict] = []
     crystallize_calls: list[object] = []
 
     def fake_observation(request, endpoint):
         observation_calls.append((request.hookType, endpoint, request.project))
+        observed_metadata.append(dict(request.metadata))
         return {"id": "obs_hook_73"}
 
     def fake_crystallize(request):
@@ -896,6 +898,11 @@ def test_hook_compact_triggers_crystallization(monkeypatch):
     assert result["action"] == "created"
     assert result["memory"]["id"] == "mem_hook_crystal_73"
     assert result["source_ids"] == ["mem-source-1", "mem-source-2"]
+    assert result["tier_lifecycle"]["phase"] == "pre_compact"
+    assert result["tier_lifecycle"]["promotion"]["action"] == "none"
+    assert result["tier_lifecycle"]["anchor"]["kind"] == "pre_compact_anchor"
+    assert observed_metadata[0]["context_tier_lifecycle"] == result["tier_lifecycle"]
+    assert "mem-source-1" not in json.dumps(observed_metadata[0]["context_tier_lifecycle"])
     assert crystallize_calls and crystallize_calls[0].source_ids == ["mem-source-1", "mem-source-2"]
     assert observation_calls == [("codex_pre_compact", "compact", "BlackHoleMemory")]
 

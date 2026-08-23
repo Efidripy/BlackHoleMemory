@@ -167,6 +167,7 @@ from .context_tiers import ContextTier
 from .context_tiers import TierBudget
 from .context_tiers import TieredContextItem
 from .context_tiers import compile_tiered_context
+from .context_tier_lifecycle import build_context_tier_lifecycle_receipt
 from .adaptive_profile import recommend_context_profile
 from .adaptive_profile import summarize_explicit_usefulness
 from .context_confidence import assess_context_confidence
@@ -1545,6 +1546,14 @@ def _hook_job_result_summary(result: Any) -> dict[str, Any]:
         summary["memory"] = {"id": str(memory.get("id") or memory.get("source_id") or "")}
     if isinstance(result.get("source_ids"), list):
         summary["sourceCount"] = len(result["source_ids"])
+    tier_lifecycle = result.get("tier_lifecycle")
+    if isinstance(tier_lifecycle, dict):
+        summary["tierLifecycle"] = {
+            "receiptId": str(tier_lifecycle.get("receipt_id") or ""),
+            "phase": str(tier_lifecycle.get("phase") or "unmapped"),
+            "effectClass": str(tier_lifecycle.get("effect_class") or "none"),
+            "promotion": str((tier_lifecycle.get("promotion") or {}).get("action") or "none"),
+        }
     steps = result.get("steps")
     if isinstance(steps, dict):
         summary["steps"] = {
@@ -7546,6 +7555,30 @@ def _extract_hook_source_ids(request: BhmHookCompactRequest, transit_items: list
     return _dedupe_text(source_ids)
 
 
+def _with_context_tier_lifecycle_receipt(request: BhmHookRequest) -> tuple[BhmHookRequest, dict[str, Any]]:
+    """Bind a content-free tier lifecycle receipt to the sanitized observation.
+
+    This is intentionally metadata-only.  It creates no promotion lock and
+    does not alter the legacy compact/idle behaviour beyond persisting an
+    auditable lifecycle anchor with the existing observation event.
+    """
+
+    source_ids: list[str] = []
+    if isinstance(request, BhmHookCompactRequest):
+        source_ids = _extract_hook_source_ids(request, _hook_transit_items(request))
+    receipt = build_context_tier_lifecycle_receipt(
+        project=request.project,
+        session_id=request.sessionId,
+        event_id=request.eventId,
+        hook_type=request.hookType,
+        parent_event_id=request.parentEventId,
+        source_ids=source_ids,
+    )
+    metadata = dict(request.metadata or {})
+    metadata["context_tier_lifecycle"] = receipt
+    return request.model_copy(update={"metadata": metadata}), receipt
+
+
 def _hook_compact_concepts(request: BhmHookCompactRequest) -> list[str]:
     concepts = [
         "bhm",
@@ -7628,6 +7661,8 @@ def _build_hook_crystallize_request(request: BhmHookCompactRequest, source_ids: 
 
 
 def _handle_compact_hook(request: BhmHookCompactRequest) -> dict:
+    request = _ensure_hook_request_identity(request)
+    request, tier_lifecycle = _with_context_tier_lifecycle_receipt(request)
     observation = _append_hook_observation(request, "compact")
     transit_items = _hook_transit_items(request)
     source_ids = _extract_hook_source_ids(request, transit_items)
@@ -7644,6 +7679,7 @@ def _handle_compact_hook(request: BhmHookCompactRequest) -> dict:
             "reason": "empty_transit_buffer",
             "hook": {"type": request.hookType, "sessionId": request.sessionId, "project": request.project},
             "observation": {"id": observation.get("id")},
+            "tier_lifecycle": tier_lifecycle,
         }
 
     action, record = _crystallize_memories(_build_hook_crystallize_request(request, source_ids))
@@ -7655,6 +7691,7 @@ def _handle_compact_hook(request: BhmHookCompactRequest) -> dict:
         "materialized_source_ids": [record.get("source_id") for record in materialized_sources],
         "memory": _serialize_memory_record(record),
         "observation": {"id": observation.get("id")},
+        "tier_lifecycle": tier_lifecycle,
     }
 
 
@@ -7787,9 +7824,12 @@ async def _run_idle_reflection_daemon(request: BhmHookIdleRequest) -> dict:
 
 
 async def _run_idle_reflection_pipeline(request: BhmHookIdleRequest) -> dict:
+    request = _ensure_hook_request_identity(request)
+    request, tier_lifecycle = _with_context_tier_lifecycle_receipt(request)
     result: dict[str, Any] = {
         "success": True,
         "hook": {"type": request.hookType, "sessionId": request.sessionId, "project": request.project},
+        "tier_lifecycle": tier_lifecycle,
         "started_at": _utc_now_iso(),
         "steps": {},
     }
