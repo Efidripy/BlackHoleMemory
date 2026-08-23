@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from enum import Enum
 from typing import Literal
 
@@ -358,6 +359,64 @@ class ProcedureExecutionTraceReceipt(BaseModel):
         if self.receipt_digest is not None and self.receipt_digest != expected:
             raise ValueError("procedure trace receipt digest mismatch")
         object.__setattr__(self, "receipt_digest", expected)
+        return self
+
+
+_PROCEDURE_SIGNAL_ID = re.compile(r"^[a-z][a-z0-9_.:-]{0,95}$")
+
+
+class ProcedureOutcomeReceipt(BaseModel):
+    """Append-only, content-free outcome evidence for a procedure trace.
+
+    This receipt is intentionally evidence only.  It cannot revise a
+    ``ProcedureContract``, execute a procedure, or authorize a lifecycle
+    change.  The review builder independently binds it to the referenced
+    immutable trace before a failure pattern can be proposed.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["bhm.procedure-outcome.v1"] = "bhm.procedure-outcome.v1"
+    outcome_id: str = Field(min_length=1, max_length=160)
+    trace_receipt_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    project: str = Field(min_length=1, max_length=256)
+    memory_id: str = Field(min_length=1, max_length=256)
+    procedure_version: str = Field(min_length=1, max_length=64)
+    procedure_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    previous_procedure_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    status: Literal["succeeded", "failed"]
+    observed_at: str = Field(min_length=1, max_length=64)
+    failed_step_id: str | None = Field(default=None, min_length=1, max_length=128)
+    violated_assumption_ids: tuple[str, ...] = Field(default=(), max_length=32)
+    derived_precondition_ids: tuple[str, ...] = Field(default=(), max_length=32)
+    outcome_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def _validate_and_bind_digest(self) -> "ProcedureOutcomeReceipt":
+        for label, values in (
+            ("violated_assumption_ids", self.violated_assumption_ids),
+            ("derived_precondition_ids", self.derived_precondition_ids),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"procedure outcome {label} must be unique")
+            if any(_PROCEDURE_SIGNAL_ID.fullmatch(value) is None for value in values):
+                raise ValueError(f"procedure outcome {label} must contain bounded identifiers only")
+        if self.status == "succeeded":
+            if self.failed_step_id is not None or self.violated_assumption_ids or self.derived_precondition_ids:
+                raise ValueError("successful procedure outcome cannot carry failure signals")
+        elif not (
+            self.failed_step_id
+            and self.violated_assumption_ids
+            and self.derived_precondition_ids
+        ):
+            raise ValueError("failed procedure outcome requires failed step, violated assumptions and derived preconditions")
+        payload = self.model_dump(mode="json", exclude={"outcome_digest"})
+        expected = hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if self.outcome_digest is not None and self.outcome_digest != expected:
+            raise ValueError("procedure outcome receipt digest mismatch")
+        object.__setattr__(self, "outcome_digest", expected)
         return self
 
 
