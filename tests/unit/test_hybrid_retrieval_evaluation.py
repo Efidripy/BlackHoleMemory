@@ -4,10 +4,12 @@ import pytest
 
 from blackholememory.hybrid_retrieval_evaluation import RRF_K
 from blackholememory.hybrid_retrieval_evaluation import RRF_WEIGHTS
+from blackholememory.hybrid_retrieval_evaluation import build_exact_identifier_candidate_index
 from blackholememory.hybrid_retrieval_evaluation import build_hybrid_retrieval_cases
 from blackholememory.hybrid_retrieval_evaluation import build_sqlite_fts5_candidate_index
 from blackholememory.hybrid_retrieval_evaluation import candidate_augmented_rank
 from blackholememory.hybrid_retrieval_evaluation import evaluate_hybrid_retrieval
+from blackholememory.hybrid_retrieval_evaluation import exact_identifier_rank
 from blackholememory.hybrid_retrieval_evaluation import fixed_rrf_rank
 from blackholememory.hybrid_retrieval_evaluation import promotion_recommendation
 from blackholememory.hybrid_retrieval_evaluation import sqlite_fts5_bm25_rank
@@ -31,13 +33,28 @@ def test_fixture_is_bounded_and_fts5_rejects_cross_project_archived_and_log_hits
     assert not any("cross-project" in source_id or "archived" in source_id or source_id.endswith("-log") for source_id in ranked)
 
 
+def test_exact_identifier_route_is_project_scoped_and_excludes_inactive_rows() -> None:
+    cases = build_hybrid_retrieval_cases(100)
+    identifier_case = next(case for case in cases if case.scenario == "identifier_recovery")
+    connection = build_exact_identifier_candidate_index(cases)
+    try:
+        ranked = exact_identifier_rank(connection, identifier_case)
+        no_identifier_case = next(case for case in cases if case.scenario == "paraphrase_semantic")
+        assert exact_identifier_rank(connection, no_identifier_case) == []
+    finally:
+        connection.close()
+
+    assert identifier_case.relevant_ids.issubset(ranked)
+    assert not any("cross-project" in source_id or "archived" in source_id or source_id.endswith("-log") for source_id in ranked)
+
+
 def test_evaluation_is_deterministic_without_external_backends() -> None:
     cases = build_hybrid_retrieval_cases(100)
     first = evaluate_hybrid_retrieval(cases=cases, repeats=3, current_ranker=_stable_current)
     second = evaluate_hybrid_retrieval(cases=cases, repeats=3, current_ranker=_stable_current)
 
     assert first["fixture_digest"] == second["fixture_digest"]
-    for mode in ("current_bhm", "current_plus_fts5_candidate", "fixed_rrf"):
+    for mode in ("current_bhm", "current_plus_fts5_candidate", "fixed_rrf", "current_plus_exact_identifier", "exact_identifier_fixed_rrf"):
         for metric in ("recall_at_5", "mrr", "project_leakage_count", "cases"):
             assert first["modes"][mode][metric] == second["modes"][mode][metric]
     assert first["execution"] == {
