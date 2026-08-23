@@ -23,6 +23,18 @@ not remapped or copied automatically. A later migration requires the exact
 same snapshot, a verified backup, a typed dry-run, explicit operator approval
 and post-apply parity smoke.
 
+## Hierarchical context tiers
+
+The opt-in `tiered_context=true` compiler is a read-only context-selection
+policy, not a memory lifecycle controller. Its `working`, `session`,
+`project` and `archival` budgets emit deterministic inclusion/omission and
+provenance receipts; lifecycle anchors explicitly declare `promotion=none`.
+Run `scripts/validate-bhm-context-tiers.py` only against its synthetic offline
+fixture to check this contract. It does not read live memories or mutate
+SQLite, Qdrant, Mem0, a promotion lock or a session record. Any future
+session-to-durable promotion remains an independently approved, typed
+operation.
+
 ## Projection safety
 
 - Read/search routes (`/bhm/search`, `/bhm/search/advanced`,
