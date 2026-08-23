@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "bhm.local-artifact-retention-policy.v1",
+  "managedRoots": [
+    ".",
+    ".runtime",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".playwright-cli",
+    ".coverage",
+    ".ci-local.log"
+  ],
+  "protectedRoots": [
+    ".runtime/live-memory",
+    ".runtime/backups",
+    ".runtime/rollback",
+    ".runtime/semantic-link-migration",
+    ".runtime/data-hygiene",
+    ".runtime/refinery",
+    ".runtime/validation",
+    ".runtime/launcher-backups",
+    ".runtime/qdrant-local"
+  ],
+  "rules": [
+    {
+      "id": "empty-pytest-runtime-scratch",
+      "parent": ".runtime",
+      "glob": "pytest-*",
+      "kind": "directory",
+      "emptyOnly": true,
+      "minAgeDays": 7
+    },
+    {
+      "id": "stale-root-cache",
+      "parent": ".",
+      "glob": ".pytest_cache",
+      "kind": "directory",
+      "emptyOnly": false,
+      "minAgeDays": 14
+    },
+    {
+      "id": "stale-ruff-cache",
+      "parent": ".",
+      "glob": ".ruff_cache",
+      "kind": "directory",
+      "emptyOnly": false,
+      "minAgeDays": 14
+    },
+    {
+      "id": "stale-playwright-cache",
+      "parent": ".",
+      "glob": ".playwright-cli",
+      "kind": "directory",
+      "emptyOnly": false,
+      "minAgeDays": 14
+    },
+    {
+      "id": "stale-local-coverage",
+      "parent": ".",
+      "glob": ".coverage",
+      "kind": "file",
+      "minAgeDays": 14
+    },
+    {
+      "id": "stale-local-ci-log",
+      "parent": ".",
+      "glob": ".ci-local.log",
+      "kind": "file",
+      "minAgeDays": 14
+    },
+    {
+      "id": "superseded-launcher-cold-start-rehearsal-20260820",
+      "parent": ".runtime",
+      "glob": "launcher-cold-start-9e2ddff332bd4a57825ea1378e23fb5f",
+      "kind": "directory",
+      "emptyOnly": false,
+      "minAgeDays": 3
+    }
+  ]
+}
