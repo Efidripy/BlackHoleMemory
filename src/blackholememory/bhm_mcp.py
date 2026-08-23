@@ -1996,6 +1996,47 @@ def bhm_shared_memory_policy_preflight(
     return _post("/bhm/shared-memory/policy/evaluate", body)
 
 
+@mcp.tool(name="bhm_utility_feedback_record", description="Append one caller-bound, immutable utility signal for an existing project memory. This never changes lifecycle or projections.")
+def bhm_utility_feedback_record(
+    event_id: Annotated[str, Field(min_length=1, max_length=160)],
+    memory_id: Annotated[str, Field(min_length=1, max_length=160)],
+    event_type: Literal["retrieved", "used", "accepted", "dismissed", "corrected", "contradicted"],
+    observed_at: Annotated[str, Field(min_length=20, max_length=64)],
+    request_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")],
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    confidence: Annotated[float | None, Field(ge=0.0, le=1.0)] = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "event_id": event_id,
+        "memory_id": memory_id,
+        "event_type": event_type,
+        "observed_at": observed_at,
+        "request_digest": request_digest,
+        "project": project,
+    }
+    if confidence is not None:
+        body["confidence"] = confidence
+    return _post("/bhm/utility-feedback/event", body)
+
+
+@mcp.tool(name="bhm_utility_feedback_report", description="Return a deterministic read-only utility report for one project; low scores never trigger lifecycle changes.")
+def bhm_utility_feedback_report(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    as_of: Annotated[str, Field(min_length=20, max_length=64)],
+    half_life_days: Annotated[float, Field(ge=0.25, le=3_650)] = 30.0,
+    min_samples: Annotated[int, Field(ge=1, le=10_000)] = 3,
+) -> dict[str, Any]:
+    return _get(
+        "/bhm/utility-feedback/report",
+        {
+            "project": project,
+            "as_of": as_of,
+            "half_life_days": half_life_days,
+            "min_samples": min_samples,
+        },
+    )
+
+
 @mcp.tool(name="bhm_remember", description=f"Save a durable memory entry into BHM. {TAXONOMY_METADATA_HINT}")
 def bhm_remember(
     content: str,

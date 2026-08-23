@@ -94,6 +94,8 @@ _EXPLICIT_PROJECT_SCOPE_PATHS = frozenset(
         "/bhm/memory/schema-validate",
         "/bhm/memory/changelog",
         "/bhm/memory/used",
+        "/bhm/utility-feedback/event",
+        "/bhm/utility-feedback/report",
         "/bhm/memory/restore-hard-deleted-preview",
         "/bhm/memory/timeline",
         "/bhm/recent-activity",

@@ -15,7 +15,7 @@ def test_surface_report_exposes_current_inventory_without_deletion():
     # Keep the static catalog count fail-closed against accidental deletion.
     # The governed shared-memory policy-preflight tool is operator-only and
     # registered in addition to the historical CBM-parity additions.
-    assert payload["inventory"]["mcp_registered"] == 187
+    assert payload["inventory"]["mcp_registered"] == 189
     assert payload["inventory"]["openapi_operations"] >= 130
     assert payload["inventory"]["openapi_admin_only"] > 0
     assert any(item["name"] == "bhm_batch_upsert_memories" for item in payload["deprecate_candidates"])

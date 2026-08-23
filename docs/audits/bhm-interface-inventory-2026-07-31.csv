@@ -439,3 +439,7 @@ REST/WS,GET,/openapi-public.json,openapi_public,src/blackholememory/app.py,16230
 REST/WS,GET,/openapi-admin.json,openapi_admin,src/blackholememory/app.py,16235,false
 MCP_STATIC,TOOL,bhm_shared_memory_policy_preflight,bhm_shared_memory_policy_preflight,src/blackholememory/bhm_mcp.py,1969,n/a
 REST/WS,POST,/bhm/shared-memory/policy/evaluate,bhm_shared_memory_policy_evaluate,src/blackholememory/app.py,18658,default
+MCP_STATIC,TOOL,bhm_utility_feedback_record,bhm_utility_feedback_record,src/blackholememory/bhm_mcp.py,2000,n/a
+MCP_STATIC,TOOL,bhm_utility_feedback_report,bhm_utility_feedback_report,src/blackholememory/bhm_mcp.py,2023,n/a
+REST/WS,POST,/bhm/utility-feedback/event,bhm_utility_feedback_record,src/blackholememory/app.py,18884,default
+REST/WS,GET,/bhm/utility-feedback/report,bhm_utility_feedback_report,src/blackholememory/app.py,18899,default
