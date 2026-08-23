@@ -126,6 +126,10 @@ def test_authoritative_launcher_starts_sidecar_when_qdrant_recovery_is_skipped()
     assert "Start-ProjectionSidecar" in initial_ready_block
     no_wait_block = text[text.index("if ($NoWait)") : text.index("$result = Wait-Authoritative")]
     assert "Start-ProjectionSidecar" in no_wait_block
+    sidecar_start = text[text.index("function Start-ProjectionSidecar") : text.index("function Get-BhmCallerToken")]
+    assert "Start-Process -FilePath 'powershell.exe'" in sidecar_start
+    assert "'-Action', 'Start', '-NoWait'" in sidecar_start
+    assert "& powershell.exe" not in sidecar_start
     final_start = text[text.index("# `-SkipProjectionRecovery`") :]
     assert "Start-ProjectionSidecar" in final_start
 
