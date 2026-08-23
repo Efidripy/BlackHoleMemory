@@ -14595,6 +14595,13 @@ def _public_code_contract_digest() -> str:
             "arbitrary_sql": False,
             "second_namespace": False,
         },
+        "ontology_boundary": {
+            "schema_version": "bhm.code-graph-ontology-boundary.v1",
+            "authority": "sqlite-authoritative-code-graph",
+            "memory_link_bridge": "forbidden",
+            "unknown_edge_policy": "visible-unresolved",
+            "schema_activation": "read-only-declared",
+        },
         "indexing": {
             "max_files_per_run": BHM_INDEX_MAX_FILES_PER_RUN,
             "resumable": True,
@@ -16034,6 +16041,9 @@ async def bhm_public_code_tools(
     if operation == "schema":
         if current is None:
             raise HTTPException(status_code=503, detail={"error": "graph_snapshot_unavailable"})
+        summary = dict(current.get("summary") or {})
+        node_kinds = sorted(str(kind) for kind in dict(summary.get("node_kinds") or {}))
+        edge_kinds = sorted(str(kind) for kind in dict(summary.get("edge_kinds") or {}))
         return {
             "schema_version": "bhm.public-code-tools.v1",
             "contract_digest": _public_code_contract_digest(),
@@ -16046,9 +16056,19 @@ async def bhm_public_code_tools(
             "parser_registry_digest": PARSER_REGISTRY_DIGEST,
             "language_inventory_digest": LANGUAGE_INVENTORY_DIGEST,
             "parser_capabilities": parser_capability_matrix(),
-            "summary": current.get("summary") or {},
+            "summary": summary,
             "allowed_operations": sorted(CODE_GRAPH_QUERY_OPERATIONS),
             "edge_authority": "sqlite-authoritative",
+            "declared_graph_schema": {
+                "schema_version": "bhm.code-graph-ontology-boundary.v1",
+                "domain": "repository-code-graph",
+                "authority": "sqlite-authoritative-code-graph",
+                "node_kinds": node_kinds,
+                "edge_kinds": edge_kinds,
+                "unknown_edge_policy": "visible-unresolved",
+                "memory_link_bridge": "forbidden",
+                "activation": "read-only-declared",
+            },
             "execution": {"writes_sqlite_state": False, "raw_source_returned": False, "arbitrary_sql": False},
         }
     if operation == "coverage":
