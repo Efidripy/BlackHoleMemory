@@ -11,6 +11,8 @@ import math
 from collections.abc import Iterable
 from typing import Any
 
+from .mcp_surfaces import CORE_TOOL_NAMES
+
 
 SCHEMA_VERSION = "bhm.mcp.final-gate.v1"
 ROUTINE_COLD_ATTACHES = 25
@@ -18,7 +20,9 @@ ROUTINE_RECOVERY_CYCLES = 10
 REQUIRED_COLD_ATTACHES = 100
 REQUIRED_RECOVERY_CYCLES = 50
 EXPECTED_CLIENTS = ("codex", "claude")
-EXPECTED_TOOL_COUNT = 12
+# Keep policy thresholds bound to the live canonical core catalog.  The P26
+# additive code-intelligence surface expanded it beyond the historical 12.
+EXPECTED_TOOL_COUNT = len(CORE_TOOL_NAMES)
 COLD_INITIALIZE_CATALOG_P95_MS = 5_000.0
 RECOVERY_ATTACH_AFTER_READY_P95_MS = 15_000.0
 

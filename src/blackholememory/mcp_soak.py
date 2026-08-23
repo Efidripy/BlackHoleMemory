@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from .mcp_surfaces import CORE_TOOL_NAMES
+
 
 SCHEMA_VERSION = "bhm.mcp.multi-session-soak.v1"
 MAX_CLIENTS = 10
@@ -18,7 +20,7 @@ DEFAULT_ROUNDS = 3
 MAX_ROUNDS = 5
 DEFAULT_RESTART_ROUND = 2
 MAX_RESTARTS = 1
-EXPECTED_TOOL_COUNT = 12
+EXPECTED_TOOL_COUNT = len(CORE_TOOL_NAMES)
 
 FORBIDDEN_KEYS = frozenset(
     {
