@@ -23,6 +23,14 @@ not remapped or copied automatically. A later migration requires the exact
 same snapshot, a verified backup, a typed dry-run, explicit operator approval
 and post-apply parity smoke.
 
+`scripts/propose-bhm-legacy-ontology-schemas.py` can separately derive a
+content-free, proposal-only per-project schema candidate from exact
+same-project active `DEPENDS_ON` read-model edges. It neither persists nor
+activates a schema; `UPGRADES` and every missing, inactive or cross-project
+edge remain explicit review reasons. A proposal still requires operator review,
+explicit persistence, explicit activation and an admission smoke before it can
+govern a write.
+
 ## Hierarchical context tiers
 
 The opt-in `tiered_context=true` compiler is a read-only context-selection

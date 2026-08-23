@@ -284,10 +284,20 @@ def build_live_semantic_graph_migration_plan(
 ) -> dict[str, Any]:
     """Read current sources through SQLite ``mode=ro`` and bounded JSON input."""
 
+    edges, endpoints, schemas = load_semantic_graph_migration_inputs(database, semantic_graph)
+    return build_semantic_graph_migration_plan(edges, endpoints, schemas, project=project)
+
+
+def load_semantic_graph_migration_inputs(
+    database: Path | str,
+    semantic_graph: Path | str,
+) -> tuple[tuple[dict[str, str], ...], dict[str, tuple[str, str]], dict[str, OntologySchema | None]]:
+    """Load bounded legacy inputs through the same read-only authority boundary."""
+
     edges = _read_legacy_edges(Path(semantic_graph))
     endpoint_ids = tuple(sorted({edge["source_id"] for edge in edges} | {edge["target_id"] for edge in edges}))
     endpoints, schemas = _read_sqlite_state(Path(database), endpoint_ids)
-    return build_semantic_graph_migration_plan(edges, endpoints, schemas, project=project)
+    return edges, endpoints, schemas
 
 
 __all__ = [
@@ -295,4 +305,5 @@ __all__ = [
     "SemanticGraphMigrationPlanError",
     "build_live_semantic_graph_migration_plan",
     "build_semantic_graph_migration_plan",
+    "load_semantic_graph_migration_inputs",
 ]
