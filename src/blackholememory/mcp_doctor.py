@@ -998,6 +998,7 @@ def run_doctor(config: DoctorConfig | None = None) -> dict[str, Any]:
         "catalog": protocol.get("catalog", {}),
         "leases": leases,
         "connection": connection,
+        "process_ownership": ownership,
         "next_action": next_action,
         "privacy": {
             "raw_config_values": False,

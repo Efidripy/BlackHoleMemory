@@ -10,9 +10,10 @@ import os
 from pathlib import Path
 import sys
 import urllib.request
-from typing import Any
+from typing import Any, Mapping
 
 from bhm_runtime_endpoints import endpoint_url
+from bhm_runtime_endpoints import validate_loopback_endpoint
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -54,9 +55,17 @@ from blackholememory.mcp_final_gate import EXPECTED_CLIENTS
 from blackholememory.mcp_doctor import DoctorConfig
 from blackholememory.mcp_doctor import VALIDATION_SCHEMA_VERSION
 from blackholememory.mcp_doctor import run_doctor
+from blackholememory.caller_auth import configured_caller_token
 from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+
+
+# P26 adds bounded code-intelligence tools to the canonical catalog.  The
+# validator must retain the historical minimum without rejecting a healthy
+# additive expansion of the catalog.
+MIN_EXPECTED_TOOL_COUNT = 12
 
 
 FORBIDDEN_KEYS = {
@@ -87,9 +96,20 @@ def _args() -> argparse.Namespace:
 
 
 def _get_json(base_url: str, path: str) -> dict[str, Any]:
+    try:
+        base_url = validate_loopback_endpoint(base_url)
+    except ValueError as exc:
+        raise LocalEndpointError(str(exc)) from exc
+    token = configured_caller_token()
+    if len(token) < 32:
+        raise RuntimeError("BHM_CALLER_TOKEN is unavailable")
     request = urllib.request.Request(
         f"{base_url.rstrip('/')}{path}",
-        headers={"Accept": "application/json", "User-Agent": "BHM-P18.14-Validator/1.7.1"},
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "BHM-P18.14-Validator/1.7.1",
+        },
     )
     with open_local_url(request, timeout=BHM_INTERNAL_HTTP_TIMEOUT_SECONDS) as response:
         status_value = getattr(response, "status", None)
@@ -113,6 +133,32 @@ def _contains_forbidden_key(value: Any) -> bool:
     if isinstance(value, list):
         return any(_contains_forbidden_key(item) for item in value)
     return False
+
+
+def _catalog_is_compatible(catalog: Mapping[str, Any]) -> bool:
+    """Accept the baseline catalog and additive, usable tool expansions."""
+
+    try:
+        tool_count = int(catalog.get("tool_count") or 0)
+    except (TypeError, ValueError):
+        tool_count = 0
+    return (
+        catalog.get("usable") is True
+        and tool_count >= MIN_EXPECTED_TOOL_COUNT
+        and len(str(catalog.get("schema_hash") or "")) == 64
+        and len(str(catalog.get("generation") or "")) == 64
+    )
+
+
+def _ownership_is_safe(ownership: Mapping[str, Any]) -> bool:
+    """Treat retired legacy ownership as safe, not as an active failure."""
+
+    return (
+        ownership.get("status") in {"clean", "retired"}
+        and ownership.get("invalid_record_count") == 0
+        and ownership.get("orphaned_count") == 0
+        and ownership.get("broad_process_kill") is False
+    )
 
 
 def main() -> int:
@@ -149,9 +195,9 @@ def main() -> int:
         "runtime": runtime.get("ready") is True and runtime.get("cutover") is True and runtime.get("slo") == "healthy",
         "pipe": pipe.get("connected") is True,
         "protocol": protocol.get("ok") is True and protocol.get("initialize_ok") is True and protocol.get("shutdown_ok") is True,
-        "catalog": catalog.get("usable") is True and catalog.get("tool_count") == 12 and len(str(catalog.get("schema_hash") or "")) == 64 and len(str(catalog.get("generation") or "")) == 64,
+        "catalog": _catalog_is_compatible(catalog),
         "leases_detached": leases.get("status") == "detached" and leases.get("active_count") == 0,
-        "ownership": ownership.get("status") == "clean" and ownership.get("invalid_record_count") == 0 and ownership.get("orphaned_count") == 0 and ownership.get("broad_process_kill") is False,
+        "ownership": _ownership_is_safe(ownership),
         "next_action_bounded": next_action.get("severity") in {"none", "medium"} and bool(next_action.get("reason_code")) and bool(next_action.get("action")),
         "privacy": not _contains_forbidden_key(report),
         "slo_after": after_slo.get("status") == "healthy" and int((after_slo.get("observed") or {}).get("outbox", {}).get("failed", 0)) == 0,
