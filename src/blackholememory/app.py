@@ -149,6 +149,10 @@ from .project_retirement import preview_project_retirement
 from .retrieval_filters import build_candidate_filters
 from .retrieval_fusion import weighted_rank_fusion
 from .retrieval_diversity import mmr_select
+from .exact_identifier_retrieval import ExactIdentifierIndex
+from .exact_identifier_retrieval import build_exact_identifier_hits
+from .exact_identifier_retrieval import exact_identifier_enabled
+from .exact_identifier_retrieval import exact_identifier_tokens
 from .semantic_observation import build_semantic_observation
 from .runtime_endpoints import validate_loopback_listener_host
 from .semantic_relevance_receipt import build_semantic_relevance_receipt
@@ -13509,7 +13513,51 @@ async def federated_search(
     now = datetime.now(timezone.utc)
     local_hits = _apply_decay_to_vector_hits(local_hits, now)
     global_hits = _apply_decay_to_vector_hits(global_hits, now)
-    combined_results = merge_and_sort_hits(local_hits, global_hits)
+    exact_hits: list[dict] = []
+    exact_snapshot_digest = ""
+    # WL-295.4 remains opt-in and disabled by default.  The route is bounded
+    # to one authoritative SQLite snapshot and never writes the derived
+    # projection; the existing Qdrant/Mem0 path remains the fallback.
+    if query.strip() and exact_identifier_enabled() and exact_identifier_tokens(query, query=True):
+        authoritative_records = _load_live_memories()
+        exact_index = ExactIdentifierIndex.build(
+            authoritative_records,
+            include_record=lambda record: _memory_matches_filters(
+                record,
+                project=project_name,
+                memory_type=memory_type,
+                memory_class=memory_class,
+                event_role=event_role,
+                include_archived=include_archived,
+                include_logs=include_logs,
+                domain=domain,
+                semantic_type=semantic_type,
+                priority=priority,
+                as_of=as_of,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                include_temporal_unknown=include_temporal_unknown,
+            ),
+        )
+        exact_source_ids: list[str] = []
+        for candidate_project in _project_aliases(project_name):
+            for source_id in exact_index.lookup(
+                query,
+                project=candidate_project,
+                limit=candidate_count - len(exact_source_ids),
+            ):
+                if source_id not in exact_source_ids:
+                    exact_source_ids.append(source_id)
+                if len(exact_source_ids) >= candidate_count:
+                    break
+            if len(exact_source_ids) >= candidate_count:
+                break
+        exact_hits = build_exact_identifier_hits(authoritative_records, exact_source_ids)
+        exact_snapshot_digest = exact_index.snapshot_digest
+        for hit in exact_hits:
+            hit.setdefault("metadata", {})["exact_identifier_snapshot_digest"] = exact_snapshot_digest
+        exact_hits = _apply_decay_to_vector_hits(exact_hits, now)
+    combined_results = merge_and_sort_hits([*local_hits, *exact_hits], global_hits)
     if temporal_filter_requested:
         # Temporal fields in Qdrant are an optional projection.  Hydrate from
         # SQLite before filtering so stale or missing projection payloads never
