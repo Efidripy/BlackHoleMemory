@@ -3,7 +3,6 @@
   "managedRoots": [
     ".",
     ".runtime",
-    ".runtime-legacy",
     ".pytest_cache",
     ".ruff_cache",
     ".playwright-cli",
@@ -25,14 +24,6 @@
     {
       "id": "empty-pytest-runtime-scratch",
       "parent": ".runtime",
-      "glob": "pytest-*",
-      "kind": "directory",
-      "emptyOnly": true,
-      "minAgeDays": 7
-    },
-    {
-      "id": "empty-pytest-runtime-legacy-scratch",
-      "parent": ".runtime-legacy",
       "glob": "pytest-*",
       "kind": "directory",
       "emptyOnly": true,

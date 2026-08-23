@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "bhm.runtime-artifact-governance.v1",
+  "rules": [
+    {
+      "id": "authoritative-sqlite",
+      "path": ".runtime/live-memory",
+      "owner": "runtime",
+      "class": "authoritative-storage",
+      "disposition": "protected",
+      "reason": "Active SQLite authority; never archive or delete while BHM is installed."
+    },
+    {
+      "id": "qdrant-projection",
+      "path": ".runtime/qdrant-local",
+      "owner": "runtime",
+      "class": "rebuildable-projection",
+      "disposition": "protected",
+      "reason": "Active local Qdrant projection; its recovery is a separate operational workflow."
+    },
+    {
+      "id": "sqlite-retention-recovery-anchor",
+      "path": ".runtime/backups/sqlite-retention",
+      "owner": "WL-293",
+      "class": "recovery-anchor",
+      "disposition": "protected",
+      "reason": "Contains the verified retention rollback lineage referenced by current operator tooling."
+    },
+    {
+      "id": "recent-migration-backups",
+      "path": ".runtime/backups",
+      "owner": "migration-programme",
+      "class": "recovery-evidence",
+      "disposition": "manual-classification",
+      "reason": "Mixed active and historical rollback lineage; classify child entries before any archive action."
+    },
+    {
+      "id": "wl174-validation",
+      "path": ".runtime/validation/wl-174",
+      "owner": "WL-174/WL-175",
+      "class": "validation-receipt",
+      "disposition": "archive-review",
+      "minimumRetentionDays": 90,
+      "reason": "Staged sidecar reconciliation proof and rollback drill; retain through the current migration gate."
+    },
+    {
+      "id": "wl292-refinery",
+      "path": ".runtime/refinery",
+      "owner": "WL-292",
+      "class": "migration-rehearsal",
+      "disposition": "archive-review",
+      "minimumRetentionDays": 90,
+      "reason": "Refinery rehearsal, restore probe and sealed rollback evidence."
+    },
+    {
+      "id": "historical-rollback",
+      "path": ".runtime/rollback",
+      "owner": "pre-reindex history",
+      "class": "historical-rollback",
+      "disposition": "archive-review",
+      "minimumRetentionDays": 90,
+      "reason": "Historical rollback copies require an archive decision before removal."
+    },
+    {
+      "id": "historical-migration-backups",
+      "path": ".runtime/backups/migration",
+      "owner": "P1.7",
+      "class": "historical-migration-backup",
+      "disposition": "archive-review",
+      "minimumRetentionDays": 90,
+      "reason": "Observation migration backup lineage."
+    },
+    {
+      "id": "historical-retention-backups",
+      "path": ".runtime/backups/retention",
+      "owner": "P1.6/P1.7",
+      "class": "historical-retention-backup",
+      "disposition": "archive-review",
+      "minimumRetentionDays": 90,
+      "reason": "Historical retention rehearsal and gate receipts."
+    },
+    {
+      "id": "historical-reconciliation-backups",
+      "path": ".runtime/backups/reconciliation",
+      "owner": "P1.8",
+      "class": "historical-reconciliation-backup",
+      "disposition": "archive-review",
+      "minimumRetentionDays": 90,
+      "reason": "Historical sidecar reconciliation backup lineage."
+    },
+    {
+      "id": "launcher-backups",
+      "path": ".runtime/launcher-backups",
+      "owner": "launcher",
+      "class": "operator-recovery",
+      "disposition": "manual-classification",
+      "reason": "Launcher rollback material needs its own release/rollback decision."
+    }
+  ]
+}
