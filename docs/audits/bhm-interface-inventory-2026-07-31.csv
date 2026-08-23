@@ -100,6 +100,7 @@ MCP_STATIC,TOOL,bhm_memory_triage_queue,bhm_memory_triage_queue,src/blackholemem
 MCP_STATIC,TOOL,bhm_project_summary_refresh_all,bhm_project_summary_refresh_all,src/blackholememory/bhm_mcp.py,1520,n/a
 MCP_STATIC,TOOL,bhm_relation_apply_suggestions,bhm_relation_apply_suggestions,src/blackholememory/bhm_mcp.py,1525,n/a
 MCP_STATIC,TOOL,bhm_memory_merge_preview,bhm_memory_merge_preview,src/blackholememory/bhm_mcp.py,1530,n/a
+MCP_STATIC,TOOL,bhm_ontology_quarantine_list,bhm_ontology_quarantine_list,src/blackholememory/bhm_mcp.py,1710,n/a
 MCP_STATIC,TOOL,bhm_schema_upgrade_all,bhm_schema_upgrade_all,src/blackholememory/bhm_mcp.py,1535,n/a
 MCP_STATIC,TOOL,bhm_memory_redact,bhm_memory_redact,src/blackholememory/bhm_mcp.py,1540,n/a
 MCP_STATIC,TOOL,bhm_secret_scan_existing_memories,bhm_secret_scan_existing_memories,src/blackholememory/bhm_mcp.py,1545,n/a
@@ -363,6 +364,7 @@ REST/WS,POST,/bhm/memory/triage-queue,bhm_memory_triage_queue,src/blackholememor
 REST/WS,POST,/bhm/project-summary/refresh-all,bhm_project_summary_refresh_all,src/blackholememory/app.py,15540,default
 REST/WS,POST,/bhm/relation/apply-suggestions,bhm_relation_apply_suggestions,src/blackholememory/app.py,15545,default
 REST/WS,POST,/bhm/memory/merge-preview,bhm_memory_merge_preview,src/blackholememory/app.py,15550,default
+REST/WS,GET,/bhm/ontology/quarantine,bhm_ontology_quarantine_list,src/blackholememory/app.py,18743,default
 REST/WS,POST,/bhm/schema/upgrade-all,bhm_schema_upgrade_all,src/blackholememory/app.py,15555,default
 REST/WS,POST,/bhm/memory/redact,bhm_memory_redact,src/blackholememory/app.py,15560,default
 REST/WS,POST,/bhm/memory/secret-scan,bhm_secret_scan_existing_memories,src/blackholememory/app.py,15565,default

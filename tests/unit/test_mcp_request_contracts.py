@@ -83,6 +83,22 @@ def test_link_tool_forwards_only_a_digest_pinned_ontology_contract(monkeypatch) 
     }
 
 
+def test_ontology_quarantine_list_forwards_a_bounded_project_read(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_get(path: str, params: dict) -> dict:
+        observed.update({"path": path, "params": params})
+        return {"ok": True}
+
+    monkeypatch.setattr(bhm_mcp, "_get", fake_get)
+
+    assert bhm_mcp.bhm_ontology_quarantine_list("blackholememory", limit=25) == {"ok": True}
+    assert observed == {
+        "path": "/bhm/ontology/quarantine",
+        "params": {"project": "blackholememory", "limit": 25},
+    }
+
+
 def test_shared_memory_policy_preflight_forwards_only_governance_fields(monkeypatch) -> None:
     observed: dict[str, object] = {}
 

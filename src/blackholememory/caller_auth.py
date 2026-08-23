@@ -107,6 +107,7 @@ _EXPLICIT_PROJECT_SCOPE_PATHS = frozenset(
         "/bhm/memory/diff",
         "/bhm/memory/merge",
         "/bhm/memory/merge-preview",
+        "/bhm/ontology/quarantine",
         "/bhm/memory/hard",
         "/bhm/memories/batch-archive",
         "/bhm/memories/batch-delete",
