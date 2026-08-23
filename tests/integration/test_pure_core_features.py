@@ -407,7 +407,29 @@ def test_fallback_grace_is_explicitly_degraded_and_read_only(monkeypatch):
     assert metadata["mode"] == "degraded"
     assert metadata["policy"] == "explicit"
     assert metadata["read_only"] is True
+    assert metadata["stage"] == "unknown"
     assert "storage" in metadata
+
+
+def test_fallback_grace_stage_is_content_free_and_typed(monkeypatch):
+    monkeypatch.setenv("BHM_FALLBACK_MODE", "explicit")
+
+    embedding = bhm_app._fallback_grace_meta(
+        "mem0.search",
+        bhm_app.EmbeddingPreparationTimeout("provider detail must not escape"),
+    )
+    contour = bhm_app._fallback_grace_meta("mem0.search", bhm_app.ResponseTimeout("slow contour"))
+    transport = bhm_app._fallback_grace_meta("mem0.search", ConnectionError("private endpoint"))
+    http = bhm_app._fallback_grace_meta("mem0.search", HTTPException(status_code=503, detail="private detail"))
+
+    assert embedding["stage"] == "embedding_preparation"
+    assert contour["stage"] == "retrieval_contour"
+    assert transport["stage"] == "provider_transport"
+    assert http["stage"] == "provider_http"
+    serialized = json.dumps([embedding, contour, transport, http], ensure_ascii=False)
+    assert "provider detail" not in serialized
+    assert "private endpoint" not in serialized
+    assert "private detail" not in serialized
 
 
 def test_fallback_grace_does_not_disclose_exception_text_or_filesystem_paths(monkeypatch):

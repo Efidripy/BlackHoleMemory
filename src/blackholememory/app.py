@@ -1047,6 +1047,20 @@ def _safe_fallback_storage() -> dict[str, Any]:
     }
 
 
+def _fallback_grace_stage(reason: Exception) -> str:
+    """Return a bounded, content-free phase for a degraded read response."""
+
+    if isinstance(reason, EmbeddingPreparationTimeout):
+        return "embedding_preparation"
+    if isinstance(reason, ResponseTimeout):
+        return "retrieval_contour"
+    if isinstance(reason, ConnectionError):
+        return "provider_transport"
+    if isinstance(reason, HTTPException):
+        return "provider_http"
+    return "unknown"
+
+
 def _fallback_grace_meta(route: str, reason: Exception) -> dict[str, Any]:
     global _FALLBACK_GRACE_ACTIVE_UNTIL
     _FALLBACK_GRACE_ACTIVE_UNTIL = time.monotonic() + (_TELEMETRY_INTERVAL_SECONDS * 2)
@@ -1057,6 +1071,7 @@ def _fallback_grace_meta(route: str, reason: Exception) -> dict[str, Any]:
         "policy": _configured_fallback_mode(),
         "read_only": True,
         "route": route,
+        "stage": _fallback_grace_stage(reason),
         "reason": type(reason).__name__,
         "registry": _read_json_snapshot(_mcp_registry_snapshot_path()),
         "provider_warmup": _safe_fallback_provider_warmup(),
