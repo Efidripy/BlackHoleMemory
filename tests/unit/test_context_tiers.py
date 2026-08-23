@@ -50,9 +50,51 @@ def test_pre_compact_lifecycle_receipt_is_deterministic_and_content_free() -> No
     assert first["effect_class"] == "transient_model_context"
     assert first["anchor"]["kind"] == "pre_compact_anchor"
     assert first["promotion"]["action"] == "none"
+    assert first["promotion"]["lock"] == "not_acquired"
+    assert first["promotion"]["lock_preview"] == {
+        "schema_version": "bhm.context-tier-promotion-lock-preview.v1",
+        "lock_key_digest": first["promotion"]["lock_preview"]["lock_key_digest"],
+        "state": "not_acquired",
+        "replay_identity": "same_event_and_source_set",
+        "acquisition": "policy_gate_disabled",
+        "candidate_selection": "not_started",
+    }
+    assert len(first["promotion"]["lock_preview"]["lock_key_digest"]) == 64
     assert first["provenance"]["source_count"] == 2
     assert "memory-a" not in json.dumps(first)
     assert "memory-b" not in json.dumps(first)
+
+
+def test_promotion_lock_preview_is_scoped_and_does_not_reserve_a_lock() -> None:
+    baseline = build_context_tier_lifecycle_receipt(
+        project="blackholememory",
+        session_id="session-1",
+        event_id="event-1",
+        hook_type="codex_pre_compact",
+        source_ids=("memory-a",),
+    )
+    changed_event = build_context_tier_lifecycle_receipt(
+        project="blackholememory",
+        session_id="session-1",
+        event_id="event-2",
+        hook_type="codex_pre_compact",
+        source_ids=("memory-a",),
+    )
+    changed_sources = build_context_tier_lifecycle_receipt(
+        project="blackholememory",
+        session_id="session-1",
+        event_id="event-1",
+        hook_type="codex_pre_compact",
+        source_ids=("memory-b",),
+    )
+
+    preview = baseline["promotion"]["lock_preview"]
+    assert preview["state"] == "not_acquired"
+    assert preview["acquisition"] == "policy_gate_disabled"
+    assert preview["candidate_selection"] == "not_started"
+    assert preview["lock_key_digest"] != changed_event["promotion"]["lock_preview"]["lock_key_digest"]
+    assert preview["lock_key_digest"] != changed_sources["promotion"]["lock_preview"]["lock_key_digest"]
+    assert "memory-a" not in json.dumps(preview)
 
 
 def test_resume_lifecycle_requires_an_explicit_parent_link() -> None:

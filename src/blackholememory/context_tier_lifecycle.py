@@ -15,6 +15,7 @@ from typing import Iterable
 
 
 SCHEMA_VERSION = "bhm.context-tier-lifecycle.v1"
+PROMOTION_LOCK_PREVIEW_SCHEMA_VERSION = "bhm.context-tier-promotion-lock-preview.v1"
 
 
 def _normalized(value: object) -> str:
@@ -51,6 +52,38 @@ def _effect_class(phase: str) -> str:
 def _sha256(value: object) -> str:
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _promotion_lock_preview(
+    *,
+    event_identity_digest: str,
+    source_refs_digest: str,
+    phase: str,
+) -> dict[str, object]:
+    """Describe the future lock identity without acquiring or persisting it.
+
+    The digest ties a possible promotion to the same sanitized lifecycle event
+    and selected source-reference set.  An eventual durable operation must add
+    its own candidate content digest, authority snapshot, policy decision and
+    transactional lease; this read-only receipt cannot reserve a lock or make
+    a candidate eligible.
+    """
+
+    identity = {
+        "schema_version": PROMOTION_LOCK_PREVIEW_SCHEMA_VERSION,
+        "event_identity_digest": event_identity_digest,
+        "source_refs_digest": source_refs_digest,
+        "phase": phase,
+    }
+    lock_key_digest = _sha256(identity)
+    return {
+        "schema_version": PROMOTION_LOCK_PREVIEW_SCHEMA_VERSION,
+        "lock_key_digest": lock_key_digest,
+        "state": "not_acquired",
+        "replay_identity": "same_event_and_source_set",
+        "acquisition": "policy_gate_disabled",
+        "candidate_selection": "not_started",
+    }
 
 
 def build_context_tier_lifecycle_receipt(
@@ -121,6 +154,11 @@ def build_context_tier_lifecycle_receipt(
             "action": "none",
             "state": "policy_gate_disabled",
             "lock": "not_acquired",
+            "lock_preview": _promotion_lock_preview(
+                event_identity_digest=identity_digest,
+                source_refs_digest=source_refs_digest,
+                phase=phase,
+            ),
             "reason": "explicit_operator_policy_required",
         },
         "execution": {
@@ -131,4 +169,8 @@ def build_context_tier_lifecycle_receipt(
     }
 
 
-__all__ = ["SCHEMA_VERSION", "build_context_tier_lifecycle_receipt"]
+__all__ = [
+    "PROMOTION_LOCK_PREVIEW_SCHEMA_VERSION",
+    "SCHEMA_VERSION",
+    "build_context_tier_lifecycle_receipt",
+]

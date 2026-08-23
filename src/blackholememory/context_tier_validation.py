@@ -78,6 +78,7 @@ def build_context_tier_validation_report(*, iterations: int = 32, p95_budget_ms:
         "no_storage_or_promotion_mutation": execution == {"sqlite_mutation": False, "qdrant_mutation": False, "promotion": "none"},
         "precompact_anchor_is_content_free": pre_compact["anchor"] is not None and pre_compact["anchor"].get("kind") == "pre_compact_anchor" and "synthetic-source-a" not in json.dumps(pre_compact, sort_keys=True),
         "resume_requires_parent_link": resume["anchor"] is not None and resume["anchor"].get("parent_event_link_present") is True and resume["promotion"].get("action") == "none",
+        "promotion_lock_preview_is_unacquired": pre_compact["promotion"].get("lock") == "not_acquired" and (pre_compact["promotion"].get("lock_preview") or {}).get("state") == "not_acquired" and (pre_compact["promotion"].get("lock_preview") or {}).get("candidate_selection") == "not_started",
         "p95_within_budget": p95 <= p95_budget_ms,
     }
     report = {
