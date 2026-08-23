@@ -77,6 +77,27 @@ def test_missing_receipts_are_reported_not_silently_scored() -> None:
     assert report["provenance_and_isolation"]["passed"] is None
 
 
+def test_duplicate_or_unknown_receipts_fail_closed_without_latency_pollution() -> None:
+    report = evaluate_retrieval(
+        _manifest(),
+        (
+            RetrievalReceipt(case_id="temporal", retrieved_ids=("m1",), latency_seconds=0.1),
+            RetrievalReceipt(case_id="temporal", retrieved_ids=("m1",), latency_seconds=9.9),
+            RetrievalReceipt(case_id="abstain", abstained=True, latency_seconds=0.2),
+            RetrievalReceipt(case_id="unknown", retrieved_ids=("x",), latency_seconds=8.8),
+        ),
+    )
+
+    assert report["missing_case_ids"] == ["temporal"]
+    assert report["scored_receipt_count"] == 1
+    assert report["input_integrity"] == {
+        "duplicate_receipt_case_ids": ["temporal"],
+        "unknown_receipt_case_ids": ["unknown"],
+        "valid": False,
+    }
+    assert report["latency_p95_seconds"] == 0.2
+
+
 def test_bounds_reject_expensive_default_plan_and_invalid_k() -> None:
     with pytest.raises(ValueError):
         EvaluationManifest(
@@ -95,6 +116,11 @@ def test_bhm_owned_frozen_fixture_is_digest_bound_reproducible_and_offline() -> 
     assert len(fixture["manifest"].cases) <= 50
     assert report == run_frozen_evaluation_fixture(_FIXTURE_PATH)
     assert report["missing_case_ids"] == []
+    assert report["input_integrity"] == {
+        "duplicate_receipt_case_ids": [],
+        "unknown_receipt_case_ids": [],
+        "valid": True,
+    }
     assert report["execution"] == {
         "network": False,
         "model_calls": 0,
