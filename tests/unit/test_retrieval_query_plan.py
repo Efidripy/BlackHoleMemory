@@ -64,3 +64,37 @@ def test_query_plan_reports_empty_candidates_and_bounds_untrusted_fields() -> No
     assert plan["underfill_reason"] == "no_eligible_candidates"
     assert plan["duration_ms"] == 60_000.0
     assert plan["stages"][2]["returned_by_route"] == {}
+
+
+def test_query_plan_accepts_only_content_free_allowlisted_contour_timings() -> None:
+    plan = build_retrieval_query_plan(
+        requested_limit=5,
+        offset=0,
+        total_candidates=1,
+        returned_hits=[],
+        duration_ms=1.0,
+        include_global=True,
+        include_graph_expansion=True,
+        typed_filter_requested=False,
+        temporal_filter_requested=False,
+        contour_trace={
+            "schema_version": "bhm.retrieval-contour-trace.v1",
+            "total_duration_ms": 1.23456,
+            "embedding": {"enabled": True, "duration_ms": 0.4, "query": "secret"},
+            "contours": [
+                {"name": "local_vector", "enabled": True, "status": "completed", "duration_ms": 0.5, "id": "secret-id"},
+                {"name": "bad", "enabled": True, "status": "completed", "duration_ms": 99},
+            ],
+        },
+    )
+
+    timing = plan["stages"][3]
+    assert timing == {
+        "name": "contour_timings",
+        "schema_version": "bhm.retrieval-contour-trace.v1",
+        "total_duration_ms": 1.235,
+        "embedding": {"enabled": True, "status": "completed", "duration_ms": 0.4},
+        "contours": [{"name": "local_vector", "enabled": True, "status": "completed", "duration_ms": 0.5}],
+    }
+    assert "secret" not in str(plan)
+    assert "secret-id" not in str(plan)

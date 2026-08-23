@@ -20,6 +20,7 @@ import urllib.request
 import uuid
 from collections import Counter
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Literal, Mapping, Sequence
@@ -13585,6 +13586,87 @@ def _compile_tiered_context_candidates(
     }
 
 
+@dataclass(frozen=True)
+class FederatedSearchOutcome:
+    """Backward-compatible federated result plus content-free contour timing."""
+
+    hits: list[dict]
+    total: int
+    contour_trace: dict[str, Any]
+
+    def __iter__(self):
+        """Preserve the established ``hits, total = await federated_search`` API."""
+
+        yield self.hits
+        yield self.total
+
+
+@dataclass(frozen=True)
+class _TimedRetrievalContour:
+    name: str
+    duration_ms: float
+    result: Any = None
+    error: Exception | None = None
+
+
+async def _run_timed_retrieval_contour(name: str, worker: Any, /, *args: Any, **kwargs: Any) -> _TimedRetrievalContour:
+    """Run one read-only contour and retain only bounded timing/status evidence."""
+
+    started = time.perf_counter()
+    try:
+        result = await asyncio.to_thread(worker, *args, **kwargs)
+        return _TimedRetrievalContour(
+            name=name,
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+            result=result,
+        )
+    except Exception as exc:
+        return _TimedRetrievalContour(
+            name=name,
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+            error=exc,
+        )
+
+
+def _bounded_trace_duration_ms(value: float) -> float:
+    return round(max(0.0, min(float(value), 60_000.0)), 3)
+
+
+def _federated_contour_trace(
+    *,
+    started: float,
+    embedding_duration_ms: float,
+    embedding_enabled: bool,
+    contours: Sequence[_TimedRetrievalContour],
+    exact_enabled: bool,
+) -> dict[str, Any]:
+    """Return only non-sensitive timings for one completed read-only search."""
+
+    recorded = [
+        {
+            "name": contour.name,
+            "enabled": True,
+            "status": "failed" if contour.error is not None else "completed",
+            "duration_ms": _bounded_trace_duration_ms(contour.duration_ms),
+        }
+        for contour in contours
+    ]
+    if not exact_enabled:
+        recorded.append({"name": "exact_identifier", "enabled": False, "status": "disabled", "duration_ms": 0.0})
+    return {
+        "schema_version": "bhm.retrieval-contour-trace.v1",
+        "total_duration_ms": _bounded_trace_duration_ms((time.perf_counter() - started) * 1000.0),
+        "embedding": {
+            "enabled": embedding_enabled,
+            "status": "completed" if embedding_enabled else "skipped",
+            "duration_ms": _bounded_trace_duration_ms(embedding_duration_ms),
+        },
+        "contours": recorded,
+        "storage_mutation": False,
+        "ranking_changed": False,
+    }
+
+
 def _build_exact_identifier_hits(
     *,
     query: str,
@@ -13677,7 +13759,8 @@ async def federated_search(
     include_logs: bool = False,
     include_graph_expansion: bool = True,
     include_global: bool = True,
-) -> tuple[list[dict], int]:
+) -> FederatedSearchOutcome:
+    started = time.perf_counter()
     _require_typed_memory_boundary(memory_class=memory_class, event_role=event_role)
     _require_temporal_memory_boundary(
         as_of=as_of,
@@ -13723,10 +13806,11 @@ async def federated_search(
         include_archived=include_archived,
         include_logs=include_logs,
     )
-    exact_task: asyncio.Task[tuple[list[dict], str]] | None = None
+    exact_task: asyncio.Task[_TimedRetrievalContour] | None = None
     if query.strip() and exact_identifier_enabled() and exact_identifier_tokens(query, query=True):
         exact_task = asyncio.create_task(
-            asyncio.to_thread(
+            _run_timed_retrieval_contour(
+                "exact_identifier",
                 _build_exact_identifier_hits,
                 query=query,
                 project_name=project_name,
@@ -13744,15 +13828,19 @@ async def federated_search(
                 include_archived=include_archived,
                 include_logs=include_logs,
             )
-        )
+    )
 
     query_embedding = None
+    embedding_duration_ms = 0.0
     if query.strip():
+        embedding_started = time.perf_counter()
         embedding_memory = await asyncio.to_thread(get_project_mem0_memory, project_name)
         query_embedding = await asyncio.to_thread(_cached_query_embedding, embedding_memory, query)
+        embedding_duration_ms = (time.perf_counter() - embedding_started) * 1000.0
 
     local_task = asyncio.create_task(
-        asyncio.to_thread(
+        _run_timed_retrieval_contour(
+            "local_vector",
             _search_memory_collection,
             query=query,
             project_name=project_name,
@@ -13766,7 +13854,8 @@ async def federated_search(
     if include_global:
         tasks.append(
             asyncio.create_task(
-                asyncio.to_thread(
+                _run_timed_retrieval_contour(
+                    "global_vector",
                     _search_memory_collection,
                     query=query,
                     project_name=project_name,
@@ -13778,20 +13867,20 @@ async def federated_search(
             )
         )
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = await asyncio.gather(*tasks)
     local_hits: list[dict] = []
     global_hits: list[dict] = []
     errors: list[Exception] = []
     contours = (_VECTOR_CONTEXT_LOCAL, _VECTOR_CONTEXT_GLOBAL) if include_global else (_VECTOR_CONTEXT_LOCAL,)
-    for context_origin, result in zip(contours, results, strict=True):
-        if isinstance(result, Exception):
-            errors.append(result)
-            print(f"[WARN] BHM federated search {context_origin} contour failed: {result}", flush=True)
+    for context_origin, contour in zip(contours, results, strict=True):
+        if contour.error is not None:
+            errors.append(contour.error)
+            print(f"[WARN] BHM federated search {context_origin} contour failed: {contour.error}", flush=True)
             continue
         if context_origin == _VECTOR_CONTEXT_LOCAL:
-            local_hits = result
+            local_hits = contour.result
         else:
-            global_hits = result
+            global_hits = contour.result
     if errors and not local_hits and not global_hits:
         raise errors[0]
 
@@ -13799,8 +13888,12 @@ async def federated_search(
     local_hits = _apply_decay_to_vector_hits(local_hits, now)
     global_hits = _apply_decay_to_vector_hits(global_hits, now)
     exact_hits: list[dict] = []
+    exact_contour: _TimedRetrievalContour | None = None
     if exact_task is not None:
-        exact_hits, _exact_snapshot_digest = await exact_task
+        exact_contour = await exact_task
+        if exact_contour.error is not None:
+            raise exact_contour.error
+        exact_hits, _exact_snapshot_digest = exact_contour.result
         exact_hits = _apply_decay_to_vector_hits(exact_hits, now)
     combined_results = merge_and_sort_hits([*local_hits, *exact_hits], global_hits)
     if temporal_filter_requested:
@@ -13852,7 +13945,20 @@ async def federated_search(
         filtered = await _augment_hits_with_graph_expansion(filtered, project_name, now)
     ranked_hits = _rank_hybrid_vector_hits(query, filtered)
     total = len(ranked_hits)
-    return ranked_hits[page_offset : page_offset + page_limit], total
+    trace_contours = [*results]
+    if exact_contour is not None:
+        trace_contours.append(exact_contour)
+    return FederatedSearchOutcome(
+        hits=ranked_hits[page_offset : page_offset + page_limit],
+        total=total,
+        contour_trace=_federated_contour_trace(
+            started=started,
+            embedding_duration_ms=embedding_duration_ms,
+            embedding_enabled=bool(query.strip()),
+            contours=trace_contours,
+            exact_enabled=exact_task is not None,
+        ),
+    )
 
 
 def _synthesis_trim(value: Any, limit: int = _FACT_SYNTHESIS_MAX_ITEM_CHARS) -> str:
