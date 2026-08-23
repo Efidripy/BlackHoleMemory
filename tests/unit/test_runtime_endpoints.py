@@ -26,6 +26,15 @@ def test_endpoint_catalog_honors_environment_overrides(monkeypatch):
     assert endpoint_url("bhm_api", "/health/ready") == "http://127.0.0.1:9010/custom/health/ready"
 
 
+def test_endpoint_catalog_serializes_ipv6_loopback_as_a_valid_url(monkeypatch):
+    monkeypatch.setenv("BHM_LM_STUDIO_HOST", "::1")
+    assert endpoint_url("lm_studio") == "http://[::1]:13666/v1"
+    assert endpoint_parts("lm_studio") == ("::1", 13666)
+
+    monkeypatch.setenv("BHM_LM_STUDIO_HOST", "[::1]")
+    assert endpoint_url("lm_studio", "/models") == "http://[::1]:13666/v1/models"
+
+
 def test_bhm_listener_host_contract_is_loopback_only():
     assert validate_loopback_listener_host("localhost") == "localhost"
     assert validate_loopback_listener_host("127.0.0.1") == "127.0.0.1"

@@ -121,6 +121,12 @@ def test_credential_bearing_endpoints_are_loopback_only() -> None:
         PROJECTION._validate_openai_base_url("https://example.com/v1")
 
 
+def test_standalone_endpoint_catalog_serializes_ipv6_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BHM_LM_STUDIO_HOST", "::1")
+    assert ENDPOINTS.endpoint_url("lm_studio") == "http://[::1]:13666/v1"
+    assert ENDPOINTS.endpoint_parts("lm_studio") == ("::1", 13666)
+
+
 def test_streamable_probe_rejects_private_non_loopback_endpoint() -> None:
     with pytest.raises(LocalEndpointError, match="local-only"):
         STREAMABLE.Probe("http://172.16.0.10:8000", 1.0)

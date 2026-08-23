@@ -20,6 +20,19 @@ SQLite API/MCP продолжают работать при сбое Docker/Qdra
 SLO показывают деградацию. Переменная не включает embedded fallback и не меняет
 SQLite authority boundary.
 
+## Local loopback endpoints and IPv6
+
+Каталог endpoint’ов принимает только сконфигурированные локальные hosts для
+defaults BHM. IPv6 loopback опционален: указывайте bare host `::1` в переменной
+окружения наподобие `BHM_LM_STUDIO_HOST`; BHM сериализует его в корректный URL
+`http://[::1]:13666/v1`. Bracketed input (`[::1]`) также нормализуется для
+совместимости. LAN, public и wildcard listener не являются заменой: local-only
+проверка BHM остаётся fail-closed.
+
+Это изменение лишь позволяет адресовать уже локально настроенный IPv6 listener.
+Оно не запускает, не публикует и не перенастраивает LM Studio, llama-server,
+BHM API, Qdrant или другой процесс.
+
 ## SQLite history retention
 
 Автоматическая bounded-очистка включена через
