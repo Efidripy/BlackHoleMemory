@@ -387,6 +387,22 @@ class SQLiteMemoryService:
             for memory in self.repository.get_memories(memory_ids, project=project)
         ]
 
+    def find_exact_identifier_candidate_ids(
+        self,
+        project: str,
+        token: str,
+        *,
+        limit: int = 200,
+    ) -> list[str]:
+        """Return bounded candidate IDs; final exact validation stays in the route."""
+
+        self._ensure_ready(verify_integrity=False)
+        return self.repository.find_exact_identifier_candidate_ids(
+            str(project),
+            str(token),
+            limit=limit,
+        )
+
     def get_record_by_upsert_key(
         self,
         project: str,

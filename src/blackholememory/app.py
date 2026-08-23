@@ -13685,15 +13685,30 @@ def _build_exact_identifier_hits(
     include_archived: bool,
     include_logs: bool,
 ) -> tuple[list[dict], str]:
-    """Build and hydrate the opt-in exact lane from one SQLite snapshot.
+    """Build and hydrate the opt-in exact lane from bounded SQLite candidates.
 
-    This stays entirely local and read-only.  It is intentionally a synchronous
-    worker function so ``federated_search`` can overlap its bounded SQLite work
-    with the independent embedding/vector contours instead of adding it to the
-    end-to-end tail serially.
+    The SQL route is a project/lifecycle-bound substring *prefilter* only.
+    Hydration and Python token/filter checks remain authoritative, so a false
+    positive, stale candidate, or cross-project ID cannot become a result.
+    This synchronous local worker overlaps its SQLite work with independent
+    embedding/vector contours instead of extending their end-to-end tail.
     """
 
-    authoritative_records = _load_live_memories()
+    service = _memory_service()
+    candidate_ids: list[str] = []
+    for token in exact_identifier_tokens(query, query=True):
+        for source_id in service.find_exact_identifier_candidate_ids(
+            project_name,
+            token,
+            limit=candidate_count - len(candidate_ids),
+        ):
+            if source_id not in candidate_ids:
+                candidate_ids.append(source_id)
+            if len(candidate_ids) >= candidate_count:
+                break
+        if len(candidate_ids) >= candidate_count:
+            break
+    authoritative_records = service.get_records(candidate_ids, project=project_name)
     exact_index = ExactIdentifierIndex.build(
         authoritative_records,
         include_record=lambda record: _memory_matches_filters(
@@ -13713,19 +13728,7 @@ def _build_exact_identifier_hits(
             include_temporal_unknown=include_temporal_unknown,
         ),
     )
-    exact_source_ids: list[str] = []
-    for candidate_project in _project_aliases(project_name):
-        for source_id in exact_index.lookup(
-            query,
-            project=candidate_project,
-            limit=candidate_count - len(exact_source_ids),
-        ):
-            if source_id not in exact_source_ids:
-                exact_source_ids.append(source_id)
-            if len(exact_source_ids) >= candidate_count:
-                break
-        if len(exact_source_ids) >= candidate_count:
-            break
+    exact_source_ids = exact_index.lookup(query, project=project_name, limit=candidate_count)
     hits = build_exact_identifier_hits(
         authoritative_records,
         exact_source_ids,
