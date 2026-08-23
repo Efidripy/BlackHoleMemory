@@ -13,6 +13,21 @@ from urllib.parse import urlsplit, urlunsplit
 _LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain"})
 
 
+def _endpoint_netloc(host: str, port: int) -> str:
+    """Render an RFC 3986 authority for a configured host and port."""
+
+    normalized = str(host or "").strip()
+    if normalized.startswith("[") and normalized.endswith("]"):
+        normalized = normalized[1:-1]
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return f"{normalized}:{port}"
+    if address.version == 6:
+        return f"[{normalized}]:{port}"
+    return f"{normalized}:{port}"
+
+
 def validate_loopback_endpoint(value: str) -> str:
     """Validate an HTTP(S) endpoint whose credentials must stay on loopback."""
 
@@ -74,7 +89,7 @@ def endpoint_url(name: str, path: str = "") -> str:
         host = os.getenv(str(service.get("host_env") or ""), str(service["host"]))
         port = int(os.getenv(str(service.get("port_env") or ""), str(service["port"])))
         base_path = str(service.get("base_path") or "")
-        base = urlunsplit((str(service.get("scheme") or "http"), f"{host}:{port}", base_path, "", "")).rstrip("/")
+        base = urlunsplit((str(service.get("scheme") or "http"), _endpoint_netloc(host, port), base_path, "", "")).rstrip("/")
     return f"{base}/{path.lstrip('/')}" if path else base
 
 

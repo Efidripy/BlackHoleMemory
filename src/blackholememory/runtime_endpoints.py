@@ -23,6 +23,27 @@ class EndpointConfigError(RuntimeError):
 _LOCAL_LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain"})
 
 
+def _endpoint_netloc(host: str, port: int) -> str:
+    """Return an RFC 3986 authority, including brackets for IPv6 literals.
+
+    Endpoint host variables deliberately store a host, rather than a full URL,
+    so operators configure ``::1`` rather than ``[::1]``.  Tolerate the
+    bracketed spelling as well to keep the rendered URL valid and avoid a
+    double-bracketed authority in launcher-derived clients.
+    """
+
+    normalized = str(host or "").strip()
+    if normalized.startswith("[") and normalized.endswith("]"):
+        normalized = normalized[1:-1]
+    try:
+        address = ipaddress.ip_address(normalized)
+    except ValueError:
+        return f"{normalized}:{port}"
+    if address.version == 6:
+        return f"[{normalized}]:{port}"
+    return f"{normalized}:{port}"
+
+
 def validate_loopback_listener_host(host: str) -> str:
     """Enforce the local-only listener contract for the BHM API.
 
@@ -60,7 +81,7 @@ class Endpoint:
     @property
     def url(self) -> str:
         path = self.base_path or ""
-        return urlunsplit((self.scheme, f"{self.host}:{self.port}", path, "", "")).rstrip("/")
+        return urlunsplit((self.scheme, _endpoint_netloc(self.host, self.port), path, "", "")).rstrip("/")
 
 
 def _catalog_candidates() -> list[Path]:
