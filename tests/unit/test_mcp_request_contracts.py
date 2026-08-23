@@ -160,6 +160,10 @@ def test_utility_feedback_mcp_tools_forward_only_bounded_event_and_report_fields
         project="blackholememory",
         as_of="2026-08-23T12:00:00Z",
     ) == {"ok": True}
+    assert bhm_mcp.bhm_utility_feedback_consolidation_preview(
+        project="blackholememory",
+        as_of="2026-08-23T12:00:00Z",
+    ) == {"ok": True}
     assert observed == [
         (
             "/bhm/utility-feedback/event",
@@ -180,6 +184,16 @@ def test_utility_feedback_mcp_tools_forward_only_bounded_event_and_report_fields
                 "as_of": "2026-08-23T12:00:00Z",
                 "half_life_days": 30.0,
                 "min_samples": 3,
+            },
+        ),
+        (
+            "/bhm/utility-feedback/consolidation-preview",
+            {
+                "project": "blackholememory",
+                "as_of": "2026-08-23T12:00:00Z",
+                "half_life_days": 30.0,
+                "min_samples": 3,
+                "max_proposals": 64,
             },
         ),
     ]

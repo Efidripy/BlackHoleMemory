@@ -159,3 +159,32 @@ def test_utility_feedback_report_is_project_scoped_and_read_only(monkeypatch) ->
         "qdrant_mutation": False,
         "projection_mutation": False,
     }
+
+
+def test_utility_feedback_consolidation_preview_is_read_only(monkeypatch) -> None:
+    event = UtilityEvent(
+        event_id="utility-event-1",
+        memory_id="memory-1",
+        project="blackholememory",
+        actor_id="authenticated-operator",
+        event_type="contradicted",
+        observed_at="2026-08-23T12:00:00Z",
+        request_digest=hashlib.sha256(b"request").hexdigest(),
+    )
+
+    events = tuple(event.model_copy(update={"event_id": f"utility-event-{index}"}) for index in range(1, 4))
+    monkeypatch.setattr(bhm_app, "_memory_service", _Service)
+    monkeypatch.setattr(bhm_app, "load_utility_events", lambda *_args, **_kwargs: events)
+
+    result = bhm_app._utility_feedback_consolidation_preview(
+        project="blackholememory",
+        as_of="2026-08-23T12:00:00Z",
+        half_life_days=30.0,
+        min_samples=3,
+        max_proposals=16,
+    )
+
+    assert result["proposal_count"] == 2
+    assert {item["review_kind"] for item in result["proposals"]} == {"contradiction_review", "low_utility_review"}
+    assert result["lifecycle_action"] == "none"
+    assert result["side_effects"]["automatic_lifecycle_change"] is False

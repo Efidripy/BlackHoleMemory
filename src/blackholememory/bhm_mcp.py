@@ -2042,6 +2042,26 @@ def bhm_utility_feedback_report(
     )
 
 
+@mcp.tool(name="bhm_utility_feedback_consolidation_preview", description="Return a bounded, content-free operator review worklist from immutable utility feedback. It never applies merge, archive, tombstone, or ranking changes.")
+def bhm_utility_feedback_consolidation_preview(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    as_of: Annotated[str, Field(min_length=20, max_length=64)],
+    half_life_days: Annotated[float, Field(ge=0.25, le=3_650)] = 30.0,
+    min_samples: Annotated[int, Field(ge=1, le=10_000)] = 3,
+    max_proposals: Annotated[int, Field(ge=1, le=256)] = 64,
+) -> dict[str, Any]:
+    return _get(
+        "/bhm/utility-feedback/consolidation-preview",
+        {
+            "project": project,
+            "as_of": as_of,
+            "half_life_days": half_life_days,
+            "min_samples": min_samples,
+            "max_proposals": max_proposals,
+        },
+    )
+
+
 @mcp.tool(name="bhm_remember", description=f"Save a durable memory entry into BHM. {TAXONOMY_METADATA_HINT}")
 def bhm_remember(
     content: str,
