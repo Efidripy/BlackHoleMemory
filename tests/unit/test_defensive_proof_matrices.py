@@ -25,10 +25,10 @@ def test_defensive_proof_matrices_are_deterministic_and_complete() -> None:
 
     assert first["coverage_ok"] is True
     assert first["digest"] == second["digest"]
-    assert len(first["interface_rows"]) == 448
-    assert len(first["http_stateful_candidate_rows"]) == 178
-    assert len(first["operator_mcp_tool_rows"]) == 156
-    assert len(first["stateful_candidate_rows"]) == 334
+    assert len(first["interface_rows"]) == 450
+    assert len(first["http_stateful_candidate_rows"]) == 179
+    assert len(first["operator_mcp_tool_rows"]) == 157
+    assert len(first["stateful_candidate_rows"]) == 336
     assert first["unresolved_interfaces"] == []
     assert first["unresolved_project_sinks"] == []
     assert first["unresolved_redaction_sinks"] == []

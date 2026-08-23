@@ -180,6 +180,11 @@ from .feedback_tuning import build_feedback_tuning
 from .feedback_tuning import summarize_quality_feedback
 from .feedback_consolidation import FeedbackConsolidationError
 from .feedback_consolidation import build_feedback_consolidation_preview
+from .consolidation_change_set import ConsolidationChangeSetError
+from .consolidation_change_set import build_consolidation_change_set_preview
+from .memory_doctor import MemoryDoctorSnapshotError
+from .memory_doctor import load_authoritative_sqlite_snapshot
+from .memory_doctor import run_authoritative_sqlite_memory_doctor
 from .retrieval_explanation import explain_retrieval_hit
 from .runtime_storage import MemoryStoreMode
 from .runtime_storage import runtime_storage_state as memory_runtime_storage_state
@@ -2916,6 +2921,17 @@ class UtilityFeedbackEventRequest(BaseModel):
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
+class ConsolidationChangeSetPreviewRequest(BaseModel):
+    """Bounded, redacted detector input for an operator-only change-set preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    as_of: str = Field(min_length=20, max_length=64)
+    candidates: list[dict[str, Any]] = Field(min_length=1, max_length=128)
+    max_actions: int = Field(default=64, ge=1, le=128)
+
+
 class McpRepairRequest(BaseModel):
     """Bounded BHM-only repair action; client restart remains outside BHM ownership."""
 
@@ -4647,6 +4663,65 @@ def _utility_feedback_consolidation_preview(
             "sqlite_mutation": False,
             "qdrant_mutation": False,
             "projection_mutation": False,
+            "automatic_lifecycle_change": False,
+        },
+    }
+
+
+def _utility_feedback_change_set_preview(
+    request: ConsolidationChangeSetPreviewRequest,
+) -> dict[str, Any]:
+    """Build a snapshot-bound consolidation preview without an apply path."""
+
+    canonical_project = _canonical_project(request.project)
+    report = _utility_feedback_report(
+        project=canonical_project,
+        as_of=request.as_of,
+        half_life_days=30.0,
+        min_samples=3,
+    )
+    # `_utility_feedback_report` adds route-level project/side-effect fields
+    # after computing the immutable utility digest.  Pass only the signed
+    # utility-report envelope into the pure change-set contract.
+    utility_source = {
+        key: report[key]
+        for key in ("schema_version", "as_of", "half_life_days", "min_samples", "rows", "execution", "report_digest")
+        if key in report
+    }
+    database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+    try:
+        snapshot = load_authoritative_sqlite_snapshot(
+            database_path,
+            project=canonical_project,
+            limit=10_000,
+        )
+        doctor = run_authoritative_sqlite_memory_doctor(
+            database_path,
+            project=canonical_project,
+            limit=10_000,
+        )
+        preview = build_consolidation_change_set_preview(
+            utility_source,
+            project=canonical_project,
+            authority_snapshot=snapshot,
+            candidates=request.candidates,
+            doctor_report=doctor,
+            as_of=request.as_of,
+            max_actions=request.max_actions,
+        )
+    except (ConsolidationChangeSetError, MemoryDoctorSnapshotError, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "consolidation_change_set_preview_invalid", "reason": _safe_exception_text(exc)},
+        ) from exc
+    return {
+        **preview,
+        "side_effects": {
+            "read_only": True,
+            "sqlite_mutation": False,
+            "qdrant_mutation": False,
+            "projection_mutation": False,
+            "model_called": False,
             "automatic_lifecycle_change": False,
         },
     }
@@ -19234,6 +19309,19 @@ async def bhm_utility_feedback_consolidation_preview(
         half_life_days=half_life_days,
         min_samples=min_samples,
         max_proposals=max_proposals,
+    )
+
+
+@app.post("/bhm/consolidation/change-set/preview")
+async def bhm_consolidation_change_set_preview(
+    request: ConsolidationChangeSetPreviewRequest,
+) -> dict[str, Any]:
+    """Return a caller-scoped, snapshot-bound, non-executable change-set."""
+
+    return await _run_bounded_read(
+        "bhm.consolidation.change_set_preview",
+        _utility_feedback_change_set_preview,
+        request,
     )
 
 
