@@ -95,6 +95,7 @@ def _row_proposals(row: Mapping[str, Any], *, project: str, report_digest: str) 
         "project",
         "memory_id",
         "sample_count",
+        "actor_count",
         "score",
         "uncertainty",
         "event_counts",
@@ -109,6 +110,9 @@ def _row_proposals(row: Mapping[str, Any], *, project: str, report_digest: str) 
         raise FeedbackConsolidationError("utility report lifecycle_action must be none")
     memory_id = _required_text(row.get("memory_id"), "utility.row.memory_id")
     sample_count = _nonnegative_int(row.get("sample_count"), "utility.row.sample_count")
+    # Additive aggregate only: identities remain in the event store.  The
+    # legacy preview intentionally does not make a policy decision from it.
+    _nonnegative_int(row.get("actor_count", 0), "utility.row.actor_count")
     score = _score(row.get("score"))
     event_counts = _event_counts(row.get("event_counts"))
     uncertainty = str(row.get("uncertainty") or "").strip()
