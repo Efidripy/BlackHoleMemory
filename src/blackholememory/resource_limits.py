@@ -61,6 +61,7 @@ BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS = 5
 BHM_CODE_GRAPH_SOFT_WAIT_SECONDS = 20
 BHM_INDEX_MAX_FILES_PER_RUN = 666
 BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS = 3
+BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS = 3
 EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS = 20
 QDRANT_SDK_TIMEOUT_SECONDS = 10
 QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS = 2.0
@@ -134,6 +135,7 @@ RESOURCE_LIMITS: tuple[ResourceLimit, ...] = (
     ResourceLimit("repository.graph_soft_wait", "repository-index", BHM_CODE_GRAPH_SOFT_WAIT_SECONDS, "seconds", "resource_limits.BHM_CODE_GRAPH_SOFT_WAIT_SECONDS"),
     ResourceLimit("repository.index_max_files_per_run", "repository-index", BHM_INDEX_MAX_FILES_PER_RUN, "files", "resource_limits.BHM_INDEX_MAX_FILES_PER_RUN"),
     ResourceLimit("outbound.bhm_speculative_search_timeout", "outbound-http", BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS"),
+    ResourceLimit("retrieval.federated_contour_timeout", "retrieval", BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS"),
     ResourceLimit("outbound.external_search_timeout", "outbound-http", EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS"),
     ResourceLimit("qdrant.sdk_timeout", "qdrant-sdk", QDRANT_SDK_TIMEOUT_SECONDS, "seconds", "resource_limits.QDRANT_SDK_TIMEOUT_SECONDS"),
     ResourceLimit("qdrant.health_http_timeout", "qdrant-health-http", QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS"),
@@ -252,6 +254,7 @@ __all__ = [
     "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS",
     "BHM_INDEX_MAX_FILES_PER_RUN",
     "BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS",
+    "BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS",
     "EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS",
     "QDRANT_SDK_TIMEOUT_SECONDS",
     "QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS",

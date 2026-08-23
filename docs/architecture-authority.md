@@ -102,9 +102,11 @@ metrics remain evaluation evidence and cannot enable a runtime retrieval path.
   `qdrant_mutation=false` and `projection_mutation=false`.
 - Canonical `POST /bhm/search` additionally returns a content-free
   `bhm.retrieval-contour-trace.v1` query-plan stage for the completed
-  embedding/local/global/exact contour timings. It never includes query text,
-  IDs, memory content, paths, scores or provider errors, and it cannot change
-  ranking or feature flags.
+  embedding/local/global/exact contour timings. Each vector contour has a
+  three-second response deadline; a `timed_out` contour is visible in the
+  trace and cannot block a completed sibling contour or the established
+  fallback. It never includes query text, IDs, memory content, paths, scores
+  or provider errors, and it cannot change ranking or feature flags.
 - The opt-in exact-identifier lane begins with a bounded, project-scoped,
   active-lifecycle SQLite substring prefilter that returns IDs only. Those IDs
   are then hydrated from SQLite and rechecked by the Python exact-token and
