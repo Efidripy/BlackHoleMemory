@@ -80,6 +80,22 @@ def test_lookup_is_bounded_and_hydration_preserves_authoritative_content():
     assert all(hit["memory"] == "contract_004_anchor" for hit in hits)
 
 
+def test_hydration_rechecks_project_scope_even_for_injected_candidate_ids() -> None:
+    records = [
+        _record("local", content="contract_006_anchor", project="blackholememory"),
+        _record("foreign", content="contract_006_anchor", project="other-project"),
+    ]
+
+    hits = build_exact_identifier_hits(
+        records,
+        ["foreign", "local"],
+        project="blackholememory",
+    )
+
+    assert [hit["id"] for hit in hits] == ["local"]
+    assert all(hit["metadata"]["project"] == "blackholememory" for hit in hits)
+
+
 def test_build_rejects_unbounded_snapshot():
     records = (_record(f"id-{index:05d}", content="contract_005_anchor") for index in range(50_001))
     with pytest.raises(ValueError, match="exceeds"):

@@ -13552,7 +13552,11 @@ async def federated_search(
                     break
             if len(exact_source_ids) >= candidate_count:
                 break
-        exact_hits = build_exact_identifier_hits(authoritative_records, exact_source_ids)
+        exact_hits = build_exact_identifier_hits(
+            authoritative_records,
+            exact_source_ids,
+            project=project_name,
+        )
         exact_snapshot_digest = exact_index.snapshot_digest
         for hit in exact_hits:
             hit.setdefault("metadata", {})["exact_identifier_snapshot_digest"] = exact_snapshot_digest

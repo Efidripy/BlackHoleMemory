@@ -165,15 +165,24 @@ def build_exact_identifier_hits(
     records: Sequence[Mapping[str, Any]],
     source_ids: Sequence[str],
     *,
+    project: str | None = None,
     context_origin: str = "LOCAL",
 ) -> list[dict[str, Any]]:
-    """Hydrate candidate IDs from the same authoritative snapshot."""
+    """Hydrate candidate IDs from the same authoritative snapshot.
+
+    When ``project`` is supplied, re-check the authoritative project scope at
+    hydration time as a second boundary after index lookup.  This keeps a
+    malformed or stale candidate list from widening retrieval scope.
+    """
 
     by_id = {_record_identity(record): record for record in records}
+    expected_project = str(project or "").strip()
     hits: list[dict[str, Any]] = []
     for source_id in source_ids:
         record = by_id.get(str(source_id))
         if record is None:
+            continue
+        if expected_project and _record_project(record) != expected_project:
             continue
         metadata = dict(record.get("metadata") or {}) if isinstance(record.get("metadata"), Mapping) else {}
         metadata.update(
