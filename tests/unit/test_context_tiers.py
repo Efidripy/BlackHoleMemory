@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 
+import pytest
+
 from blackholememory.context_tier_lifecycle import build_context_tier_lifecycle_receipt
 from blackholememory.context_tiers import TierBudget
 from blackholememory.context_tiers import TieredContextItem
@@ -65,3 +67,36 @@ def test_resume_lifecycle_requires_an_explicit_parent_link() -> None:
     assert receipt["anchor"]["kind"] == "resume_link"
     assert receipt["anchor"]["parent_event_link_present"] is False
     assert receipt["promotion"]["state"] == "policy_gate_disabled"
+
+
+@pytest.mark.parametrize(
+    ("hook_type", "phase", "effect_class"),
+    (
+        ("codex_session_start", "session_start", "session_state"),
+        ("codex_prompt_recall", "prompt_recall", "transient_model_context"),
+        ("codex_post_tool_use", "post_tool_use", "transient_model_context"),
+        ("codex_idle", "idle", "session_state"),
+        ("codex_session_end", "session_end", "session_state"),
+    ),
+)
+def test_all_non_mutating_lifecycle_phases_have_explicit_receipts(
+    hook_type: str,
+    phase: str,
+    effect_class: str,
+) -> None:
+    receipt = build_context_tier_lifecycle_receipt(
+        project="blackholememory",
+        session_id="session-coverage",
+        event_id=f"event-{phase}",
+        hook_type=hook_type,
+    )
+
+    assert receipt["phase"] == phase
+    assert receipt["effect_class"] == effect_class
+    assert receipt["mapped"] is True
+    assert receipt["promotion"]["action"] == "none"
+    assert receipt["execution"] == {
+        "context_tier_mutation": False,
+        "sqlite_memory_mutation": False,
+        "qdrant_mutation": False,
+    }
