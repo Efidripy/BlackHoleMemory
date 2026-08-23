@@ -197,3 +197,32 @@ def test_utility_feedback_mcp_tools_forward_only_bounded_event_and_report_fields
             },
         ),
     ]
+
+
+def test_observe_mcp_wrapper_forwards_optional_parent_event_for_resume(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_post(path: str, body: dict) -> dict:
+        observed.update({"path": path, "body": body})
+        return {"ok": True}
+
+    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+
+    assert bhm_mcp.bhm_observe(
+        hook_type="codex_resume",
+        session_id="session-1",
+        project="blackholememory",
+        parent_event_id="obs-pre-compact-1",
+    ) == {"ok": True}
+    assert observed == {
+        "path": "/bhm/observe",
+        "body": {
+            "hookType": "codex_resume",
+            "sessionId": "session-1",
+            "project": "blackholememory",
+            "cwd": "",
+            "timestamp": None,
+            "parentEventId": "obs-pre-compact-1",
+            "data": None,
+        },
+    }

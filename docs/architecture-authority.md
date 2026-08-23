@@ -43,6 +43,12 @@ SQLite, Qdrant, Mem0, a promotion lock or a session record. Any future
 session-to-durable promotion remains an independently approved, typed
 operation.
 
+The compatibility MCP `bhm_observe` wrapper accepts the same optional
+`parentEventId` used by the REST observation contract. Clients should provide
+it for `resume` events when a `PreCompact` anchor exists; forwarding the link
+only creates a content-free receipt and never enables promotion or durable
+memory mutation.
+
 ## External evaluation datasets
 
 LoCoMo and LongMemEval are never fetched or evaluated by default. A later
