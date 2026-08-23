@@ -59,6 +59,13 @@ explicit local-evaluation-only review to SHA-256 digests. Its content-free
 receipt does not load data into BHM or enable a ranker; model runs remain a
 separate bounded and approved operation.
 
+The BHM-owned recorded-receipt fixture separately reports category, session,
+turn and route retrieval metrics plus temporal accuracy, update consistency,
+abstention precision/recall, p50/p95 latency and project/provenance coverage.
+Absent receipt scope or provenance is explicitly `unproven`; a mismatch is a
+visible isolation failure, never a silently accepted score. These offline
+metrics remain evaluation evidence and cannot enable a runtime retrieval path.
+
 ## Projection safety
 
 - Read/search routes (`/bhm/search`, `/bhm/search/advanced`,
