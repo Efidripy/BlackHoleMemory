@@ -35,6 +35,16 @@ SQLite, Qdrant, Mem0, a promotion lock or a session record. Any future
 session-to-durable promotion remains an independently approved, typed
 operation.
 
+## External evaluation datasets
+
+LoCoMo and LongMemEval are never fetched or evaluated by default. A later
+local smoke fixture must first pass
+`scripts/validate-bhm-external-evaluation-dataset.py`: it binds a local file,
+license-evidence file, pinned credential-free HTTPS source revision and
+explicit local-evaluation-only review to SHA-256 digests. Its content-free
+receipt does not load data into BHM or enable a ranker; model runs remain a
+separate bounded and approved operation.
+
 ## Projection safety
 
 - Read/search routes (`/bhm/search`, `/bhm/search/advanced`,
