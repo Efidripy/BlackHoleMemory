@@ -201,8 +201,13 @@ function Start-ProjectionSidecar {
   try {
     # The sidecar owns only SQLite-outbox -> Qdrant projection work.  It has
     # its own bounded retry/backoff contract, so it remains safe to launch
-    # while Qdrant recovery is intentionally skipped by the UI launcher.
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sidecarScript -Action Start -NoWait | Out-Null
+    # while Qdrant recovery is intentionally skipped by the UI launcher. Do
+    # not invoke its PowerShell host synchronously: on Windows its worker can
+    # inherit the bootstrap stdout pipe and keep the API start transaction
+    # alive until the GUI's deadline, which then kills an otherwise-ready API.
+    Start-Process -FilePath 'powershell.exe' `
+      -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $sidecarScript, '-Action', 'Start', '-NoWait') `
+      -WorkingDirectory $repoRoot -WindowStyle Hidden | Out-Null
   } catch {
     Write-Warning "Projection sidecar start failed; BHM core remains authoritative: $($_.Exception.Message)"
   }
