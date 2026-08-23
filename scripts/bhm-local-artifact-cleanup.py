@@ -165,7 +165,12 @@ def build_plan(root: Path, policy_path: Path = DEFAULT_POLICY, *, as_of: str | N
         minimum_age = float(rule.get("minAgeDays", -1))
         if minimum_age < 0:
             raise ArtifactCleanupError(f"rule minAgeDays must be non-negative: {rule.get('id')}")
-        for path in sorted(parent.iterdir(), key=lambda item: item.name.casefold()):
+        try:
+            children = sorted(parent.iterdir(), key=lambda item: item.name.casefold())
+        except OSError as exc:
+            blocked.append({"rule_id": str(rule["id"]), "path": _as_posix_relative(root, parent), "reason": str(exc)})
+            continue
+        for path in children:
             if not fnmatch.fnmatchcase(path.name, pattern):
                 continue
             try:

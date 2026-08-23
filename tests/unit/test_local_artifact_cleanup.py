@@ -117,3 +117,10 @@ def test_inaccessible_candidate_is_reported_and_blocks_apply(monkeypatch, tmp_pa
     assert plan["blocked"] == [{"rule_id": "empty-scratch", "path": ".runtime/pytest-stale", "reason": "denied by fixture"}]
     with pytest.raises(module.ArtifactCleanupError, match="inaccessible"):
         module.apply_plan(tmp_path, policy, as_of="2024-01-01T00:00:00Z", expected_digest=plan["plan_digest"])
+
+
+def test_default_policy_excludes_acl_owned_runtime_legacy_residue():
+    payload = json.loads((REPO_ROOT / "config" / "local-artifact-retention-policy.json").read_text(encoding="utf-8"))
+
+    assert ".runtime-legacy" not in payload["managedRoots"]
+    assert all(rule.get("parent") != ".runtime-legacy" for rule in payload["rules"])

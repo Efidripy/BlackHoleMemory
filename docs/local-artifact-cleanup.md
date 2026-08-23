@@ -32,8 +32,12 @@ and resolve its ownership separately.
 The policy lives in
 [`config/local-artifact-retention-policy.json`](../config/local-artifact-retention-policy.json).
 It currently permits only stale root test/lint/browser caches, stale local
-coverage/log files, empty historical `pytest-*` runtime and runtime-legacy scratch directories,
+coverage/log files and empty historical `pytest-*` runtime scratch directories,
 and one named superseded launcher cold-start rehearsal whose root launcher and
 release archive were independently verified afterward. New high-volume runtime
 categories must be classified by owner, recovery dependency and retention
 period before they gain a rule.
+
+ACL-owned `.runtime-legacy` residue is deliberately excluded from routine
+cleanup. It needs a separate ownership/administrator procedure; the normal
+operator flow must not weaken permissions merely to remove old empty folders.
