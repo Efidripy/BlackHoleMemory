@@ -25,10 +25,14 @@ and apply, the digest mismatch fails before deletion. Treat an unexpected
 candidate as a policy bug: do not apply it; adjust or remove the rule and add a
 regression test first.
 
+An unreadable candidate is emitted in `blocked`; an apply with any blocked
+entry is refused. Do not weaken ACLs during routine cleanup. Record the residue
+and resolve its ownership separately.
+
 The policy lives in
 [`config/local-artifact-retention-policy.json`](../config/local-artifact-retention-policy.json).
 It currently permits only stale root test/lint/browser caches, stale local
-coverage/log files, empty historical `pytest-*` runtime scratch directories,
+coverage/log files, empty historical `pytest-*` runtime and runtime-legacy scratch directories,
 and one named superseded launcher cold-start rehearsal whose root launcher and
 release archive were independently verified afterward. New high-volume runtime
 categories must be classified by owner, recovery dependency and retention

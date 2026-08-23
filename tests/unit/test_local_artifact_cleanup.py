@@ -96,3 +96,24 @@ def test_policy_rejects_parent_outside_managed_roots(tmp_path: Path):
 
     with pytest.raises(module.ArtifactCleanupError, match="managed roots"):
         module.build_plan(tmp_path, policy, as_of="2024-01-01T00:00:00Z")
+
+
+def test_inaccessible_candidate_is_reported_and_blocks_apply(monkeypatch, tmp_path: Path):
+    module = _load_module()
+    runtime = tmp_path / ".runtime"
+    runtime.mkdir()
+    stale = runtime / "pytest-stale"
+    stale.mkdir()
+    _age(stale, 1_700_000_000)
+    policy = _policy(tmp_path)
+
+    def denied(*args, **kwargs):
+        raise PermissionError("denied by fixture")
+
+    monkeypatch.setattr(module, "_candidate_from_path", denied)
+    plan = module.build_plan(tmp_path, policy, as_of="2024-01-01T00:00:00Z")
+
+    assert plan["candidates"] == []
+    assert plan["blocked"] == [{"rule_id": "empty-scratch", "path": ".runtime/pytest-stale", "reason": "denied by fixture"}]
+    with pytest.raises(module.ArtifactCleanupError, match="inaccessible"):
+        module.apply_plan(tmp_path, policy, as_of="2024-01-01T00:00:00Z", expected_digest=plan["plan_digest"])

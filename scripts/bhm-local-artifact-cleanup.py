@@ -141,6 +141,7 @@ def build_plan(root: Path, policy_path: Path = DEFAULT_POLICY, *, as_of: str | N
     as_of_time = _parse_as_of(as_of)
     protected = {str(Path(item).as_posix()).rstrip("/") for item in policy["protectedRoots"]}
     candidates: list[ArtifactCandidate] = []
+    blocked: list[dict[str, str]] = []
     seen_paths: set[str] = set()
 
     for rule in policy["rules"]:
@@ -167,13 +168,17 @@ def build_plan(root: Path, policy_path: Path = DEFAULT_POLICY, *, as_of: str | N
         for path in sorted(parent.iterdir(), key=lambda item: item.name.casefold()):
             if not fnmatch.fnmatchcase(path.name, pattern):
                 continue
-            relative = _as_posix_relative(root, path)
-            if _is_protected(relative, protected):
+            try:
+                relative = _as_posix_relative(root, path)
+                if _is_protected(relative, protected):
+                    continue
+                modified = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+                if as_of_time - modified < dt.timedelta(days=minimum_age):
+                    continue
+                candidate = _candidate_from_path(root, path, rule)
+            except OSError as exc:
+                blocked.append({"rule_id": str(rule["id"]), "path": _as_posix_relative(root, path), "reason": str(exc)})
                 continue
-            modified = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
-            if as_of_time - modified < dt.timedelta(days=minimum_age):
-                continue
-            candidate = _candidate_from_path(root, path, rule)
             if candidate and candidate.path not in seen_paths:
                 candidates.append(candidate)
                 seen_paths.add(candidate.path)
@@ -184,12 +189,13 @@ def build_plan(root: Path, policy_path: Path = DEFAULT_POLICY, *, as_of: str | N
         "as_of": as_of_time.isoformat().replace("+00:00", "Z"),
         "policy_sha256": hashlib.sha256(policy_path.read_bytes()).hexdigest(),
         "candidates": candidate_rows,
+        "blocked": blocked,
     }
     digest = hashlib.sha256(json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return {
         **digest_payload,
         "plan_digest": digest,
-        "summary": {"candidates": len(candidate_rows), "bytes": sum(candidate.bytes for candidate in candidates)},
+        "summary": {"candidates": len(candidate_rows), "blocked": len(blocked), "bytes": sum(candidate.bytes for candidate in candidates)},
     }
 
 
@@ -197,6 +203,8 @@ def apply_plan(root: Path, policy_path: Path, *, as_of: str, expected_digest: st
     plan = build_plan(root, policy_path, as_of=as_of)
     if plan["plan_digest"] != expected_digest:
         raise ArtifactCleanupError("plan digest mismatch; rebuild and review the current dry-run")
+    if plan["blocked"]:
+        raise ArtifactCleanupError("plan contains inaccessible candidates; resolve or remove the rule before cleanup")
     removed: list[dict[str, object]] = []
     root = root.resolve(strict=True)
     for row in plan["candidates"]:
