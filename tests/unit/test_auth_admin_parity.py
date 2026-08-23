@@ -21,10 +21,10 @@ def test_generated_auth_admin_parity_covers_all_static_interface_rows() -> None:
     report = module.build_auth_admin_parity_report()
 
     assert report["ok"] is True
-    assert report["inventory_row_count"] == 446
-    assert report["classified_row_count"] == 446
-    assert report["surface_counts"] == {"MCP_STATIC": 190, "REST/WS": 256}
-    assert report["mcp_registration_groups"] == {"admin": 71, "core": 35, "domain": 84}
+    assert report["inventory_row_count"] == 448
+    assert report["classified_row_count"] == 448
+    assert report["surface_counts"] == {"MCP_STATIC": 191, "REST/WS": 257}
+    assert report["mcp_registration_groups"] == {"admin": 72, "core": 35, "domain": 84}
     assert report["missing_live_interfaces"] == []
     assert report["unknown_mcp_tools"] == []
     assert report["implicit_route_policies"] == []

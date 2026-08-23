@@ -174,6 +174,8 @@ from .context_confidence import assess_context_confidence
 from .lifecycle_suggestions import build_lifecycle_suggestions
 from .feedback_tuning import build_feedback_tuning
 from .feedback_tuning import summarize_quality_feedback
+from .feedback_consolidation import FeedbackConsolidationError
+from .feedback_consolidation import build_feedback_consolidation_preview
 from .retrieval_explanation import explain_retrieval_hit
 from .runtime_storage import MemoryStoreMode
 from .runtime_storage import runtime_storage_state as memory_runtime_storage_state
@@ -4602,6 +4604,46 @@ def _utility_feedback_report(
             "sqlite_mutation": False,
             "qdrant_mutation": False,
             "projection_mutation": False,
+        },
+    }
+
+
+def _utility_feedback_consolidation_preview(
+    *,
+    project: str,
+    as_of: str,
+    half_life_days: float,
+    min_samples: int,
+    max_proposals: int,
+) -> dict[str, Any]:
+    """Expose feedback-led review worklists without enabling a repair path."""
+
+    report = _utility_feedback_report(
+        project=project,
+        as_of=as_of,
+        half_life_days=half_life_days,
+        min_samples=min_samples,
+    )
+    try:
+        preview = build_feedback_consolidation_preview(
+            report,
+            project=str(report["project"]),
+            max_proposals=max_proposals,
+        )
+    except FeedbackConsolidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "utility_feedback_consolidation_preview_invalid", "reason": _safe_exception_text(exc)},
+        ) from exc
+    return {
+        **preview,
+        "lifecycle_action": "none",
+        "side_effects": {
+            "read_only": True,
+            "sqlite_mutation": False,
+            "qdrant_mutation": False,
+            "projection_mutation": False,
+            "automatic_lifecycle_change": False,
         },
     }
 
@@ -19099,6 +19141,27 @@ async def bhm_utility_feedback_report(
         as_of=as_of,
         half_life_days=half_life_days,
         min_samples=min_samples,
+    )
+
+
+@app.get("/bhm/utility-feedback/consolidation-preview")
+async def bhm_utility_feedback_consolidation_preview(
+    project: str = Query(min_length=1, max_length=160),
+    as_of: str = Query(min_length=20, max_length=64),
+    half_life_days: float = Query(default=30.0, ge=0.25, le=3_650),
+    min_samples: int = Query(default=3, ge=1, le=10_000),
+    max_proposals: int = Query(default=64, ge=1, le=256),
+) -> dict[str, Any]:
+    """Return a caller-safe, proposal-only feedback consolidation worklist."""
+
+    return await _run_bounded_read(
+        "bhm.utility_feedback.consolidation_preview",
+        _utility_feedback_consolidation_preview,
+        project=project,
+        as_of=as_of,
+        half_life_days=half_life_days,
+        min_samples=min_samples,
+        max_proposals=max_proposals,
     )
 
 
