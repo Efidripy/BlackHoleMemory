@@ -26,6 +26,7 @@ from typing import Any, Iterable, Literal, Mapping, Sequence
 
 from fastapi import FastAPI
 from fastapi import HTTPException
+from fastapi import Query
 from fastapi import Request
 from fastapi import WebSocket
 from fastapi import WebSocketDisconnect
@@ -194,6 +195,11 @@ from .shared_memory_audit import caller_identity_from_principal
 from .shared_memory_grants import GRANT_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_ARTIFACT_TYPE
 from .shared_memory_grants import REVOCATION_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_REVOCATION_ARTIFACT_TYPE
 from .shared_memory_grants import resolve_effective_grants
+from .utility_feedback import UtilityEvent
+from .utility_feedback import UtilityEventType
+from .utility_feedback import utility_report
+from .utility_feedback_store import append_utility_event
+from .utility_feedback_store import load_utility_events
 from .memory_search_service import MemorySearchDependencies
 from .memory_search_service import MemorySearchService
 from .memory_search_service import read_only_side_effects
@@ -2878,6 +2884,20 @@ class MemoryUsedRequest(BaseModel):
     reason: str = Field(default="", max_length=200)
 
 
+class UtilityFeedbackEventRequest(BaseModel):
+    """One authenticated, immutable utility signal for an existing memory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    event_id: str = Field(min_length=1, max_length=160)
+    memory_id: str = Field(min_length=1, max_length=160)
+    event_type: UtilityEventType
+    observed_at: str = Field(min_length=20, max_length=64)
+    request_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
 class McpRepairRequest(BaseModel):
     """Bounded BHM-only repair action; client restart remains outside BHM ownership."""
 
@@ -4382,6 +4402,9 @@ def _shared_memory_policy_preflight(
     if principal is None:
         raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
     project = _canonical_project(request.project)
+    project_error = authorize_projects(principal, (project,), require_explicit=True)
+    if project_error:
+        raise HTTPException(status_code=403, detail={"code": project_error})
     try:
         identity = caller_identity_from_principal(principal, project=project)
         policy_request = SharedMemoryRequest(
@@ -4429,6 +4452,99 @@ def _shared_memory_policy_preflight(
         "reason_code": receipt.reason_code,
         "policy_digest": receipt.policy_digest,
         "audit": {"event_id": event.event_id, "appended": inserted, "authority": "sqlite-authoritative"},
+    }
+
+
+def _record_utility_feedback_event(
+    request: UtilityFeedbackEventRequest,
+    *,
+    principal: Any,
+) -> dict[str, Any]:
+    """Persist one caller-bound utility signal without changing memory state.
+
+    The client never supplies ``actor_id``.  Binding it to the authenticated
+    caller prevents a feedback event from impersonating another agent while
+    retaining replay-safe, project-scoped immutable evidence.
+    """
+
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+    project = _canonical_project(request.project)
+    project_error = authorize_projects(principal, (project,), require_explicit=True)
+    if project_error:
+        raise HTTPException(status_code=403, detail={"code": project_error})
+    try:
+        service = _memory_service()
+        if _find_live_memory(request.memory_id, project) is None:
+            raise HTTPException(status_code=404, detail={"code": "memory_not_found_in_project"})
+        event = UtilityEvent(
+            event_id=request.event_id,
+            memory_id=request.memory_id,
+            project=project,
+            actor_id=str(principal.caller_id),
+            event_type=request.event_type,
+            observed_at=request.observed_at,
+            request_digest=request.request_digest,
+            confidence=request.confidence,
+        )
+        _record, inserted = append_utility_event(service, event)
+    except HTTPException:
+        raise
+    except (MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "utility_feedback_unavailable", "reason": _safe_exception_text(exc)},
+        ) from exc
+    return {
+        "schema_version": "bhm.utility-feedback.ack.v1",
+        "project": project,
+        "event_id": event.event_id,
+        "memory_id": event.memory_id,
+        "actor_binding": "authenticated-caller",
+        "inserted": inserted,
+        "replayed": not inserted,
+        "lifecycle_action": "none",
+        "side_effects": {
+            "sqlite_mutation": bool(inserted),
+            "qdrant_mutation": False,
+            "projection_mutation": False,
+            "automatic_lifecycle_change": False,
+        },
+    }
+
+
+def _utility_feedback_report(
+    *,
+    project: str,
+    as_of: str,
+    half_life_days: float,
+    min_samples: int,
+) -> dict[str, Any]:
+    """Build a deterministic, project-scoped report from immutable events."""
+
+    canonical_project = _canonical_project(project)
+    try:
+        report = utility_report(
+            load_utility_events(_memory_service(), project=canonical_project),
+            as_of=as_of,
+            half_life_days=half_life_days,
+            min_samples=min_samples,
+        )
+    except (MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "utility_feedback_report_invalid", "reason": _safe_exception_text(exc)},
+        ) from exc
+    return {
+        **report,
+        "project": canonical_project,
+        "lifecycle_action": "none",
+        "side_effects": {
+            "read_only": True,
+            "sqlite_mutation": False,
+            "qdrant_mutation": False,
+            "projection_mutation": False,
+        },
     }
 
 
@@ -18762,6 +18878,40 @@ async def bhm_shared_memory_policy_evaluate(
         request,
         principal=principal,
         auth_kind=auth_kind,
+    )
+
+
+@app.post("/bhm/utility-feedback/event")
+async def bhm_utility_feedback_record(
+    request: UtilityFeedbackEventRequest,
+    http_request: Request,
+) -> dict[str, Any]:
+    """Append an authenticated utility event; it never updates memory lifecycle."""
+
+    return await _run_bounded_write(
+        "bhm.utility_feedback.record",
+        _record_utility_feedback_event,
+        request,
+        principal=getattr(http_request.state, "bhm_caller_principal", None),
+    )
+
+
+@app.get("/bhm/utility-feedback/report")
+async def bhm_utility_feedback_report(
+    project: str = Query(min_length=1, max_length=160),
+    as_of: str = Query(min_length=20, max_length=64),
+    half_life_days: float = Query(default=30.0, ge=0.25, le=3_650),
+    min_samples: int = Query(default=3, ge=1, le=10_000),
+) -> dict[str, Any]:
+    """Return a deterministic, read-only utility report for one project."""
+
+    return await _run_bounded_read(
+        "bhm.utility_feedback.report",
+        _utility_feedback_report,
+        project=project,
+        as_of=as_of,
+        half_life_days=half_life_days,
+        min_samples=min_samples,
     )
 
 

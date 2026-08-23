@@ -114,3 +114,56 @@ def test_shared_memory_policy_preflight_forwards_only_governance_fields(monkeypa
             "memory_id": "memory-1",
         },
     }
+
+
+def test_utility_feedback_mcp_tools_forward_only_bounded_event_and_report_fields(monkeypatch) -> None:
+    observed: list[tuple[str, dict[str, object]]] = []
+
+    def fake_post(path: str, body: dict) -> dict:
+        observed.append((path, body))
+        return {"ok": True}
+
+    def fake_get(path: str, params: dict) -> dict:
+        observed.append((path, params))
+        return {"ok": True}
+
+    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp, "_get", fake_get)
+
+    digest = "a" * 64
+    assert bhm_mcp.bhm_utility_feedback_record(
+        event_id="feedback-1",
+        memory_id="memory-1",
+        event_type="accepted",
+        observed_at="2026-08-23T12:00:00Z",
+        request_digest=digest,
+        project="blackholememory",
+        confidence=0.8,
+    ) == {"ok": True}
+    assert bhm_mcp.bhm_utility_feedback_report(
+        project="blackholememory",
+        as_of="2026-08-23T12:00:00Z",
+    ) == {"ok": True}
+    assert observed == [
+        (
+            "/bhm/utility-feedback/event",
+            {
+                "event_id": "feedback-1",
+                "memory_id": "memory-1",
+                "event_type": "accepted",
+                "observed_at": "2026-08-23T12:00:00Z",
+                "request_digest": digest,
+                "project": "blackholememory",
+                "confidence": 0.8,
+            },
+        ),
+        (
+            "/bhm/utility-feedback/report",
+            {
+                "project": "blackholememory",
+                "as_of": "2026-08-23T12:00:00Z",
+                "half_life_days": 30.0,
+                "min_samples": 3,
+            },
+        ),
+    ]
