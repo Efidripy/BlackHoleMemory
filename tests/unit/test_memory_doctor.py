@@ -101,12 +101,56 @@ def test_authoritative_sqlite_snapshot_is_bounded_content_free_and_read_only(tmp
     report = run_authoritative_sqlite_memory_doctor(database, project="project-a")
     assert report["authority_snapshot"]["snapshot_digest"] == snapshot["snapshot_digest"]
     assert {item["reason_code"] for item in report["findings"]} >= {
-        "exact_active_duplicate",
+        "same_content_active_review",
         "projection_stale",
     }
     assert "memory_identity_missing" not in {item["reason_code"] for item in report["findings"]}
     assert "memory_id_duplicate" not in {item["reason_code"] for item in report["findings"]}
     assert "secret one" not in str(report)
+
+
+def test_same_content_with_distinct_authoritative_payload_is_review_only() -> None:
+    report = run_memory_doctor(
+        (
+            {
+                "source_id": "m1",
+                "project": "p",
+                "content": "private",
+                "metadata": {"source_digest": "source-one"},
+            },
+            {
+                "source_id": "m2",
+                "project": "p",
+                "content": "private",
+                "metadata": {"source_digest": "source-two"},
+            },
+        )
+    )
+
+    finding = next(item for item in report["findings"] if item["reason_code"] == "same_content_active_review")
+    proposal = build_memory_doctor_repair_proposal(
+        report, authority_snapshot_digest="a" * 64
+    )
+
+    assert "exact_active_duplicate" not in {item["reason_code"] for item in report["findings"]}
+    assert finding["memory_ids"] == ["m1", "m2"]
+    assert proposal["proposals"][0]["repair_kind"] == "manual_review"
+    assert proposal["proposals"][0]["apply_performed"] is False
+    assert "private" not in str(proposal)
+
+
+def test_authoritative_content_digest_is_not_rehashed_as_empty_content() -> None:
+    report = run_memory_doctor(
+        (
+            {"memory_id": "m1", "project": "p", "content_digest": "a" * 64},
+            {"memory_id": "m2", "project": "p", "content_digest": "b" * 64},
+        )
+    )
+
+    assert not any(
+        item["reason_code"] in {"exact_active_duplicate", "same_content_active_review"}
+        for item in report["findings"]
+    )
 
 
 def test_authoritative_sqlite_snapshot_fails_closed_for_missing_or_unbounded_input(tmp_path) -> None:

@@ -43,13 +43,66 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def _dedupe_payload_digest(
+    *,
+    memory_type: str,
+    title: str,
+    summary: str,
+    tags: list[Any],
+    files: list[Any],
+    session_refs: list[Any],
+    upsert_key: str,
+    metadata: Mapping[str, Any],
+    provenance: Mapping[str, Any],
+) -> str:
+    """Return a content-free digest for conservative duplicate classification."""
+
+    return _digest(
+        {
+            "memory_type": memory_type,
+            "title": title,
+            "summary": summary,
+            "tags": tags,
+            "files": files,
+            "session_refs": session_refs,
+            "upsert_key": upsert_key,
+            "metadata": dict(metadata),
+            "provenance": dict(provenance),
+        }
+    )
+
+
 def _safe_record(record: Mapping[str, Any]) -> dict[str, Any]:
     metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+    provenance = record.get("provenance") if isinstance(record.get("provenance"), Mapping) else {}
     owner_id = str(record.get("owner_id") or metadata.get("owner_id") or "").strip()
+    supplied_dedupe_digest = str(record.get("dedupe_payload_digest") or "").strip().casefold()
+    dedupe_payload_digest = (
+        supplied_dedupe_digest
+        if record.get("dedupe_payload_trusted") is True
+        and len(supplied_dedupe_digest) == 64
+        and all(character in "0123456789abcdef" for character in supplied_dedupe_digest)
+        else _dedupe_payload_digest(
+            memory_type=str(record.get("memory_type") or record.get("type") or ""),
+            title=str(record.get("title") or ""),
+            summary=str(record.get("summary") or ""),
+            tags=record.get("tags") if isinstance(record.get("tags"), list) else [],
+            files=record.get("files") if isinstance(record.get("files"), list) else [],
+            session_refs=record.get("session_refs") if isinstance(record.get("session_refs"), list) else [],
+            upsert_key=str(record.get("upsert_key") or ""),
+            metadata=metadata,
+            provenance=provenance,
+        )
+    )
     return {
         "memory_id": str(record.get("source_id") or record.get("id") or record.get("memory_id") or ""),
         "project": str(record.get("project") or metadata.get("project") or ""),
-        "content_digest": str(record.get("content_sha256") or metadata.get("content_sha256") or _digest(str(record.get("content") or record.get("memory") or ""))),
+        "content_digest": str(
+            record.get("content_digest")
+            or record.get("content_sha256")
+            or metadata.get("content_sha256")
+            or _digest(str(record.get("content") or record.get("memory") or ""))
+        ),
         "lifecycle": str(record.get("lifecycle") or metadata.get("lifecycle") or "active"),
         "revision_id": str(record.get("revision_id") or metadata.get("revision_id") or ""),
         "source_digest": str(record.get("source_digest") or metadata.get("source_digest") or ""),
@@ -65,6 +118,7 @@ def _safe_record(record: Mapping[str, Any]) -> dict[str, Any]:
         ).casefold(),
         "shared_owner_digest": hashlib.sha256(owner_id.encode("utf-8")).hexdigest() if owner_id else "",
         "sensitivity": str(record.get("sensitivity") or metadata.get("sensitivity") or "").casefold(),
+        "dedupe_payload_digest": dedupe_payload_digest,
     }
 
 
@@ -76,6 +130,16 @@ def _json_object(value: Any) -> dict[str, Any]:
     except (TypeError, json.JSONDecodeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _json_array(value: Any) -> list[Any]:
+    if not isinstance(value, str):
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def _sqlite_snapshot_digest(records: tuple[Mapping[str, Any], ...]) -> str:
@@ -98,6 +162,7 @@ def _sqlite_snapshot_digest(records: tuple[Mapping[str, Any], ...]) -> str:
                 "shared_visibility": item["shared_visibility"],
                 "shared_owner_digest": item["shared_owner_digest"],
                 "sensitivity": item["sensitivity"],
+                "dedupe_payload_digest": item["dedupe_payload_digest"],
             }
             for item in records
         ]
@@ -155,6 +220,14 @@ def load_authoritative_sqlite_snapshot(
                 "source_digest",
                 "schema_digest",
                 "supersedes_revision_id",
+                "memory_type",
+                "provenance_json",
+                "title",
+                "summary",
+                "tags_json",
+                "files_json",
+                "session_refs_json",
+                "upsert_key",
             )
         }
         where = "WHERE m.project = ?" if project_value else ""
@@ -164,7 +237,10 @@ def load_authoritative_sqlite_snapshot(
             "r.content_sha256, "
             f"{typed['authority_seq']}, {typed['projection_seq']}, "
             f"{typed['source_digest']}, {typed['schema_digest']}, "
-            f"{typed['supersedes_revision_id']} "
+            f"{typed['supersedes_revision_id']}, {typed['memory_type']}, "
+            f"{typed['provenance_json']}, {typed['title']}, {typed['summary']}, "
+            f"{typed['tags_json']}, {typed['files_json']}, {typed['session_refs_json']}, "
+            f"{typed['upsert_key']} "
             "FROM memories AS m "
             "LEFT JOIN memory_revisions AS r ON r.revision_id = m.current_revision_id "
             f"{where} ORDER BY m.memory_id LIMIT ?",
@@ -182,6 +258,14 @@ def load_authoritative_sqlite_snapshot(
     records: list[dict[str, Any]] = []
     for row in rows:
         metadata = _json_object(row["metadata_json"])
+        memory_type = str(row["memory_type"] or "")
+        provenance = _json_object(row["provenance_json"])
+        title = str(row["title"] or "")
+        summary = str(row["summary"] or "")
+        tags = _json_array(row["tags_json"])
+        files = _json_array(row["files_json"])
+        session_refs = _json_array(row["session_refs_json"])
+        upsert_key = str(row["upsert_key"] or "")
         records.append(
             {
                 "memory_id": str(row["memory_id"]),
@@ -204,6 +288,18 @@ def load_authoritative_sqlite_snapshot(
                     else ""
                 ),
                 "sensitivity": str(metadata.get("sensitivity") or "").casefold(),
+                "dedupe_payload_digest": _dedupe_payload_digest(
+                    memory_type=memory_type,
+                    title=title,
+                    summary=summary,
+                    tags=tags,
+                    files=files,
+                    session_refs=session_refs,
+                    upsert_key=upsert_key,
+                    metadata=metadata,
+                    provenance=provenance,
+                ),
+                "dedupe_payload_trusted": True,
             }
         )
     records_tuple = tuple(records)
@@ -698,8 +794,35 @@ def run_memory_doctor(
         if item["sensitivity"] and item["sensitivity"] not in _SENSITIVITIES:
             findings.append({"severity": "high", "reason_code": "shared_sensitivity_invalid", "memory_id": item["memory_id"], "project": item["project"]})
     for (project, content_digest), matches in grouped.items():
-        if len(matches) > 1:
-            findings.append({"severity": "low", "reason_code": "exact_active_duplicate", "project": project, "content_digest": content_digest, "memory_ids": sorted(item["memory_id"] for item in matches)})
+        if len(matches) < 2:
+            continue
+        strict_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for item in matches:
+            strict_groups[item["dedupe_payload_digest"]].append(item)
+        found_exact = False
+        for duplicate_matches in strict_groups.values():
+            if len(duplicate_matches) < 2:
+                continue
+            found_exact = True
+            findings.append(
+                {
+                    "severity": "low",
+                    "reason_code": "exact_active_duplicate",
+                    "project": project,
+                    "content_digest": content_digest,
+                    "memory_ids": sorted(item["memory_id"] for item in duplicate_matches),
+                }
+            )
+        if not found_exact or len(strict_groups) > 1:
+            findings.append(
+                {
+                    "severity": "low",
+                    "reason_code": "same_content_active_review",
+                    "project": project,
+                    "content_digest": content_digest,
+                    "memory_ids": sorted(item["memory_id"] for item in matches),
+                }
+            )
     findings.sort(key=lambda item: (item["severity"], item["reason_code"], item.get("project", ""), item.get("memory_id", "")))
     report = {"schema_version": SCHEMA_VERSION, "record_count": len(clean), "findings": findings, "execution": {"read_only": True, "sqlite_mutation": False, "qdrant_mutation": False, "repair_apply": False, "content_preview": False}}
     report["report_digest"] = _digest(report)
