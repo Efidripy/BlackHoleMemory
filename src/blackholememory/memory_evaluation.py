@@ -189,14 +189,15 @@ def load_frozen_evaluation_fixture(path: str | Path) -> dict[str, Any]:
         raise FrozenEvaluationFixtureError("frozen evaluation fixture is invalid JSON") from exc
     if not isinstance(payload, dict):
         raise FrozenEvaluationFixtureError("frozen evaluation fixture root must be an object")
-    expected_keys = {
+    required_keys = {
         "fixture_schema_version",
         "license",
         "dataset",
         "dataset_digest",
         "recorded_receipts",
     }
-    if set(payload) != expected_keys:
+    optional_keys = {"baseline_receipts"}
+    if not required_keys.issubset(payload) or set(payload) - required_keys - optional_keys:
         raise FrozenEvaluationFixtureError("frozen evaluation fixture has unexpected fields")
     if payload.get("fixture_schema_version") != FROZEN_FIXTURE_SCHEMA_VERSION:
         raise FrozenEvaluationFixtureError("unsupported frozen evaluation fixture schema")
@@ -233,11 +234,24 @@ def load_frozen_evaluation_fixture(path: str | Path) -> dict[str, Any]:
     receipt_ids = [receipt.case_id for receipt in receipts]
     if len(receipt_ids) != len(set(receipt_ids)) or set(receipt_ids) != expected_case_ids:
         raise FrozenEvaluationFixtureError("fixture receipts must cover each case exactly once")
+    raw_baseline = payload.get("baseline_receipts")
+    baseline_receipts: tuple[RetrievalReceipt, ...] | None = None
+    if raw_baseline is not None:
+        if not isinstance(raw_baseline, list):
+            raise FrozenEvaluationFixtureError("fixture baseline_receipts must be an array")
+        try:
+            baseline_receipts = tuple(RetrievalReceipt.model_validate(item) for item in raw_baseline)
+        except ValueError as exc:
+            raise FrozenEvaluationFixtureError("fixture baseline receipt is invalid") from exc
+        baseline_ids = [receipt.case_id for receipt in baseline_receipts]
+        if len(baseline_ids) != len(set(baseline_ids)) or set(baseline_ids) != expected_case_ids:
+            raise FrozenEvaluationFixtureError("fixture baseline receipts must cover each case exactly once")
     return {
         "schema_version": FROZEN_FIXTURE_SCHEMA_VERSION,
         "license": dict(_BHM_FIXTURE_LICENSE),
         "manifest": manifest,
         "receipts": receipts,
+        "baseline_receipts": baseline_receipts,
         "fixture_digest": _digest(payload),
         "execution": {
             "network": False,
@@ -254,6 +268,9 @@ def run_frozen_evaluation_fixture(path: str | Path, *, k: int = 5) -> dict[str, 
 
     fixture = load_frozen_evaluation_fixture(path)
     report = evaluate_retrieval(fixture["manifest"], fixture["receipts"], k=k)
+    baseline = fixture["baseline_receipts"]
+    if baseline is not None:
+        report["full_context_baseline"] = compare_full_context_baseline(fixture["manifest"], fixture["receipts"], baseline, k=k)
     report["fixture"] = {
         "schema_version": fixture["schema_version"],
         "license": fixture["license"],
@@ -306,6 +323,82 @@ def _percentile(values: list[float], quantile: float) -> float | None:
 
 def _ratio(numerator: int, denominator: int) -> float | None:
     return round(numerator / denominator, 6) if denominator else None
+
+
+def _numeric_delta(value: float | int | None, baseline: float | int | None) -> float | None:
+    if value is None or baseline is None:
+        return None
+    return round(float(value) - float(baseline), 6)
+
+
+def _metric_delta(current: Mapping[str, Any], baseline: Mapping[str, Any]) -> dict[str, Any]:
+    """Produce content-free, deterministic metric deltas for one baseline."""
+
+    result: dict[str, Any] = {}
+    for name in ("metrics_by_category", "metrics_by_session", "metrics_by_turn", "metrics_by_route"):
+        current_groups = current[name]
+        baseline_groups = baseline[name]
+        result[name] = {
+            group: {
+                metric: _numeric_delta(current_values.get(metric), baseline_values.get(metric))
+                for metric in ("recall_at_k", "precision_at_k", "mrr", "map_at_k", "ndcg_at_k", "abstention_accuracy")
+            }
+            for group, current_values in current_groups.items()
+            if (baseline_values := baseline_groups.get(group)) is not None
+        }
+    current_capabilities = current["capability_metrics"]
+    baseline_capabilities = baseline["capability_metrics"]
+    result["capability_metrics"] = {
+        "temporal_accuracy": _numeric_delta(current_capabilities["temporal_accuracy"]["accuracy"], baseline_capabilities["temporal_accuracy"]["accuracy"]),
+        "update_consistency": _numeric_delta(current_capabilities["update_consistency"]["accuracy"], baseline_capabilities["update_consistency"]["accuracy"]),
+        "abstention_precision": _numeric_delta(current_capabilities["abstention"]["precision"], baseline_capabilities["abstention"]["precision"]),
+        "abstention_recall": _numeric_delta(current_capabilities["abstention"]["recall"], baseline_capabilities["abstention"]["recall"]),
+    }
+    result["latency_p50_seconds"] = _numeric_delta(current["latency_p50_seconds"], baseline["latency_p50_seconds"])
+    result["latency_p95_seconds"] = _numeric_delta(current["latency_p95_seconds"], baseline["latency_p95_seconds"])
+    return result
+
+
+def compare_full_context_baseline(
+    manifest: EvaluationManifest,
+    receipts: tuple[RetrievalReceipt, ...],
+    baseline_receipts: tuple[RetrievalReceipt, ...],
+    *,
+    k: int = 5,
+) -> dict[str, Any]:
+    """Compare recorded retrieval to a complete recorded small-context baseline.
+
+    Both lanes are already-recorded IDs and metrics.  This is an evidence
+    comparator, never a query planner or a path that can enable runtime policy.
+    """
+
+    current = evaluate_retrieval(manifest, receipts, k=k)
+    baseline = evaluate_retrieval(manifest, baseline_receipts, k=k)
+    if not baseline["input_integrity"]["valid"] or baseline["scored_receipt_count"] != len(manifest.cases):
+        raise FrozenEvaluationFixtureError("full-context baseline must have complete unambiguous coverage")
+    if baseline["provenance_and_isolation"]["passed"] is not True:
+        raise FrozenEvaluationFixtureError("full-context baseline must prove project and provenance isolation")
+    return {
+        "policy": "recorded-full-context.v1",
+        "case_count": len(manifest.cases),
+        "baseline_report_digest": baseline["report_digest"],
+        "baseline_input_integrity": {
+            "valid": True,
+            "scored_receipt_count": baseline["scored_receipt_count"],
+        },
+        "baseline_provenance_and_isolation": {
+            "coverage": baseline["provenance_and_isolation"]["coverage"],
+            "passed": True,
+        },
+        "baseline_metrics": {
+            "metrics_by_category": baseline["metrics_by_category"],
+            "capability_metrics": baseline["capability_metrics"],
+            "latency_p50_seconds": baseline["latency_p50_seconds"],
+            "latency_p95_seconds": baseline["latency_p95_seconds"],
+        },
+        "delta_retrieval_minus_full_context": _metric_delta(current, baseline),
+        "execution": {"network": False, "model_calls": 0, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False},
+    }
 
 
 def evaluate_retrieval(
@@ -445,6 +538,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "SUPPORTED_SUITES",
     "evaluate_retrieval",
+    "compare_full_context_baseline",
     "load_frozen_evaluation_fixture",
     "load_recorded_evaluation_manifest",
     "load_recorded_retrieval_receipts",
