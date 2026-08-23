@@ -1557,6 +1557,11 @@ def canonical_api_command(
         args.append("-ForceRestart")
     args.extend(
         [
+            # The authoritative script starts Uvicorn as a detached Windows
+            # process.  Keeping its orchestration shell attached lets the GUI
+            # timeout kill a process tree that may already contain a healthy
+            # API.  The GUI owns the readiness wait below instead.
+            "-NoWait",
             "-SkipProjectionRecovery",
             "-TimeoutSec",
             str(int(SERVICE_READINESS_TIMEOUT_SECONDS)),
@@ -1645,7 +1650,17 @@ def run_authoritative_api_transaction(
     for attempt in range(1, 3):
         use_force_restart = force_restart or attempt == 2
         command_ok, command_detail = runner(project_root, force_restart=use_force_restart)
-        ready, readiness_detail = probe()
+        ready = False
+        readiness_detail = "not probed"
+        if command_ok:
+            deadline = time.monotonic() + SERVICE_READINESS_TIMEOUT_SECONDS
+            while True:
+                ready, readiness_detail = probe()
+                if ready or time.monotonic() >= deadline:
+                    break
+                time.sleep(SERVICE_READINESS_POLL_SECONDS)
+        else:
+            ready, readiness_detail = probe()
         if command_ok and ready:
             return {
                 "ok": True,
