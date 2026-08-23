@@ -136,6 +136,53 @@ def test_federated_search_filters_each_contour_and_rejects_missing_project_metad
     assert all(hit["metadata"]["project"] == "blackholememory" for hit in hits)
 
 
+def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(monkeypatch):
+    class FakeEmbedder:
+        @staticmethod
+        def embed(_query: str, *_args):
+            return [1.0]
+
+    class FakeMemory:
+        embedding_model = FakeEmbedder()
+
+    record = {
+        "source_id": "mem-exact-identifier",
+        "project": "blackholememory",
+        "memory_type": "semantic",
+        "content": "contract_009_anchor is the validated recovery decision",
+        "tags": [],
+        "files": [],
+        "lifecycle": "active",
+        "updated_at": "2026-08-23T00:00:00Z",
+        "metadata": {
+            "content_sha256": "b" * 64,
+            "lifecycle": "active",
+            "semantic_type": "architecture",
+        },
+    }
+
+    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: True)
+    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(bhm_app, "_search_memory_collection", lambda **_kwargs: [])
+    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: [record])
+
+    hits, total = asyncio.run(
+        bhm_app.federated_search(
+            "find contract_009_anchor",
+            "blackholememory",
+            limit=5,
+            include_global=False,
+            include_graph_expansion=False,
+        )
+    )
+
+    assert total == 1
+    assert hits[0]["id"] == "mem-exact-identifier"
+    assert hits[0]["metadata"]["retrieval_route"] == "exact-identifier"
+    assert hits[0]["metadata"]["exact_identifier_snapshot_digest"]
+    assert hits[0]["metadata"]["project"] == "blackholememory"
+
+
 def test_advanced_search_without_project_is_scoped_and_missing_vector_metadata_fails_closed(monkeypatch):
     monkeypatch.setattr(bhm_app.settings, "qdrant_collection", "blackholememory")
     monkeypatch.setattr(
