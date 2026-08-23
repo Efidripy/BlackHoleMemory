@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import statistics
 from collections import defaultdict
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -86,13 +87,33 @@ def utility_report(events: tuple[UtilityEvent, ...], *, as_of: str, half_life_da
         weighted = 0.0
         counts: dict[str, int] = defaultdict(int)
         actor_ids: set[str] = set()
+        actor_weighted: dict[str, float] = defaultdict(float)
+        actor_samples: dict[str, int] = defaultdict(int)
         for event in sorted(group, key=lambda item: (item.observed_at, item.event_id)):
             occurred = datetime.fromisoformat(event.observed_at.replace("Z", "+00:00"))
             age_days = max(0.0, (now - occurred).total_seconds() / 86_400)
-            weighted += _WEIGHTS[event.event_type] * math.pow(0.5, age_days / half_life_days)
+            contribution = _WEIGHTS[event.event_type] * math.pow(0.5, age_days / half_life_days)
+            weighted += contribution
             counts[event.event_type.value] += 1
             actor_ids.add(event.actor_id)
+            actor_weighted[event.actor_id] += contribution
+            actor_samples[event.actor_id] += 1
         sample_count = len(group)
+        actor_scores = tuple(
+            actor_weighted[actor_id] / actor_samples[actor_id]
+            for actor_id in sorted(actor_weighted)
+        )
+        actor_score_median = statistics.median(actor_scores) if actor_scores else 0.0
+        actor_score_spread = max(actor_scores) - min(actor_scores) if actor_scores else 0.0
+        # Only diagnose a distribution outlier when three independent actors
+        # exist.  The score itself remains untouched; downstream review gates
+        # use this signal to become stricter instead of allowing a single
+        # divergent actor to manufacture a consolidation candidate.
+        outlier_actor_count = sum(
+            1
+            for score in actor_scores
+            if len(actor_scores) >= 3 and abs(score - actor_score_median) > 1.0
+        )
         rows.append({
             "project": project,
             "memory_id": memory_id,
@@ -101,6 +122,10 @@ def utility_report(events: tuple[UtilityEvent, ...], *, as_of: str, half_life_da
             # aggregate.  The count is enough to reject a one-sided review signal.
             "actor_count": len(actor_ids),
             "score": round(weighted / sample_count, 6),
+            "actor_score_median": round(actor_score_median, 6),
+            "actor_score_spread": round(actor_score_spread, 6),
+            "outlier_actor_count": outlier_actor_count,
+            "outlier_handling": "report_only",
             "uncertainty": "high" if sample_count < min_samples else "bounded",
             "event_counts": dict(sorted(counts.items())),
             "lifecycle_action": "none",

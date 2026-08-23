@@ -97,6 +97,10 @@ def _row_proposals(row: Mapping[str, Any], *, project: str, report_digest: str) 
         "sample_count",
         "actor_count",
         "score",
+        "actor_score_median",
+        "actor_score_spread",
+        "outlier_actor_count",
+        "outlier_handling",
         "uncertainty",
         "event_counts",
         "lifecycle_action",
@@ -113,12 +117,18 @@ def _row_proposals(row: Mapping[str, Any], *, project: str, report_digest: str) 
     # Additive aggregate only: identities remain in the event store.  The
     # legacy preview intentionally does not make a policy decision from it.
     _nonnegative_int(row.get("actor_count", 0), "utility.row.actor_count")
+    outlier_actor_count = _nonnegative_int(row.get("outlier_actor_count", 0), "utility.row.outlier_actor_count")
+    outlier_handling = str(row.get("outlier_handling") or "report_only").strip()
+    if outlier_handling != "report_only":
+        raise FeedbackConsolidationError("utility.row.outlier_handling is invalid")
     score = _score(row.get("score"))
     event_counts = _event_counts(row.get("event_counts"))
     uncertainty = str(row.get("uncertainty") or "").strip()
     if uncertainty not in {"high", "bounded"}:
         raise FeedbackConsolidationError("utility.row.uncertainty is invalid")
     if sample_count < MIN_SUPPORTED_SAMPLES or uncertainty != "bounded":
+        return []
+    if outlier_actor_count:
         return []
 
     candidates: list[tuple[str, int]] = []

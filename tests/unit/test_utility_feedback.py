@@ -43,3 +43,22 @@ def test_duplicate_event_is_idempotent_but_collision_fails_closed() -> None:
 def test_invalid_budget_parameters_reject() -> None:
     with pytest.raises(ValueError, match="half_life"):
         utility_report((), as_of="2026-08-22T00:00:00Z", half_life_days=0)
+
+
+def test_actor_outlier_is_identity_redacted_report_only_and_never_changes_raw_score() -> None:
+    events = (
+        _event("a-1", "accepted", actor_id="actor-a"),
+        _event("a-2", "accepted", actor_id="actor-a"),
+        _event("b-1", "accepted", actor_id="actor-b"),
+        _event("c-1", "contradicted", actor_id="actor-c"),
+    )
+
+    report = utility_report(events, as_of="2026-08-22T00:00:00Z")
+    row = report["rows"][0]
+
+    assert row["score"] == 0.48858
+    assert row["actor_score_median"] == 0.97716
+    assert row["actor_score_spread"] == 1.95432
+    assert row["outlier_actor_count"] == 1
+    assert row["outlier_handling"] == "report_only"
+    assert "actor-a" not in str(report)
