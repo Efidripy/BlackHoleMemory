@@ -23,6 +23,21 @@ not remapped or copied automatically. A later migration requires the exact
 same snapshot, a verified backup, a typed dry-run, explicit operator approval
 and post-apply parity smoke.
 
+`scripts/apply-bhm-semantic-graph-links.py` is the separate local operator
+surface for that later step. Its default action is still `plan`; `apply`
+accepts only a sealed content-free plan plus a distinct, integrity-checked
+SQLite backup, `--confirm`, and an explicit `--maintenance-window-open`
+writer-drain/offline proof. It binds the raw legacy JSON SHA-256, active
+ontology registry and activation artifacts, SQLite endpoint/schema snapshot,
+canonical project link set and unique candidate-key set. Inside one
+`BEGIN IMMEDIATE` transaction it rechecks those bindings and inserts only
+exact active same-project `DEPENDS_ON -> depends_on` relations directly into
+`memory_links`. Existing canonical links with different provenance are kept;
+existing exact migration rows are no-ops; any drift, natural-relation
+ambiguity or deterministic id collision rolls back the whole batch. The tool
+never rewrites the JSON graph and never writes Qdrant, Mem0, the outbox or a
+memory lifecycle. It is deliberately not an API or MCP route.
+
 `scripts/propose-bhm-legacy-ontology-schemas.py` can separately derive a
 content-free, proposal-only per-project schema candidate from exact
 same-project active `DEPENDS_ON` read-model edges. It neither persists nor
