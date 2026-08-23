@@ -67,9 +67,12 @@ policy, not a memory lifecycle controller. Its `working`, `session`,
 provenance receipts; lifecycle anchors explicitly declare `promotion=none`.
 Run `scripts/validate-bhm-context-tiers.py` only against its synthetic offline
 fixture to check this contract. It does not read live memories or mutate
-SQLite, Qdrant, Mem0, a promotion lock or a session record. Any future
-session-to-durable promotion remains an independently approved, typed
-operation.
+SQLite, Qdrant, Mem0, a promotion lock or a session record. Lifecycle receipts
+also derive a content-free deterministic *lock preview* from the event and
+source-reference digests, but it is always `not_acquired`, cannot reserve work
+and cannot select a candidate. Any future session-to-durable promotion remains
+an independently approved, typed operation that must bind a candidate digest,
+SQLite snapshot, policy decision and transactional lease.
 
 The compatibility MCP `bhm_observe` wrapper accepts the same optional
 `parentEventId` used by the REST observation contract. Clients should provide
