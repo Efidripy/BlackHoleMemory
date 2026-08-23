@@ -132,6 +132,38 @@ def test_shared_memory_policy_preflight_forwards_only_governance_fields(monkeypa
     }
 
 
+def test_shared_memory_read_forwards_one_bounded_governed_read(monkeypatch) -> None:
+    observed: dict[str, object] = {}
+
+    def fake_post(path: str, body: dict) -> dict:
+        observed.update({"path": path, "body": body})
+        return {"ok": True}
+
+    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+
+    assert bhm_mcp.bhm_shared_memory_read(
+        request_id="request-1",
+        visibility="project",
+        owner_id="owner-1",
+        memory_id="memory-1",
+        at="2026-08-23T12:00:00Z",
+        project="blackholememory",
+    ) == {"ok": True}
+    assert observed == {
+        "path": "/bhm/shared-memory/read",
+        "body": {
+            "request_id": "request-1",
+            "operation": "read",
+            "visibility": "project",
+            "owner_id": "owner-1",
+            "memory_id": "memory-1",
+            "at": "2026-08-23T12:00:00Z",
+            "project": "blackholememory",
+            "sensitivity": "internal",
+        },
+    }
+
+
 def test_utility_feedback_mcp_tools_forward_only_bounded_event_and_report_fields(monkeypatch) -> None:
     observed: list[tuple[str, dict[str, object]]] = []
 

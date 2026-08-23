@@ -32,7 +32,7 @@ def test_registration_groups_are_complete_disjoint_and_fail_closed():
     assert report["disjoint"] is True
     assert report["counts"]["core"] == len(CORE_TOOL_NAMES)
     assert report["counts"]["domain"] == len(EXTENDED_PUBLIC_TOOL_NAMES) == 84
-    assert report["counts"]["admin"] == 73
+    assert report["counts"]["admin"] == 74
     assert set(groups["core"]).isdisjoint(groups["domain"])
     assert set(groups["core"]).isdisjoint(groups["admin"])
     assert set(groups["domain"]).isdisjoint(groups["admin"])

@@ -3070,6 +3070,13 @@ class SharedMemoryPolicyPreflightRequest(BaseModel):
     expected_revision: str | None = Field(default=None, min_length=1, max_length=256)
 
 
+class SharedMemoryReadRequest(SharedMemoryPolicyPreflightRequest):
+    """Explicit, feature-gated governed read; writes remain unavailable."""
+
+    operation: Literal[SharedOperation.READ] = SharedOperation.READ
+    memory_id: str = Field(min_length=1, max_length=256)
+
+
 class MemoryCrystallizeRequest(BaseModel):
     source_ids: list[str]
     project: str
@@ -4532,6 +4539,116 @@ def _shared_memory_policy_preflight(
         "reason_code": receipt.reason_code,
         "policy_digest": receipt.policy_digest,
         "audit": {"event_id": event.event_id, "appended": inserted, "authority": "sqlite-authoritative"},
+    }
+
+
+def _shared_memory_read_enabled() -> bool:
+    """Return an opt-in switch; the safe default remains no shared-data route."""
+
+    return str(os.getenv("BHM_SHARED_MEMORY_READ_ENABLED", "") or "").strip().casefold() in {"1", "true", "yes"}
+
+
+def _serialize_governed_shared_memory(record: dict[str, Any]) -> dict[str, Any]:
+    """Return a deliberately bounded subset after a successful policy gate."""
+
+    content = str(record.get("content") or "")
+    limit = 16_000
+    return {
+        "id": str(record.get("source_id") or ""),
+        "project": str(record.get("project") or ""),
+        "title": str((record.get("metadata") or {}).get("raw_title") or _build_memory_title(content)),
+        "type": str(record.get("memory_type") or ""),
+        "content": content[:limit],
+        "content_truncated": len(content) > limit,
+        "source_digest": record.get("source_digest") or (record.get("metadata") or {}).get("source_digest"),
+        "created_at": record.get("created_at"),
+        "updated_at": record.get("updated_at"),
+        "lifecycle": _memory_lifecycle(record),
+    }
+
+
+def _shared_memory_read(
+    request: SharedMemoryReadRequest,
+    *,
+    principal: Any,
+    auth_kind: str,
+) -> dict[str, Any]:
+    """Read one active SQLite memory only after an explicit governed ALLOW."""
+
+    if not _shared_memory_read_enabled():
+        raise HTTPException(status_code=409, detail={"code": "shared_memory_read_disabled"})
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+    project = _canonical_project(request.project)
+    project_error = authorize_projects(principal, (project,), require_explicit=True)
+    if project_error:
+        raise HTTPException(status_code=403, detail={"code": project_error})
+    try:
+        service = _memory_service()
+        record = _find_live_memory(request.memory_id, project)
+        if record is None or _memory_lifecycle(record) != "active":
+            raise HTTPException(status_code=404, detail={"code": "memory_not_found_in_project"})
+        record_owner = str(record.get("agent_id") or (record.get("metadata") or {}).get("owner_id") or "").strip()
+        if not record_owner:
+            raise HTTPException(status_code=409, detail={"code": "shared_memory_owner_unresolved"})
+        if request.owner_id != record_owner:
+            raise HTTPException(status_code=403, detail={"code": "shared_memory_owner_mismatch"})
+        identity = caller_identity_from_principal(principal, project=project)
+        policy_request = SharedMemoryRequest(
+            request_id=request.request_id,
+            operation=SharedOperation.READ,
+            visibility=request.visibility,
+            identity=identity,
+            owner_id=request.owner_id,
+            memory_id=request.memory_id,
+            at=request.at,
+            sensitivity=request.sensitivity,
+            expected_revision=request.expected_revision,
+        )
+        grants = resolve_effective_grants(
+            service.list_artifact_records(
+                artifact_type=SHARED_MEMORY_GRANT_ARTIFACT_TYPE, project=project, limit=None,
+            ),
+            service.list_artifact_records(
+                artifact_type=SHARED_MEMORY_GRANT_REVOCATION_ARTIFACT_TYPE, project=project, limit=None,
+            ),
+            project=project,
+        )
+        receipt = decide_shared_memory(policy_request, grants)
+        event = build_shared_memory_audit_event(
+            request=policy_request,
+            receipt=receipt,
+            principal=principal,
+            auth_kind=auth_kind,
+        )
+        _record, inserted = append_shared_memory_audit(service, event)
+    except HTTPException:
+        raise
+    except (MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "shared_memory_read_unavailable", "reason": _safe_exception_text(exc)},
+        ) from exc
+    if receipt.decision.value != "allow":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "shared_memory_policy_denied",
+                "reason_code": receipt.reason_code,
+                "audit_event_id": event.event_id,
+            },
+        )
+    return {
+        "schema_version": "bhm.governed-shared-memory.read.v1",
+        "mode": "governed-read",
+        "shared_read_enabled": True,
+        "shared_write_enabled": False,
+        "decision": receipt.decision.value,
+        "reason_code": receipt.reason_code,
+        "policy_digest": receipt.policy_digest,
+        "memory": _serialize_governed_shared_memory(record),
+        "audit": {"event_id": event.event_id, "appended": inserted, "authority": "sqlite-authoritative"},
+        "execution": {"sqlite_mutation": bool(inserted), "memory_lifecycle_mutation": False, "qdrant_mutation": False, "mem0_mutation": False},
     }
 
 
@@ -19254,6 +19371,20 @@ async def bhm_shared_memory_policy_evaluate(
         request,
         principal=principal,
         auth_kind=auth_kind,
+    )
+
+
+@app.post("/bhm/shared-memory/read")
+async def bhm_shared_memory_read(
+    request: SharedMemoryReadRequest,
+    http_request: Request,
+) -> dict[str, Any]:
+    return await _run_bounded_write(
+        "bhm.shared_memory.read",
+        _shared_memory_read,
+        request,
+        principal=getattr(http_request.state, "bhm_caller_principal", None),
+        auth_kind=str(getattr(http_request.state, "bhm_auth_kind", "") or ""),
     )
 
 

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 import threading
 
 from fastapi.testclient import TestClient
+import pytest
 
 from blackholememory import app as bhm_app
 from blackholememory.caller_auth import CallerPrincipal
@@ -201,3 +202,152 @@ def test_rest_policy_preflight_binds_caller_scope_before_handler(monkeypatch) ->
     denied = client.post("/bhm/shared-memory/policy/evaluate", json=foreign)
     assert denied.status_code == 403
     assert denied.json()["detail"]["code"] == "caller_project_forbidden"
+
+
+def test_governed_read_is_disabled_by_default_without_touching_storage(monkeypatch) -> None:
+    monkeypatch.delenv("BHM_SHARED_MEMORY_READ_ENABLED", raising=False)
+
+    with pytest.raises(bhm_app.HTTPException) as error:
+        bhm_app._shared_memory_read(
+            bhm_app.SharedMemoryReadRequest(
+                project="blackholememory",
+                request_id="disabled-read",
+                visibility="project",
+                owner_id="agent-owner",
+                memory_id="memory-fixture",
+                at="2026-08-23T12:00:00Z",
+            ),
+            principal=_principal(),
+            auth_kind="caller_bearer",
+        )
+
+    assert error.value.status_code == 409
+    assert error.value.detail["code"] == "shared_memory_read_disabled"
+
+
+def test_governed_read_requires_grant_then_returns_bounded_sqlite_record(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "1")
+    grant = _grant()
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        def list_artifact_records(self, *, artifact_type: str, **_kwargs):
+            if artifact_type == "shared_memory_grant":
+                return [{"project": "blackholememory", "grant": grant.model_dump(mode="json")}]
+            return []
+
+    def fake_append(_service, event):
+        captured["event"] = event
+        return event.to_artifact().to_record(), True
+
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(
+        bhm_app,
+        "_find_live_memory",
+        lambda _memory_id, _project: {
+            "source_id": "memory-fixture",
+            "project": "blackholememory",
+            "memory_type": "fact",
+            "agent_id": "agent-owner",
+            "content": "approved bounded content",
+            "metadata": {"raw_title": "Approved memory"},
+            "created_at": "2026-08-23T10:00:00Z",
+            "updated_at": "2026-08-23T10:00:00Z",
+            "lifecycle": "active",
+        },
+    )
+    monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
+
+    result = bhm_app._shared_memory_read(
+        bhm_app.SharedMemoryReadRequest(
+            project="blackholememory",
+            request_id="allowed-read",
+            visibility="project",
+            owner_id="agent-owner",
+            memory_id="memory-fixture",
+            at="2026-08-23T12:00:00Z",
+        ),
+        principal=_principal(),
+        auth_kind="caller_bearer",
+    )
+
+    assert result["mode"] == "governed-read"
+    assert result["shared_read_enabled"] is True
+    assert result["shared_write_enabled"] is False
+    assert result["memory"] == {
+        "id": "memory-fixture",
+        "project": "blackholememory",
+        "title": "Approved memory",
+        "type": "fact",
+        "content": "approved bounded content",
+        "content_truncated": False,
+        "source_digest": None,
+        "created_at": "2026-08-23T10:00:00Z",
+        "updated_at": "2026-08-23T10:00:00Z",
+        "lifecycle": "active",
+    }
+    assert "approved bounded content" not in str(captured["event"])
+
+
+def test_governed_read_audits_policy_deny_without_disclosing_memory(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "true")
+    captured: dict[str, object] = {}
+
+    class FakeService:
+        def list_artifact_records(self, **_kwargs):
+            return []
+
+    def fake_append(_service, event):
+        captured["event"] = event
+        return event.to_artifact().to_record(), True
+
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "agent-owner", "content": "private content", "lifecycle": "active"})
+    monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
+
+    with pytest.raises(bhm_app.HTTPException) as error:
+        bhm_app._shared_memory_read(
+            bhm_app.SharedMemoryReadRequest(
+                project="blackholememory",
+                request_id="denied-read",
+                visibility="project",
+                owner_id="agent-owner",
+                memory_id="memory-fixture",
+                at="2026-08-23T12:00:00Z",
+            ),
+            principal=_principal(),
+            auth_kind="caller_bearer",
+        )
+
+    assert error.value.status_code == 403
+    assert error.value.detail["code"] == "shared_memory_policy_denied"
+    assert "private content" not in str(error.value.detail)
+    assert "private content" not in str(captured["event"])
+
+
+def test_governed_read_rejects_client_supplied_owner_that_disagrees_with_sqlite(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "true")
+
+    class FakeService:
+        def list_artifact_records(self, **_kwargs):
+            return []
+
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "actual-owner", "lifecycle": "active"})
+
+    with pytest.raises(bhm_app.HTTPException) as error:
+        bhm_app._shared_memory_read(
+            bhm_app.SharedMemoryReadRequest(
+                project="blackholememory",
+                request_id="owner-mismatch",
+                visibility="project",
+                owner_id="claimed-owner",
+                memory_id="memory-fixture",
+                at="2026-08-23T12:00:00Z",
+            ),
+            principal=_principal(),
+            auth_kind="caller_bearer",
+        )
+
+    assert error.value.status_code == 403
+    assert error.value.detail["code"] == "shared_memory_owner_mismatch"
