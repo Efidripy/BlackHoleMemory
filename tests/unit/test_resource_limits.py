@@ -35,6 +35,7 @@ from blackholememory.resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_CODE_GRAPH_SOFT_WAIT_SECONDS
 from blackholememory.resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
+from blackholememory.resource_limits import BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS
 from blackholememory.resource_limits import BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS
 from blackholememory.resource_limits import EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LLM_HTTP_TIMEOUT_SECONDS
@@ -102,6 +103,7 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert BHM_CODE_GRAPH_SOFT_WAIT_SECONDS == 20
     assert BHM_INDEX_MAX_FILES_PER_RUN == 666
     assert BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS == 3
+    assert BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS == 3
     assert EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS == 20
     assert LLM_HTTP_TIMEOUT_SECONDS == 120
     assert LLM_REFLECTION_TIMEOUT_SECONDS == 30
@@ -119,6 +121,7 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert any(item.key == "process.execution_timeout" for item in RESOURCE_LIMITS)
     assert any(item.key == "mcp.session_admission_timeout" for item in RESOURCE_LIMITS)
     assert any(item.key == "repository.index_max_files_per_run" for item in RESOURCE_LIMITS)
+    assert any(item.key == "retrieval.federated_contour_timeout" for item in RESOURCE_LIMITS)
 
 
 def test_resource_limit_snapshot_is_deterministic_and_honest_about_open_families() -> None:

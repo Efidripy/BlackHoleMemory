@@ -65,6 +65,7 @@ from .resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
 from .resource_limits import BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS
 from .resource_limits import BHM_CODE_GRAPH_SOFT_WAIT_SECONDS
 from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
+from .resource_limits import BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS
 from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
 from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
@@ -13607,18 +13608,43 @@ class _TimedRetrievalContour:
     duration_ms: float
     result: Any = None
     error: Exception | None = None
+    timed_out: bool = False
 
 
 async def _run_timed_retrieval_contour(name: str, worker: Any, /, *args: Any, **kwargs: Any) -> _TimedRetrievalContour:
-    """Run one read-only contour and retain only bounded timing/status evidence."""
+    """Run one read-only contour with a bounded response deadline.
+
+    The Mem0/Qdrant client is synchronous and an in-flight SDK call cannot be
+    forcefully cancelled from this async boundary.  The deadline therefore
+    protects the caller and lets the sibling contour/fallback proceed; a late
+    worker result is deliberately consumed without becoming a response.
+    """
 
     started = time.perf_counter()
+    worker_task = asyncio.create_task(asyncio.to_thread(worker, *args, **kwargs))
     try:
-        result = await asyncio.to_thread(worker, *args, **kwargs)
+        result = await asyncio.wait_for(
+            asyncio.shield(worker_task),
+            timeout=BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS,
+        )
         return _TimedRetrievalContour(
             name=name,
             duration_ms=(time.perf_counter() - started) * 1000.0,
             result=result,
+        )
+    except TimeoutError as exc:
+        def consume_late_result(task: asyncio.Task[Any]) -> None:
+            try:
+                task.result()
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        worker_task.add_done_callback(consume_late_result)
+        return _TimedRetrievalContour(
+            name=name,
+            duration_ms=(time.perf_counter() - started) * 1000.0,
+            error=exc,
+            timed_out=True,
         )
     except Exception as exc:
         return _TimedRetrievalContour(
@@ -13646,8 +13672,9 @@ def _federated_contour_trace(
         {
             "name": contour.name,
             "enabled": True,
-            "status": "failed" if contour.error is not None else "completed",
+            "status": "timed_out" if contour.timed_out else "failed" if contour.error is not None else "completed",
             "duration_ms": _bounded_trace_duration_ms(contour.duration_ms),
+            "deadline_ms": BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS * 1000.0,
         }
         for contour in contours
     ]

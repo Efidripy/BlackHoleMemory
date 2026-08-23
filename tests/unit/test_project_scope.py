@@ -291,6 +291,54 @@ def test_timed_retrieval_contour_measures_completed_worker_duration(monkeypatch)
     assert outcome.duration_ms == 125.0
 
 
+def test_federated_search_uses_remaining_contour_after_one_contour_times_out(monkeypatch):
+    class FakeEmbedder:
+        @staticmethod
+        def embed(_query: str, *_args):
+            return [1.0]
+
+    class FakeMemory:
+        embedding_model = FakeEmbedder()
+
+    release_local = threading.Event()
+
+    def fake_search_memory_collection(*, context_origin: str, **_kwargs):
+        if context_origin == "LOCAL":
+            assert release_local.wait(timeout=1.0)
+            return []
+        return [{
+            "id": "global-allowed",
+            "content": "global-allowed",
+            "score": 0.9,
+            "context_origin": context_origin,
+            "metadata": {"project": "blackholememory", "memory_type": "fact", "tags": [], "files": []},
+        }]
+
+    monkeypatch.setattr(bhm_app, "BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: False)
+    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(bhm_app, "get_global_core_memory", lambda: FakeMemory())
+    monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
+
+    try:
+        outcome = asyncio.run(
+            bhm_app.federated_search(
+                "timeout boundary",
+                "blackholememory",
+                limit=5,
+                include_graph_expansion=False,
+            )
+        )
+    finally:
+        release_local.set()
+
+    hits, total = outcome
+    statuses = {item["name"]: item["status"] for item in outcome.contour_trace["contours"]}
+    assert total == 1
+    assert [hit["id"] for hit in hits] == ["global-allowed"]
+    assert statuses == {"local_vector": "timed_out", "global_vector": "completed", "exact_identifier": "disabled"}
+
+
 def test_advanced_search_without_project_is_scoped_and_missing_vector_metadata_fails_closed(monkeypatch):
     monkeypatch.setattr(bhm_app.settings, "qdrant_collection", "blackholememory")
     monkeypatch.setattr(
