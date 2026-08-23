@@ -209,6 +209,8 @@ def _admit_candidate(
         return None
     if any(item["sample_count"] < MIN_SAMPLES or item["actor_count"] < MIN_INDEPENDENT_ACTORS for item in supported):
         return None
+    if any(item["outlier_actor_count"] > 0 for item in supported):
+        return None
     if not any(item["corrected"] > 0 or item["contradicted"] > 0 for item in supported):
         return None
     # A low score is an extra signal only. It may not create an action alone.
@@ -343,6 +345,7 @@ def _utility_support(row: Mapping[str, Any] | None) -> dict[str, Any] | None:
             "memory_id": _bounded_text(row.get("memory_id"), "utility.row.memory_id"),
             "sample_count": int(row.get("sample_count")),
             "actor_count": int(row.get("actor_count", 0)),
+            "outlier_actor_count": int(row.get("outlier_actor_count", 0)),
             "score": float(row.get("score")),
             "corrected": int(event_counts.get("corrected", 0)),
             "contradicted": int(event_counts.get("contradicted", 0)),

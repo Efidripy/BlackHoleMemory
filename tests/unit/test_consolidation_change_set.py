@@ -157,6 +157,25 @@ def test_low_score_alone_and_one_sided_feedback_cannot_create_actions() -> None:
     assert build_consolidation_change_set_preview(one_actor, **kwargs)["actions"] == []
 
 
+def test_outlier_feedback_signal_cannot_create_a_change_set_action() -> None:
+    first, second = _record("memory-a", content="same"), _record("memory-b", content="same")
+    snapshot = _snapshot(first, second)
+    doctor = _doctor(snapshot, {"reason_code": "exact_active_duplicate", "memory_ids": ["memory-a", "memory-b"]})
+    report = _report(
+        *[_event(f"a-{index}", "memory-a", f"actor-{index % 2}") for index in range(1, 4)],
+        *[_event(f"b-{index}", "memory-b", f"actor-{index % 2}") for index in range(1, 4)],
+    )
+    for row in report["rows"]:
+        row["outlier_actor_count"] = 1
+    import json
+    report["report_digest"] = hashlib.sha256(json.dumps({key: value for key, value in report.items() if key != "report_digest"}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    result = build_consolidation_change_set_preview(
+        report, project="blackholememory", authority_snapshot=snapshot, candidates=[_candidate(first, second)], doctor_report=doctor, as_of="2026-08-23T12:00:00Z"
+    )
+    assert result["actions"] == []
+
+
 @pytest.mark.parametrize("mutation", ["foreign_project", "inactive", "content_drift", "snapshot_tamper"])
 def test_change_set_fails_closed_on_cross_project_target_drift_or_tamper(mutation: str) -> None:
     first, second = _record("memory-a", content="same"), _record("memory-b", content="same")
