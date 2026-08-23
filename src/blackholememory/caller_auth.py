@@ -157,6 +157,7 @@ _EXPLICIT_PROJECT_SCOPE_PATHS = frozenset(
         "/bhm/schema/validate-strict",
         "/bhm/memory/normalize-metadata",
         "/bhm/shared-memory/policy/evaluate",
+        "/bhm/shared-memory/read",
     }
 )
 _PROJECT_KEYS = frozenset(

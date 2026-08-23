@@ -2001,6 +2001,32 @@ def bhm_shared_memory_policy_preflight(
     return _post("/bhm/shared-memory/policy/evaluate", body)
 
 
+@mcp.tool(name="bhm_shared_memory_read", description="Read one active project memory only through the feature-gated governed shared-memory policy. It never writes shared memory, Qdrant, Mem0, or lifecycle state.")
+def bhm_shared_memory_read(
+    request_id: Annotated[str, Field(min_length=1, max_length=256)],
+    visibility: Literal["private/agent", "session", "project", "team", "org/tenant"],
+    owner_id: Annotated[str, Field(min_length=1, max_length=256)],
+    memory_id: Annotated[str, Field(min_length=1, max_length=256)],
+    at: Annotated[str, Field(min_length=20, max_length=64)],
+    project: Annotated[str, Field(min_length=1, max_length=256)],
+    sensitivity: Literal["public", "internal", "restricted"] = "internal",
+    expected_revision: Annotated[str, Field(min_length=1, max_length=256)] | None = None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "request_id": request_id,
+        "operation": "read",
+        "visibility": visibility,
+        "owner_id": owner_id,
+        "memory_id": memory_id,
+        "at": at,
+        "project": project,
+        "sensitivity": sensitivity,
+    }
+    if expected_revision is not None:
+        body["expected_revision"] = expected_revision
+    return _post("/bhm/shared-memory/read", body)
+
+
 @mcp.tool(name="bhm_utility_feedback_record", description="Append one caller-bound, immutable utility signal for an existing project memory. This never changes lifecycle or projections.")
 def bhm_utility_feedback_record(
     event_id: Annotated[str, Field(min_length=1, max_length=160)],

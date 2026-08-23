@@ -46,6 +46,19 @@ edge remain explicit review reasons. A proposal still requires operator review,
 explicit persistence, explicit activation and an admission smoke before it can
 govern a write.
 
+## Governed shared-memory reads
+
+The shared-memory policy surface is default-deny and SQLite-authoritative.
+`POST /bhm/shared-memory/read` and the matching admin MCP tool are present
+only as an opt-in bounded read contract: `BHM_SHARED_MEMORY_READ_ENABLED=1`
+is required, a caller must be explicitly scoped to the project, and the
+request owner must match the owner recorded on the active SQLite memory before
+any grant is evaluated. One unambiguous active immutable grant must allow the
+same project, owner, visibility and `read` operation; a denied attempt keeps a
+content-free audit record but returns no memory data. The response is a bounded
+canonical SQLite subset. Shared writes remain disabled, and this route never
+reads/writes Qdrant or Mem0 or changes a memory lifecycle.
+
 ## Hierarchical context tiers
 
 The opt-in `tiered_context=true` compiler is a read-only context-selection

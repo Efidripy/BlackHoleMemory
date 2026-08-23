@@ -133,8 +133,8 @@ def build_auth_admin_parity_report(inventory_path: Path = DEFAULT_INVENTORY) -> 
         "duplicate_inventory_keys": duplicate_keys,
         "classification_digest": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
         "ok": (
-            len(rows) == 450
-            and len(classifications) == 450
+            len(rows) == 452
+            and len(classifications) == 452
             and not missing
             and not unknown
             and not implicit

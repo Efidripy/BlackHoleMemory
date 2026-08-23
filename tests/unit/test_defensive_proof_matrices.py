@@ -25,10 +25,12 @@ def test_defensive_proof_matrices_are_deterministic_and_complete() -> None:
 
     assert first["coverage_ok"] is True
     assert first["digest"] == second["digest"]
-    assert len(first["interface_rows"]) == 450
-    assert len(first["http_stateful_candidate_rows"]) == 179
-    assert len(first["operator_mcp_tool_rows"]) == 157
-    assert len(first["stateful_candidate_rows"]) == 336
+    # The feature-gated governed shared-memory read adds one REST and one
+    # operator MCP boundary; both must stay in the defensive proof matrix.
+    assert len(first["interface_rows"]) == 452
+    assert len(first["http_stateful_candidate_rows"]) == 180
+    assert len(first["operator_mcp_tool_rows"]) == 158
+    assert len(first["stateful_candidate_rows"]) == 338
     assert first["unresolved_interfaces"] == []
     assert first["unresolved_project_sinks"] == []
     assert first["unresolved_redaction_sinks"] == []
