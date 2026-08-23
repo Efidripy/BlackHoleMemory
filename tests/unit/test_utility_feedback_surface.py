@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -10,6 +12,7 @@ from pydantic import ValidationError
 from blackholememory import app as bhm_app
 from blackholememory.caller_auth import CallerPrincipal
 from blackholememory.utility_feedback import UtilityEvent
+from blackholememory.utility_feedback import utility_report
 
 
 def _principal() -> CallerPrincipal:
@@ -188,3 +191,116 @@ def test_utility_feedback_consolidation_preview_is_read_only(monkeypatch) -> Non
     assert {item["review_kind"] for item in result["proposals"]} == {"contradiction_review", "low_utility_review"}
     assert result["lifecycle_action"] == "none"
     assert result["side_effects"]["automatic_lifecycle_change"] is False
+
+
+def _change_set_digest(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _change_set_record(memory_id: str, content: str) -> dict[str, object]:
+    return {
+        "memory_id": memory_id,
+        "project": "blackholememory",
+        "content_digest": hashlib.sha256(content.encode()).hexdigest(),
+        "lifecycle": "active",
+        "revision_id": f"revision-{memory_id}",
+        "source_digest": "",
+        "schema_digest": "",
+        "authority_seq": 7,
+        "projection_seq": 7,
+        "supersedes_revision_id": "",
+        "ontology_schema_digest": "",
+        "shared_visibility": "",
+        "shared_owner_digest": "",
+        "sensitivity": "",
+    }
+
+
+def test_utility_feedback_change_set_preview_rest_surface_is_authenticated_and_read_only(monkeypatch) -> None:
+    first = _change_set_record("memory-a", "secret-a")
+    second = _change_set_record("memory-b", "secret-a")
+    snapshot = {
+        "schema_version": "bhm.memory-doctor.sqlite-snapshot.v1",
+        "records": [first, second],
+        "snapshot_digest": _change_set_digest([first, second]),
+    }
+    events = tuple(
+        UtilityEvent(
+            event_id=f"utility-{memory_id}-{index}",
+            memory_id=memory_id,
+            project="blackholememory",
+            actor_id=f"operator-{index % 2}",
+            event_type="contradicted",
+            observed_at="2026-08-23T12:00:00Z",
+            request_digest=hashlib.sha256(f"request-{memory_id}-{index}".encode()).hexdigest(),
+        )
+        for memory_id in ("memory-a", "memory-b")
+        for index in range(1, 4)
+    )
+    report = utility_report(events, as_of="2026-08-23T12:00:00Z")
+    report = {
+        **report,
+        "project": "blackholememory",
+        "lifecycle_action": "none",
+        "side_effects": {"read_only": True},
+    }
+    doctor = {
+        "schema_version": "bhm.memory-doctor.v1",
+        "authority_snapshot": {"snapshot_digest": snapshot["snapshot_digest"]},
+        "findings": [{"reason_code": "exact_active_duplicate", "memory_ids": ["memory-a", "memory-b"]}],
+        "execution": {"read_only": True},
+    }
+    doctor["report_digest"] = _change_set_digest(doctor)
+    candidate = {
+        "project": "blackholememory",
+        "kind": "exact_duplicate_merge_review",
+        "memory_refs": [
+            {
+                "memory_id": record["memory_id"],
+                "revision_id": record["revision_id"],
+                "content_sha256": record["content_digest"],
+                "lifecycle": "active",
+                "authority_seq": record["authority_seq"],
+            }
+            for record in (first, second)
+        ],
+        "reason_codes": ["exact_active_duplicate"],
+        "detector_digest": "a" * 64,
+        "confidence": 0.9,
+    }
+    monkeypatch.setattr(bhm_app, "_utility_feedback_report", lambda **_: report)
+    monkeypatch.setattr(bhm_app, "load_authoritative_sqlite_snapshot", lambda *_args, **_kwargs: snapshot)
+    monkeypatch.setattr(bhm_app, "run_authoritative_sqlite_memory_doctor", lambda *_args, **_kwargs: doctor)
+    monkeypatch.setattr(bhm_app, "resolve_runtime_storage_config", lambda **_: SimpleNamespace(database_path="ignored"))
+
+    request = bhm_app.ConsolidationChangeSetPreviewRequest(
+        project="blackholememory",
+        as_of="2026-08-23T12:00:00Z",
+        candidates=[candidate],
+    )
+    result = bhm_app._utility_feedback_change_set_preview(request)
+    assert result["action_count"] == 1
+    assert result["side_effects"] == {
+        "read_only": True,
+        "sqlite_mutation": False,
+        "qdrant_mutation": False,
+        "projection_mutation": False,
+        "model_called": False,
+        "automatic_lifecycle_change": False,
+    }
+    assert "secret-a" not in json.dumps(result)
+
+    monkeypatch.setenv("BHM_CALLER_TOKEN", "t" * 32)
+    monkeypatch.setenv("BHM_CALLER_ID", "rest-caller")
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    client = TestClient(bhm_app.app)
+    payload = request.model_dump(mode="json")
+    assert client.post("/bhm/consolidation/change-set/preview", json=payload).status_code == 401
+    response = client.post(
+        "/bhm/consolidation/change-set/preview",
+        json=payload,
+        headers={"Authorization": f"Bearer {'t' * 32}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["action_count"] == 1

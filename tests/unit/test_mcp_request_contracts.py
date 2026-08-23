@@ -199,6 +199,41 @@ def test_utility_feedback_mcp_tools_forward_only_bounded_event_and_report_fields
     ]
 
 
+def test_consolidation_change_set_mcp_tool_forwards_redacted_preview_only(monkeypatch) -> None:
+    observed: list[tuple[str, dict[str, object]]] = []
+
+    def fake_post(path: str, body: dict) -> dict:
+        observed.append((path, body))
+        return {"ok": True}
+
+    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    candidate = {
+        "project": "blackholememory",
+        "kind": "exact_duplicate_merge_review",
+        "memory_refs": [],
+        "reason_codes": ["exact_active_duplicate"],
+        "detector_digest": "a" * 64,
+        "confidence": 0.9,
+    }
+    assert bhm_mcp.bhm_consolidation_change_set_preview(
+        project="blackholememory",
+        as_of="2026-08-23T12:00:00Z",
+        candidates=[candidate],
+        max_actions=4,
+    ) == {"ok": True}
+    assert observed == [
+        (
+            "/bhm/consolidation/change-set/preview",
+            {
+                "project": "blackholememory",
+                "as_of": "2026-08-23T12:00:00Z",
+                "candidates": [candidate],
+                "max_actions": 4,
+            },
+        )
+    ]
+
+
 def test_observe_mcp_wrapper_forwards_optional_parent_event_for_resume(monkeypatch) -> None:
     observed: dict[str, object] = {}
 

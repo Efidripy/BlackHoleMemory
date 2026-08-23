@@ -2062,6 +2062,24 @@ def bhm_utility_feedback_consolidation_preview(
     )
 
 
+@mcp.tool(name="bhm_consolidation_change_set_preview", description="Build a bounded, snapshot-bound, content-free consolidation change-set preview. Operator approval and typed dry-run are still required; this tool never applies changes.")
+def bhm_consolidation_change_set_preview(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    as_of: Annotated[str, Field(min_length=20, max_length=64)],
+    candidates: Annotated[list[dict[str, Any]], Field(min_length=1, max_length=128)],
+    max_actions: Annotated[int, Field(ge=1, le=128)] = 64,
+) -> dict[str, Any]:
+    return _post(
+        "/bhm/consolidation/change-set/preview",
+        {
+            "project": project,
+            "as_of": as_of,
+            "candidates": candidates,
+            "max_actions": max_actions,
+        },
+    )
+
+
 @mcp.tool(name="bhm_remember", description=f"Save a durable memory entry into BHM. {TAXONOMY_METADATA_HINT}")
 def bhm_remember(
     content: str,
