@@ -778,6 +778,7 @@ def test_authoritative_api_command_uses_canonical_api_only_lifecycle(tmp_path: P
 
     assert str(canonical) in start
     assert "run-service.ps1" not in " ".join(start)
+    assert "-NoWait" in start
     assert "-SkipProjectionRecovery" in start
     assert start[-2:] == ["-TimeoutSec", "120"]
     assert "-ForceRestart" not in start
@@ -804,6 +805,27 @@ def test_authoritative_api_transaction_retries_once_with_force_restart(tmp_path:
     assert result["ok"] is True
     assert result["attempts"] == 2
     assert calls == [False, True]
+
+
+def test_authoritative_api_transaction_waits_for_detached_api_without_restart(tmp_path: Path, monkeypatch) -> None:
+    calls: list[bool] = []
+    probes = iter([(False, "starting"), (False, "warming"), (True, "ready")])
+    monkeypatch.setattr(launcher, "append_launcher_log", lambda _line: None)
+    monkeypatch.setattr(launcher.time, "sleep", lambda _seconds: None)
+
+    def runner(_root: Path, *, force_restart: bool = False, **_kwargs) -> tuple[bool, str]:
+        calls.append(force_restart)
+        return True, "detached"
+
+    result = launcher.run_authoritative_api_transaction(
+        tmp_path,
+        command_runner=runner,
+        readiness_probe=lambda: next(probes),
+    )
+
+    assert result["ok"] is True
+    assert result["attempts"] == 1
+    assert calls == [False]
 
 
 def test_authoritative_api_transaction_stops_after_two_failed_attempts(tmp_path: Path, monkeypatch) -> None:
