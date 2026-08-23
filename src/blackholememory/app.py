@@ -10267,19 +10267,89 @@ def _relation_apply_suggestions(request: RelationApplySuggestionsRequest) -> dic
 
 
 def _memory_merge_preview(request: MemoryMergePreviewRequest) -> dict:
+    if request.source_id == request.target_id:
+        raise HTTPException(status_code=400, detail="source_id and target_id must differ")
     source = _find_live_memory(request.source_id, request.project)
     target = _find_live_memory(request.target_id, request.project)
     if source is None or target is None:
         raise HTTPException(status_code=404, detail="memory not found")
+    project = _canonical_project(request.project)
     merged_tags = sorted(set((source.get("tags") or []) + (target.get("tags") or [])))
     merged_files = sorted(set(((source.get("metadata") or {}).get("files") or []) + ((target.get("metadata") or {}).get("files") or [])))
     merged_content = (target.get("content") or "").strip()
     if (source.get("content") or "").strip() and (source.get("content") or "").strip() not in merged_content:
         merged_content = f"{merged_content}\n\n[source supplement]\n{source.get('content')}".strip()
+    affected_links: list[dict[str, Any]] = []
+    remapped_keys: dict[tuple[str, str, str], list[str]] = {}
+    for link in _load_memory_links():
+        if not _project_matches(link.get("project"), project):
+            continue
+        source_id = str(link.get("source_id") or "")
+        target_id = str(link.get("target_id") or "")
+        if request.source_id not in {source_id, target_id}:
+            continue
+        remapped_source = request.target_id if source_id == request.source_id else source_id
+        remapped_target = request.target_id if target_id == request.source_id else target_id
+        relation = str(link.get("relation") or "")
+        key = (remapped_source, remapped_target, relation)
+        link_id = str(link.get("id") or "")
+        remapped_keys.setdefault(key, []).append(link_id)
+        ontology = (link.get("metadata") or {}).get("ontology")
+        ontology = ontology if isinstance(ontology, Mapping) else {}
+        affected_links.append(
+            {
+                "id": link_id,
+                "relation": relation,
+                "direction": "outgoing" if source_id == request.source_id else "incoming",
+                "becomes_self_link": remapped_source == remapped_target,
+                "remapped_endpoint_ids": {
+                    "source": remapped_source,
+                    "target": remapped_target,
+                },
+                "ontology": {
+                    "schema_digest": str(ontology.get("schema_digest") or ""),
+                    "revision": ontology.get("revision"),
+                    "admission": str(ontology.get("admission") or ""),
+                },
+            }
+        )
+    affected_links.sort(key=lambda item: (item["relation"], item["direction"], item["id"]))
+    collisions = [
+        {"remapped_key": {"source_id": key[0], "target_id": key[1], "relation": key[2]}, "link_ids": sorted(ids)}
+        for key, ids in sorted(remapped_keys.items())
+        if len(ids) > 1
+    ]
+    plan = {
+        "project": project,
+        "source_id": request.source_id,
+        "target_id": request.target_id,
+        "source_content_sha256": _memory_content_sha256(source),
+        "target_content_sha256": _memory_content_sha256(target),
+        "affected_links": affected_links,
+        "collisions": collisions,
+    }
+    plan_digest = hashlib.sha256(
+        json.dumps(plan, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     return {
         "source": _serialize_memory_record(source),
         "target": _serialize_memory_record(target),
         "preview": {"tags": merged_tags, "files": merged_files, "content": merged_content},
+        "resolution": {
+            "schema_version": "bhm.memory-merge-preview.v2",
+            "project": project,
+            "plan_digest": plan_digest,
+            "affected_link_count": len(affected_links),
+            "self_link_count": sum(1 for item in affected_links if item["becomes_self_link"]),
+            "collision_count": len(collisions),
+            "affected_links": affected_links,
+            "collisions": collisions,
+        },
+        "rollback": {
+            "apply_performed": False,
+            "required_before_apply": ["same_snapshot_recheck", "verified_backup", "explicit_operator_approval"],
+        },
+        "execution": {"sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False},
     }
 
 

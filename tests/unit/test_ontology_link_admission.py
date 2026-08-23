@@ -101,3 +101,42 @@ def test_active_ontology_rejects_stale_client_schema_digest(monkeypatch) -> None
 
     assert exc_info.value.status_code == 409
     assert exc_info.value.detail["code"] == "ontology_schema_digest_mismatch"
+
+
+def test_merge_preview_reports_ontology_affected_links_and_never_applies(monkeypatch) -> None:
+    source = {"source_id": "mem-source", "project": "blackholememory", "content": "source", "metadata": {}}
+    target = {"source_id": "mem-target", "project": "blackholememory", "content": "target", "metadata": {}}
+    records = {"mem-source": source, "mem-target": target}
+    links = [
+        {
+            "id": "link-outgoing",
+            "project": "blackholememory",
+            "source_id": "mem-source",
+            "target_id": "mem-target",
+            "relation": "relates_to",
+            "metadata": {"ontology": {"schema_digest": "a" * 64, "revision": 1, "admission": "allow"}},
+        },
+        {
+            "id": "link-incoming",
+            "project": "blackholememory",
+            "source_id": "mem-target",
+            "target_id": "mem-source",
+            "relation": "relates_to",
+            "metadata": {"ontology": {"schema_digest": "a" * 64, "revision": 1, "admission": "allow"}},
+        },
+    ]
+    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda memory_id, _project: records.get(memory_id))
+    monkeypatch.setattr(bhm_app, "_load_memory_links", lambda: links)
+
+    result = bhm_app._memory_merge_preview(
+        bhm_app.MemoryMergePreviewRequest(project="blackholememory", source_id="mem-source", target_id="mem-target")
+    )
+
+    assert result["resolution"]["schema_version"] == "bhm.memory-merge-preview.v2"
+    assert result["resolution"]["affected_link_count"] == 2
+    assert result["resolution"]["self_link_count"] == 2
+    assert result["resolution"]["collision_count"] == 1
+    assert result["resolution"]["affected_links"][0]["ontology"]["admission"] == "allow"
+    assert len(result["resolution"]["plan_digest"]) == 64
+    assert result["rollback"]["apply_performed"] is False
+    assert result["execution"] == {"sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False}
