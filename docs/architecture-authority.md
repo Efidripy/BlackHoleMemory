@@ -100,6 +100,11 @@ metrics remain evaluation evidence and cannot enable a runtime retrieval path.
   `/bhm/context/compile` and `/bhm/retrieval/explain`) return a `side_effects`
   object with `read_only=true`, `sqlite_mutation=false`,
   `qdrant_mutation=false` and `projection_mutation=false`.
+- Canonical `POST /bhm/search` additionally returns a content-free
+  `bhm.retrieval-contour-trace.v1` query-plan stage for the completed
+  embedding/local/global/exact contour timings. It never includes query text,
+  IDs, memory content, paths, scores or provider errors, and it cannot change
+  ranking or feature flags.
 - `POST /bhm/memory/used` is the separate explicit access-feedback operation;
   its `side_effects.projection_update` is `explicit-access-feedback` and its
   response reports whether a bounded Qdrant payload update was scheduled.
