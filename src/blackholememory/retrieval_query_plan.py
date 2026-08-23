@@ -15,7 +15,7 @@ SCHEMA_VERSION = "bhm.retrieval-query-plan.v1"
 _ALLOWED_ORIGINS = frozenset({"LOCAL", "GLOBAL"})
 _ALLOWED_ROUTES = frozenset({"vector", "exact-identifier"})
 _ALLOWED_CONTOUR_NAMES = frozenset({"local_vector", "global_vector", "exact_identifier"})
-_ALLOWED_CONTOUR_STATUS = frozenset({"completed", "failed", "disabled"})
+_ALLOWED_CONTOUR_STATUS = frozenset({"completed", "failed", "timed_out", "disabled"})
 
 
 def _bounded_count(value: object, *, maximum: int = 200) -> int:
@@ -67,6 +67,7 @@ def _contour_timing_stage(trace: Mapping[str, Any] | None) -> dict[str, Any] | N
                 "enabled": bool(raw_contour.get("enabled")),
                 "status": status,
                 "duration_ms": _bounded_duration_ms(raw_contour.get("duration_ms")),
+                "deadline_ms": _bounded_duration_ms(raw_contour.get("deadline_ms")),
             }
         )
     return {

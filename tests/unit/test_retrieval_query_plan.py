@@ -82,7 +82,7 @@ def test_query_plan_accepts_only_content_free_allowlisted_contour_timings() -> N
             "total_duration_ms": 1.23456,
             "embedding": {"enabled": True, "duration_ms": 0.4, "query": "secret"},
             "contours": [
-                {"name": "local_vector", "enabled": True, "status": "completed", "duration_ms": 0.5, "id": "secret-id"},
+                {"name": "local_vector", "enabled": True, "status": "timed_out", "duration_ms": 0.5, "deadline_ms": 3000, "id": "secret-id"},
                 {"name": "bad", "enabled": True, "status": "completed", "duration_ms": 99},
             ],
         },
@@ -94,7 +94,7 @@ def test_query_plan_accepts_only_content_free_allowlisted_contour_timings() -> N
         "schema_version": "bhm.retrieval-contour-trace.v1",
         "total_duration_ms": 1.235,
         "embedding": {"enabled": True, "status": "completed", "duration_ms": 0.4},
-        "contours": [{"name": "local_vector", "enabled": True, "status": "completed", "duration_ms": 0.5}],
+        "contours": [{"name": "local_vector", "enabled": True, "status": "timed_out", "duration_ms": 0.5, "deadline_ms": 3000.0}],
     }
     assert "secret" not in str(plan)
     assert "secret-id" not in str(plan)
