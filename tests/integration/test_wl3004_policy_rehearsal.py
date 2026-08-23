@@ -9,6 +9,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
+from fastapi.testclient import TestClient
+
 from blackholememory import app as bhm_app
 from blackholememory.caller_auth import CallerPrincipal
 from blackholememory.governed_shared_memory import CallerIdentity
@@ -154,3 +156,48 @@ def test_policy_preflight_keeps_shared_io_disabled_and_has_no_projection_call(
     assert result["decision"] == "deny"
     assert result["audit"]["appended"] is True
     assert "memory-fixture" not in str(captured["event"])
+
+
+def test_rest_policy_preflight_binds_caller_scope_before_handler(monkeypatch) -> None:
+    """The live REST envelope must reject foreign projects before any handler."""
+
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
+    captured: dict[str, object] = {}
+
+    async def fake_bounded_write(operation, handler, request, **kwargs):
+        captured.update({"operation": operation, "request": request, "kwargs": kwargs})
+        return {
+            "mode": "policy-preflight-only",
+            "decision": "deny",
+            "shared_read_enabled": False,
+            "shared_write_enabled": False,
+        }
+
+    monkeypatch.setattr(bhm_app, "_run_bounded_write", fake_bounded_write)
+    client = TestClient(
+        bhm_app.app,
+        headers={"X-BHM-Admin-Capability": "admin-test-token"},
+    )
+    payload = {
+        "project": "blackholememory",
+        "request_id": "rest-rehearsal-1",
+        "operation": "read",
+        "visibility": "project",
+        "owner_id": "agent-owner",
+        "memory_id": "memory-fixture",
+        "at": "2026-08-23T12:00:00Z",
+    }
+
+    accepted = client.post("/bhm/shared-memory/policy/evaluate", json=payload)
+    assert accepted.status_code == 200
+    assert accepted.json()["shared_read_enabled"] is False
+    assert accepted.json()["shared_write_enabled"] is False
+    assert captured["operation"] == "bhm.shared_memory.policy_preflight"
+    assert captured["kwargs"]["principal"].caller_id == "pytest"
+
+    foreign = dict(payload, project="other-project", request_id="rest-rehearsal-foreign")
+    denied = client.post("/bhm/shared-memory/policy/evaluate", json=foreign)
+    assert denied.status_code == 403
+    assert denied.json()["detail"]["code"] == "caller_project_forbidden"
