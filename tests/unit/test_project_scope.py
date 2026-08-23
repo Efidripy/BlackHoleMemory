@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 import pytest
 from fastapi import HTTPException
@@ -181,6 +182,66 @@ def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(mon
     assert hits[0]["metadata"]["retrieval_route"] == "exact-identifier"
     assert hits[0]["metadata"]["exact_identifier_snapshot_digest"]
     assert hits[0]["metadata"]["project"] == "blackholememory"
+
+
+def test_opt_in_exact_identifier_snapshot_work_overlaps_vector_contours(monkeypatch):
+    class FakeEmbedder:
+        @staticmethod
+        def embed(_query: str, *_args):
+            return [1.0]
+
+    class FakeMemory:
+        embedding_model = FakeEmbedder()
+
+    exact_started = threading.Event()
+    vector_started = threading.Event()
+    release_exact = threading.Event()
+    record = {
+        "source_id": "mem-exact-overlap",
+        "project": "blackholememory",
+        "memory_type": "semantic",
+        "content": "contract_010_anchor remains local",
+        "tags": [],
+        "files": [],
+        "lifecycle": "active",
+        "metadata": {"content_sha256": "c" * 64, "lifecycle": "active", "semantic_type": "architecture"},
+    }
+
+    def blocking_snapshot():
+        exact_started.set()
+        assert release_exact.wait(timeout=2.0)
+        return [record]
+
+    def vector_contour(**_kwargs):
+        vector_started.set()
+        return []
+
+    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: True)
+    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(bhm_app, "_load_live_memories", blocking_snapshot)
+    monkeypatch.setattr(bhm_app, "_search_memory_collection", vector_contour)
+
+    async def exercise():
+        task = asyncio.create_task(
+            bhm_app.federated_search(
+                "find contract_010_anchor",
+                "blackholememory",
+                limit=5,
+                include_global=False,
+                include_graph_expansion=False,
+            )
+        )
+        try:
+            assert await asyncio.to_thread(exact_started.wait, 1.0)
+            assert await asyncio.to_thread(vector_started.wait, 1.0)
+        finally:
+            release_exact.set()
+        return await task
+
+    hits, total = asyncio.run(exercise())
+
+    assert total == 1
+    assert [hit["id"] for hit in hits] == ["mem-exact-overlap"]
 
 
 def test_advanced_search_without_project_is_scoped_and_missing_vector_metadata_fails_closed(monkeypatch):

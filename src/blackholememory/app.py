@@ -13585,6 +13585,76 @@ def _compile_tiered_context_candidates(
     }
 
 
+def _build_exact_identifier_hits(
+    *,
+    query: str,
+    project_name: str,
+    candidate_count: int,
+    memory_type: str | None,
+    memory_class: MemoryClass | str | None,
+    event_role: MemoryEventRole | str | None,
+    domain: str | None,
+    semantic_type: str | None,
+    priority: str | None,
+    as_of: str | None,
+    valid_from: str | None,
+    valid_to: str | None,
+    include_temporal_unknown: bool,
+    include_archived: bool,
+    include_logs: bool,
+) -> tuple[list[dict], str]:
+    """Build and hydrate the opt-in exact lane from one SQLite snapshot.
+
+    This stays entirely local and read-only.  It is intentionally a synchronous
+    worker function so ``federated_search`` can overlap its bounded SQLite work
+    with the independent embedding/vector contours instead of adding it to the
+    end-to-end tail serially.
+    """
+
+    authoritative_records = _load_live_memories()
+    exact_index = ExactIdentifierIndex.build(
+        authoritative_records,
+        include_record=lambda record: _memory_matches_filters(
+            record,
+            project=project_name,
+            memory_type=memory_type,
+            memory_class=memory_class,
+            event_role=event_role,
+            include_archived=include_archived,
+            include_logs=include_logs,
+            domain=domain,
+            semantic_type=semantic_type,
+            priority=priority,
+            as_of=as_of,
+            valid_from=valid_from,
+            valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown,
+        ),
+    )
+    exact_source_ids: list[str] = []
+    for candidate_project in _project_aliases(project_name):
+        for source_id in exact_index.lookup(
+            query,
+            project=candidate_project,
+            limit=candidate_count - len(exact_source_ids),
+        ):
+            if source_id not in exact_source_ids:
+                exact_source_ids.append(source_id)
+            if len(exact_source_ids) >= candidate_count:
+                break
+        if len(exact_source_ids) >= candidate_count:
+            break
+    hits = build_exact_identifier_hits(
+        authoritative_records,
+        exact_source_ids,
+        project=project_name,
+    )
+    snapshot_digest = exact_index.snapshot_digest
+    for hit in hits:
+        hit.setdefault("metadata", {})["exact_identifier_snapshot_digest"] = snapshot_digest
+    return hits, snapshot_digest
+
+
 async def federated_search(
     query: str,
     project_name: str,
@@ -13653,6 +13723,29 @@ async def federated_search(
         include_archived=include_archived,
         include_logs=include_logs,
     )
+    exact_task: asyncio.Task[tuple[list[dict], str]] | None = None
+    if query.strip() and exact_identifier_enabled() and exact_identifier_tokens(query, query=True):
+        exact_task = asyncio.create_task(
+            asyncio.to_thread(
+                _build_exact_identifier_hits,
+                query=query,
+                project_name=project_name,
+                candidate_count=candidate_count,
+                memory_type=memory_type,
+                memory_class=memory_class,
+                event_role=event_role,
+                domain=domain,
+                semantic_type=semantic_type,
+                priority=priority,
+                as_of=as_of,
+                valid_from=valid_from,
+                valid_to=valid_to,
+                include_temporal_unknown=include_temporal_unknown,
+                include_archived=include_archived,
+                include_logs=include_logs,
+            )
+        )
+
     query_embedding = None
     if query.strip():
         embedding_memory = await asyncio.to_thread(get_project_mem0_memory, project_name)
@@ -13706,52 +13799,8 @@ async def federated_search(
     local_hits = _apply_decay_to_vector_hits(local_hits, now)
     global_hits = _apply_decay_to_vector_hits(global_hits, now)
     exact_hits: list[dict] = []
-    exact_snapshot_digest = ""
-    # WL-295.4 remains opt-in and disabled by default.  The route is bounded
-    # to one authoritative SQLite snapshot and never writes the derived
-    # projection; the existing Qdrant/Mem0 path remains the fallback.
-    if query.strip() and exact_identifier_enabled() and exact_identifier_tokens(query, query=True):
-        authoritative_records = _load_live_memories()
-        exact_index = ExactIdentifierIndex.build(
-            authoritative_records,
-            include_record=lambda record: _memory_matches_filters(
-                record,
-                project=project_name,
-                memory_type=memory_type,
-                memory_class=memory_class,
-                event_role=event_role,
-                include_archived=include_archived,
-                include_logs=include_logs,
-                domain=domain,
-                semantic_type=semantic_type,
-                priority=priority,
-                as_of=as_of,
-                valid_from=valid_from,
-                valid_to=valid_to,
-                include_temporal_unknown=include_temporal_unknown,
-            ),
-        )
-        exact_source_ids: list[str] = []
-        for candidate_project in _project_aliases(project_name):
-            for source_id in exact_index.lookup(
-                query,
-                project=candidate_project,
-                limit=candidate_count - len(exact_source_ids),
-            ):
-                if source_id not in exact_source_ids:
-                    exact_source_ids.append(source_id)
-                if len(exact_source_ids) >= candidate_count:
-                    break
-            if len(exact_source_ids) >= candidate_count:
-                break
-        exact_hits = build_exact_identifier_hits(
-            authoritative_records,
-            exact_source_ids,
-            project=project_name,
-        )
-        exact_snapshot_digest = exact_index.snapshot_digest
-        for hit in exact_hits:
-            hit.setdefault("metadata", {})["exact_identifier_snapshot_digest"] = exact_snapshot_digest
+    if exact_task is not None:
+        exact_hits, _exact_snapshot_digest = await exact_task
         exact_hits = _apply_decay_to_vector_hits(exact_hits, now)
     combined_results = merge_and_sort_hits([*local_hits, *exact_hits], global_hits)
     if temporal_filter_requested:
