@@ -8,6 +8,8 @@ from blackholememory.task_graph import build_task_graph
 from blackholememory.task_graph import explain_task_graph
 from blackholememory.task_graph import query_task_graph
 from blackholememory.task_graph import simulate_conflict_recovery_fixture
+from blackholememory.task_dependencies import TaskDependencyDeclaration
+from blackholememory.task_dependencies import TaskDependencyError
 
 
 def _fixture():
@@ -119,3 +121,60 @@ def test_task_graph_rejects_reparse_database_parent(tmp_path):
     with pytest.raises(FilesystemBoundaryError, match="symlink|junction|reparse"):
         build_task_graph(linked_parent / "tasks.sqlite3", project="fixture", tasks=tasks, claims=claims, evidence=evidence, events=events)
     assert not (outside / "tasks.sqlite3").exists()
+
+
+def test_task_graph_adds_only_explicit_dependency_declarations_with_provenance(tmp_path):
+    database = tmp_path / "tasks.sqlite3"
+    tasks = [
+        {"task_id": "task-base", "project": "fixture", "status": "closed"},
+        {"task_id": "task-main", "project": "fixture", "status": "open"},
+    ]
+    declaration = TaskDependencyDeclaration(
+        project="fixture",
+        task_id="task-main",
+        depends_on_task_id="task-base",
+        declared_by="operator",
+        declared_at="2026-08-23T18:00:00Z",
+    )
+
+    built = build_task_graph(
+        database,
+        project="fixture",
+        tasks=tasks,
+        dependency_declarations=[declaration],
+        publish=False,
+        summary_extra={"edge_completeness": "explicit-declarations-only"},
+    )
+
+    assert built["publication"] == "staged"
+    assert built["summary"]["edge_count"] == 1
+    with sqlite3.connect(database) as connection:
+        edge = connection.execute(
+            "SELECT relation,source_kind,source_id,payload_json FROM task_graph_edges"
+        ).fetchone()
+    assert edge[0:3] == ("depends_on", "task_dependency_declaration", declaration.digest())
+    assert declaration.digest() in edge[3]
+
+
+def test_task_graph_rejects_explicit_dependency_unknown_endpoint_and_cycle(tmp_path):
+    tasks = [
+        {"task_id": "task-a", "project": "fixture", "status": "open"},
+        {"task_id": "task-b", "project": "fixture", "status": "open"},
+    ]
+    unknown = TaskDependencyDeclaration(
+        project="fixture", task_id="task-a", depends_on_task_id="missing",
+        declared_by="operator", declared_at="2026-08-23T18:00:00Z",
+    )
+    with pytest.raises(TaskDependencyError, match="unknown task endpoint"):
+        build_task_graph(tmp_path / "unknown.sqlite3", project="fixture", tasks=tasks, dependency_declarations=[unknown])
+
+    a_to_b = TaskDependencyDeclaration(
+        project="fixture", task_id="task-a", depends_on_task_id="task-b",
+        declared_by="operator", declared_at="2026-08-23T18:00:00Z",
+    )
+    b_to_a = TaskDependencyDeclaration(
+        project="fixture", task_id="task-b", depends_on_task_id="task-a",
+        declared_by="operator", declared_at="2026-08-23T18:01:00Z",
+    )
+    with pytest.raises(TaskDependencyError, match="introduces a cycle"):
+        build_task_graph(tmp_path / "cycle.sqlite3", project="fixture", tasks=tasks, dependency_declarations=[a_to_b, b_to_a])

@@ -14,6 +14,26 @@ Canonical writes go through the SQLite repository/service transaction and its
 outbox boundary. A sidecar may be regenerated, compared, exported or retained
 for compatibility, but a sidecar-only update is not a valid BHM state change.
 
+### Explicit task dependencies
+
+Legacy `tasks.json` is a compatibility source for task nodes only: missing
+`dependencies`/`depends_on`/`blocked_by` fields mean `edge_completeness` is
+`unknown`, never that a project has no dependencies. BHM must not publish a
+`task_graph_current` pointer from that incomplete evidence.
+
+`task_dependency_declaration` is the additive SQLite-authoritative ledger for
+newly confirmed edges. Every immutable entry binds one same-project
+`task_id depends_on depends_on_task_id` relation, an operator/caller identity,
+an ISO-8601 declaration time and a deterministic digest. Unknown endpoints,
+self-dependencies, cross-project endpoint sets, conflicting duplicate records
+and cycles fail closed. The safe local operator entry point is
+`scripts/bhm-task-dependencies.py`; it requires an explicit bounded task JSON
+source only to validate endpoints, not to infer relations. It never writes
+Qdrant, Mem0 or the current graph pointer. A later staged graph build may merge
+these records with compatibility task nodes and marks its provenance as
+`explicit-declarations-only` until the source-completeness/publish gate has
+been separately approved.
+
 The legacy semantic dependency graph is one such read model. Use
 `scripts/plan-bhm-semantic-graph-migration.py` only to produce a bounded,
 content-free, read-only classification against SQLite endpoint state and the
