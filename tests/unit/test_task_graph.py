@@ -1,3 +1,5 @@
+import sqlite3
+
 import pytest
 
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
@@ -58,6 +60,35 @@ def test_task_graph_lkg_rollback_and_fixture_are_deterministic(tmp_path):
     second = simulate_conflict_recovery_fixture()
     assert first == second
     assert first["final"]["evidence_backed"] is True
+
+
+def test_task_graph_staged_build_preserves_caller_transaction_boundary(tmp_path):
+    database = tmp_path / "transaction.sqlite3"
+    connection = sqlite3.connect(database)
+    try:
+        connection.execute("CREATE TABLE caller_sentinel(value TEXT NOT NULL)")
+        connection.commit()
+        connection.execute("BEGIN")
+        connection.execute("INSERT INTO caller_sentinel(value) VALUES ('uncommitted')")
+        built = build_task_graph(
+            database,
+            project="fixture",
+            tasks=[{"task_id": "task-1", "project": "fixture", "status": "open"}],
+            connection=connection,
+            publish=False,
+            as_of="2026-01-01T00:00:00Z",
+        )
+        assert built["publication"] == "staged"
+        assert connection.execute("SELECT COUNT(*) FROM caller_sentinel").fetchone()[0] == 1
+        connection.rollback()
+    finally:
+        connection.close()
+
+    with sqlite3.connect(database) as reopened:
+        assert reopened.execute("SELECT COUNT(*) FROM caller_sentinel").fetchone()[0] == 0
+        assert reopened.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='task_graph_snapshots'"
+        ).fetchone()[0] == 0
 
 
 def test_task_graph_rejects_hardlinked_database_target(tmp_path):
