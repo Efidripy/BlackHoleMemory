@@ -11,9 +11,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from blackholememory.task_graph import TASK_GRAPH_BUILD_VERSION
+from blackholememory.task_graph import _initialize_schema as initialize_task_graph_schema
+from blackholememory.task_graph import build_task_graph as build_authoritative_task_graph
+
 
 SCHEMA_VERSION = "bhm.sidecar-parity-rehearsal.v1"
-GRAPH_BUILDER_VERSION = "bhm.task-graph-builder.v1"
 ALLOWED_RELATIONS = frozenset({"depends_on"})
 VALIDATOR = Path(__file__).with_name("validate-bhm-sidecar-mapping.py")
 
@@ -102,21 +105,9 @@ def _create_database(path: Path) -> None:
                 memory_id TEXT, lifecycle TEXT NOT NULL, created_at TEXT, updated_at TEXT,
                 payload_json TEXT NOT NULL, PRIMARY KEY (artifact_type, artifact_id)
             );
-            CREATE TABLE task_graph_snapshots (
-                snapshot_id TEXT, project TEXT, graph_digest TEXT, build_version TEXT,
-                status TEXT, summary_json TEXT
-            );
-            CREATE TABLE task_graph_nodes (
-                snapshot_id TEXT, node_key TEXT, project TEXT, entity_type TEXT,
-                entity_id TEXT, node_sha256 TEXT, payload_json TEXT
-            );
-            CREATE TABLE task_graph_edges (
-                snapshot_id TEXT, edge_key TEXT, project TEXT, source_node_key TEXT,
-                target_node_key TEXT, relation TEXT, edge_sha256 TEXT, payload_json TEXT
-            );
-            CREATE TABLE task_graph_current (project TEXT PRIMARY KEY, snapshot_id TEXT);
             """
         )
+        initialize_task_graph_schema(connection)
         connection.commit()
     finally:
         connection.close()
@@ -159,13 +150,11 @@ def _sha256(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
 
-def build_task_graph(tasks: list[dict[str, Any]], *, project: str) -> dict[str, Any]:
-    """Build deterministic graph material without reading or writing SQLite."""
+def _validate_task_contract(tasks: list[dict[str, Any]], *, project: str) -> None:
+    """Keep the rehearsal's strict source checks before canonical materialization."""
 
     ordered = sorted(tasks, key=lambda item: (str(item.get("task_id") or ""), str(item.get("id") or "")))
-    source_digest = _sha256(ordered)
-    nodes: list[dict[str, Any]] = []
-    node_by_task: dict[str, str] = {}
+    task_ids: set[str] = set()
     for task in ordered:
         task_id = str(task.get("task_id") or "").strip()
         if not task_id:
@@ -173,27 +162,9 @@ def build_task_graph(tasks: list[dict[str, Any]], *, project: str) -> dict[str, 
         source_project = str(task.get("project") or "").strip()
         if source_project and source_project != project:
             raise ValueError(f"project mismatch: {source_project} != {project}")
-        if task_id in node_by_task:
+        if task_id in task_ids:
             raise ValueError(f"duplicate task_id: {task_id}")
-        node_key = f"task:{project}:{task_id}"
-        node_by_task[task_id] = node_key
-        node_material = {
-            "node_key": node_key,
-            "project": project,
-            "entity_type": "task",
-            "entity_id": task_id,
-            "payload": task,
-        }
-        nodes.append(
-            {
-                **node_material,
-                "node_sha256": _sha256(node_material),
-                "source_id": str(task.get("id") or ""),
-                "source_sha256": _sha256(task),
-            }
-        )
-
-    edges: list[dict[str, Any]] = []
+        task_ids.add(task_id)
     for task in ordered:
         source_id = str(task.get("task_id") or "")
         dependencies = task.get("dependencies")
@@ -201,70 +172,94 @@ def build_task_graph(tasks: list[dict[str, Any]], *, project: str) -> dict[str, 
             continue
         if not isinstance(dependencies, list):
             raise ValueError(f"dependencies must be a list: {source_id}")
-        normalized_dependencies: list[tuple[str, str]] = []
+        seen_dependencies: set[tuple[str, str]] = set()
         for value in dependencies:
             if isinstance(value, dict):
                 dependency = str(value.get("task_id") or "").strip()
                 relation = str(value.get("relation") or "").strip()
                 dependency_project = str(value.get("project") or "").strip()
                 if dependency_project and dependency_project != project:
-                    raise ValueError(
-                        f"dependency project mismatch: {dependency_project} != {project}"
-                    )
+                    raise ValueError(f"dependency project mismatch: {dependency_project} != {project}")
             else:
                 dependency = str(value).strip()
                 relation = "depends_on"
-            normalized_dependencies.append((dependency, relation))
-        seen_dependencies: set[tuple[str, str]] = set()
-        for dependency, relation in sorted(normalized_dependencies):
             if not dependency:
                 raise ValueError(f"empty dependency: {source_id}")
             if (dependency, relation) in seen_dependencies:
                 raise ValueError(f"duplicate dependency: {source_id}->{dependency}")
             seen_dependencies.add((dependency, relation))
-            if dependency not in node_by_task:
+            if dependency not in task_ids:
                 raise ValueError(f"unknown dependency: {source_id}->{dependency}")
             if relation not in ALLOWED_RELATIONS:
                 raise ValueError(f"relation not allowed: {relation}")
-            edge_material = {
-                "source_node_key": node_by_task[source_id],
-                "target_node_key": node_by_task[dependency],
-                "relation": relation,
-            }
-            edge_key = f"{edge_material['source_node_key']}->{edge_material['target_node_key']}:{relation}"
-            edges.append(
-                {
-                    **edge_material,
-                    "edge_key": edge_key,
-                    "edge_sha256": _sha256(edge_material),
-                    "payload": {"dependency": dependency},
-                }
+
+
+def build_task_graph(tasks: list[dict[str, Any]], *, project: str) -> dict[str, Any]:
+    """Materialize the rehearsal graph through the canonical production builder."""
+
+    _validate_task_contract(tasks, project=project)
+    with tempfile.TemporaryDirectory(prefix="bhm-task-graph-materialize-") as temporary:
+        database = Path(temporary) / "graph.sqlite3"
+        connection = sqlite3.connect(database)
+        try:
+            result = build_authoritative_task_graph(
+                database,
+                project=project,
+                tasks=tasks,
+                source_kind="json_sidecar_task",
+                connection=connection,
+                publish=False,
+                as_of="2026-01-01T00:00:00Z",
+                summary_extra={"edge_completeness": "explicit_fixture", "edge_policy": "allowlisted"},
             )
-    edges.sort(key=lambda item: item["edge_key"])
-    snapshot_seed = {
-        "builder_version": GRAPH_BUILDER_VERSION,
-        "project": project,
-        "source_digest": source_digest,
-        "node_keys": [node["node_key"] for node in nodes],
-        "edge_keys": [edge["edge_key"] for edge in edges],
-    }
-    snapshot_id = f"task-snapshot-{_sha256(snapshot_seed)[:32]}"
-    graph_digest = _sha256(
-        {
-            "snapshot_id": snapshot_id,
-            "nodes": nodes,
-            "edges": edges,
-        }
-    )
-    return {
-        "builder_version": GRAPH_BUILDER_VERSION,
-        "project": project,
-        "source_digest": source_digest,
-        "snapshot_id": snapshot_id,
-        "graph_digest": graph_digest,
-        "nodes": nodes,
-        "edges": edges,
-    }
+            rows = connection.execute(
+                "SELECT node_key, project, entity_type, entity_id, source_id, source_sha256, payload_json, node_sha256 "
+                "FROM task_graph_nodes WHERE snapshot_id = ? ORDER BY node_key",
+                (result["snapshot_id"],),
+            ).fetchall()
+            nodes = [
+                {
+                    "node_key": str(row[0]),
+                    "project": str(row[1]),
+                    "entity_type": str(row[2]),
+                    "entity_id": str(row[3]),
+                    "source_id": str(row[4]),
+                    "source_sha256": str(row[5]),
+                    "payload": json.loads(str(row[6])),
+                    "node_sha256": str(row[7]),
+                }
+                for row in rows
+            ]
+            edge_rows = connection.execute(
+                "SELECT edge_key, source_node_key, target_node_key, relation, source_id, source_sha256, confidence, payload_json, edge_sha256 "
+                "FROM task_graph_edges WHERE snapshot_id = ? ORDER BY edge_key",
+                (result["snapshot_id"],),
+            ).fetchall()
+            edges = [
+                {
+                    "edge_key": str(row[0]),
+                    "source_node_key": str(row[1]),
+                    "target_node_key": str(row[2]),
+                    "relation": str(row[3]),
+                    "source_id": str(row[4]),
+                    "source_sha256": str(row[5]),
+                    "confidence": float(row[6]),
+                    "payload": json.loads(str(row[7])),
+                    "edge_sha256": str(row[8]),
+                }
+                for row in edge_rows
+            ]
+            return {
+                "builder_version": TASK_GRAPH_BUILD_VERSION,
+                "project": project,
+                "source_digest": _sha256(sorted(tasks, key=lambda item: (str(item.get("task_id") or ""), str(item.get("id") or "")))),
+                "snapshot_id": result["snapshot_id"],
+                "graph_digest": result["graph_digest"],
+                "nodes": nodes,
+                "edges": edges,
+            }
+        finally:
+            connection.close()
 
 
 def _run_project_isolation_rehearsal() -> dict[str, Any]:
@@ -327,44 +322,6 @@ def _run_project_isolation_rehearsal() -> dict[str, Any]:
     }
 
 
-def _simulate_task_graph_projection(
-    connection: sqlite3.Connection, fixture: Path, graph: dict[str, Any]
-) -> dict[str, Any]:
-    for node in graph["nodes"]:
-        connection.execute(
-            "INSERT INTO task_graph_nodes(snapshot_id, node_key, project, entity_type, entity_id, node_sha256, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                graph["snapshot_id"], node["node_key"], graph["project"], node["entity_type"],
-                node["entity_id"], node["node_sha256"], _canonical_json(node["payload"]),
-            ),
-        )
-    for edge in graph["edges"]:
-        connection.execute(
-            "INSERT INTO task_graph_edges(snapshot_id, edge_key, project, source_node_key, target_node_key, relation, edge_sha256, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                graph["snapshot_id"], edge["edge_key"], graph["project"], edge["source_node_key"],
-                edge["target_node_key"], edge["relation"], edge["edge_sha256"], _canonical_json(edge["payload"]),
-            ),
-        )
-    connection.execute(
-        "INSERT INTO task_graph_snapshots(snapshot_id, project, graph_digest, build_version, status, summary_json) VALUES (?, ?, ?, ?, ?, ?)",
-        (
-            graph["snapshot_id"], graph["project"], graph["graph_digest"], graph["builder_version"],
-            "complete", _canonical_json({"node_count": len(graph["nodes"]), "edge_count": len(graph["edges"])}),
-        ),
-    )
-    connection.execute(
-        "INSERT INTO task_graph_current(project, snapshot_id) VALUES (?, ?)",
-        (graph["project"], graph["snapshot_id"]),
-    )
-    return {
-        "task_graph_nodes": int(connection.execute("SELECT COUNT(*) FROM task_graph_nodes").fetchone()[0]),
-        "task_graph_edges": int(connection.execute("SELECT COUNT(*) FROM task_graph_edges").fetchone()[0]),
-        "task_graph_snapshots": int(connection.execute("SELECT COUNT(*) FROM task_graph_snapshots").fetchone()[0]),
-        "task_graph_current": int(connection.execute("SELECT COUNT(*) FROM task_graph_current").fetchone()[0]),
-    }
-
-
 def run_rehearsal(repo_root: Path) -> dict[str, Any]:
     root = repo_root.resolve()
     production_db = (root / ".runtime" / "live-memory" / "memories.sqlite3").resolve()
@@ -389,7 +346,22 @@ def run_rehearsal(repo_root: Path) -> dict[str, Any]:
         try:
             connection.execute("BEGIN")
             projected = _simulate_candidate_projection(connection, live)
-            graph_projected = _simulate_task_graph_projection(connection, live, graph_first)
+            graph_projected_result = build_authoritative_task_graph(
+                database,
+                project="blackholememory",
+                tasks=tasks,
+                source_kind="json_sidecar_task",
+                connection=connection,
+                publish=False,
+                as_of="2026-01-01T00:00:00Z",
+                summary_extra={"edge_completeness": "explicit_fixture", "edge_policy": "allowlisted"},
+            )
+            graph_projected = {
+                "task_graph_nodes": int(connection.execute("SELECT COUNT(*) FROM task_graph_nodes").fetchone()[0]),
+                "task_graph_edges": int(connection.execute("SELECT COUNT(*) FROM task_graph_edges").fetchone()[0]),
+                "task_graph_snapshots": int(connection.execute("SELECT COUNT(*) FROM task_graph_snapshots").fetchone()[0]),
+                "task_graph_current": int(connection.execute("SELECT COUNT(*) FROM task_graph_current").fetchone()[0]),
+            }
             connection.rollback()
             after = {
                 "memory_links": int(connection.execute("SELECT COUNT(*) FROM memory_links").fetchone()[0]),
@@ -405,7 +377,7 @@ def run_rehearsal(repo_root: Path) -> dict[str, Any]:
         rollback_verified = (
             after == before
             and projected == {"memory_links": 1, "memory_artifacts": 2}
-            and graph_projected == {"task_graph_nodes": 2, "task_graph_edges": 1, "task_graph_snapshots": 1, "task_graph_current": 1}
+            and graph_projected == {"task_graph_nodes": 2, "task_graph_edges": 1, "task_graph_snapshots": 1, "task_graph_current": 0}
         )
         task_mapping = next(item for item in plan["mappings"] if item["source"] == "tasks.json")
         return {
@@ -428,10 +400,16 @@ def run_rehearsal(repo_root: Path) -> dict[str, Any]:
             "graph": {
                 "snapshot_id": graph_first["snapshot_id"],
                 "graph_digest": graph_first["graph_digest"],
+                "builder_version": graph_first["builder_version"],
                 "node_count": len(graph_first["nodes"]),
                 "edge_count": len(graph_first["edges"]),
                 "deterministic": deterministic_graph,
                 "relation_policy": sorted(ALLOWED_RELATIONS),
+            },
+            "canonical_projection": {
+                "builder_version": graph_projected_result["execution"].get("builder_version", TASK_GRAPH_BUILD_VERSION),
+                "publication": graph_projected_result["publication"],
+                "current_pointer_written": graph_projected["task_graph_current"] > 0,
             },
             "blocked_sources": [task_mapping["source"]],
             "blockers": task_mapping["blockers"],

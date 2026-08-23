@@ -379,15 +379,21 @@ def _read_edges(connection: sqlite3.Connection, snapshot_id: str, project: str) 
 
 
 def _initialize_schema(connection: sqlite3.Connection) -> None:
-    connection.executescript("""
-    CREATE TABLE IF NOT EXISTS task_graph_snapshots(snapshot_id TEXT PRIMARY KEY, project TEXT NOT NULL, graph_digest TEXT NOT NULL, build_version TEXT NOT NULL, status TEXT NOT NULL, as_of TEXT, summary_json TEXT NOT NULL, created_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS task_graph_current(project TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS task_graph_nodes(snapshot_id TEXT NOT NULL, node_key TEXT NOT NULL, project TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, valid_from TEXT NOT NULL, valid_until TEXT, recorded_at TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT NOT NULL, source_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, node_sha256 TEXT NOT NULL, PRIMARY KEY(snapshot_id,node_key));
-    CREATE TABLE IF NOT EXISTS task_graph_edges(snapshot_id TEXT NOT NULL, edge_key TEXT NOT NULL, project TEXT NOT NULL, source_node_key TEXT NOT NULL, target_node_key TEXT NOT NULL, relation TEXT NOT NULL, valid_from TEXT NOT NULL, valid_until TEXT, recorded_at TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT NOT NULL, source_sha256 TEXT NOT NULL, confidence REAL NOT NULL, payload_json TEXT NOT NULL, edge_sha256 TEXT NOT NULL, PRIMARY KEY(snapshot_id,edge_key));
-    CREATE TABLE IF NOT EXISTS task_graph_quarantine(snapshot_id TEXT NOT NULL, project TEXT NOT NULL, kind TEXT NOT NULL, entity_id TEXT NOT NULL, reason TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL);
-    CREATE INDEX IF NOT EXISTS idx_task_graph_nodes_project ON task_graph_nodes(project,entity_type,entity_id);
-    CREATE INDEX IF NOT EXISTS idx_task_graph_edges_relation ON task_graph_edges(project,relation);
-    """)
+    # Do not use executescript here: sqlite3 executescript() commits any
+    # pending transaction before running the script, which would break the
+    # caller-owned atomic sidecar/import transaction.  Individual idempotent
+    # statements preserve the caller's transaction and SAVEPOINT semantics.
+    statements = (
+        "CREATE TABLE IF NOT EXISTS task_graph_snapshots(snapshot_id TEXT PRIMARY KEY, project TEXT NOT NULL, graph_digest TEXT NOT NULL, build_version TEXT NOT NULL, status TEXT NOT NULL, as_of TEXT, summary_json TEXT NOT NULL, created_at TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS task_graph_current(project TEXT PRIMARY KEY, snapshot_id TEXT NOT NULL, updated_at TEXT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS task_graph_nodes(snapshot_id TEXT NOT NULL, node_key TEXT NOT NULL, project TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, valid_from TEXT NOT NULL, valid_until TEXT, recorded_at TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT NOT NULL, source_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL, node_sha256 TEXT NOT NULL, PRIMARY KEY(snapshot_id,node_key))",
+        "CREATE TABLE IF NOT EXISTS task_graph_edges(snapshot_id TEXT NOT NULL, edge_key TEXT NOT NULL, project TEXT NOT NULL, source_node_key TEXT NOT NULL, target_node_key TEXT NOT NULL, relation TEXT NOT NULL, valid_from TEXT NOT NULL, valid_until TEXT, recorded_at TEXT NOT NULL, source_kind TEXT NOT NULL, source_id TEXT NOT NULL, source_sha256 TEXT NOT NULL, confidence REAL NOT NULL, payload_json TEXT NOT NULL, edge_sha256 TEXT NOT NULL, PRIMARY KEY(snapshot_id,edge_key))",
+        "CREATE TABLE IF NOT EXISTS task_graph_quarantine(snapshot_id TEXT NOT NULL, project TEXT NOT NULL, kind TEXT NOT NULL, entity_id TEXT NOT NULL, reason TEXT NOT NULL, payload_json TEXT NOT NULL, created_at TEXT NOT NULL)",
+        "CREATE INDEX IF NOT EXISTS idx_task_graph_nodes_project ON task_graph_nodes(project,entity_type,entity_id)",
+        "CREATE INDEX IF NOT EXISTS idx_task_graph_edges_relation ON task_graph_edges(project,relation)",
+    )
+    for statement in statements:
+        connection.execute(statement)
 
 
 def _connect_rw(path: Path) -> sqlite3.Connection:

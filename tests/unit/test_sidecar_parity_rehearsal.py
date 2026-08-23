@@ -34,7 +34,7 @@ def test_disposable_rehearsal_projects_candidates_then_rolls_back(tmp_path: Path
         "task_graph_nodes": 2,
         "task_graph_edges": 1,
         "task_graph_snapshots": 1,
-        "task_graph_current": 1,
+        "task_graph_current": 0,
     }
     assert result["post_rollback_counts"] == {
         "memory_links": 0,
@@ -45,6 +45,11 @@ def test_disposable_rehearsal_projects_candidates_then_rolls_back(tmp_path: Path
         "task_graph_current": 0,
     }
     assert result["blocked_sources"] == ["tasks.json"]
+    assert result["canonical_projection"] == {
+        "builder_version": "wi07-native-1",
+        "publication": "staged",
+        "current_pointer_written": False,
+    }
 
 
 def test_builder_emits_explicit_dependency_edge_and_stable_material() -> None:
