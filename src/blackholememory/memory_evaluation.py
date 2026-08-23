@@ -224,7 +224,17 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
 
     if k < 1 or k > 50:
         raise ValueError("k must be between 1 and 50")
-    receipt_by_case = {receipt.case_id: receipt for receipt in receipts}
+    expected_case_ids = {case.case_id for case in manifest.cases}
+    receipt_candidates: dict[str, list[RetrievalReceipt]] = defaultdict(list)
+    for receipt in receipts:
+        receipt_candidates[receipt.case_id].append(receipt)
+    duplicate_receipt_case_ids = sorted(case_id for case_id, values in receipt_candidates.items() if len(values) > 1)
+    unknown_receipt_case_ids = sorted(case_id for case_id in receipt_candidates if case_id not in expected_case_ids)
+    receipt_by_case = {
+        case_id: values[0]
+        for case_id, values in receipt_candidates.items()
+        if case_id in expected_case_ids and len(values) == 1
+    }
     categories: dict[str, dict[str, float]] = defaultdict(_new_metrics)
     sessions: dict[str, dict[str, float]] = defaultdict(_new_metrics)
     turns: dict[str, dict[str, float]] = defaultdict(_new_metrics)
@@ -275,7 +285,7 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
                 project_leakage_case_ids.append(case.case_id)
             if receipt.provenance_digest != case.source_digest:
                 provenance_mismatch_case_ids.append(case.case_id)
-    latencies = sorted(receipt.latency_seconds for receipt in receipts)
+    latencies = sorted(receipt.latency_seconds for receipt in receipt_by_case.values())
     provenance_evaluated_count = len(manifest.cases) - len(missing) - len(provenance_unproven_case_ids)
     isolation_passed: bool | None = None
     if provenance_evaluated_count == len(manifest.cases):
@@ -287,7 +297,13 @@ def evaluate_retrieval(manifest: EvaluationManifest, receipts: tuple[RetrievalRe
         "k": k,
         "case_count": len(manifest.cases),
         "receipt_count": len(receipts),
+        "scored_receipt_count": len(receipt_by_case),
         "missing_case_ids": sorted(missing),
+        "input_integrity": {
+            "duplicate_receipt_case_ids": duplicate_receipt_case_ids,
+            "unknown_receipt_case_ids": unknown_receipt_case_ids,
+            "valid": not missing and not duplicate_receipt_case_ids and not unknown_receipt_case_ids,
+        },
         "metrics_by_category": _render_metrics(categories),
         "metrics_by_session": _render_metrics(sessions),
         "metrics_by_turn": _render_metrics(turns),
