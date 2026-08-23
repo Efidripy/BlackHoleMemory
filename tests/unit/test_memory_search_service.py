@@ -85,6 +85,9 @@ def test_federated_result_and_fallback_preserve_response_policy():
 
     assert result["memories"] == [{"id": "m1"}]
     assert result["retrieval"]["mode"] == "federated"
+    assert result["retrieval"]["query_plan"]["read_only"] is True
+    assert result["retrieval"]["query_plan"]["total_candidates"] == 1
+    assert result["retrieval"]["query_plan"]["underfill_reason"] == "eligible_candidates_exhausted"
     assert result["filters"]["project"] == "demo"
     assert result["side_effects"]["read_only"] is True
     assert result["side_effects"]["sqlite_mutation"] is False

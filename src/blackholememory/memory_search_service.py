@@ -8,8 +8,11 @@ remain unchanged.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
+
+from .retrieval_query_plan import build_retrieval_query_plan
 
 
 def read_only_side_effects() -> dict[str, Any]:
@@ -62,6 +65,7 @@ class MemorySearchService:
         project_name = self._dependencies.effective_search_project(request.project)
         try:
             await self._dependencies.ensure_provider_warmup_ready()
+            started = time.perf_counter()
             hits, total = await self._dependencies.federated_search(
                 request.query,
                 project_name,
@@ -81,6 +85,23 @@ class MemorySearchService:
                 priority=request.priority,
                 include_archived=request.include_archived,
                 include_logs=request.include_logs,
+            )
+            query_plan = build_retrieval_query_plan(
+                requested_limit=request.limit,
+                offset=request.offset,
+                total_candidates=total,
+                returned_hits=hits,
+                duration_ms=(time.perf_counter() - started) * 1000.0,
+                include_global=True,
+                include_graph_expansion=True,
+                typed_filter_requested=(
+                    getattr(request, "memory_class", None) is not None
+                    or getattr(request, "event_role", None) is not None
+                ),
+                temporal_filter_requested=any(
+                    getattr(request, field, None) is not None
+                    for field in ("as_of", "valid_from", "valid_to")
+                ) or bool(getattr(request, "include_temporal_unknown", False)),
             )
             memories = [self._dependencies.serialize_vector_hit(item) for item in hits]
             self._dependencies.emit_memory_pulses(memories)
@@ -129,6 +150,7 @@ class MemorySearchService:
                     "ranking": "rrf-hybrid",
                     "local_collection": self._dependencies.local_collection_name(project_name),
                     "global_collection": self._dependencies.global_collection_name(),
+                    "query_plan": query_plan,
                 },
                 "side_effects": read_only_side_effects(),
             }
