@@ -39,6 +39,21 @@ MIN_RETRIEVAL_CANDIDATES = 1
 MAX_QUERY_CHARS = 480
 MAX_CONFLICTS = 16
 MIN_CREATE_CONFIDENCE = 0.72
+# Workflow/checkpoint/session records are operational traces, not durable
+# propositions to consolidate. Feeding them to a semantic editor also turns
+# arbitrary historical instructions into model evidence. They remain fully
+# searchable through their own BHM surfaces but are excluded here.
+SEMANTIC_EDITOR_MEMORY_TYPES = frozenset({
+    "architecture",
+    "audit",
+    "bug",
+    "crystal",
+    "decision",
+    "fact",
+    "knowledge-crystal",
+    "pattern",
+    "runbook",
+})
 # Keep the local 7B editor inside a practical foreground budget even when an
 # operator requests all 20 candidates. SQLite keeps the complete canonical
 # revisions; the model receives only a bounded analysis view. Six thousand
@@ -322,6 +337,24 @@ def select_authoritative_records(
     return [by_id[item] for item in requested]
 
 
+def select_consolidatable_records(
+    records: Iterable[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Keep only durable fact-like evidence for local semantic consolidation."""
+
+    selected: list[dict[str, Any]] = []
+    excluded: dict[str, int] = {}
+    for raw in records:
+        record = dict(raw)
+        memory_type = str(record.get("memory_type") or record.get("type") or "").strip().casefold()
+        if memory_type in SEMANTIC_EDITOR_MEMORY_TYPES:
+            selected.append(record)
+            continue
+        label = memory_type or "unclassified"
+        excluded[label] = excluded.get(label, 0) + 1
+    return selected, dict(sorted(excluded.items()))
+
+
 def build_semantic_proposal(
     *,
     project: str,
@@ -528,4 +561,5 @@ __all__ = [
     "clamp_retrieval_limit",
     "deterministic_no_op",
     "select_authoritative_records",
+    "select_consolidatable_records",
 ]
