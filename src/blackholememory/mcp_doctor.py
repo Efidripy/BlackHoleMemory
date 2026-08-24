@@ -313,7 +313,7 @@ def _configured_sources(config: DoctorConfig) -> dict[str, Any]:
 
 
 def _duplicate_fingerprints(config: DoctorConfig) -> dict[str, Any]:
-    script = config.repo_root / "scripts" / "validate-bhm-p18.1-registration.py"
+    script = config.repo_root / "scripts" / "validate-bhm-mcp-registration.py"
     payload, returncode = _run_json_script(
         script,
         [

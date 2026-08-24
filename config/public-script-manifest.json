@@ -703,72 +703,72 @@
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p1.9-resilience.ps1",
+      "path": "scripts/validate-bhm-resilience.ps1",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p13.1-qdrant-catalog.py",
+      "path": "scripts/validate-bhm-qdrant-catalog.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p13.2-qdrant-lifecycle.py",
+      "path": "scripts/validate-bhm-qdrant-lifecycle.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p13.3-qdrant-retention.py",
+      "path": "scripts/validate-bhm-qdrant-retention.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p13.4-native-parity.py",
+      "path": "scripts/validate-bhm-qdrant-native-parity.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p15-regression.py",
+      "path": "scripts/validate-bhm-regression.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p16.5-benchmark.py",
+      "path": "scripts/validate-bhm-benchmark.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p17.1-llm-inventory.py",
+      "path": "scripts/validate-bhm-llm-inventory.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p17.2-gateway.py",
+      "path": "scripts/validate-bhm-llm-gateway.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p18.1-registration.py",
+      "path": "scripts/validate-bhm-mcp-registration.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p18.12-adapter-generation.py",
+      "path": "scripts/validate-bhm-mcp-adapter-generation.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p18.14-mcp-doctor.py",
+      "path": "scripts/validate-bhm-mcp-doctor.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p18.15-mcp-panel.py",
+      "path": "scripts/validate-bhm-mcp-panel.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p18.16-mcp-repair.py",
+      "path": "scripts/validate-bhm-mcp-repair.py",
       "role": "quality-gate",
       "release": true
     },

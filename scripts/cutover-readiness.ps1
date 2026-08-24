@@ -13,7 +13,7 @@ $securityValidator = Join-Path $PSScriptRoot "validate-bhm-observation-security.
 $storeValidator = Join-Path $PSScriptRoot "validate-bhm-observation-store.ps1"
 $hookQueueValidator = Join-Path $PSScriptRoot "validate-bhm-hook-queue.ps1"
 $retentionValidator = Join-Path $PSScriptRoot "validate-bhm-retention.ps1"
-$resilienceValidator = Join-Path $PSScriptRoot "validate-bhm-p1.9-resilience.ps1"
+$resilienceValidator = Join-Path $PSScriptRoot "validate-bhm-resilience.ps1"
 
 $CutoverReadinessHttpTimeoutSec = 10
 $CutoverReadinessMaxResponseBytes = 262144

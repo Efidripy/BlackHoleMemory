@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-p16.5-benchmark.py"
+SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-benchmark.py"
 
 
 def load_gate():

@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = ROOT / "scripts" / "validate-bhm-p18.12-adapter-generation.py"
+    path = ROOT / "scripts" / "validate-bhm-mcp-adapter-generation.py"
     spec = importlib.util.spec_from_file_location("validate_bhm_p18_12_adapter_generation", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

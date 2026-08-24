@@ -19,10 +19,10 @@ def _load(name: str, filename: str):
 
 
 MODULES = [
-    _load("validate_bhm_p13_1", "validate-bhm-p13.1-qdrant-catalog.py"),
-    _load("validate_bhm_p13_2", "validate-bhm-p13.2-qdrant-lifecycle.py"),
-    _load("validate_bhm_p13_3", "validate-bhm-p13.3-qdrant-retention.py"),
-    _load("validate_bhm_p13_4", "validate-bhm-p13.4-native-parity.py"),
+    _load("validate_bhm_qdrant_catalog", "validate-bhm-qdrant-catalog.py"),
+    _load("validate_bhm_qdrant_lifecycle", "validate-bhm-qdrant-lifecycle.py"),
+    _load("validate_bhm_qdrant_retention", "validate-bhm-qdrant-retention.py"),
+    _load("validate_bhm_qdrant_native_parity", "validate-bhm-qdrant-native-parity.py"),
 ]
 
 

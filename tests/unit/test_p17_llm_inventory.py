@@ -8,7 +8,7 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-p17.1-llm-inventory.py"
+SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-llm-inventory.py"
 
 
 def load_inventory():
