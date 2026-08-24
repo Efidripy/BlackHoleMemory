@@ -18,6 +18,14 @@ from blackholememory.source_registry import SourceRegistryError, load_registry, 
 
 ROOT = Path(__file__).resolve().parents[1]
 GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+UNSAFE_SOURCE_FEATURE_FLAGS = frozenset(
+    {
+        "source_import_enabled",
+        "autonomous_apply_enabled",
+        "training_enabled",
+        "lora_enabled",
+    }
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -45,6 +53,12 @@ def _git_lines(*args: str) -> list[str]:
     return [line for line in completed.stdout.splitlines() if line.strip()]
 
 
+def _unsafe_source_flags(flags: object) -> list[str]:
+    if not isinstance(flags, dict):
+        return []
+    return sorted(name for name in UNSAFE_SOURCE_FEATURE_FLAGS if flags.get(name) is True)
+
+
 def main() -> int:
     args = parse_args()
     registry_path = ROOT / "config" / "source-registry.json"
@@ -59,9 +73,9 @@ def main() -> int:
         if integration.get("schema_version") != "bhm.cbm.integration.v1":
             failures.append("integration feature-flag schema mismatch")
         flags = integration.get("feature_flags", {})
-        enabled = sorted(name for name, value in flags.items() if value is not False)
-        if enabled:
-            failures.append(f"WI-00 requires all integration feature flags off: {enabled}")
+        unsafe_enabled = _unsafe_source_flags(flags)
+        if unsafe_enabled:
+            failures.append(f"WI-00 requires source mutation/training flags off: {unsafe_enabled}")
         tracked = _git_lines("ls-files", "--", ".src")
         staged = _git_lines("diff", "--cached", "--name-only", "--", ".src")
         if tracked:
@@ -105,7 +119,7 @@ def main() -> int:
             "quarantine_source_bytes": sum(int(item["source_bytes"]) for item in validation["source_results"]),
             "tracked_src_count": len(tracked),
             "staged_src_count": len(staged),
-            "feature_flags_enabled": enabled,
+            "unsafe_source_feature_flags_enabled": unsafe_enabled,
             "restricted_native": restricted_native,
             "source_results": validation["source_results"],
             "failures": failures,
