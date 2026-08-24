@@ -210,6 +210,7 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     assert result["operation"] == "create"
     prompt = completion.gateway.prompts.get(GOVERNED_SEMANTIC_EDITOR_PROMPT_ID)
     assert "candidate is still mandatory" in prompt.system
+    assert "use 0.85, never 85 or 85%" in prompt.system
     assert "no prose or markdown" in prompt.system
     assert len(captured["request"].messages) == 2
     assert captured["request"].messages[1] == {
@@ -218,7 +219,8 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
             "Evidence block complete. Reply now with JSON only: one object with "
             "operation, candidate, confidence, conflicts and reason. No prose, "
             "markdown or explanation. For no_op use an empty candidate object "
-            "with title, content, memory_type, concepts and files."
+            "with title, content, memory_type, concepts and files. confidence "
+            "must be a decimal from 0.0 through 1.0, never a percentage."
         ),
     }
 
