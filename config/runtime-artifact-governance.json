@@ -94,6 +94,14 @@
       "class": "operator-recovery",
       "disposition": "manual-classification",
       "reason": "Launcher rollback material needs its own release/rollback decision."
+    },
+    {
+      "id": "legacy-pre-sqlite-snapshot",
+      "path": ".legacy",
+      "owner": "pre-SQLite migration",
+      "class": "historical-recovery-snapshot",
+      "disposition": "manual-classification",
+      "reason": "JSON-era recovery material has no active reader, but is not proven redundant by the current migration lineage; retain locally until an owner, digest and archive/rollback decision exists."
     }
   ]
 }
