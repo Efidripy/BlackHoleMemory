@@ -105,6 +105,11 @@ def source_revision(root: Path) -> str:
     if configured:
         if not re.fullmatch(r"[0-9a-fA-F]{40}", configured):
             raise SystemExit("BHM_SOURCE_REVISION must be a 40-hex Git revision")
+        # A staged release can live below an unrelated parent repository (the
+        # workspace checkout on Windows).  Its provenance is pinned by the
+        # source snapshot environment, not by that parent repository's HEAD.
+        if not git_metadata_exists:
+            return configured
         try:
             result = subprocess.run(
                 ["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -139,6 +144,8 @@ def source_dirty(root: Path) -> bool:
     git_metadata_exists = _git_metadata_exists(root)
     configured = os.environ.get("BHM_SOURCE_DIRTY", "").strip().lower()
     if configured in {"true", "false"}:
+        if not git_metadata_exists:
+            return configured == "true"
         try:
             result = subprocess.run(
                 ["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"],
@@ -175,6 +182,8 @@ def source_tree(root: Path) -> str:
     if configured:
         if not re.fullmatch(r"[0-9a-fA-F]{40}", configured):
             raise SystemExit("BHM_SOURCE_TREE must be a 40-hex Git tree")
+        if not git_metadata_exists:
+            return configured
         try:
             result = subprocess.run(
                 ["git", "-C", str(root), "rev-parse", "HEAD^{tree}"],
