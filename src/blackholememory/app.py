@@ -13866,9 +13866,9 @@ def _build_exact_identifier_hits(
 ) -> tuple[list[dict], str]:
     """Build and hydrate the opt-in exact lane from bounded SQLite candidates.
 
-    The SQL route is a project/lifecycle-bound substring *prefilter* only.
-    Hydration and Python token/filter checks remain authoritative, so a false
-    positive, stale candidate, or cross-project ID cannot become a result.
+    The SQLite route is an operator-migrated project/token access index only.
+    Hydration and Python token/filter checks remain authoritative, so a stale
+    candidate or cross-project ID cannot become a result.
     This synchronous local worker overlaps its SQLite work with independent
     embedding/vector contours instead of extending their end-to-end tail.
     """

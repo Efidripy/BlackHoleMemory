@@ -152,7 +152,7 @@ def test_service_targeted_record_lookups_do_not_require_full_store_load(tmp_path
     )
 
 
-def test_service_exact_identifier_candidates_do_not_require_full_store_load(tmp_path, monkeypatch):
+def test_service_exact_identifier_candidates_fail_closed_without_full_store_load(tmp_path, monkeypatch):
     service = SQLiteMemoryService(tmp_path / "memories.sqlite3", allow_create=True)
     record = _record("mem_bhm_exact_service", upsert_key="contract_654_anchor:service")
     service.upsert_records([record])
@@ -162,9 +162,7 @@ def test_service_exact_identifier_candidates_do_not_require_full_store_load(tmp_
         lambda: (_ for _ in ()).throw(AssertionError("full store load used")),
     )
 
-    assert service.find_exact_identifier_candidate_ids("blackholememory", "contract_654_anchor") == [
-        "mem_bhm_exact_service"
-    ]
+    assert service.find_exact_identifier_candidate_ids("blackholememory", "contract_654_anchor") == []
 
 
 def test_service_list_records_is_newest_first_and_project_scoped(tmp_path):

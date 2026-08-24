@@ -29,6 +29,11 @@ from .domain import Lifecycle
 from .domain import Memory
 from .domain import MemoryLink
 from .domain import MemoryRevision
+from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY
+from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION
+from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_TABLE
+from .exact_identifier_retrieval import exact_identifier_record_text
+from .exact_identifier_retrieval import exact_identifier_tokens
 from .filesystem_boundaries import assert_safe_path
 from .outbox import OutboxEvent
 from .outbox import OutboxLeaseLost
@@ -954,6 +959,7 @@ class SQLiteMemoryRepository:
                 f"UPDATE memories SET {assignments} WHERE memory_id = ?",
                 tuple(value for name, value in column_values if name != "memory_id") + (memory.id,),
             )
+        self._refresh_exact_identifier_tokens(connection, memory)
         outbox_event_id = self._append_memory_event(
             connection,
             memory,
@@ -1165,12 +1171,12 @@ class SQLiteMemoryRepository:
         *,
         limit: int = 200,
     ) -> list[str]:
-        """Return a bounded SQLite prefilter for an exact-identifier query.
+        """Return indexed candidates for one exact-identifier token.
 
-        This is deliberately only a *superset* prefilter. Callers must hydrate
-        the returned IDs from SQLite and perform the exact token and route
-        filters in Python before exposing a hit. Keeping that second boundary
-        avoids treating SQLite substring matching as a new retrieval authority.
+        The optional access-index capability is fail-closed: an old SQLite
+        store without the operator migration returns no exact-lane candidates,
+        never a broad per-query content scan. Callers still hydrate candidate
+        IDs from SQLite and reapply route filters before exposure.
         """
 
         project_id = str(project or "").strip()
@@ -1180,31 +1186,71 @@ class SQLiteMemoryRepository:
             return []
         connection = self._read_connection()
         try:
+            capability = connection.execute(
+                "SELECT value FROM memory_store_meta WHERE key = ?",
+                (EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY,),
+            ).fetchone()
+            if capability is None or str(capability["value"]) != EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION:
+                return []
             rows = connection.execute(
                 """
                 SELECT m.memory_id
-                FROM memories AS m
-                JOIN memory_revisions AS r ON r.revision_id = m.current_revision_id
-                WHERE m.project = ?
+                FROM memory_identifier_tokens AS t
+                JOIN memories AS m ON m.memory_id = t.memory_id
+                WHERE t.project = ?
+                  AND t.token = ?
+                  AND m.project = t.project
                   AND m.lifecycle = 'active'
-                  AND (
-                    instr(lower(COALESCE(r.content, '')), ?) > 0
-                    OR instr(lower(COALESCE(m.title, '')), ?) > 0
-                    OR instr(lower(COALESCE(m.summary, '')), ?) > 0
-                    OR instr(lower(COALESCE(m.upsert_key, '')), ?) > 0
-                    OR instr(lower(COALESCE(m.tags_json, '')), ?) > 0
-                    OR instr(lower(COALESCE(m.files_json, '')), ?) > 0
-                    OR instr(lower(COALESCE(m.metadata_json, '')), ?) > 0
-                  )
-                ORDER BY m.memory_id
+                ORDER BY t.memory_id
                 LIMIT ?
                 """,
-                (project_id, normalized_token, normalized_token, normalized_token, normalized_token,
-                 normalized_token, normalized_token, normalized_token, bounded_limit),
+                (project_id, normalized_token, bounded_limit),
             ).fetchall()
             return [str(row["memory_id"]) for row in rows]
+        except sqlite3.OperationalError:
+            # A marker/DDL mismatch must not revive the former wide scan.
+            return []
         finally:
             connection.close()
+
+    @staticmethod
+    def _exact_identifier_index_available(connection: sqlite3.Connection) -> bool:
+        row = connection.execute(
+            "SELECT value FROM memory_store_meta WHERE key = ?",
+            (EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY,),
+        ).fetchone()
+        if row is None or str(row[0]) != EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION:
+            return False
+        return connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (EXACT_IDENTIFIER_INDEX_TABLE,),
+        ).fetchone() is not None
+
+    def _refresh_exact_identifier_tokens(self, connection: sqlite3.Connection, memory: Memory) -> None:
+        """Maintain the derived access index in the owning memory transaction."""
+
+        if not self._exact_identifier_index_available(connection):
+            return
+        connection.execute(
+            f"DELETE FROM {EXACT_IDENTIFIER_INDEX_TABLE} WHERE memory_id = ?",
+            (memory.id,),
+        )
+        if memory.lifecycle.value != "active":
+            return
+        record = {
+            "content": memory.current_revision.content,
+            "title": memory.title,
+            "summary": memory.summary,
+            "upsert_key": memory.upsert_key,
+            "tags": list(memory.tags),
+            "files": list(memory.files),
+            "metadata": dict(memory.metadata),
+        }
+        tokens = exact_identifier_tokens(exact_identifier_record_text(record))
+        connection.executemany(
+            f"INSERT OR IGNORE INTO {EXACT_IDENTIFIER_INDEX_TABLE}(project, token, memory_id) VALUES (?, ?, ?)",
+            [(memory.project, token, memory.id) for token in tokens],
+        )
 
     def get_memory_by_upsert_key(
         self,
@@ -1297,6 +1343,11 @@ class SQLiteMemoryRepository:
                     project_id,
                 ),
             )
+            if self._exact_identifier_index_available(connection):
+                connection.execute(
+                    f"DELETE FROM {EXACT_IDENTIFIER_INDEX_TABLE} WHERE memory_id = ?",
+                    (tombstoned.id,),
+                )
             self._append_memory_event(connection, tombstoned, inserted=False)
             updated.append(tombstoned.to_record())
         return {"project": project_id, "count": len(updated), "memories": updated}

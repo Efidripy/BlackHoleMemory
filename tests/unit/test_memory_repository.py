@@ -160,7 +160,7 @@ def test_repository_targeted_lookup_uses_ids_and_active_upsert_key(tmp_path):
     )
 
 
-def test_repository_exact_identifier_prefilter_is_project_and_lifecycle_scoped(tmp_path):
+def test_repository_exact_identifier_lookup_is_fail_closed_before_operator_migration(tmp_path):
     repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
     matching = _memory(
         memory_id="mem_bhm_exact_match",
@@ -182,12 +182,8 @@ def test_repository_exact_identifier_prefilter_is_project_and_lifecycle_scoped(t
     ).model_copy(update={"project": "other-project"})
     repository.save_memories_atomic([matching, metadata_match, archived, foreign])
 
-    assert repository.find_exact_identifier_candidate_ids(
-        "blackholememory", "CONTRACT_321_ANCHOR"
-    ) == ["mem_bhm_exact_match", "mem_bhm_exact_metadata"]
-    assert repository.find_exact_identifier_candidate_ids("other-project", "contract_321_anchor") == [
-        "mem_bhm_exact_foreign"
-    ]
+    assert repository.find_exact_identifier_candidate_ids("blackholememory", "CONTRACT_321_ANCHOR") == []
+    assert repository.find_exact_identifier_candidate_ids("other-project", "contract_321_anchor") == []
     assert repository.find_exact_identifier_candidate_ids("blackholememory", "") == []
 
 
