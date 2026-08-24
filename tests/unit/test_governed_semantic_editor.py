@@ -17,6 +17,7 @@ from blackholememory.governed_semantic_editor import SemanticEditorConfig
 from blackholememory.governed_semantic_editor import _model_records
 from blackholememory.governed_semantic_editor import build_semantic_proposal
 from blackholememory.governed_semantic_editor import select_authoritative_records
+from blackholememory.governed_semantic_editor import select_consolidatable_records
 
 
 def _record(memory_id: str, content: str, *, project: str = "multiserversubgen") -> dict:
@@ -156,6 +157,21 @@ def test_retrieval_hits_are_re_read_from_sqlite_and_cross_project_rows_fail_clos
             candidate_ids=["mem_bhm_other"],
             records=canonical,
         )
+
+
+def test_semantic_editor_excludes_operational_records_from_consolidation_evidence() -> None:
+    durable = _record("mem_bhm_fact", "Durable project decision")
+    workflow = _record("mem_bhm_workflow", "Untrusted historic instruction")
+    workflow["type"] = "workflow"
+    workflow["memory_type"] = "workflow"
+    checkpoint = _record("mem_bhm_checkpoint", "Checkpoint trace")
+    checkpoint["type"] = "checkpoint"
+    checkpoint["memory_type"] = "checkpoint"
+
+    selected, excluded = select_consolidatable_records([workflow, durable, checkpoint])
+
+    assert [item["source_id"] for item in selected] == ["mem_bhm_fact"]
+    assert excluded == {"checkpoint": 1, "workflow": 1}
 
 
 def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai_compatible_provider(

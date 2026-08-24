@@ -94,7 +94,7 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
     governor = _Governor()
 
     async def _search(query: str, project: str, limit: int):
-        assert (query, project, limit) == ("uninstall safety", "multiserversubgen", 12)
+        assert (query, project, limit) == ("uninstall safety", "multiserversubgen", 20)
         return ([{"metadata": {"source_id": "mem_bhm_b"}}, {"metadata": {"source_id": "mem_bhm_a"}}], 2)
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")

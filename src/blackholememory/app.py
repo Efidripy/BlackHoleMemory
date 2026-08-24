@@ -203,11 +203,13 @@ from .governed_consolidation import validate_proposal_current as validate_govern
 from .governed_semantic_editor import GovernedSemanticEditorError
 from .governed_semantic_editor import GovernedSemanticEditorUnavailable
 from .governed_semantic_editor import LocalGatewaySemanticCompletion
+from .governed_semantic_editor import MAX_RETRIEVAL_CANDIDATES
 from .governed_semantic_editor import SemanticEditorConfig
 from .governed_semantic_editor import build_semantic_proposal
 from .governed_semantic_editor import clamp_retrieval_limit
 from .governed_semantic_editor import deterministic_no_op
 from .governed_semantic_editor import select_authoritative_records
+from .governed_semantic_editor import select_consolidatable_records
 from .governed_semantic_evaluation import summarize_shadow_proposals
 from .memory_doctor import MemoryDoctorSnapshotError
 from .memory_doctor import load_authoritative_sqlite_snapshot
@@ -5108,7 +5110,7 @@ def _governed_semantic_lexical_fallback_records(*, project: str, query: str, lim
     unless the canonical SQLite text has a deterministic lexical match.
     """
 
-    pool = _memory_service().list_records(project=project, limit=256)
+    pool, _excluded = select_consolidatable_records(_memory_service().list_records(project=project, limit=256))
     ranked: list[tuple[float, str, dict[str, Any]]] = []
     for record in pool:
         memory_id = str(record.get("source_id") or record.get("id") or "").strip()
@@ -5148,10 +5150,15 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
     project = _governed_consolidation_project(principal, request.project)
     config = SemanticEditorConfig.from_env()
     try:
+        requested_limit = clamp_retrieval_limit(request.limit)
         retrieval_source = "federated_semantic_candidates"
         fallback_reason: str | None = None
+        excluded_candidate_types: dict[str, int] = {}
         try:
-            hits, _total = await federated_search(request.query, project, limit=clamp_retrieval_limit(request.limit))
+            # Fetch a bounded superset first. Projection ranking legitimately
+            # contains workflow artifacts, but they are not model evidence for
+            # a consolidation proposal. Filter after SQLite revalidation.
+            hits, _total = await federated_search(request.query, project, limit=MAX_RETRIEVAL_CANDIDATES)
             candidate_ids = [_semantic_graph_node_id(hit) for hit in hits]
             candidate_ids = [item for item in candidate_ids if item]
             records = select_authoritative_records(
@@ -5159,6 +5166,17 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 candidate_ids=candidate_ids,
                 records=_memory_service().get_records(candidate_ids, project=project),
             )
+            records, excluded_candidate_types = select_consolidatable_records(records)
+            records = records[:requested_limit]
+            if not records:
+                retrieval_source = "sqlite_lexical_fallback"
+                fallback_reason = "nonconsolidatable_retrieval_candidates"
+                records = _governed_semantic_lexical_fallback_records(
+                    project=project,
+                    query=request.query,
+                    limit=requested_limit,
+                )
+                candidate_ids = [str(item.get("source_id") or item.get("id") or "") for item in records]
         except (EmbeddingPreparationTimeout, ResponseTimeout, StorageNotReady) as exc:
             # Projection retrieval is an optional proposal input.  A slow or
             # unavailable embedding contour may use a bounded, transparent
@@ -5170,7 +5188,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
             records = _governed_semantic_lexical_fallback_records(
                 project=project,
                 query=request.query,
-                limit=clamp_retrieval_limit(request.limit),
+                limit=requested_limit,
             )
             candidate_ids = [str(item.get("source_id") or item.get("id") or "") for item in records]
             if not records:
@@ -5231,6 +5249,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
             proposal["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
             proposal["execution"]["local_model_called"] = model_fallback_reason is None
             proposal["semantic_editor"]["retrieval_source"] = retrieval_source
+            proposal["semantic_editor"]["excluded_candidate_types"] = excluded_candidate_types
         finally:
             _llm_governor().release(job_id)
         stored: dict[str, Any] | None = None
