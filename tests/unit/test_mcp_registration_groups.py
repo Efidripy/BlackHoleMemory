@@ -32,8 +32,9 @@ def test_registration_groups_are_complete_disjoint_and_fail_closed():
     assert report["disjoint"] is True
     assert report["counts"]["core"] == len(CORE_TOOL_NAMES)
     assert report["counts"]["domain"] == len(EXTENDED_PUBLIC_TOOL_NAMES) == 84
-    # Governed consolidation contributes eight approval-gated admin tools.
-    assert report["counts"]["admin"] == 83
+    # Governed consolidation contributes the original eight approval-gated
+    # tools plus semantic proposal generation and its read-only shadow metrics.
+    assert report["counts"]["admin"] == 85
     assert set(groups["core"]).isdisjoint(groups["domain"])
     assert set(groups["core"]).isdisjoint(groups["admin"])
     assert set(groups["domain"]).isdisjoint(groups["admin"])
