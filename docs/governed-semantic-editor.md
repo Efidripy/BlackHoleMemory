@@ -20,7 +20,7 @@ Qdrant/Mem0 retrieval candidate IDs
 - Retrieval results are hints only. Every model input and proposal basis is
   re-read from the same project in SQLite before analysis.
 - The local editor sees every candidate identity and revision, but evidence
-  text has a fixed 12,000-character total budget. Full canonical revisions
+  text has a fixed 6,000-character total budget. Full canonical revisions
   remain in SQLite for validation and operator review.
 - When a local OpenAI-compatible runner supports `response_format=json_schema`,
   the editor supplies its bounded proposal schema. BHM still independently

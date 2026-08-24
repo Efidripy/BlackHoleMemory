@@ -39,10 +39,12 @@ MIN_RETRIEVAL_CANDIDATES = 1
 MAX_QUERY_CHARS = 480
 MAX_CONFLICTS = 16
 MIN_CREATE_CONFIDENCE = 0.72
-# Keep the local 7B editor inside a practical context budget even when an
+# Keep the local 7B editor inside a practical foreground budget even when an
 # operator requests all 20 candidates. SQLite keeps the complete canonical
-# revisions; the model receives only a bounded analysis view.
-MAX_MODEL_EVIDENCE_CHARS = 12_000
+# revisions; the model receives only a bounded analysis view. Six thousand
+# characters leaves room for a schema-constrained reply within the 60-second
+# default instead of making a healthy local provider look unavailable.
+MAX_MODEL_EVIDENCE_CHARS = 6_000
 MAX_MODEL_RECORD_CONTENT_CHARS = 1_800
 DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS = 60.0
 DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS = 180
