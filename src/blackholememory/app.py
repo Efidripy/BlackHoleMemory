@@ -206,6 +206,7 @@ from .governed_semantic_editor import LocalGatewaySemanticCompletion
 from .governed_semantic_editor import SemanticEditorConfig
 from .governed_semantic_editor import build_semantic_proposal
 from .governed_semantic_editor import clamp_retrieval_limit
+from .governed_semantic_editor import deterministic_no_op
 from .governed_semantic_editor import select_authoritative_records
 from .governed_semantic_evaluation import summarize_shadow_proposals
 from .memory_doctor import MemoryDoctorSnapshotError
@@ -5189,14 +5190,42 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
         if not admission.allowed:
             raise GovernedSemanticEditorUnavailable(f"local semantic editor admission denied: {admission.code}")
         try:
-            proposal = await asyncio.to_thread(
-                build_semantic_proposal,
-                project=project,
-                query=request.query,
-                retrieved_records=records,
-                completion=completion,
-            )
+            try:
+                proposal = await asyncio.to_thread(
+                    build_semantic_proposal,
+                    project=project,
+                    query=request.query,
+                    retrieved_records=records,
+                    completion=completion,
+                )
+                model_fallback_reason: str | None = None
+            except GovernedSemanticEditorUnavailable:
+                # A local model is an optional proposal generator. Preserve a
+                # useful, auditable shadow result when it times out or its
+                # provider rejects the request, but never disguise that
+                # degraded result as semantic inference or a lifecycle plan.
+                proposal = deterministic_no_op(
+                    project=project,
+                    query=request.query,
+                    retrieved_records=records,
+                    reason="local semantic editor is unavailable; deterministic no-op emitted for operator review",
+                )
+                model_fallback_reason = "local_model_unavailable"
+                proposal["semantic_editor"] = {
+                    "schema_version": "bhm.governed-semantic-editor.v1",
+                    "retrieved_candidate_count": len(records),
+                    "selected_basis_count": len(proposal.get("basis") or []),
+                    "policy": {
+                        "decision": "local_model_unavailable_deterministic_no_op",
+                        "manual_approval_required": True,
+                        "auto_apply": False,
+                        "direct_mem0_writes": False,
+                        "direct_qdrant_writes": False,
+                    },
+                    "shadow_safe": True,
+                }
             proposal["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
+            proposal["execution"]["local_model_called"] = model_fallback_reason is None
             proposal["semantic_editor"]["retrieval_source"] = retrieval_source
         finally:
             _llm_governor().release(job_id)
@@ -5213,6 +5242,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 "candidate_count": len(candidate_ids),
                 "sqlite_revalidated_count": len(records),
                 "fallback_reason": fallback_reason,
+                "model_fallback_reason": model_fallback_reason,
             },
             "admission": admission.as_dict(),
             "side_effects": {

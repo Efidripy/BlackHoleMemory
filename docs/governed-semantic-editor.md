@@ -22,6 +22,9 @@ Qdrant/Mem0 retrieval candidate IDs
 - The local editor sees every candidate identity and revision, but evidence
   text has a fixed 12,000-character total budget. Full canonical revisions
   remain in SQLite for validation and operator review.
+- If the local model itself is unavailable, BHM emits an explicitly labelled
+  deterministic `no_op` preview instead of treating the failure as a memory
+  write or a semantic result. The receipt reports `model_fallback_reason`.
 - If the bounded embedding contour is temporarily unavailable, one explicit
   request may use a bounded same-project SQLite lexical fallback. Its response
   reports `source=sqlite_lexical_fallback`; it is never represented as vector

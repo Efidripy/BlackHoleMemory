@@ -81,6 +81,14 @@ class _Completion:
         }
 
 
+class _UnavailableCompletion:
+    def __init__(self, _config) -> None:
+        pass
+
+    def complete(self, **_kwargs) -> dict:
+        raise bhm_app.GovernedSemanticEditorUnavailable("provider timeout")
+
+
 def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlite(monkeypatch) -> None:
     records = [_record("mem_bhm_a", "Normal uninstall is project-scoped."), _record("mem_bhm_b", "Install-state safety log is required.")]
     governor = _Governor()
@@ -111,6 +119,7 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
         "candidate_count": 2,
         "sqlite_revalidated_count": 2,
         "fallback_reason": None,
+        "model_fallback_reason": None,
     }
     assert result["side_effects"]["memory_lifecycle_mutation"] is False
     assert result["side_effects"]["qdrant_mutation"] is False
@@ -143,6 +152,7 @@ def test_semantic_surface_uses_sqlite_lexical_fallback_when_embedding_retrieval_
         "candidate_count": 2,
         "sqlite_revalidated_count": 2,
         "fallback_reason": "embedding_retrieval_unavailable",
+        "model_fallback_reason": None,
     }
     assert result["proposal"]["execution"]["semantic_retrieval"] is False
     assert governor.released
@@ -169,3 +179,32 @@ def test_semantic_surface_maps_embedding_timeout_without_lexical_evidence_to_ret
     assert raised.value.status_code == 503
     assert raised.value.detail["code"] == "governed_semantic_editor_unavailable"
     assert "provider detail" not in raised.value.detail["reason"]
+
+
+def test_semantic_surface_returns_explicit_deterministic_no_op_when_local_model_is_unavailable(monkeypatch) -> None:
+    records = [_record("mem_bhm_a", "Normal uninstall is project-scoped."), _record("mem_bhm_b", "Install-state log is required.")]
+    governor = _Governor()
+
+    async def _search(*_args, **_kwargs):
+        return ([{"metadata": {"source_id": "mem_bhm_a"}}, {"metadata": {"source_id": "mem_bhm_b"}}], 2)
+
+    monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
+    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(bhm_app, "federated_search", _search)
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService(records))
+    monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _UnavailableCompletion)
+    monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
+
+    result = asyncio.run(
+        bhm_app._governed_semantic_proposal(
+            bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
+            principal=object(),
+        )
+    )
+
+    assert result["proposal"]["operation"] == "no_op"
+    assert result["proposal"]["semantic_editor"]["policy"]["decision"] == "local_model_unavailable_deterministic_no_op"
+    assert result["proposal"]["execution"]["local_model_called"] is False
+    assert result["retrieval"]["model_fallback_reason"] == "local_model_unavailable"
+    assert governor.released
