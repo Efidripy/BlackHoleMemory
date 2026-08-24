@@ -25,7 +25,7 @@ REPORT_SCRIPTS = (
 
 
 @pytest.mark.parametrize("script_name", REPORT_SCRIPTS)
-def test_p28_report_targets_use_shared_boundary_writer(script_name: str) -> None:
+def test_report_targets_use_shared_boundary_writer(script_name: str) -> None:
     source = (REPO_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
     assert "replace_bytes_safely" in source
     assert not re.search(r"(?:args\.(?:report|output)|Path\(args\.report\))\.write_text", source)

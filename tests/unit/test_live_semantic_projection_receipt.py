@@ -34,13 +34,13 @@ def _result(*, active: bool = True, projection_only: bool = True, runtime_ok: bo
     }
 
 
-def test_wi180_accepts_active_projection_only_live_receipt() -> None:
+def test_accepts_active_projection_only_live_receipt() -> None:
     gate = MODULE.evaluate_live_gate(_result())
     assert gate["ok"] is True
     assert gate["projection_only_rows"] == 1
 
 
-def test_wi180_rejects_disabled_or_non_projection_receipt() -> None:
+def test_rejects_disabled_or_non_projection_receipt() -> None:
     disabled = MODULE.evaluate_live_gate(_result(active=False))
     non_projection = MODULE.evaluate_live_gate(_result(projection_only=False))
     assert disabled["ok"] is False
