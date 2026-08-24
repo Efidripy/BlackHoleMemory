@@ -2156,6 +2156,19 @@ def bhm_governed_consolidation_create(
     )
 
 
+@mcp.tool(name="bhm_governed_semantic_proposal", description="Retrieve up to 20 semantic candidates, re-read their canonical SQLite revisions, and return or explicitly store one local-model proposal. It never applies a memory change or writes Qdrant/Mem0 directly.")
+def bhm_governed_semantic_proposal(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    query: Annotated[str, Field(min_length=1, max_length=480)],
+    limit: Annotated[int, Field(ge=1, le=20)] = 12,
+    store_proposal: bool = False,
+) -> dict[str, Any]:
+    return _post(
+        "/bhm/governed-consolidation/semantic-proposals",
+        {"project": project, "query": query, "limit": limit, "store_proposal": store_proposal},
+    )
+
+
 @mcp.tool(name="bhm_governed_consolidation_list", description="List bounded project-scoped governed consolidation proposals. Read-only; proposal contents remain operator-scoped.")
 def bhm_governed_consolidation_list(
     project: Annotated[str, Field(min_length=1, max_length=160)],
