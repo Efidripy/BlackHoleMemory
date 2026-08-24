@@ -24,9 +24,9 @@ def load_script(filename: str, module_name: str):
     return module
 
 
-build_manifest = load_script("build-release-manifest.py", "bhm_test_p14_build_manifest")
-build_trust = load_script("build-release-trust.py", "bhm_test_p14_build_trust")
-verify_trust = load_script("verify-release-trust.py", "bhm_test_p14_verify_trust")
+build_manifest = load_script("build-release-manifest.py", "bhm_test_release_build_manifest")
+build_trust = load_script("build-release-trust.py", "bhm_test_release_build_trust")
+verify_trust = load_script("verify-release-trust.py", "bhm_test_release_verify_trust")
 
 
 def create_bundle(root: Path) -> None:

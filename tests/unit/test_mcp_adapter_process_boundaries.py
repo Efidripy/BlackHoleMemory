@@ -17,7 +17,7 @@ def _load():
     return module
 
 
-def test_p18_12_child_process_is_bounded_and_fail_closed(monkeypatch) -> None:
+def test_child_process_is_bounded_and_fail_closed(monkeypatch) -> None:
     module = _load()
     calls: dict[str, object] = {}
 

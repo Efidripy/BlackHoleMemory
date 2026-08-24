@@ -52,7 +52,7 @@ jobs:
           --cov-fail-under=75
 
       - name: Release trust and source provenance regressions
-        run: uv run pytest -q tests/unit/test_release_signature.py tests/unit/test_p14_release_trust_contract.py tests/unit/test_release_source_tree.py
+        run: uv run pytest -q tests/unit/test_release_signature.py tests/unit/test_release_trust_contract.py tests/unit/test_release_source_tree.py
 
       - name: Hermetic release manifest/trust/build gate
         run: uv run python scripts/validate-release-fixture.py
