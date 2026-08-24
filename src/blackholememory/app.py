@@ -200,6 +200,13 @@ from .governed_consolidation import dry_run_apply as dry_run_governed_consolidat
 from .governed_consolidation import runtime_enabled as governed_consolidation_enabled
 from .governed_consolidation import runtime_status as governed_consolidation_status
 from .governed_consolidation import validate_proposal_current as validate_governed_consolidation_proposal
+from .governed_semantic_editor import GovernedSemanticEditorError
+from .governed_semantic_editor import GovernedSemanticEditorUnavailable
+from .governed_semantic_editor import LocalGatewaySemanticCompletion
+from .governed_semantic_editor import SemanticEditorConfig
+from .governed_semantic_editor import build_semantic_proposal
+from .governed_semantic_editor import clamp_retrieval_limit
+from .governed_semantic_editor import select_authoritative_records
 from .memory_doctor import MemoryDoctorSnapshotError
 from .memory_doctor import load_authoritative_sqlite_snapshot
 from .memory_doctor import run_authoritative_sqlite_memory_doctor
@@ -2999,6 +3006,17 @@ class GovernedConsolidationCreateRequest(BaseModel):
     confidence: float = Field(default=0.75, ge=0.0, le=1.0)
 
 
+class GovernedSemanticProposalRequest(BaseModel):
+    """Run one bounded local semantic pass; persistence stays explicit."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    query: str = Field(min_length=1, max_length=480)
+    limit: int = Field(default=12, ge=1, le=20)
+    store_proposal: StrictBool = False
+
+
 class GovernedConsolidationDecisionRequest(BaseModel):
     """Record a human decision; approval alone never applies lifecycle state."""
 
@@ -5028,6 +5046,10 @@ def _governed_consolidation_error(exc: Exception) -> HTTPException:
         return HTTPException(status_code=409, detail={"code": "governed_consolidation_stale"})
     if isinstance(exc, GovernedConsolidationApprovalRequired):
         return HTTPException(status_code=409, detail={"code": "governed_consolidation_approval_required"})
+    if isinstance(exc, GovernedSemanticEditorUnavailable):
+        return HTTPException(status_code=503, detail={"code": "governed_semantic_editor_unavailable", "reason": _safe_exception_text(exc)})
+    if isinstance(exc, GovernedSemanticEditorError):
+        return HTTPException(status_code=422, detail={"code": "governed_semantic_editor_invalid", "reason": _safe_exception_text(exc)})
     if isinstance(exc, GovernedConsolidationError):
         return HTTPException(status_code=422, detail={"code": "governed_consolidation_invalid", "reason": _safe_exception_text(exc)})
     return HTTPException(status_code=503, detail={"code": "governed_consolidation_unavailable"})
@@ -5073,6 +5095,75 @@ def _governed_consolidation_create(request: GovernedConsolidationCreateRequest, 
         "replayed": not inserted,
         "side_effects": {"sqlite_mutation": bool(inserted), "memory_lifecycle_mutation": False, "memory_outbox_mutation": False, "qdrant_mutation": False, "mem0_mutation": False},
     }
+
+
+async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, *, principal: Any) -> dict[str, Any]:
+    """Retrieve projection candidates, re-read SQLite, then emit a safe proposal.
+
+    The vector search only supplies candidate IDs.  The local model sees no
+    record until it has been re-read from canonical SQLite and every eventual
+    lifecycle mutation remains behind the existing approval/apply route.
+    """
+
+    _require_governed_consolidation_enabled()
+    project = _governed_consolidation_project(principal, request.project)
+    config = SemanticEditorConfig.from_env()
+    try:
+        hits, _total = await federated_search(request.query, project, limit=clamp_retrieval_limit(request.limit))
+        candidate_ids = [_semantic_graph_node_id(hit) for hit in hits]
+        candidate_ids = [item for item in candidate_ids if item]
+        records = select_authoritative_records(
+            project=project,
+            candidate_ids=candidate_ids,
+            records=_memory_service().get_records(candidate_ids, project=project),
+        )
+        completion = LocalGatewaySemanticCompletion(config)
+        job_id = f"governed-semantic-{uuid.uuid4().hex}"
+        admission = _llm_governor().admit(
+            AdmissionRequest(
+                job_id=job_id,
+                workload="foreground",
+                max_wall_seconds=config.timeout_seconds,
+                max_output_tokens=config.max_tokens,
+            )
+        )
+        if not admission.allowed:
+            raise GovernedSemanticEditorUnavailable(f"local semantic editor admission denied: {admission.code}")
+        try:
+            proposal = await asyncio.to_thread(
+                build_semantic_proposal,
+                project=project,
+                query=request.query,
+                retrieved_records=records,
+                completion=completion,
+            )
+        finally:
+            _llm_governor().release(job_id)
+        stored: dict[str, Any] | None = None
+        inserted = False
+        if request.store_proposal:
+            stored, inserted = GovernedConsolidationRepository(_governed_consolidation_database_path()).create(proposal)
+        return {
+            "proposal": stored or proposal,
+            "stored": request.store_proposal,
+            "inserted": inserted,
+            "retrieval": {
+                "source": "federated_semantic_candidates",
+                "candidate_count": len(candidate_ids),
+                "sqlite_revalidated_count": len(records),
+            },
+            "admission": admission.as_dict(),
+            "side_effects": {
+                "sqlite_mutation": bool(inserted),
+                "memory_lifecycle_mutation": False,
+                "memory_outbox_mutation": False,
+                "qdrant_mutation": False,
+                "mem0_mutation": False,
+                "automatic_apply": False,
+            },
+        }
+    except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise _governed_consolidation_error(exc) from exc
 
 
 def _governed_consolidation_inspect(*, project: str, proposal_id: str, principal: Any) -> dict[str, Any]:
@@ -19992,12 +20083,40 @@ async def bhm_consolidation_change_set_review(
 async def bhm_governed_consolidation_status() -> dict[str, Any]:
     """Return disabled/proposal-only/approval-gated state without a write."""
 
-    return governed_consolidation_status(_governed_consolidation_database_path())
+    result = governed_consolidation_status(_governed_consolidation_database_path())
+    config = SemanticEditorConfig.from_env()
+    result["semantic_editor"] = {
+        "schema_version": "bhm.governed-semantic-editor.v1",
+        "enabled": config.enabled,
+        "mode": "local-model-proposal-only",
+        "candidate_retrieval": "federated-then-sqlite-revalidated",
+        "max_retrieval_candidates": 20,
+        "model_id": config.model_id or None,
+        "direct_mem0_writes": False,
+        "direct_qdrant_writes": False,
+        "automatic_apply": False,
+    }
+    return result
 
 
 @app.post("/bhm/governed-consolidation/proposals")
 async def bhm_governed_consolidation_create(request: GovernedConsolidationCreateRequest, http_request: Request) -> dict[str, Any]:
     return await _run_bounded_write("bhm.governed_consolidation.create", _governed_consolidation_create, request, principal=getattr(http_request.state, "bhm_caller_principal", None))
+
+
+@app.post("/bhm/governed-consolidation/semantic-proposals")
+async def bhm_governed_semantic_proposal(request: GovernedSemanticProposalRequest, http_request: Request) -> dict[str, Any]:
+    """Return or explicitly store one local semantic proposal; never apply it."""
+
+    # A stored proposal only changes the governed review queue, never a
+    # canonical memory.  The same bounded writer wrapper records the audit
+    # boundary and preserves caller project authorization.
+    principal = getattr(http_request.state, "bhm_caller_principal", None)
+    if request.store_proposal:
+        async with _bounded_write("bhm.governed_consolidation.semantic_proposal"):
+            return await _governed_semantic_proposal(request, principal=principal)
+    async with _bounded_read("bhm.governed_consolidation.semantic_proposal"):
+        return await _governed_semantic_proposal(request, principal=principal)
 
 
 @app.get("/bhm/governed-consolidation/proposals")
