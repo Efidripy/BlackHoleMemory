@@ -25,6 +25,9 @@ Qdrant/Mem0 retrieval candidate IDs
 - When a local OpenAI-compatible runner supports `response_format=json_schema`,
   the editor supplies its bounded proposal schema. BHM still independently
   parses every response, re-reads its SQLite basis and rejects invalid content.
+- The model selects its evidence through short `basis-1…basis-N` keys. BHM maps
+  those keys back to the exact SQLite records before it constructs an external
+  proposal, so a small local model never has to reproduce opaque memory IDs.
 - If the local model itself is unavailable, BHM emits an explicitly labelled
   deterministic `no_op` preview instead of treating the failure as a memory
   write or a semantic result. The receipt reports a stable redacted
