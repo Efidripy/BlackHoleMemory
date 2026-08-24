@@ -225,6 +225,18 @@ def test_source_tree_verifier_rejects_ignored_or_untracked_source_file(tmp_path,
     assert any("non-tracked or out-of-scope" in item for item in result["failures"])
 
 
+def test_source_tree_verifier_ignores_generated_egg_info(tmp_path: Path) -> None:
+    module = _module()
+    source = _fixture(tmp_path / "source")
+    generated = source / "src/blackholememory.egg-info/PKG-INFO"
+    generated.parent.mkdir()
+    generated.write_text("generated metadata\n", encoding="utf-8")
+
+    paths = module.source_paths(source, {"scripts/bhm_launcher.py"})
+
+    assert "src/blackholememory.egg-info/PKG-INFO" not in paths
+
+
 def test_source_tree_verifier_allows_launcher_as_generated_root_artifact(tmp_path, monkeypatch):
     module = _module()
     source = _fixture(tmp_path / "source")
