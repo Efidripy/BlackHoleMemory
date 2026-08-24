@@ -110,7 +110,12 @@ def source_paths(root: Path, public_scripts: set[str]) -> dict[str, Path]:
         if not base.is_dir():
             continue
         for path in base.rglob("*"):
-            if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
+            if (
+                not path.is_file()
+                or "__pycache__" in path.parts
+                or path.suffix == ".pyc"
+                or any(part.endswith(".egg-info") for part in path.parts)
+            ):
                 continue
             result[path.relative_to(root).as_posix()] = path
     for relative in SOURCE_FILES:
