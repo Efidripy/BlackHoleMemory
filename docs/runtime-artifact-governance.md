@@ -37,3 +37,10 @@ The initial policy keeps WL-292 refinery evidence, WL-174 validation evidence,
 pre-reindex rollback copies and early migration/retention/reconciliation
 backups for at least 90 days after their last change. This removes ambiguity
 without pretending that age alone proves the data is disposable.
+
+`.legacy/` is a separate local historical recovery snapshot, not source code
+to publish and not an automatic deletion target. Its current JSON-era contents
+have no active reader, but only some size/name matches have a known migration
+counterpart. Treat it as `manual-classification` until a reviewed archive or
+deduplication decision binds each retained payload to an owner, digest and
+rollback path.
