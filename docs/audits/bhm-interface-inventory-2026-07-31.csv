@@ -451,3 +451,5 @@ MCP_STATIC,TOOL,bhm_utility_feedback_consolidation_preview,bhm_utility_feedback_
 REST/WS,GET,/bhm/utility-feedback/consolidation-preview,bhm_utility_feedback_consolidation_preview,src/blackholememory/app.py,19147,default
 MCP_STATIC,TOOL,bhm_consolidation_change_set_preview,bhm_consolidation_change_set_preview,src/blackholememory/bhm_mcp.py,2073,n/a
 REST/WS,POST,/bhm/consolidation/change-set/preview,bhm_consolidation_change_set_preview,src/blackholememory/app.py,19315,default
+MCP_STATIC,TOOL,bhm_consolidation_change_set_review,bhm_consolidation_change_set_review,src/blackholememory/bhm_mcp.py,2109,n/a
+REST/WS,POST,/bhm/consolidation/change-set/review,bhm_consolidation_change_set_review,src/blackholememory/app.py,19798,default
