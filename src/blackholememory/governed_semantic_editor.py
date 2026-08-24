@@ -224,6 +224,10 @@ class LocalGatewaySemanticCompletion:
             temperature=0.0,
             json_required_keys=("operation", "candidate", "confidence", "conflicts", "reason"),
             json_schema=GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA,
+            # Qwen's LM Studio template otherwise may emit a reasoning-only
+            # response instead of the required message content.  This narrow
+            # request-level hint is allowlisted by the common gateway.
+            chat_template_kwargs={"enable_thinking": False},
             messages=(
                 {
                     "role": "user",

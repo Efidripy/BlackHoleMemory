@@ -78,6 +78,43 @@ def test_gateway_schema_failure_is_structured_and_never_falls_back():
     assert normalize_json_content("prefix {\"status\": \"ok\"} suffix") == {"status": "ok"}
 
 
+def test_gateway_forwards_only_allowlisted_chat_template_compatibility_hint():
+    captured = {}
+
+    def transport(_url, payload, _headers, _timeout):
+        captured.update(payload)
+        return {"choices": [{"message": {"content": '{"status":"ok"}'}}]}
+
+    result = _gateway(transport).complete(
+        GatewayRequest(
+            "req-template",
+            "probe",
+            "local-model",
+            ({"role": "user", "content": "probe"},),
+            json_required_keys=("status",),
+            chat_template_kwargs={"enable_thinking": False},
+        )
+    )
+
+    assert result.ok is True
+    assert captured["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_gateway_rejects_unbounded_chat_template_provider_kwargs():
+    with pytest.raises(ValueError, match="unsupported chat template kwargs"):
+        LocalOpenAICompatibleAdapter._payload(
+            GatewayRequest(
+                "req-template-invalid",
+                "probe",
+                "local-model",
+                ({"role": "user", "content": "probe"},),
+                chat_template_kwargs={"arbitrary_provider_key": True},
+            ),
+            PromptDefinition("probe", "1", "Return JSON", output_mode="json"),
+            ModelDefinition("local-model", "http://127.0.0.1:13666/v1"),
+        )
+
+
 def test_gateway_preserves_transport_failure_when_json_is_required():
     def transport(_url, _payload, _headers, _timeout):
         raise RuntimeError("provider timeout")
