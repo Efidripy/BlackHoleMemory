@@ -291,6 +291,32 @@ def test_local_gateway_semantic_completion_retries_one_schema_rejection_without_
     assert requests[1].messages[-1] == {"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
 
 
+def test_local_gateway_semantic_completion_retries_semantically_invalid_json_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = LocalGatewaySemanticCompletion(
+        SemanticEditorConfig(True, "http://127.0.0.1:13666/v1", "qwen2.5-coder-7b-instruct", 10.0, 180)
+    )
+    requests = []
+    invalid = _candidate(confidence=85.0)
+    responses = [
+        SimpleNamespace(ok=True, parsed_json=invalid, content="private invalid model reply", validation={"checked": True}),
+        SimpleNamespace(ok=True, parsed_json=_candidate()),
+    ]
+
+    def fake_complete(request):
+        requests.append(request)
+        return responses.pop(0)
+
+    monkeypatch.setattr(completion.gateway, "complete", fake_complete)
+
+    result = completion.complete(project="multiserversubgen", query="uninstall safety", records=[_record("mem_bhm_a", "evidence")])
+
+    assert result["operation"] == "create"
+    assert len(requests) == 2
+    assert requests[1].messages[-1] == {"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
+
+
 def test_local_gateway_semantic_completion_exposes_redacted_validation_diagnostic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
