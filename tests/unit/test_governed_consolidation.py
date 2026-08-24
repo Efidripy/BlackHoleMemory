@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import blackholememory.governed_consolidation as governed_consolidation_module
 from blackholememory.domain import Memory
 from blackholememory.domain import MemoryRevision
 from blackholememory.governed_consolidation import GovernedConsolidationApprovalRequired
@@ -26,6 +27,7 @@ from blackholememory.freshness_migration import apply_migration
 from blackholememory.freshness_migration import build_migration_plan
 from blackholememory.memory_repository import MemoryRepositoryError
 from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.memory_service import SQLiteMemoryService
 from blackholememory.mem0_adapter import local_collection_name
 from blackholememory.qdrant_projector import QdrantProjector
 from blackholememory.qdrant_projector import deterministic_point_id
@@ -184,6 +186,36 @@ def test_proposal_only_is_idempotent_and_never_mutates_memory_or_outbox(tmp_path
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT COUNT(*) FROM memory_revisions").fetchone()[0] == 2
         assert connection.execute("SELECT COUNT(*) FROM governed_consolidation_proposals").fetchone()[0] == 1
+
+
+def test_governed_analyzer_failure_cannot_break_ordinary_remember_or_outbox(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The opt-in proposal analyzer must never participate in the normal write path."""
+
+    def _analyzer_failure(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise RuntimeError("simulated governed analyzer outage")
+
+    monkeypatch.setattr(governed_consolidation_module, "analyze_records", _analyzer_failure)
+    service = SQLiteMemoryService(tmp_path / "ordinary-memory.sqlite3", allow_create=True)
+
+    service.upsert_records(
+        [
+            {
+                "source_system": "bhm",
+                "source_id": "mem_bhm_ordinary_path",
+                "project": "multiserversubgen",
+                "memory_type": "fact",
+                "content": "ordinary remember stays available",
+                "created_at": "2026-08-24T12:00:00Z",
+                "updated_at": "2026-08-24T12:00:00Z",
+                "metadata": {"raw_title": "ordinary write"},
+            }
+        ]
+    )
+
+    stored = service.repository.get_memory("mem_bhm_ordinary_path", project="multiserversubgen")
+    assert stored is not None
+    assert stored.current_revision.content == "ordinary remember stays available"
+    assert len(service.repository.list_outbox()) == 1
 
 
 def test_cross_project_basis_is_rejected(tmp_path: Path) -> None:
