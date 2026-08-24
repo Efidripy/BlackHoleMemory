@@ -73,6 +73,7 @@ def load_public_script_paths(root: Path) -> set[str]:
     if not isinstance(entries, list):
         raise SystemExit("public script manifest entries must be an array")
     paths: set[str] = set()
+    seen_paths: set[str] = set()
     for entry in entries:
         if not isinstance(entry, dict):
             raise SystemExit("public script manifest contains a non-object entry")
@@ -85,14 +86,16 @@ def load_public_script_paths(root: Path) -> set[str]:
             or "\\" in path
             or PurePosixPath(path).is_absolute()
             or ".." in PurePosixPath(path).parts
+            or not path.endswith((".py", ".ps1"))
             or not isinstance(role, str)
             or not role.strip()
             or not isinstance(release, bool)
         ):
             raise SystemExit("public script manifest contains an invalid entry")
+        if path in seen_paths:
+            raise SystemExit(f"public script manifest contains duplicate entry: {path}")
+        seen_paths.add(path)
         if release:
-            if path in paths:
-                raise SystemExit(f"public script manifest contains duplicate entry: {path}")
             paths.add(path)
     if not paths:
         raise SystemExit("public script manifest contains no release scripts")

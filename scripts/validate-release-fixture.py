@@ -41,6 +41,17 @@ def _write_fixture(root: Path) -> None:
         "scripts/start-bhm-authoritative.ps1": "# hermetic release fixture\n",
         "scripts/validate-bhm-streamable-http.ps1": "# hermetic release fixture\n",
         "scripts/bhm-projection-operator.ps1": "# hermetic release fixture\n",
+        "config/public-script-manifest.json": json.dumps(
+            {
+                "schema_version": "bhm.public-script-manifest.v1",
+                "entries": [
+                    {"path": "scripts/bhm_launcher.py", "role": "runtime-support", "release": True},
+                    {"path": "scripts/start-bhm-authoritative.ps1", "role": "runtime", "release": True},
+                    {"path": "scripts/validate-bhm-streamable-http.ps1", "role": "quality-gate", "release": True},
+                    {"path": "scripts/bhm-projection-operator.ps1", "role": "operator", "release": True},
+                ],
+            }
+        ),
         "LICENSE": "BSD Zero Clause License\n",
     }
     for relative, content in files.items():

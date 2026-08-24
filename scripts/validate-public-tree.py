@@ -10,10 +10,15 @@ from pathlib import Path
 
 
 GIT_PROBE_TIMEOUT_SECONDS = 30
+PUBLIC_SCRIPT_MANIFEST = "config/public-script-manifest.json"
 
 
 def load_manifest(repo: Path) -> dict:
     return json.loads((repo / "config/public-tree-manifest.json").read_text(encoding="utf-8"))
+
+
+def load_public_script_manifest(repo: Path) -> dict:
+    return json.loads((repo / PUBLIC_SCRIPT_MANIFEST).read_text(encoding="utf-8"))
 
 
 def is_local(relative: str, manifest: dict) -> bool:
@@ -36,10 +41,71 @@ def _run_git(repo: Path, *args: str) -> subprocess.CompletedProcess[str] | None:
         return None
 
 
+def validate_public_script_manifest(repo: Path) -> dict[str, object]:
+    """Require the public-source registry to classify every tracked root script.
+
+    The registry distinguishes public source from the launcher payload.  A
+    script may remain visible for contributors and CI with ``release: false``;
+    it must still be classified instead of silently becoming an undocumented
+    public file.
+    """
+
+    failures: list[str] = []
+    try:
+        document = load_public_script_manifest(repo)
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"failures": [f"public script manifest unreadable: {exc}"], "tracked": 0, "listed": 0}
+    entries = document.get("entries") if isinstance(document, dict) else None
+    if not isinstance(document, dict) or document.get("schema_version") != "bhm.public-script-manifest.v1":
+        return {"failures": ["public script manifest schema is invalid"], "tracked": 0, "listed": 0}
+    if not isinstance(entries, list) or not entries:
+        return {"failures": ["public script manifest contains no entries"], "tracked": 0, "listed": 0}
+
+    listed: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            failures.append("public script manifest contains a non-object entry")
+            continue
+        path = str(entry.get("path") or "").replace("\\", "/")
+        pure = Path(path)
+        if (
+            not path.startswith("scripts/")
+            or path.endswith("/")
+            or path != pure.as_posix()
+            or ".." in pure.parts
+            or pure.is_absolute()
+        ):
+            failures.append(f"public script manifest has unsafe path: {path!r}")
+            continue
+        if not path.endswith((".py", ".ps1")):
+            failures.append(f"public script manifest has unsupported script type: {path}")
+        if path in listed:
+            failures.append(f"public script manifest has duplicate path: {path}")
+        listed.add(path)
+        if not isinstance(entry.get("role"), str) or not str(entry["role"]).strip():
+            failures.append(f"public script manifest has no role: {path}")
+        if not isinstance(entry.get("release"), bool):
+            failures.append(f"public script manifest has invalid release flag: {path}")
+
+    probe = _run_git(repo, "ls-files", "--", "scripts")
+    if probe is None or probe.returncode != 0:
+        failures.append("tracked-script Git probe unavailable")
+        tracked: set[str] = set()
+    else:
+        tracked = {line.replace("\\", "/") for line in probe.stdout.splitlines() if line.strip()}
+    missing = sorted(tracked - listed)
+    extra = sorted(listed - tracked)
+    failures.extend(f"tracked script absent from public script manifest: {path}" for path in missing)
+    failures.extend(f"public script manifest lists untracked script: {path}" for path in extra)
+    return {"failures": failures, "tracked": len(tracked), "listed": len(listed)}
+
+
 def validate(repo: Path, *, staged: bool = False) -> dict:
     repo = repo.resolve()
     manifest = load_manifest(repo)
     failures: list[str] = []
+    script_manifest = validate_public_script_manifest(repo)
+    failures.extend(script_manifest["failures"])
     required = [str(path) for path in manifest["required_files"]]
     failures.extend(f"missing required public file: {path}" for path in required if not (repo / path).is_file())
     if staged:
@@ -73,7 +139,7 @@ def validate(repo: Path, *, staged: bool = False) -> dict:
         check = _run_git(repo, "check-ignore", "--no-index", "--quiet", "--", probe)
         if check is None or check.returncode != 0:
             failures.append(f"local root is not ignored: {local_root}")
-    return {"ok": not failures, "repo": str(repo), "mode": "staged" if staged else "worktree", "checked_public_files": checked, "skipped_local_files": local_skipped, "required_files": len(required), "failures": failures}
+    return {"ok": not failures, "repo": str(repo), "mode": "staged" if staged else "worktree", "checked_public_files": checked, "skipped_local_files": local_skipped, "required_files": len(required), "script_manifest": {"tracked": script_manifest["tracked"], "listed": script_manifest["listed"]}, "failures": failures}
 
 
 def main() -> int:

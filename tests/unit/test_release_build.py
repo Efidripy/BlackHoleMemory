@@ -39,6 +39,15 @@ def create_bundle(root: Path) -> None:
         json.dumps({"version": "1.7.0"}), encoding="utf-8"
     )
     (root / "scripts/bhm_launcher.py").write_text("print('launcher')\n", encoding="utf-8")
+    (root / "config/public-script-manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "bhm.public-script-manifest.v1",
+                "entries": [{"path": "scripts/bhm_launcher.py", "role": "runtime-support", "release": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
     (root / "src/blackholememory").mkdir(parents=True)
     (root / "src/blackholememory/app.py").write_text("application = True\n", encoding="utf-8")
     (root / "src/blackholememory/version_manifest.py").write_text("RUNTIME_VERSION = '1.7.0'\n", encoding="utf-8")
@@ -63,7 +72,7 @@ def test_release_manifest_round_trip_and_cache_exclusion(tmp_path):
     result = verify_release.verify_mapping(files, "v1.7.0")
 
     assert result["ok"] is True
-    assert result["manifest_file_count"] == 9
+    assert result["manifest_file_count"] == 10
     assert "scripts/__pycache__/ignored.pyc" not in files
 
 
@@ -76,6 +85,42 @@ def test_release_verifier_detects_tampering(tmp_path):
 
     assert result["ok"] is False
     assert "hash mismatch: scripts/bhm_launcher.py" in result["failures"]
+
+
+def test_release_verifier_requires_public_script_manifest(tmp_path):
+    create_bundle(tmp_path)
+    (tmp_path / "config/public-script-manifest.json").unlink()
+    write_manifest(tmp_path)
+
+    result = verify_release.verify_mapping(verify_release.verify_directory(tmp_path), "v1.7.0")
+
+    assert result["ok"] is False
+    assert "missing required file: config/public-script-manifest.json" in result["failures"]
+
+
+def test_release_verifier_rejects_unapproved_script(tmp_path):
+    create_bundle(tmp_path)
+    (tmp_path / "scripts/unapproved.py").write_text("print('not a release entry')\n", encoding="utf-8")
+    write_manifest(tmp_path)
+
+    result = verify_release.verify_mapping(verify_release.verify_directory(tmp_path), "v1.7.0")
+
+    assert result["ok"] is False
+    assert "release payload contains unapproved script: scripts/unapproved.py" in result["failures"]
+
+
+def test_release_verifier_requires_each_release_enabled_script(tmp_path):
+    create_bundle(tmp_path)
+    manifest_path = tmp_path / "config/public-script-manifest.json"
+    document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    document["entries"].append({"path": "scripts/missing.ps1", "role": "runtime", "release": True})
+    manifest_path.write_text(json.dumps(document), encoding="utf-8")
+    write_manifest(tmp_path)
+
+    result = verify_release.verify_mapping(verify_release.verify_directory(tmp_path), "v1.7.0")
+
+    assert result["ok"] is False
+    assert "release script missing from payload: scripts/missing.ps1" in result["failures"]
 
 
 def test_v1_8_release_requires_root_license(tmp_path):
