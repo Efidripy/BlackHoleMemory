@@ -82,6 +82,6 @@ def test_provenance_report_rejects_reparse_repository_root_before_inspection(
 
 
 def test_validator_script_is_importable() -> None:
-    script = Path(__file__).resolve().parents[2] / "scripts" / "validate-bhm-p28-provenance-boundary.py"
+    script = Path(__file__).resolve().parents[2] / "scripts" / "validate-bhm-provenance-boundary.py"
     spec = importlib.util.spec_from_file_location("validate_provenance_boundary", script)
     assert spec is not None and spec.loader is not None

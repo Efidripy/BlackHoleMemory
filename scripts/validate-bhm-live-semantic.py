@@ -24,7 +24,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-_WI82_PATH = Path(__file__).with_name("validate-bhm-p28-wi82-semantic-quality.py")
+_WI82_PATH = Path(__file__).with_name("validate-bhm-semantic-quality.py")
 _SPEC = importlib.util.spec_from_file_location("bhm_wi82_semantic_quality", _WI82_PATH)
 if _SPEC is None or _SPEC.loader is None:  # pragma: no cover - packaging failure
     raise RuntimeError("unable to load WI-82 semantic quality probe")

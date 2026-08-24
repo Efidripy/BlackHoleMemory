@@ -858,72 +858,72 @@
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-acceptance.py",
+      "path": "scripts/validate-bhm-capability-acceptance.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-dependency-import-graph.py",
+      "path": "scripts/validate-bhm-dependency-import-graph.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-provenance-attestation.py",
+      "path": "scripts/validate-bhm-provenance-attestation.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-provenance-boundary.py",
+      "path": "scripts/validate-bhm-provenance-boundary.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi108-semantic-freshness.py",
+      "path": "scripts/validate-bhm-semantic-freshness.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi114-git-impact-receipt.py",
+      "path": "scripts/validate-bhm-git-impact-receipt.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi138-git-history-correlation.py",
+      "path": "scripts/validate-bhm-git-history-correlation.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi180-live-semantic.py",
+      "path": "scripts/validate-bhm-live-semantic.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi68-component-inventory.py",
+      "path": "scripts/validate-bhm-component-inventory.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi82-semantic-quality.py",
+      "path": "scripts/validate-bhm-semantic-quality.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi83-git-impact.py",
+      "path": "scripts/validate-bhm-git-impact.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi83-watch-backpressure.py",
+      "path": "scripts/validate-bhm-watch-backpressure.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi97-semantic-relevance.py",
+      "path": "scripts/validate-bhm-semantic-relevance.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p28-wi99-cross-repo-history.py",
+      "path": "scripts/validate-bhm-cross-repository-history.py",
       "role": "quality-gate",
       "release": true
     },

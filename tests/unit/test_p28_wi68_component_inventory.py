@@ -20,7 +20,7 @@ def _load(name: str, relative: str):
 def test_wi68_validator_git_probe_is_bounded_and_fail_closed(monkeypatch, tmp_path: Path) -> None:
     module = _load(
         "validate_bhm_p28_wi68_component_inventory",
-        "scripts/validate-bhm-p28-wi68-component-inventory.py",
+        "scripts/validate-bhm-component-inventory.py",
     )
     calls: dict[str, object] = {}
 

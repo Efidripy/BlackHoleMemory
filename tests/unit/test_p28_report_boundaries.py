@@ -9,14 +9,14 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPORT_SCRIPTS = (
-    "validate-bhm-p28-dependency-import-graph.py",
-    "validate-bhm-p28-provenance-attestation.py",
-    "validate-bhm-p28-provenance-boundary.py",
-    "validate-bhm-p28-wi68-component-inventory.py",
-    "validate-bhm-p28-wi83-git-impact.py",
-    "validate-bhm-p28-wi83-watch-backpressure.py",
-    "validate-bhm-p28-wi97-semantic-relevance.py",
-    "validate-bhm-p28-wi99-cross-repo-history.py",
+    "validate-bhm-dependency-import-graph.py",
+    "validate-bhm-provenance-attestation.py",
+    "validate-bhm-provenance-boundary.py",
+    "validate-bhm-component-inventory.py",
+    "validate-bhm-git-impact.py",
+    "validate-bhm-watch-backpressure.py",
+    "validate-bhm-semantic-relevance.py",
+    "validate-bhm-cross-repository-history.py",
     "bhm-capability-router.py",
     "bhm-cbm-local-llm.py",
     "bhm-code-graph-query.py",

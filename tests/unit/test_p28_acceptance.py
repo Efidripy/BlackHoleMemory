@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 
-_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "validate-bhm-p28-acceptance.py"
+_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "validate-bhm-capability-acceptance.py"
 _CROSSWALK = (
     Path(__file__).resolve().parents[2]
     / ".docs"
