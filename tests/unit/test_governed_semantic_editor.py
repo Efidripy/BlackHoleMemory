@@ -194,6 +194,16 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     prompt = completion.gateway.prompts.get(GOVERNED_SEMANTIC_EDITOR_PROMPT_ID)
     assert "candidate is still mandatory" in prompt.system
     assert "no prose or markdown" in prompt.system
+    assert len(captured["request"].messages) == 2
+    assert captured["request"].messages[1] == {
+        "role": "user",
+        "content": (
+            "Evidence block complete. Reply now with JSON only: one object with "
+            "operation, candidate, confidence, conflicts and reason. No prose, "
+            "markdown or explanation. For no_op use an empty candidate object "
+            "with title, content, memory_type, concepts and files."
+        ),
+    }
 
 
 def test_semantic_editor_local_defaults_fit_bounded_foreground_proposal_workload(
