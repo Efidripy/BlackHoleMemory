@@ -63,12 +63,6 @@ MAX_MODEL_RECORD_CONTENT_CHARS = 1_800
 DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS = 60.0
 DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS = 180
 MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS = 3
-_SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION = (
-    "The prior completion was rejected because it was not valid for the strict "
-    "proposal contract. Return a fresh JSON object only. Use exactly operation, "
-    "candidate, confidence, conflicts and reason. confidence must be a decimal "
-    "between 0.0 and 1.0. Do not include prose, markdown, percentages, or IDs."
-)
 _SEMANTIC_EDITOR_NO_OP_EXAMPLE = (
     '{"operation":"no_op","candidate":{"title":"","content":"",'
     '"memory_type":"fact","concepts":[],"files":[]},"confidence":0.0,'
@@ -269,21 +263,6 @@ class LocalGatewaySemanticCompletion:
                         separators=(",", ":"),
                     ),
                 },
-                {
-                    # This is fixed BHM-authored contract text, not caller or
-                    # memory evidence. Keep it outside the untrusted-data
-                    # envelope so the model receives a final authoritative
-                    # output boundary after the retrieved records.
-                    "role": "developer",
-                    "content": (
-                        "Evidence block complete. Reply now with JSON only: one object with "
-                        "operation, candidate, confidence, conflicts and reason. No prose, "
-                        "markdown or explanation. For no_op use an empty candidate object "
-                        "with title, content, memory_type, concepts and files. confidence "
-                        "must be a decimal from 0.0 through 1.0, never a percentage. If unsure, "
-                        "return this exact no_op shape with only the reason adapted: " + _SEMANTIC_EDITOR_NO_OP_EXAMPLE
-                    ),
-                },
             ),
         )
         return self._complete_with_contract_retries(request)
@@ -294,7 +273,6 @@ class LocalGatewaySemanticCompletion:
             attempt_request = request if attempt == 0 else replace(
                 request,
                 request_id=f"gse_{uuid4().hex}",
-                messages=request.messages + ({"role": "developer", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION},),
             )
             try:
                 return self._complete_validated(attempt_request)

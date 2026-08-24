@@ -16,7 +16,6 @@ from blackholememory.governed_semantic_editor import LocalGatewaySemanticComplet
 from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
 from blackholememory.governed_semantic_editor import MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
-from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION
 from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_NO_OP_EXAMPLE
 from blackholememory.governed_semantic_editor import _model_records
 from blackholememory.governed_semantic_editor import build_semantic_proposal
@@ -217,18 +216,7 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     assert "use 0.85, never 85 or 85%" in prompt.system
     assert _SEMANTIC_EDITOR_NO_OP_EXAMPLE in prompt.system
     assert "no prose or markdown" in prompt.system
-    assert len(captured["request"].messages) == 2
-    assert captured["request"].messages[1] == {
-        "role": "developer",
-        "content": (
-            "Evidence block complete. Reply now with JSON only: one object with "
-            "operation, candidate, confidence, conflicts and reason. No prose, "
-            "markdown or explanation. For no_op use an empty candidate object "
-            "with title, content, memory_type, concepts and files. confidence "
-            "must be a decimal from 0.0 through 1.0, never a percentage. If unsure, "
-            "return this exact no_op shape with only the reason adapted: " + _SEMANTIC_EDITOR_NO_OP_EXAMPLE
-        ),
-    }
+    assert len(captured["request"].messages) == 1
 
 
 def test_semantic_editor_local_defaults_fit_bounded_foreground_proposal_workload(
@@ -292,7 +280,7 @@ def test_local_gateway_semantic_completion_retries_one_schema_rejection_without_
     assert len(requests) == 2
     assert MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS == 3
     assert requests[0].chat_template_kwargs == requests[1].chat_template_kwargs == {"enable_thinking": False}
-    assert requests[1].messages[-1] == {"role": "developer", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
+    assert requests[0].messages == requests[1].messages
 
 
 def test_local_gateway_semantic_completion_retries_semantically_invalid_json_once(
@@ -318,7 +306,7 @@ def test_local_gateway_semantic_completion_retries_semantically_invalid_json_onc
 
     assert result["operation"] == "create"
     assert len(requests) == 2
-    assert requests[1].messages[-1] == {"role": "developer", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
+    assert requests[0].messages == requests[1].messages
 
 
 def test_local_gateway_semantic_completion_stops_after_three_invalid_contract_attempts(
