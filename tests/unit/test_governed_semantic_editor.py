@@ -15,6 +15,7 @@ from blackholememory.governed_semantic_editor import LocalGatewaySemanticComplet
 from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
 from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION
+from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_NO_OP_EXAMPLE
 from blackholememory.governed_semantic_editor import _model_records
 from blackholememory.governed_semantic_editor import build_semantic_proposal
 from blackholememory.governed_semantic_editor import select_authoritative_records
@@ -212,6 +213,7 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     prompt = completion.gateway.prompts.get(GOVERNED_SEMANTIC_EDITOR_PROMPT_ID)
     assert "candidate is still mandatory" in prompt.system
     assert "use 0.85, never 85 or 85%" in prompt.system
+    assert _SEMANTIC_EDITOR_NO_OP_EXAMPLE in prompt.system
     assert "no prose or markdown" in prompt.system
     assert len(captured["request"].messages) == 2
     assert captured["request"].messages[1] == {
@@ -221,7 +223,8 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
             "operation, candidate, confidence, conflicts and reason. No prose, "
             "markdown or explanation. For no_op use an empty candidate object "
             "with title, content, memory_type, concepts and files. confidence "
-            "must be a decimal from 0.0 through 1.0, never a percentage."
+            "must be a decimal from 0.0 through 1.0, never a percentage. If unsure, "
+            "return this exact no_op shape with only the reason adapted: " + _SEMANTIC_EDITOR_NO_OP_EXAMPLE
         ),
     }
 
