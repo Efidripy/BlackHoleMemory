@@ -72,16 +72,25 @@ def _measure(path: Path) -> tuple[int, dt.datetime]:
     if _reparse(path):
         raise RuntimeArtifactInventoryError(f"reparse-point root rejected: {path}")
     total = 0
-    latest = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+    root_stat = path.stat()
+    latest = dt.datetime.fromtimestamp(root_stat.st_mtime, tz=dt.timezone.utc)
     if path.is_file():
-        return path.stat().st_size, latest
+        return root_stat.st_size, latest
     for child in path.rglob("*"):
-        if _reparse(child):
-            raise RuntimeArtifactInventoryError(f"reparse-point below governed root: {child}")
-        modified = dt.datetime.fromtimestamp(child.stat().st_mtime, tz=dt.timezone.utc)
+        try:
+            if _reparse(child):
+                raise RuntimeArtifactInventoryError(f"reparse-point below governed root: {child}")
+            child_stat = child.stat()
+        except FileNotFoundError:
+            # SQLite WAL/SHM sidecars may disappear between directory traversal
+            # and stat while the authoritative service is live. They are not
+            # retained data and must not make a read-only inventory claim that
+            # the authority root is inaccessible.
+            continue
+        modified = dt.datetime.fromtimestamp(child_stat.st_mtime, tz=dt.timezone.utc)
         latest = max(latest, modified)
-        if child.is_file():
-            total += child.stat().st_size
+        if stat.S_ISREG(child_stat.st_mode):
+            total += child_stat.st_size
     return total, latest
 
 
