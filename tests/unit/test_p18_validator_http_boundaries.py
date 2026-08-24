@@ -24,9 +24,9 @@ def _load(name: str, filename: str):
     return module
 
 
-DOCTOR = _load("validate_bhm_p18_14_mcp_doctor", "validate-bhm-p18.14-mcp-doctor.py")
-PANEL = _load("validate_bhm_p18_15_mcp_panel", "validate-bhm-p18.15-mcp-panel.py")
-REPAIR = _load("validate_bhm_p18_16_mcp_repair", "validate-bhm-p18.16-mcp-repair.py")
+DOCTOR = _load("validate_bhm_mcp_doctor", "validate-bhm-mcp-doctor.py")
+PANEL = _load("validate_bhm_mcp_panel", "validate-bhm-mcp-panel.py")
+REPAIR = _load("validate_bhm_mcp_repair", "validate-bhm-mcp-repair.py")
 
 
 class _Response:

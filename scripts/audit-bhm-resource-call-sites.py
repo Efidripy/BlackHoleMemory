@@ -171,7 +171,7 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         ),
     ),
     (
-        "scripts/validate-bhm-p18.14-mcp-doctor.py",
+        "scripts/validate-bhm-mcp-doctor.py",
         "_ensure_project_runtime",
         "os.execv",
     ): BoundaryExpectation(

@@ -45,7 +45,7 @@ def _load_json(path: Path) -> dict:
 
 
 def _discover_inventory():
-    path = REPO_ROOT / "scripts" / "validate-bhm-p17.1-llm-inventory.py"
+    path = REPO_ROOT / "scripts" / "validate-bhm-llm-inventory.py"
     spec = importlib.util.spec_from_file_location("bhm_local_llm_inventory", path)
     if spec is None or spec.loader is None:
         raise RuntimeError("local LLM inventory unavailable")

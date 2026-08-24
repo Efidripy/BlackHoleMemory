@@ -14,7 +14,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
-INVENTORY = REPO_ROOT / "scripts" / "validate-bhm-p17.1-llm-inventory.py"
+INVENTORY = REPO_ROOT / "scripts" / "validate-bhm-llm-inventory.py"
 
 from blackholememory.llm_gateway import GatewayRequest  # noqa: E402
 from blackholememory.llm_gateway import LocalLLMGateway  # noqa: E402

@@ -53,7 +53,7 @@ def test_parser_fixtures_are_created_outside_repository(tmp_path: Path, monkeypa
 
 
 def test_llm_inventory_samples_and_output_are_bounded(tmp_path: Path):
-    module = load("llm_stream_c", "validate-bhm-p17.1-llm-inventory.py")
+    module = load("llm_stream_c", "validate-bhm-llm-inventory.py")
     assert module.bounded_llm_inventory_samples(999) == module.MAX_INVENTORY_SAMPLES
     assert module.bounded_llm_inventory_samples(0) == 1
     with pytest.raises(ValueError, match="approved root"):
