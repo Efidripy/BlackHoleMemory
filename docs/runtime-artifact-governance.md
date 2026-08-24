@@ -28,6 +28,11 @@ overlap (for example, `.runtime/backups` and a named backup subdirectory), so
 `summary.reported_item_bytes` is a diagnostic total and is not a disk-usage
 total.
 
+While BHM is running, SQLite `-wal` and `-shm` sidecars can disappear between
+directory enumeration and metadata collection. The inventory ignores only this
+transient disappearance; access errors, a missing governed root and every
+reparse point remain visible as non-success states.
+
 The initial policy keeps WL-292 refinery evidence, WL-174 validation evidence,
 pre-reindex rollback copies and early migration/retention/reconciliation
 backups for at least 90 days after their last change. This removes ambiguity

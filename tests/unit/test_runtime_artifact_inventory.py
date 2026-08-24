@@ -68,6 +68,30 @@ def test_inventory_rejects_escape_path(tmp_path: Path):
         module.build_inventory(tmp_path, policy, as_of="2024-01-01T00:00:00Z")
 
 
+def test_inventory_ignores_transient_sqlite_sidecar_disappearance(monkeypatch, tmp_path: Path):
+    module = _load_module()
+    live = tmp_path / ".runtime" / "live"
+    live.mkdir(parents=True)
+    stable = live / "memories.sqlite3"
+    transient = live / "memories.sqlite3-shm"
+    stable.write_bytes(b"authority")
+    transient.write_bytes(b"sidecar")
+    original_reparse = module._reparse
+
+    def disappear_before_stat(path: Path) -> bool:
+        if path == transient and path.exists():
+            path.unlink()
+        return original_reparse(path)
+
+    monkeypatch.setattr(module, "_reparse", disappear_before_stat)
+
+    report = module.build_inventory(tmp_path, _policy(tmp_path), as_of="2024-01-01T00:00:00Z")
+
+    assert report["items"][0]["state"] == "protected"
+    assert report["items"][0]["bytes"] == len(b"authority")
+    assert stable.exists()
+
+
 def test_checked_in_policy_preserves_active_authority_roots():
     payload = json.loads((REPO_ROOT / "config" / "runtime-artifact-governance.json").read_text(encoding="utf-8"))
     rules = {rule["id"]: rule for rule in payload["rules"]}
