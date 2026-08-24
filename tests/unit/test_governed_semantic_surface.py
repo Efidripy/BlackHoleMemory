@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+from fastapi import HTTPException
+
 from blackholememory.domain import Memory
 from blackholememory import app as bhm_app
 
@@ -106,3 +109,25 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
     assert result["side_effects"]["memory_lifecycle_mutation"] is False
     assert result["side_effects"]["qdrant_mutation"] is False
     assert governor.released
+
+
+def test_semantic_surface_maps_embedding_timeout_to_retryable_editor_unavailable(monkeypatch) -> None:
+    async def _timed_out(*_args, **_kwargs):
+        raise bhm_app.EmbeddingPreparationTimeout("provider detail must not escape")
+
+    monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
+    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(bhm_app, "federated_search", _timed_out)
+
+    with pytest.raises(HTTPException) as raised:
+        asyncio.run(
+            bhm_app._governed_semantic_proposal(
+                bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
+                principal=object(),
+            )
+        )
+
+    assert raised.value.status_code == 503
+    assert raised.value.detail["code"] == "governed_semantic_editor_unavailable"
+    assert "provider detail" not in raised.value.detail["reason"]
