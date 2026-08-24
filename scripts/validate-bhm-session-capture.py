@@ -24,7 +24,7 @@ from blackholememory.session_capture import verify_session_capture_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-session-capture.py"
-BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-wi05-session-capture.py"
+BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-session-capture.py"
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 WI05_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 WI05_EXPECTED_CORE_TOOL_COUNT = 35

@@ -23,7 +23,7 @@ from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-memory-graph.py"
-BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-wi06-memory-graph.py"
+BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-memory-graph.py"
 WI06_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 WI06_EXPECTED_CORE_TOOL_COUNT = 35
 

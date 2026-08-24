@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = ROOT / "scripts" / "validate-bhm-wi08-unified-context.py"
+    path = ROOT / "scripts" / "validate-bhm-unified-context.py"
     spec = importlib.util.spec_from_file_location("validate_bhm_wi08_unified_context", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
