@@ -773,67 +773,67 @@
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.0-streamable-http.py",
+      "path": "scripts/validate-bhm-streamable-http-contract.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.10-12-activation-dispositions.py",
+      "path": "scripts/validate-bhm-activation-dispositions.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.14-source-reclassification.py",
+      "path": "scripts/validate-bhm-source-reclassification.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.15-parser-parity.py",
+      "path": "scripts/validate-bhm-parser-parity.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.16-change-impact.py",
+      "path": "scripts/validate-bhm-change-impact.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.17-source-delta.py",
+      "path": "scripts/validate-bhm-source-delta.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.18-source-freeze.py",
+      "path": "scripts/validate-bhm-source-freeze.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.19-toolchain-ledger.py",
+      "path": "scripts/validate-bhm-toolchain-ledger.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.2-golden-benchmark.py",
+      "path": "scripts/validate-bhm-golden-benchmark.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.20-local-security-acceptance.py",
+      "path": "scripts/validate-bhm-local-security-acceptance.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.4-packaging-profiles.py",
+      "path": "scripts/validate-bhm-packaging-profiles.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.6-data-contract.py",
+      "path": "scripts/validate-bhm-data-contract.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p21.7-9-boundaries.py",
+      "path": "scripts/validate-bhm-boundaries.py",
       "role": "quality-gate",
       "release": true
     },

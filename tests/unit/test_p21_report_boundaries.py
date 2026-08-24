@@ -19,12 +19,12 @@ def _load(name: str, filename: str):
 
 
 MODULES = [
-    _load("validate_bhm_p21_14", "validate-bhm-p21.14-source-reclassification.py"),
-    _load("validate_bhm_p21_15", "validate-bhm-p21.15-parser-parity.py"),
-    _load("validate_bhm_p21_16", "validate-bhm-p21.16-change-impact.py"),
-    _load("validate_bhm_p21_17", "validate-bhm-p21.17-source-delta.py"),
-    _load("validate_bhm_p21_18", "validate-bhm-p21.18-source-freeze.py"),
-    _load("validate_bhm_p21_19", "validate-bhm-p21.19-toolchain-ledger.py"),
+    _load("validate_bhm_source_reclassification", "validate-bhm-source-reclassification.py"),
+    _load("validate_bhm_parser_parity", "validate-bhm-parser-parity.py"),
+    _load("validate_bhm_change_impact", "validate-bhm-change-impact.py"),
+    _load("validate_bhm_source_delta", "validate-bhm-source-delta.py"),
+    _load("validate_bhm_source_freeze", "validate-bhm-source-freeze.py"),
+    _load("validate_bhm_toolchain_ledger", "validate-bhm-toolchain-ledger.py"),
 ]
 
 

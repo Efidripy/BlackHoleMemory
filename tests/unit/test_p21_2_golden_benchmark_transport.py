@@ -9,7 +9,7 @@ from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
     "validate_bhm_p21_2_golden_benchmark",
-    ROOT / "scripts" / "validate-bhm-p21.2-golden-benchmark.py",
+    ROOT / "scripts" / "validate-bhm-golden-benchmark.py",
 )
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
