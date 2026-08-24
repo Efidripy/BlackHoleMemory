@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = ROOT / "scripts" / "validate-bhm-wi05-session-capture.py"
+    path = ROOT / "scripts" / "validate-bhm-session-capture.py"
     spec = importlib.util.spec_from_file_location("validate_bhm_wi05_session_capture", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

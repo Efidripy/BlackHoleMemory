@@ -24,7 +24,7 @@ from blackholememory.task_graph import simulate_conflict_recovery_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-task-graph.py"
-BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-wi07-task-graph.py"
+BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-task-graph.py"
 WI07_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 WI07_EXPECTED_CORE_TOOL_COUNT = 35
 

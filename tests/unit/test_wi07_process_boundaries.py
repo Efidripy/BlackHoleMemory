@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = ROOT / "scripts" / "validate-bhm-wi07-task-graph.py"
+    path = ROOT / "scripts" / "validate-bhm-task-graph.py"
     spec = importlib.util.spec_from_file_location("validate_bhm_wi07_task_graph", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

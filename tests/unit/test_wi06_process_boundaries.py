@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = ROOT / "scripts" / "validate-bhm-wi06-memory-graph.py"
+    path = ROOT / "scripts" / "validate-bhm-memory-graph.py"
     spec = importlib.util.spec_from_file_location("validate_bhm_wi06_memory_graph", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
