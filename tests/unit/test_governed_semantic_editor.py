@@ -14,6 +14,7 @@ from blackholememory.governed_semantic_editor import LocalGatewaySemanticComplet
 from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
 from blackholememory.governed_semantic_editor import _model_records
+from blackholememory.governed_semantic_editor import _select_basis_from_model
 from blackholememory.governed_semantic_editor import build_semantic_proposal
 from blackholememory.governed_semantic_editor import select_authoritative_records
 
@@ -98,6 +99,14 @@ def test_semantic_editor_rejects_model_basis_outside_revalidated_sqlite_records(
             retrieved_records=[_record("mem_bhm_a", "A"), _record("mem_bhm_b", "B")],
             completion=_Completion(candidate),
         )
+
+
+def test_semantic_editor_resolves_short_model_basis_keys_back_to_canonical_records() -> None:
+    records = [_record("mem_bhm_a", "A"), _record("mem_bhm_b", "B")]
+
+    selected = _select_basis_from_model(records, ["basis-2", "basis-1"])
+
+    assert [item["source_id"] for item in selected] == ["mem_bhm_b", "mem_bhm_a"]
 
 
 def test_conflicting_or_low_confidence_semantic_result_becomes_no_op() -> None:
@@ -208,4 +217,5 @@ def test_local_gateway_semantic_completion_bounds_total_evidence_without_droppin
 
     assert len(model_records) == 20
     assert [item["memory_id"] for item in model_records] == [f"mem_bhm_{index}" for index in range(20)]
+    assert [item["basis_key"] for item in model_records] == [f"basis-{index + 1}" for index in range(20)]
     assert sum(len(item["content"]) for item in model_records) <= MAX_MODEL_EVIDENCE_CHARS
