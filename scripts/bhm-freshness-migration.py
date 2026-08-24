@@ -23,7 +23,6 @@ from blackholememory.freshness_migration import build_migration_plan  # noqa: E4
 
 
 DEFAULT_DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
-DEFAULT_BACKUP = ROOT / ".runtime" / "backups" / "sqlite-retention" / "20260820T100257Z" / "memories-before-retention.sqlite3"
 ARTIFACT_ROOT = ROOT / ".runtime" / "freshness-migration"
 SIDECAR_PID = ROOT / ".runtime" / "bootstrap" / "projection-sidecar.pid"
 
@@ -72,7 +71,12 @@ def _write(path: Path, payload: dict) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
-    parser.add_argument("--existing-backup", type=Path, default=DEFAULT_BACKUP)
+    parser.add_argument(
+        "--existing-backup",
+        type=Path,
+        required=True,
+        help="verified full SQLite backup created from the current offline snapshot",
+    )
     parser.add_argument("--as-of", required=True)
     parser.add_argument("--plan", type=Path, required=True, help="plan JSON below .runtime/freshness-migration")
     parser.add_argument("--receipt", type=Path, required=True, help="receipt JSON below .runtime/freshness-migration")
