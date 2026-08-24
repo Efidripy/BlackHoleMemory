@@ -190,6 +190,7 @@ def test_trust_builder_rejects_duplicate_consumed_package_evidence(tmp_path):
 
 def test_trust_builder_rejects_forged_source_revision_when_git_is_available(tmp_path, monkeypatch):
     create_bundle(tmp_path)
+    (tmp_path / ".git").mkdir()
     monkeypatch.setenv("BHM_SOURCE_REVISION", "a" * 40)
     monkeypatch.setenv("BHM_SOURCE_DIRTY", "false")
     monkeypatch.setattr(
