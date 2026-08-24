@@ -39,6 +39,11 @@ MIN_RETRIEVAL_CANDIDATES = 1
 MAX_QUERY_CHARS = 480
 MAX_CONFLICTS = 16
 MIN_CREATE_CONFIDENCE = 0.72
+# Keep the local 7B editor inside a practical context budget even when an
+# operator requests all 20 candidates. SQLite keeps the complete canonical
+# revisions; the model receives only a bounded analysis view.
+MAX_MODEL_EVIDENCE_CHARS = 12_000
+MAX_MODEL_RECORD_CONTENT_CHARS = 1_800
 
 
 class GovernedSemanticEditorError(GovernedConsolidationError):
@@ -140,7 +145,7 @@ class LocalGatewaySemanticCompletion:
                         {
                             "query": query,
                             "project": project,
-                            "records": [_model_record(record) for record in records],
+                            "records": _model_records(records),
                             "contract": {
                                 "proposal_only": True,
                                 "allowed_operations": sorted(OPERATIONS),
@@ -286,14 +291,26 @@ def deterministic_no_op(
     )
 
 
-def _model_record(record: Mapping[str, Any]) -> dict[str, Any]:
+def _model_records(records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Create a context-bounded view while retaining every candidate identity."""
+
+    if not records:
+        return []
+    per_record_limit = min(
+        MAX_MODEL_RECORD_CONTENT_CHARS,
+        max(1, MAX_MODEL_EVIDENCE_CHARS // len(records)),
+    )
+    return [_model_record(record, content_limit=per_record_limit) for record in records]
+
+
+def _model_record(record: Mapping[str, Any], *, content_limit: int = MAX_MODEL_RECORD_CONTENT_CHARS) -> dict[str, Any]:
     metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
     return {
         "memory_id": str(record.get("id") or record.get("source_id") or ""),
         "revision_id": str(metadata.get("revision_id") or record.get("revision_id") or ""),
         "title": str(record.get("title") or metadata.get("raw_title") or "")[:240],
         "memory_type": str(record.get("memory_type") or record.get("type") or "fact")[:96],
-        "content": str(record.get("content") or record.get("memory") or "")[:8_000],
+        "content": str(record.get("content") or record.get("memory") or "")[:max(1, content_limit)],
     }
 
 

@@ -8,7 +8,9 @@ import pytest
 from blackholememory.domain import Memory
 from blackholememory.governed_semantic_editor import GovernedSemanticEditorError
 from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
+from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
+from blackholememory.governed_semantic_editor import _model_records
 from blackholememory.governed_semantic_editor import build_semantic_proposal
 from blackholememory.governed_semantic_editor import select_authoritative_records
 
@@ -163,3 +165,13 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     assert json.loads(content)["project"] == "multiserversubgen"
     assert json.loads(content)["records"][0]["memory_id"] == "mem_bhm_a"
     assert result["operation"] == "create"
+
+
+def test_local_gateway_semantic_completion_bounds_total_evidence_without_dropping_candidate_ids() -> None:
+    records = [_record(f"mem_bhm_{index}", "x" * 8_000) for index in range(20)]
+
+    model_records = _model_records(records)
+
+    assert len(model_records) == 20
+    assert [item["memory_id"] for item in model_records] == [f"mem_bhm_{index}" for index in range(20)]
+    assert sum(len(item["content"]) for item in model_records) <= MAX_MODEL_EVIDENCE_CHARS
