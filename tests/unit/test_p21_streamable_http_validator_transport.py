@@ -12,7 +12,7 @@ from blackholememory.local_endpoint_policy import LocalEndpointError
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
     "validate_bhm_p21_0_streamable_http",
-    ROOT / "scripts" / "validate-bhm-p21.0-streamable-http.py",
+    ROOT / "scripts" / "validate-bhm-streamable-http-contract.py",
 )
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)

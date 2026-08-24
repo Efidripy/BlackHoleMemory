@@ -29,7 +29,7 @@ QUARANTINE = _load("stream_b_quarantine", "bhm_quarantine_projection_orphans.py"
 RETENTION = _load("stream_b_retention", "bhm_retention_maintenance.py")
 PROJECTION = _load("stream_b_projection", "run-bhm-projection-worker.py")
 ENDPOINTS = _load("stream_b_endpoints", "bhm_runtime_endpoints.py")
-STREAMABLE = _load("stream_b_streamable", "validate-bhm-p21.0-streamable-http.py")
+STREAMABLE = _load("stream_b_streamable", "validate-bhm-streamable-http-contract.py")
 LAUNCHER = _load("stream_b_launcher", "bhm_launcher.py")
 
 

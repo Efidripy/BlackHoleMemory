@@ -19,12 +19,12 @@ def _load(name: str, filename: str):
 
 
 MODULES = [
-    _load("validate_bhm_p21_2", "validate-bhm-p21.2-golden-benchmark.py"),
-    _load("validate_bhm_p21_4", "validate-bhm-p21.4-packaging-profiles.py"),
-    _load("validate_bhm_p21_6", "validate-bhm-p21.6-data-contract.py"),
-    _load("validate_bhm_p21_7_9", "validate-bhm-p21.7-9-boundaries.py"),
-    _load("validate_bhm_p21_10_12", "validate-bhm-p21.10-12-activation-dispositions.py"),
-    _load("validate_bhm_p21_20", "validate-bhm-p21.20-local-security-acceptance.py"),
+    _load("validate_bhm_golden_benchmark", "validate-bhm-golden-benchmark.py"),
+    _load("validate_bhm_packaging_profiles", "validate-bhm-packaging-profiles.py"),
+    _load("validate_bhm_data_contract", "validate-bhm-data-contract.py"),
+    _load("validate_bhm_boundaries", "validate-bhm-boundaries.py"),
+    _load("validate_bhm_activation_dispositions", "validate-bhm-activation-dispositions.py"),
+    _load("validate_bhm_local_security_acceptance", "validate-bhm-local-security-acceptance.py"),
 ]
 
 

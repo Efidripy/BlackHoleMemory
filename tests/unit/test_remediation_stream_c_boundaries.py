@@ -36,7 +36,7 @@ def test_p22_backup_is_bound_to_recovery_root(tmp_path: Path):
 
 
 def test_parser_fixtures_are_created_outside_repository(tmp_path: Path, monkeypatch):
-    module = load("parser_stream_c", "validate-bhm-p21.15-parser-parity.py")
+    module = load("parser_stream_c", "validate-bhm-parser-parity.py")
     captured: list[Path] = []
 
     def fake_snapshot(root: Path):

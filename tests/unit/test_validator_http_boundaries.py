@@ -18,8 +18,8 @@ def _load_script(name: str, filename: str):
     return module
 
 
-PACKAGING = _load_script("validate_bhm_p21_4_packaging_profiles", "validate-bhm-p21.4-packaging-profiles.py")
-ACTIVATION = _load_script("validate_bhm_p21_10_12_activation", "validate-bhm-p21.10-12-activation-dispositions.py")
+PACKAGING = _load_script("validate_bhm_packaging_profiles", "validate-bhm-packaging-profiles.py")
+ACTIVATION = _load_script("validate_bhm_activation_dispositions", "validate-bhm-activation-dispositions.py")
 
 
 class _Response:

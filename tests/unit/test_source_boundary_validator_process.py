@@ -17,8 +17,8 @@ def _load(name: str, filename: str):
 
 
 WI00 = _load("validate_bhm_source_passport", "validate-bhm-source-passport.py")
-P21 = _load("validate_bhm_p21_18_source_freeze", "validate-bhm-p21.18-source-freeze.py")
-P2114 = _load("validate_bhm_p21_14_source_reclassification", "validate-bhm-p21.14-source-reclassification.py")
+P21 = _load("validate_bhm_source_freeze", "validate-bhm-source-freeze.py")
+P2114 = _load("validate_bhm_source_reclassification", "validate-bhm-source-reclassification.py")
 P231 = _load("validate_bhm_p23_1_small_repo", "validate-bhm-p23.1-small-repo.py")
 P2883 = _load("validate_bhm_p28_wi83_git_impact", "validate-bhm-p28-wi83-git-impact.py")
 
