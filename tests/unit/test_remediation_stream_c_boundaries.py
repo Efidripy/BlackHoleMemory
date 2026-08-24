@@ -22,7 +22,7 @@ def load(name: str, filename: str):
 
 
 def test_restore_rejects_traversal_evidence_path():
-    module = load("restore_stream_c", "restore_bhm_public_evidence.py")
+    module = load("restore_stream_c", "bhm-restore-public-evidence.py")
     with pytest.raises(ValueError, match="unsafe evidence path|outside"):
         module.evidence_paths({"path": ".docs/ops/../../scripts/pwned.py"})
 
