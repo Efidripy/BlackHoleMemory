@@ -94,7 +94,7 @@ jobs:
       - name: Acceptance contract gate
         run: |
           if [ -f .docs/config/cbm-bhm-capability-crosswalk.json ]; then
-            uv run python scripts/validate-bhm-p28-acceptance.py
+            uv run python scripts/validate-bhm-capability-acceptance.py
           else
             echo "Local-only P28 crosswalk is not part of the public checkout; gate deferred to the local release preflight."
           fi

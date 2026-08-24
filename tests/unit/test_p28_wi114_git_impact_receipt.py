@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-p28-wi114-git-impact-receipt.py"
+SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-git-impact-receipt.py"
 SPEC = importlib.util.spec_from_file_location("bhm_p28_wi114_git_impact_receipt", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)

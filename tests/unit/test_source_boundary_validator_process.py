@@ -20,7 +20,7 @@ WI00 = _load("validate_bhm_source_passport", "validate-bhm-source-passport.py")
 P21 = _load("validate_bhm_source_freeze", "validate-bhm-source-freeze.py")
 P2114 = _load("validate_bhm_source_reclassification", "validate-bhm-source-reclassification.py")
 P231 = _load("validate_bhm_small_repository", "validate-bhm-small-repository.py")
-P2883 = _load("validate_bhm_p28_wi83_git_impact", "validate-bhm-p28-wi83-git-impact.py")
+P2883 = _load("validate_bhm_git_impact", "validate-bhm-git-impact.py")
 
 
 def test_wi00_git_probe_is_bounded(monkeypatch) -> None:
