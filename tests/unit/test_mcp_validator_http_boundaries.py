@@ -149,7 +149,7 @@ def test_repair_json_request_uses_local_bounded_transport(monkeypatch) -> None:
     assert calls == ["http://127.0.0.1:8000/bhm/health/slo"]
 
 
-def test_p18_validator_http_call_sites_are_registry_backed() -> None:
+def test_validator_http_call_sites_are_registry_backed() -> None:
     for module in (DOCTOR, PANEL, REPAIR):
         source = Path(module.__file__).read_text(encoding="utf-8")
         assert "BHM_INTERNAL_HTTP_TIMEOUT_SECONDS" in source

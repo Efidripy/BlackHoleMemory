@@ -35,7 +35,7 @@ def _make_hardlink(target: Path, source: Path) -> None:
 
 
 @pytest.mark.parametrize("module", MODULES)
-def test_p13_report_writer_rejects_hardlink_target(module, tmp_path: Path) -> None:
+def test_report_writer_rejects_hardlink_target(module, tmp_path: Path) -> None:
     target = tmp_path / "report.json"
     outside = tmp_path / "outside.json"
     _make_hardlink(target, outside)
@@ -46,7 +46,7 @@ def test_p13_report_writer_rejects_hardlink_target(module, tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize("module", MODULES)
-def test_p13_report_writer_creates_nested_json(module, tmp_path: Path) -> None:
+def test_report_writer_creates_nested_json(module, tmp_path: Path) -> None:
     target = tmp_path / "nested" / "report.json"
     module._write_report(target, {"ok": True})
 

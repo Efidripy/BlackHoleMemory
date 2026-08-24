@@ -16,7 +16,7 @@ def load_gate():
     return module
 
 
-def test_p16_benchmark_proves_budget_reduction_without_quality_loss():
+def test_benchmark_proves_budget_reduction_without_quality_loss():
     gate = load_gate()
     result = gate.run_gate(count=100)
     assert result["ok"] is True
@@ -26,7 +26,7 @@ def test_p16_benchmark_proves_budget_reduction_without_quality_loss():
     assert result["baseline"]["quality"]["ndcg_at_5"] == result["tuned"]["quality"]["ndcg_at_5"] == 1.0
 
 
-def test_p16_benchmark_does_not_emit_stress_content():
+def test_benchmark_does_not_emit_stress_content():
     gate = load_gate()
     result = gate.run_gate(count=100)
     assert "canonical evidence" not in str(result)
