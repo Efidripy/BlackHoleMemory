@@ -284,31 +284,45 @@ class LocalGatewaySemanticCompletion:
                 },
             ),
         )
+        return self._complete_with_one_contract_retry(request)
+
+    def _complete_with_one_contract_retry(self, request: GatewayRequest) -> Mapping[str, Any]:
+        try:
+            return self._complete_validated(request)
+        except GovernedSemanticEditorUnavailable as exc:
+            # A local completion that ignores the runner's JSON schema or
+            # violates the bounded semantic shape is not accepted. One fresh,
+            # content-free corrective retry handles transient template drift
+            # without exposing the rejected output, relaxing validation, or
+            # producing a mutation. The retry budget is exactly one.
+            if exc.code not in {"schema_validation_failed", "semantic_validation_failed"}:
+                raise
+        retry_request = replace(
+            request,
+            request_id=f"gse_{uuid4().hex}",
+            messages=request.messages + ({"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION},),
+        )
+        return self._complete_validated(retry_request)
+
+    def _complete_validated(self, request: GatewayRequest) -> Mapping[str, Any]:
         result = self.gateway.complete(request)
-        # A local completion that ignores the runner's JSON schema is not
-        # accepted. One fresh, content-free corrective retry handles transient
-        # chat-template drift without exposing the rejected output, relaxing
-        # validation, or producing a mutation. The retry budget is exactly one.
-        if not result.ok and str((result.failure or {}).get("code") or "") == "schema_validation_failed":
-            retry_request = replace(
-                request,
-                request_id=f"gse_{uuid4().hex}",
-                messages=request.messages + ({"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION},),
-            )
-            result = self.gateway.complete(retry_request)
         if not result.ok or not isinstance(result.parsed_json, Mapping):
             code = str((result.failure or {}).get("code") or "local_model_invalid_response")
             raise GovernedSemanticEditorUnavailable(
                 f"local semantic editor did not return valid proposal JSON: {code}",
                 code=code,
-                diagnostic={
-                    "response_chars": len(str(getattr(result, "content", "") or "")),
-                    "parsed_json": isinstance(result.parsed_json, Mapping),
-                    "validation_checked": bool((getattr(result, "validation", {}) or {}).get("checked")),
-                    "missing_keys": list((getattr(result, "validation", {}) or {}).get("missing_keys") or ()),
-                },
+                diagnostic=_gateway_result_diagnostic(result),
             )
-        return dict(result.parsed_json)
+        output = dict(result.parsed_json)
+        try:
+            _validate_model_output_shape(output)
+        except GovernedSemanticEditorError as exc:
+            raise GovernedSemanticEditorUnavailable(
+                "local semantic editor returned an invalid governed proposal shape",
+                code="semantic_validation_failed",
+                diagnostic=_gateway_result_diagnostic(result),
+            ) from exc
+        return output
 
 
 def _redacted_gateway_diagnostic(value: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -322,6 +336,37 @@ def _redacted_gateway_diagnostic(value: Mapping[str, Any] | None) -> dict[str, A
         "validation_checked": bool(source.get("validation_checked")),
         "missing_keys": [str(item)[:64] for item in missing[:16]] if isinstance(missing, list) else [],
     }
+
+
+def _gateway_result_diagnostic(result: Any) -> dict[str, Any]:
+    """Extract bounded diagnostics without retaining model output or evidence."""
+
+    return {
+        "response_chars": len(str(getattr(result, "content", "") or "")),
+        "parsed_json": isinstance(getattr(result, "parsed_json", None), Mapping),
+        "validation_checked": bool((getattr(result, "validation", {}) or {}).get("checked")),
+        "missing_keys": list((getattr(result, "validation", {}) or {}).get("missing_keys") or ()),
+    }
+
+
+def _validate_model_output_shape(output: Mapping[str, Any]) -> None:
+    """Reject malformed model semantics before a proposal reaches the API."""
+
+    operation = _required_text(output.get("operation"), "operation", 32).casefold()
+    if operation not in OPERATIONS:
+        raise GovernedSemanticEditorError("unsupported semantic editor operation")
+    candidate = output.get("candidate")
+    if not isinstance(candidate, Mapping):
+        raise GovernedSemanticEditorError("candidate must be an object")
+    for field, limit in (("title", 240), ("content", 12000), ("memory_type", 96)):
+        value = candidate.get(field)
+        if not isinstance(value, str) or len(value) > limit:
+            raise GovernedSemanticEditorError(f"candidate {field} must be bounded text")
+    _string_list(candidate.get("concepts"), "candidate concepts", 24)
+    _string_list(candidate.get("files"), "candidate files", 24)
+    _confidence(output.get("confidence"))
+    _string_list(output.get("conflicts"), "conflicts", MAX_CONFLICTS)
+    _required_text(output.get("reason"), "reason", 480)
 
 
 def clamp_retrieval_limit(value: int) -> int:
