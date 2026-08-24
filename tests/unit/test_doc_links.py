@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+from importlib.util import module_from_spec
+from importlib.util import spec_from_file_location
 from pathlib import Path
 
-from scripts.validate_doc_links import validate
+
+def _load_validator():
+    script = Path(__file__).resolve().parents[2] / "scripts" / "validate-doc-links.py"
+    spec = spec_from_file_location("validate_doc_links", script)
+    assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+validate = _load_validator().validate
 
 
 def test_doc_link_gate_checks_active_markdown_and_skips_historical_trees(tmp_path: Path) -> None:

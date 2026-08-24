@@ -2106,6 +2106,36 @@ def bhm_consolidation_change_set_preview(
     )
 
 
+@mcp.tool(name="bhm_consolidation_change_set_review", description="Record an admin-gated, append-only decision over a freshly regenerated consolidation change-set. Approval never applies a lifecycle, SQLite, Qdrant, Mem0, model, or ranker change.")
+def bhm_consolidation_change_set_review(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    as_of: Annotated[str, Field(min_length=20, max_length=64)],
+    candidates: Annotated[list[dict[str, Any]], Field(min_length=1, max_length=128)],
+    change_set: dict[str, Any],
+    review_id: Annotated[str, Field(min_length=1, max_length=96)],
+    decision: Literal["approved_no_apply", "rejected", "deferred"],
+    action_ids: Annotated[list[str], Field(min_length=1, max_length=128)],
+    reviewed_at: Annotated[str, Field(min_length=20, max_length=64)],
+    rationale_digest: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")],
+    max_actions: Annotated[int, Field(ge=1, le=128)] = 64,
+) -> dict[str, Any]:
+    return _post(
+        "/bhm/consolidation/change-set/review",
+        {
+            "project": project,
+            "as_of": as_of,
+            "candidates": candidates,
+            "change_set": change_set,
+            "review_id": review_id,
+            "decision": decision,
+            "action_ids": action_ids,
+            "reviewed_at": reviewed_at,
+            "rationale_digest": rationale_digest,
+            "max_actions": max_actions,
+        },
+    )
+
+
 @mcp.tool(name="bhm_remember", description=f"Save a durable memory entry into BHM. {TAXONOMY_METADATA_HINT}")
 def bhm_remember(
     content: str,
