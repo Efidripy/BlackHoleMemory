@@ -264,6 +264,7 @@ def test_local_gateway_semantic_completion_exposes_only_stable_failure_code(
         "parsed_json": False,
         "validation_checked": False,
         "missing_keys": [],
+        "semantic_error": "",
     }
 
 
@@ -341,6 +342,25 @@ def test_local_gateway_semantic_completion_stops_after_three_invalid_contract_at
     assert len(requests) == MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS
 
 
+def test_local_gateway_semantic_completion_redacts_semantic_shape_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    completion = LocalGatewaySemanticCompletion(
+        SemanticEditorConfig(True, "http://127.0.0.1:13666/v1", "qwen2.5-coder-7b-instruct", 10.0, 180)
+    )
+    invalid = _candidate(confidence=85.0)
+    monkeypatch.setattr(
+        completion.gateway,
+        "complete",
+        lambda _request: SimpleNamespace(ok=True, parsed_json=invalid, content="private model reply", validation={"checked": True}),
+    )
+
+    with pytest.raises(GovernedSemanticEditorUnavailable) as raised:
+        completion.complete(project="multiserversubgen", query="uninstall safety", records=[_record("mem_bhm_a", "evidence")])
+
+    assert raised.value.code == "semantic_validation_failed"
+    assert raised.value.diagnostic["semantic_error"] == "confidence must be within 0..1"
+    assert "private model reply" not in str(raised.value.diagnostic)
+
+
 def test_local_gateway_semantic_completion_exposes_redacted_validation_diagnostic(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -367,6 +387,7 @@ def test_local_gateway_semantic_completion_exposes_redacted_validation_diagnosti
         "parsed_json": True,
         "validation_checked": True,
         "missing_keys": ["candidate", "confidence", "reason"],
+        "semantic_error": "",
     }
 
 
