@@ -20,6 +20,29 @@ SQLite API/MCP продолжают работать при сбое Docker/Qdra
 SLO показывают деградацию. Переменная не включает embedded fallback и не меняет
 SQLite authority boundary.
 
+## Governed consolidation (default off)
+
+`BHM_GOVERNED_CONSOLIDATION_ENABLED` defaults to unset/`false`. It enables only
+the authenticated operator API/MCP surface for same-project proposal review;
+it does not start a worker, poll an LLM, invoke Mem0, write Qdrant, migrate a
+database, or apply a proposal by itself. The disabled status is the expected
+production default until an operator schedules a controlled activation.
+
+The additive proposal schema is deliberately **not** installed during startup.
+Before any activation, stop SQLite writers, retain a distinct verified existing
+backup, generate and bind a migration plan digest, apply the migration offline
+with explicit confirmation, reopen and run readiness/parity smoke. The local
+operator CLI requires both `--confirm` and `--offline-writer-verified` for the
+migration path. Do not point it at a live database.
+
+Even after the flag and schema are present, every lifecycle mutation stays
+approval-gated: an operator must approve one proposal and submit `apply=true`
+with the exact proposal ID as confirmation. Proposal creation, inspection,
+validation and dry-run do not change canonical memories, revisions, outbox,
+Mem0 or Qdrant. Disablement is reversible by removing the flag; existing
+proposal evidence remains inert. The authority contract is documented in
+[architecture-authority.md](architecture-authority.md).
+
 ## Local loopback endpoints and IPv6
 
 Каталог endpoint’ов принимает только сконфигурированные локальные hosts для

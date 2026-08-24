@@ -2136,6 +2136,78 @@ def bhm_consolidation_change_set_review(
     )
 
 
+@mcp.tool(name="bhm_governed_consolidation_status", description="Report the disabled, proposal-only, approval-gated, or degraded governed consolidation state. It never writes SQLite, Mem0, or Qdrant.")
+def bhm_governed_consolidation_status() -> dict[str, Any]:
+    return _get("/bhm/governed-consolidation/status")
+
+
+@mcp.tool(name="bhm_governed_consolidation_create", description="Create or replay a bounded same-project consolidation proposal. It never applies a memory lifecycle mutation or writes Qdrant/Mem0.")
+def bhm_governed_consolidation_create(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    memory_ids: Annotated[list[str], Field(min_length=1, max_length=32)],
+    operation: Literal["no_op", "create", "revise", "supersede", "archive", "link"] = "create",
+    candidate: dict[str, Any] | None = None,
+    reason: Annotated[str | None, Field(max_length=480)] = None,
+    confidence: Annotated[float, Field(ge=0.0, le=1.0)] = 0.75,
+) -> dict[str, Any]:
+    return _post(
+        "/bhm/governed-consolidation/proposals",
+        {"project": project, "memory_ids": memory_ids, "operation": operation, "candidate": candidate, "reason": reason, "confidence": confidence},
+    )
+
+
+@mcp.tool(name="bhm_governed_consolidation_list", description="List bounded project-scoped governed consolidation proposals. Read-only; proposal contents remain operator-scoped.")
+def bhm_governed_consolidation_list(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    status: Annotated[str | None, Field(max_length=16)] = None,
+    limit: Annotated[int, Field(ge=1, le=200)] = 100,
+) -> dict[str, Any]:
+    return _get("/bhm/governed-consolidation/proposals", {"project": project, "status": status, "limit": limit})
+
+
+@mcp.tool(name="bhm_governed_consolidation_inspect", description="Inspect one project-scoped governed consolidation proposal and its redacted approval state. Read-only.")
+def bhm_governed_consolidation_inspect(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    proposal_id: Annotated[str, Field(min_length=8, max_length=96)],
+) -> dict[str, Any]:
+    return _get(f"/bhm/governed-consolidation/proposals/{proposal_id}", {"project": project})
+
+
+@mcp.tool(name="bhm_governed_consolidation_validate", description="Revalidate an existing proposal's project, current revision and content digests against SQLite authority. It never writes.")
+def bhm_governed_consolidation_validate(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    proposal_id: Annotated[str, Field(min_length=8, max_length=96)],
+) -> dict[str, Any]:
+    return _get(f"/bhm/governed-consolidation/proposals/{proposal_id}/validate", {"project": project})
+
+
+@mcp.tool(name="bhm_governed_consolidation_dry_run", description="Return the exact apply prerequisites and current stale result for a proposal. It never writes.")
+def bhm_governed_consolidation_dry_run(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    proposal_id: Annotated[str, Field(min_length=8, max_length=96)],
+) -> dict[str, Any]:
+    return _post("/bhm/governed-consolidation/proposals/dry-run", {"project": project, "proposal_id": proposal_id})
+
+
+@mcp.tool(name="bhm_governed_consolidation_decide", description="Admin-only: record one approve or reject decision for a project-scoped proposal. Approval alone never applies memory state.")
+def bhm_governed_consolidation_decide(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    proposal_id: Annotated[str, Field(min_length=8, max_length=96)],
+    decision: Literal["approve", "reject"],
+) -> dict[str, Any]:
+    return _post("/bhm/governed-consolidation/proposals/decision", {"project": project, "proposal_id": proposal_id, "decision": decision})
+
+
+@mcp.tool(name="bhm_governed_consolidation_apply", description="Admin-only: apply exactly one approved proposal after explicit apply=true and matching proposal confirmation. Revalidates SQLite then uses the outbox; never writes Qdrant/Mem0 directly.")
+def bhm_governed_consolidation_apply(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    proposal_id: Annotated[str, Field(min_length=8, max_length=96)],
+    confirmation: Annotated[str, Field(min_length=8, max_length=96)],
+    apply: bool = False,
+) -> dict[str, Any]:
+    return _post("/bhm/governed-consolidation/proposals/apply", {"project": project, "proposal_id": proposal_id, "confirmation": confirmation, "apply": apply})
+
+
 @mcp.tool(name="bhm_remember", description=f"Save a durable memory entry into BHM. {TAXONOMY_METADATA_HINT}")
 def bhm_remember(
     content: str,

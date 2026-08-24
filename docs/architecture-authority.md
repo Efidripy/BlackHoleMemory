@@ -5,6 +5,39 @@ SQLite-authoritative service. Qdrant and Mem0 are downstream, rebuildable
 projection/semantic layers; they are not alternate writers for canonical
 memory state.
 
+## Governed consolidation proposals
+
+Governed consolidation is a disabled-by-default, operator-reviewed layer for
+turning bounded same-project evidence into a compact canonical fact. Its first
+analyzer is `bhm-native-deterministic/v1`; it does not initialize Mem0, call a
+provider, or write a vector store. This boundary is deliberate: in installed
+`mem0ai==2.0.4`, `Memory.add(..., infer=True)` can infer an
+add/update/delete action and persist it through its vector store, so it is not
+a safe authoritative dry-run API.
+
+The only permitted flow is:
+
+```text
+same-project SQLite records -> typed proposal -> human approve/reject
+-> exact revision/digest revalidation -> SQLite repository transaction
+-> memory_outbox -> existing Qdrant projector
+```
+
+Proposal rows, decisions, stale receipts and apply receipts are separate
+SQLite tables; they are not canonical memories. An approved proposal still
+needs `apply=true` and an exact proposal-ID confirmation. The repository then
+rechecks every basis memory ID, project, current revision and content digest in
+the same transaction that creates a revision/lifecycle change and its outbox
+event. Drift marks the proposal stale and applies nothing. `link` writes a
+typed SQLite relation only; `archive` and `supersede` retain immutable revision
+provenance for recovery. There is no worker, polling, auto-merge, auto-archive,
+auto-supersede, direct Mem0 write, or direct Qdrant write.
+
+The controlled surface comprises REST/MCP inspection and a local operator CLI
+(`scripts/bhm-governed-consolidation.py`). It remains off until the explicit
+migration and runtime gates described in [configuration](configuration.md) are
+separately authorized. Ordinary MCP attach never exposes these operator tools.
+
 ## JSON sidecars
 
 JSON sidecars used by checkpoint, session, task, link, handoff and related

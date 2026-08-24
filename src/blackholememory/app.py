@@ -188,6 +188,18 @@ from .consolidation_change_set import build_consolidation_change_set_preview
 from .consolidation_review import ConsolidationReviewError
 from .consolidation_review import append_consolidation_review
 from .consolidation_review import build_consolidation_review
+from .governed_consolidation import GovernedConsolidationApprovalRequired
+from .governed_consolidation import GovernedConsolidationError
+from .governed_consolidation import GovernedConsolidationMigrationRequired
+from .governed_consolidation import GovernedConsolidationRepository
+from .governed_consolidation import GovernedConsolidationStale
+from .governed_consolidation import analyze_records as analyze_governed_consolidation_records
+from .governed_consolidation import apply_approved_proposal
+from .governed_consolidation import build_proposal as build_governed_consolidation_proposal
+from .governed_consolidation import dry_run_apply as dry_run_governed_consolidation_apply
+from .governed_consolidation import runtime_enabled as governed_consolidation_enabled
+from .governed_consolidation import runtime_status as governed_consolidation_status
+from .governed_consolidation import validate_proposal_current as validate_governed_consolidation_proposal
 from .memory_doctor import MemoryDoctorSnapshotError
 from .memory_doctor import load_authoritative_sqlite_snapshot
 from .memory_doctor import run_authoritative_sqlite_memory_doctor
@@ -2974,6 +2986,49 @@ class ConsolidationChangeSetReviewRequest(BaseModel):
     max_actions: int = Field(default=64, ge=1, le=128)
 
 
+class GovernedConsolidationCreateRequest(BaseModel):
+    """Create one same-project, non-persisting consolidation proposal."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    memory_ids: list[str] = Field(min_length=1, max_length=32)
+    operation: Literal["no_op", "create", "revise", "supersede", "archive", "link"] = "create"
+    candidate: dict[str, Any] | None = None
+    reason: str | None = Field(default=None, max_length=480)
+    confidence: float = Field(default=0.75, ge=0.0, le=1.0)
+
+
+class GovernedConsolidationDecisionRequest(BaseModel):
+    """Record a human decision; approval alone never applies lifecycle state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    proposal_id: str = Field(min_length=8, max_length=96)
+    decision: Literal["approve", "reject"]
+
+
+class GovernedConsolidationProposalRequest(BaseModel):
+    """Reference one project-scoped proposal without requesting a mutation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    proposal_id: str = Field(min_length=8, max_length=96)
+
+
+class GovernedConsolidationApplyRequest(BaseModel):
+    """Apply one approved proposal only after explicit ID-bound confirmation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    proposal_id: str = Field(min_length=8, max_length=96)
+    apply: StrictBool = False
+    confirmation: str = Field(min_length=8, max_length=96)
+
+
 class McpRepairRequest(BaseModel):
     """Bounded BHM-only repair action; client restart remains outside BHM ownership."""
 
@@ -4952,6 +5007,129 @@ def _record_consolidation_change_set_review(
             "automatic_lifecycle_change": False,
         },
     }
+
+
+def _governed_consolidation_database_path() -> Path:
+    return resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+
+
+def _require_governed_consolidation_enabled() -> None:
+    if not governed_consolidation_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "governed_consolidation_disabled", "reason": "BHM_GOVERNED_CONSOLIDATION_ENABLED is not set"},
+        )
+
+
+def _governed_consolidation_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, GovernedConsolidationMigrationRequired):
+        return HTTPException(status_code=409, detail={"code": "governed_consolidation_migration_required"})
+    if isinstance(exc, GovernedConsolidationStale):
+        return HTTPException(status_code=409, detail={"code": "governed_consolidation_stale"})
+    if isinstance(exc, GovernedConsolidationApprovalRequired):
+        return HTTPException(status_code=409, detail={"code": "governed_consolidation_approval_required"})
+    if isinstance(exc, GovernedConsolidationError):
+        return HTTPException(status_code=422, detail={"code": "governed_consolidation_invalid", "reason": _safe_exception_text(exc)})
+    return HTTPException(status_code=503, detail={"code": "governed_consolidation_unavailable"})
+
+
+def _governed_consolidation_project(principal: Any, project: str) -> str:
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+    canonical_project = _canonical_project(project)
+    if error := authorize_projects(principal, (canonical_project,), require_explicit=True):
+        raise HTTPException(status_code=403, detail={"code": error})
+    return canonical_project
+
+
+def _governed_consolidation_create(request: GovernedConsolidationCreateRequest, *, principal: Any) -> dict[str, Any]:
+    _require_governed_consolidation_enabled()
+    project = _governed_consolidation_project(principal, request.project)
+    memory_ids = list(dict.fromkeys(str(item).strip() for item in request.memory_ids if str(item).strip()))
+    if len(memory_ids) != len(request.memory_ids):
+        raise HTTPException(status_code=422, detail={"code": "governed_consolidation_memory_ids_invalid"})
+    try:
+        service = _memory_service()
+        records = service.get_records(memory_ids, project=project)
+        if len(records) != len(memory_ids):
+            raise GovernedConsolidationError("one or more canonical basis records are missing or cross-project")
+        if request.candidate is None:
+            proposal = analyze_governed_consolidation_records(project=project, records=records, operation=request.operation)
+        else:
+            proposal = build_governed_consolidation_proposal(
+                project=project,
+                records=records,
+                operation=request.operation,
+                candidate=request.candidate,
+                reason=request.reason or "operator-submitted same-project consolidation candidate",
+                confidence=request.confidence,
+            )
+        stored, inserted = GovernedConsolidationRepository(_governed_consolidation_database_path()).create(proposal)
+    except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise _governed_consolidation_error(exc) from exc
+    return {
+        "proposal": stored,
+        "inserted": inserted,
+        "replayed": not inserted,
+        "side_effects": {"sqlite_mutation": bool(inserted), "memory_lifecycle_mutation": False, "memory_outbox_mutation": False, "qdrant_mutation": False, "mem0_mutation": False},
+    }
+
+
+def _governed_consolidation_inspect(*, project: str, proposal_id: str, principal: Any) -> dict[str, Any]:
+    _require_governed_consolidation_enabled()
+    try:
+        proposal = GovernedConsolidationRepository(_governed_consolidation_database_path()).get(proposal_id, project=_governed_consolidation_project(principal, project))
+    except GovernedConsolidationError as exc:
+        raise _governed_consolidation_error(exc) from exc
+    return {"proposal": proposal, "side_effects": {"read_only": True, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False}}
+
+
+def _governed_consolidation_list(*, project: str, status: str | None, limit: int, principal: Any) -> dict[str, Any]:
+    _require_governed_consolidation_enabled()
+    canonical_project = _governed_consolidation_project(principal, project)
+    try:
+        proposals = GovernedConsolidationRepository(_governed_consolidation_database_path()).list(project=canonical_project, status=status, limit=limit)
+    except GovernedConsolidationError as exc:
+        raise _governed_consolidation_error(exc) from exc
+    return {"project": canonical_project, "proposals": proposals, "count": len(proposals), "side_effects": {"read_only": True, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False}}
+
+
+def _governed_consolidation_validate(*, project: str, proposal_id: str, principal: Any) -> dict[str, Any]:
+    _require_governed_consolidation_enabled()
+    try:
+        proposal = GovernedConsolidationRepository(_governed_consolidation_database_path()).get(proposal_id, project=_governed_consolidation_project(principal, project))
+        return validate_governed_consolidation_proposal(proposal=proposal, repository=_memory_service().repository)
+    except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise _governed_consolidation_error(exc) from exc
+
+
+def _governed_consolidation_dry_run(request: GovernedConsolidationProposalRequest, *, principal: Any) -> dict[str, Any]:
+    _require_governed_consolidation_enabled()
+    try:
+        proposal = GovernedConsolidationRepository(_governed_consolidation_database_path()).get(request.proposal_id, project=_governed_consolidation_project(principal, request.project))
+        return dry_run_governed_consolidation_apply(proposal=proposal, repository=_memory_service().repository)
+    except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise _governed_consolidation_error(exc) from exc
+
+
+def _governed_consolidation_decide(request: GovernedConsolidationDecisionRequest, *, principal: Any) -> dict[str, Any]:
+    _require_governed_consolidation_enabled()
+    project = _governed_consolidation_project(principal, request.project)
+    try:
+        proposal = GovernedConsolidationRepository(_governed_consolidation_database_path()).decide(proposal_id=request.proposal_id, project=project, decision=request.decision, actor=str(principal.caller_id))
+    except GovernedConsolidationError as exc:
+        raise _governed_consolidation_error(exc) from exc
+    return {"proposal": proposal, "apply_performed": False, "side_effects": {"sqlite_mutation": True, "memory_lifecycle_mutation": False, "memory_outbox_mutation": False, "qdrant_mutation": False, "mem0_mutation": False}}
+
+
+def _governed_consolidation_apply(request: GovernedConsolidationApplyRequest, *, principal: Any) -> dict[str, Any]:
+    _require_governed_consolidation_enabled()
+    project = _governed_consolidation_project(principal, request.project)
+    try:
+        result = apply_approved_proposal(database_path=_governed_consolidation_database_path(), proposal_id=request.proposal_id, project=project, apply=request.apply, confirmation=request.confirmation)
+    except (GovernedConsolidationError, OSError, ValueError) as exc:
+        raise _governed_consolidation_error(exc) from exc
+    return {"proposal_id": result.proposal_id, "status": result.status, "memory_ids": list(result.memory_ids), "outbox_event_ids": list(result.outbox_event_ids), "link_id": result.link_id, "side_effects": {"sqlite_mutation": True, "memory_lifecycle_mutation": bool(result.memory_ids), "memory_outbox_mutation": bool(result.outbox_event_ids), "qdrant_mutation": False, "mem0_mutation": False, "projection": "existing_outbox_projector"}}
 
 
 def _require_typed_memory_boundary(
@@ -19808,6 +19986,67 @@ async def bhm_consolidation_change_set_review(
         request,
         principal=getattr(http_request.state, "bhm_caller_principal", None),
     )
+
+
+@app.get("/bhm/governed-consolidation/status")
+async def bhm_governed_consolidation_status() -> dict[str, Any]:
+    """Return disabled/proposal-only/approval-gated state without a write."""
+
+    return governed_consolidation_status(_governed_consolidation_database_path())
+
+
+@app.post("/bhm/governed-consolidation/proposals")
+async def bhm_governed_consolidation_create(request: GovernedConsolidationCreateRequest, http_request: Request) -> dict[str, Any]:
+    return await _run_bounded_write("bhm.governed_consolidation.create", _governed_consolidation_create, request, principal=getattr(http_request.state, "bhm_caller_principal", None))
+
+
+@app.get("/bhm/governed-consolidation/proposals")
+async def bhm_governed_consolidation_list(
+    http_request: Request,
+    project: str = Query(min_length=1, max_length=160),
+    status: str | None = Query(default=None, max_length=16),
+    limit: int = Query(default=100, ge=1, le=200),
+) -> dict[str, Any]:
+    return await _run_bounded_read("bhm.governed_consolidation.list", _governed_consolidation_list, project=project, status=status, limit=limit, principal=getattr(http_request.state, "bhm_caller_principal", None))
+
+
+@app.get("/bhm/governed-consolidation/proposals/{proposal_id}")
+async def bhm_governed_consolidation_inspect(
+    http_request: Request,
+    proposal_id: str,
+    project: str = Query(min_length=1, max_length=160),
+) -> dict[str, Any]:
+    return await _run_bounded_read("bhm.governed_consolidation.inspect", _governed_consolidation_inspect, project=project, proposal_id=proposal_id, principal=getattr(http_request.state, "bhm_caller_principal", None))
+
+
+@app.get("/bhm/governed-consolidation/proposals/{proposal_id}/validate")
+async def bhm_governed_consolidation_validate(
+    http_request: Request,
+    proposal_id: str,
+    project: str = Query(min_length=1, max_length=160),
+) -> dict[str, Any]:
+    return await _run_bounded_read("bhm.governed_consolidation.validate", _governed_consolidation_validate, project=project, proposal_id=proposal_id, principal=getattr(http_request.state, "bhm_caller_principal", None))
+
+
+@app.post("/bhm/governed-consolidation/proposals/dry-run")
+async def bhm_governed_consolidation_dry_run(request: GovernedConsolidationProposalRequest, http_request: Request) -> dict[str, Any]:
+    return await _run_bounded_read("bhm.governed_consolidation.dry_run", _governed_consolidation_dry_run, request, principal=getattr(http_request.state, "bhm_caller_principal", None))
+
+
+@app.post("/bhm/governed-consolidation/proposals/decision")
+async def bhm_governed_consolidation_decide(
+    request: GovernedConsolidationDecisionRequest,
+    http_request: Request,
+) -> dict[str, Any]:
+    return await _run_bounded_write("bhm.governed_consolidation.decision", _governed_consolidation_decide, request, principal=getattr(http_request.state, "bhm_caller_principal", None))
+
+
+@app.post("/bhm/governed-consolidation/proposals/apply")
+async def bhm_governed_consolidation_apply(
+    request: GovernedConsolidationApplyRequest,
+    http_request: Request,
+) -> dict[str, Any]:
+    return await _run_bounded_write("bhm.governed_consolidation.apply", _governed_consolidation_apply, request, principal=getattr(http_request.state, "bhm_caller_principal", None))
 
 
 @app.get("/bhm/profile")
