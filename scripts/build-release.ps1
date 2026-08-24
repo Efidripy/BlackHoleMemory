@@ -44,6 +44,13 @@ function Get-ReleaseScriptPayload {
         throw "Unsupported public script manifest: $manifestPath"
     }
 
+    $releaseRoles = @($manifest.release_roles)
+    if ($releaseRoles.Count -gt 0 -and (@($releaseRoles | Where-Object { $_ -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$_) }).Count -gt 0)) {
+        throw "Invalid public script manifest release_roles."
+    }
+    if ($releaseRoles.Count -gt 0 -and ((@("runtime", "runtime-support") | Where-Object { $releaseRoles -notcontains $_ }).Count -gt 0)) {
+        throw "Public script manifest release_roles omit required launcher roles."
+    }
     $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $payload = @()
     foreach ($entry in @($manifest.entries)) {
@@ -52,7 +59,7 @@ function Get-ReleaseScriptPayload {
         if ([string]::IsNullOrWhiteSpace($relative) -or [string]::IsNullOrWhiteSpace($role) -or -not ($entry.release -is [bool])) {
             throw "Invalid public script manifest entry."
         }
-        if (-not [bool]$entry.release) {
+        if (-not [bool]$entry.release -or ($releaseRoles.Count -gt 0 -and $releaseRoles -notcontains $role)) {
             continue
         }
         if (

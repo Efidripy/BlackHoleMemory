@@ -39,16 +39,14 @@ def _write_fixture(root: Path) -> None:
         "src/blackholememory/app.py": "# hermetic release fixture\n",
         "src/blackholememory/version_manifest.py": "# hermetic release fixture\n",
         "scripts/start-bhm-authoritative.ps1": "# hermetic release fixture\n",
-        "scripts/validate-bhm-streamable-http.ps1": "# hermetic release fixture\n",
-        "scripts/bhm-projection-operator.ps1": "# hermetic release fixture\n",
         "config/public-script-manifest.json": json.dumps(
             {
                 "schema_version": "bhm.public-script-manifest.v1",
+                "release_roles": ["runtime", "runtime-support"],
                 "entries": [
                     {"path": "scripts/bhm_launcher.py", "role": "runtime-support", "release": True},
                     {"path": "scripts/start-bhm-authoritative.ps1", "role": "runtime", "release": True},
                     {"path": "scripts/validate-bhm-streamable-http.ps1", "role": "quality-gate", "release": True},
-                    {"path": "scripts/bhm-projection-operator.ps1", "role": "operator", "release": True},
                 ],
             }
         ),

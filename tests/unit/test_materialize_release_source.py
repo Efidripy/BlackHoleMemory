@@ -33,6 +33,23 @@ def _module():
     return module
 
 
+def test_release_profile_excludes_public_quality_gate(tmp_path: Path) -> None:
+    module = _module()
+    manifest = {
+        "schema_version": "bhm.public-script-manifest.v1",
+        "release_roles": ["runtime", "runtime-support"],
+        "entries": [
+            {"path": "scripts/bhm_launcher.py", "role": "runtime-support", "release": True},
+            {"path": "scripts/validate-public-contract.py", "role": "quality-gate", "release": True},
+        ],
+    }
+    path = tmp_path / "config/public-script-manifest.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    assert module.load_public_script_paths(tmp_path) == {"scripts/bhm_launcher.py"}
+
+
 def _archive(*, include_symlink: bool = False) -> bytes:
     payload = io.BytesIO()
     with tarfile.open(fileobj=payload, mode="w:") as archive:
