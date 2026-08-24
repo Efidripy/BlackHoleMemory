@@ -323,10 +323,12 @@ class LocalGatewaySemanticCompletion:
         try:
             _validate_model_output_shape(output)
         except GovernedSemanticEditorError as exc:
+            diagnostic = _gateway_result_diagnostic(result)
+            diagnostic["semantic_error"] = str(exc)[:160]
             raise GovernedSemanticEditorUnavailable(
                 "local semantic editor returned an invalid governed proposal shape",
                 code="semantic_validation_failed",
-                diagnostic=_gateway_result_diagnostic(result),
+                diagnostic=diagnostic,
             ) from exc
         return output
 
@@ -341,6 +343,7 @@ def _redacted_gateway_diagnostic(value: Mapping[str, Any] | None) -> dict[str, A
         "parsed_json": bool(source.get("parsed_json")),
         "validation_checked": bool(source.get("validation_checked")),
         "missing_keys": [str(item)[:64] for item in missing[:16]] if isinstance(missing, list) else [],
+        "semantic_error": str(source.get("semantic_error") or "")[:160],
     }
 
 
