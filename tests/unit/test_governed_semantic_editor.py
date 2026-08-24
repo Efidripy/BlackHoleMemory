@@ -219,7 +219,7 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     assert "no prose or markdown" in prompt.system
     assert len(captured["request"].messages) == 2
     assert captured["request"].messages[1] == {
-        "role": "user",
+        "role": "developer",
         "content": (
             "Evidence block complete. Reply now with JSON only: one object with "
             "operation, candidate, confidence, conflicts and reason. No prose, "
@@ -291,7 +291,7 @@ def test_local_gateway_semantic_completion_retries_one_schema_rejection_without_
     assert len(requests) == 2
     assert MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS == 3
     assert requests[0].chat_template_kwargs == requests[1].chat_template_kwargs == {"enable_thinking": False}
-    assert requests[1].messages[-1] == {"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
+    assert requests[1].messages[-1] == {"role": "developer", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
 
 
 def test_local_gateway_semantic_completion_retries_semantically_invalid_json_once(
@@ -317,7 +317,7 @@ def test_local_gateway_semantic_completion_retries_semantically_invalid_json_onc
 
     assert result["operation"] == "create"
     assert len(requests) == 2
-    assert requests[1].messages[-1] == {"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
+    assert requests[1].messages[-1] == {"role": "developer", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
 
 
 def test_local_gateway_semantic_completion_stops_after_three_invalid_contract_attempts(
