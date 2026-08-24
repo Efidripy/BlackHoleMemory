@@ -19,15 +19,15 @@ Qdrant/Mem0 retrieval candidate IDs
 - SQLite remains the only authoritative lifecycle and provenance store.
 - Retrieval results are hints only. Every model input and proposal basis is
   re-read from the same project in SQLite before analysis.
-- The local editor sees every candidate identity and revision, but evidence
-  text has a fixed 6,000-character total budget. Full canonical revisions
-  remain in SQLite for validation and operator review.
+- The local editor sees a bounded semantic view of each candidate, with a fixed
+  6,000-character total evidence budget. Full canonical identities and
+  revisions remain in SQLite for validation and operator review.
 - When a local OpenAI-compatible runner supports `response_format=json_schema`,
   the editor supplies its bounded proposal schema. BHM still independently
   parses every response, re-reads its SQLite basis and rejects invalid content.
-- The model selects its evidence through short `basis-1…basis-N` keys. BHM maps
-  those keys back to the exact SQLite records before it constructs an external
-  proposal, so a small local model never has to reproduce opaque memory IDs.
+- The model does not select or reproduce opaque memory/revision IDs. BHM binds
+  every proposal to its deterministic, already SQLite-revalidated bounded
+  evidence basis before it constructs the external proposal.
 - If the local model itself is unavailable, BHM emits an explicitly labelled
   deterministic `no_op` preview instead of treating the failure as a memory
   write or a semantic result. The receipt reports a stable redacted
