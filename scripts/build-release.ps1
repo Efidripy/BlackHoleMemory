@@ -62,11 +62,12 @@ function Get-ReleaseScriptPayload {
         if (-not [bool]$entry.release -or ($releaseRoles.Count -gt 0 -and $releaseRoles -notcontains $role)) {
             continue
         }
+        $unsafeSegment = @($relative.Split("/") | Where-Object { $_ -eq "" -or $_ -eq "." -or $_ -eq ".." }).Count -gt 0
         if (
             -not $relative.StartsWith("scripts/", [System.StringComparison]::Ordinal) -or
             $relative.Contains("\") -or
             (-not $relative.EndsWith(".py", [System.StringComparison]::OrdinalIgnoreCase) -and -not $relative.EndsWith(".ps1", [System.StringComparison]::OrdinalIgnoreCase)) -or
-            $relative.Split("/") | Where-Object { $_ -eq "" -or $_ -eq "." -or $_ -eq ".." }
+            $unsafeSegment
         ) {
             throw "Unsafe public script manifest path: $relative"
         }
