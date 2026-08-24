@@ -27,7 +27,6 @@ DOMAIN_NAMES = (
 MARKER_PREFIX = "bhm_"
 
 FILE_DOMAINS = {
-    "test_p12_mcp_attach_lease.py": "mcp",
     "test_mcp_protocol_conformance.py": "mcp",
     "test_retrieval_funnel.py": "retrieval",
     "test_mcp_surface_report.py": "mcp",
@@ -40,7 +39,7 @@ FILE_DOMAINS = {
     "test_repository_index.py": "storage",
     "test_code_graph.py": "storage",
     "test_code_graph_query.py": "storage",
-    "test_wi34_change_impact.py": "storage",
+    "test_change_impact.py": "storage",
     "test_convention_memory.py": "storage",
     "test_unified_context.py": "retrieval",
     "test_session_capture.py": "observations",
@@ -48,16 +47,16 @@ FILE_DOMAINS = {
     "test_task_graph.py": "storage",
     "test_llm_code_fabric.py": "mcp",
     "test_factories.py": "quality",
-    "test_wi11_unified_mcp.py": "mcp",
-    "test_p26_public_code_tools.py": "mcp",
-    "test_p28_wi198_semantic_readiness_gate.py": "mcp",
-    "test_wi13_capability_router.py": "agents",
-    "test_wi12_human_ui.py": "graph_ui",
-    "test_wi14_migration.py": "storage",
-    "test_wi15_security.py": "observations",
-    "test_wi17_final_acceptance.py": "quality",
+    "test_unified_mcp.py": "mcp",
+    "test_public_code_tools.py": "mcp",
+    "test_semantic_readiness_gate.py": "mcp",
+    "test_capability_router.py": "agents",
+    "test_human_ui.py": "graph_ui",
+    "test_migration.py": "storage",
+    "test_security.py": "observations",
+    "test_final_acceptance.py": "quality",
     "test_caller_auth_boundary.py": "observations",
-    "test_wl3004_policy_rehearsal.py": "observations",
+    "test_policy_rehearsal.py": "observations",
 }
 
 # Ordered from the most specific to the broad compatibility buckets.

@@ -4,7 +4,7 @@ from blackholememory import app as bhm_app
 from blackholememory.security_trust_boundary import build_security_trust_boundary_preview
 
 
-def test_wi15_hidden_route_and_fail_closed_contract():
+def test_hidden_route_and_fail_closed_contract():
     routes = {str(route.path): route for route in bhm_app.app.routes if hasattr(route, "path")}
     route = routes["/bhm/security/trust-boundary/preview"]
     assert route.include_in_schema is False
