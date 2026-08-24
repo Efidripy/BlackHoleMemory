@@ -204,6 +204,11 @@
       "release": true
     },
     {
+      "path": "scripts/bhm-exact-identifier-index.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/bhm-memory-class-migration.py",
       "role": "operator",
       "release": true

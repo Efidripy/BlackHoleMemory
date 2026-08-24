@@ -19,6 +19,9 @@ from typing import Any, Callable, Iterable, Mapping, Sequence
 
 EXACT_IDENTIFIER_ENV = "BHM_EXACT_IDENTIFIER_RETRIEVAL"
 EXACT_IDENTIFIER_SCHEMA_VERSION = "bhm.exact-identifier-retrieval.v1"
+EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY = "exact_identifier_index_schema"
+EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION = "bhm.exact-identifier-index.v1"
+EXACT_IDENTIFIER_INDEX_TABLE = "memory_identifier_tokens"
 MAX_INDEX_RECORDS = 50_000
 MAX_TOKENS_PER_RECORD = 128
 MAX_QUERY_TOKENS = 16
@@ -47,7 +50,8 @@ def exact_identifier_tokens(value: str, *, query: bool = False) -> tuple[str, ..
     )[:limit]
 
 
-def _record_text(record: Mapping[str, Any]) -> str:
+def exact_identifier_record_text(record: Mapping[str, Any]) -> str:
+    """Return the canonical source fields used by the derived access index."""
     metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
     parts: list[str] = [
         str(record.get("content") or ""),
@@ -56,6 +60,13 @@ def _record_text(record: Mapping[str, Any]) -> str:
         str(metadata.get("raw_title") or ""),
         str(metadata.get("upsert_key") or ""),
     ]
+    # Legacy records can carry stable identifiers below arbitrary metadata
+    # keys. Canonical JSON retains that coverage while token admission still
+    # rejects ordinary prose and bounds every token to 64 characters.
+    try:
+        parts.append(json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    except (TypeError, ValueError):
+        parts.append(str(metadata))
     for key in ("tags", "files"):
         values = record.get(key) or metadata.get(key) or []
         if isinstance(values, (list, tuple, set)):
@@ -116,7 +127,7 @@ class ExactIdentifierIndex:
         for record in accepted:
             project = _record_project(record)
             source_id = _record_identity(record)
-            for token in exact_identifier_tokens(_record_text(record)):
+            for token in exact_identifier_tokens(exact_identifier_record_text(record)):
                 index[(project, token)].add(source_id)
         frozen = {
             key: tuple(sorted(values))
@@ -230,9 +241,13 @@ def build_exact_identifier_hits(
 
 __all__ = [
     "EXACT_IDENTIFIER_ENV",
+    "EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY",
+    "EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION",
+    "EXACT_IDENTIFIER_INDEX_TABLE",
     "EXACT_IDENTIFIER_SCHEMA_VERSION",
     "ExactIdentifierIndex",
     "build_exact_identifier_hits",
     "exact_identifier_enabled",
+    "exact_identifier_record_text",
     "exact_identifier_tokens",
 ]
