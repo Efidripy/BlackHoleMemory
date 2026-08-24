@@ -378,7 +378,7 @@
       "release": true
     },
     {
-      "path": "scripts/build-bhm-p22-live-graphs.py",
+      "path": "scripts/build-bhm-live-graphs.py",
       "role": "release",
       "release": true
     },
@@ -483,7 +483,7 @@
       "release": true
     },
     {
-      "path": "scripts/rebuild-bhm-p28-wi68-inventory.py",
+      "path": "scripts/rebuild-bhm-component-inventory.py",
       "role": "operator-maintenance",
       "release": true
     },
@@ -838,22 +838,22 @@
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p22-activation.py",
+      "path": "scripts/validate-bhm-graph-activation.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p22-continuity.py",
+      "path": "scripts/validate-bhm-graph-continuity.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p23.1-small-repo.py",
+      "path": "scripts/validate-bhm-small-repository.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-p23.2-compatibility-disposition.py",
+      "path": "scripts/validate-bhm-compatibility-disposition.py",
       "role": "quality-gate",
       "release": true
     },
@@ -1093,12 +1093,12 @@
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wl173-live-checkpoint.py",
+      "path": "scripts/validate-bhm-live-checkpoint.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wl300-1-memory-class.py",
+      "path": "scripts/validate-bhm-memory-class.py",
       "role": "quality-gate",
       "release": true
     },

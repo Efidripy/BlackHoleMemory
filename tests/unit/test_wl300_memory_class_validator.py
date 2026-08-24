@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def test_wl300_validator_is_fixture_only_and_green() -> None:
-    script = Path(__file__).parents[2] / "scripts" / "validate-bhm-wl300-1-memory-class.py"
+    script = Path(__file__).parents[2] / "scripts" / "validate-bhm-memory-class.py"
     completed = subprocess.run(
         [sys.executable, str(script)],
         check=True,

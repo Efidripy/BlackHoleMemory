@@ -12,7 +12,7 @@ from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
     "validate_bhm_p22_activation",
-    ROOT / "scripts" / "validate-bhm-p22-activation.py",
+    ROOT / "scripts" / "validate-bhm-graph-activation.py",
 )
 assert SPEC is not None and SPEC.loader is not None
 MODULE = importlib.util.module_from_spec(SPEC)
