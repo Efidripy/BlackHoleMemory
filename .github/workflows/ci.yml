@@ -65,10 +65,10 @@ jobs:
         run: ./scripts/validate-bhm-version-manifest.ps1
 
       - name: Public tree gate
-        run: uv run python scripts/validate_public_tree.py
+        run: uv run python scripts/validate-public-tree.py
 
       - name: Active documentation link gate
-        run: uv run python scripts/validate_doc_links.py
+        run: uv run python scripts/validate-doc-links.py
 
       - name: Immutable workflow action pin gate
         run: uv run python scripts/validate-ci-workflow-pinning.py
