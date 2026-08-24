@@ -52,6 +52,12 @@ It is not a worker or polling switch: one explicit request performs one bounded
 foreground inference and returns a proposal or an error. Core API/MCP behavior
 does not depend on it.
 
+The canonical Windows launcher imports the explicit non-secret governed
+configuration allowlist from Windows User environment into its child process.
+This preserves an already approved local activation across a desktop restart;
+it neither enables the feature by default nor imports caller credentials or
+admin capability through that allowlist.
+
 Optional settings are `BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL`,
 `BHM_GOVERNED_SEMANTIC_EDITOR_MODEL`,
 `BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS` (1–120; default `45`) and

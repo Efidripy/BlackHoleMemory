@@ -5098,6 +5098,43 @@ def _governed_consolidation_create(request: GovernedConsolidationCreateRequest, 
     }
 
 
+def _governed_semantic_lexical_fallback_records(*, project: str, query: str, limit: int) -> list[dict[str, Any]]:
+    """Return a bounded same-project SQLite fallback when embeddings are busy.
+
+    This is deliberately a degraded proposal-input path, not a replacement for
+    Qdrant/Mem0 retrieval.  It keeps an explicit operator request usable while
+    a local embedding model is temporarily unavailable and returns no records
+    unless the canonical SQLite text has a deterministic lexical match.
+    """
+
+    pool = _memory_service().list_records(project=project, limit=256)
+    ranked: list[tuple[float, str, dict[str, Any]]] = []
+    for record in pool:
+        memory_id = str(record.get("source_id") or record.get("id") or "").strip()
+        if not memory_id:
+            continue
+        metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+        score = _lexical_signal(
+            query,
+            {
+                "memory": record.get("content") or record.get("memory") or "",
+                "metadata": {
+                    **metadata,
+                    "raw_title": record.get("title") or metadata.get("raw_title") or "",
+                },
+            },
+        )
+        if score > 0:
+            ranked.append((score, memory_id, dict(record)))
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    selected = [item[2] for item in ranked[:limit]]
+    return select_authoritative_records(
+        project=project,
+        candidate_ids=[str(item.get("source_id") or item.get("id") or "") for item in selected],
+        records=selected,
+    ) if selected else []
+
+
 async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, *, principal: Any) -> dict[str, Any]:
     """Retrieve projection candidates, re-read SQLite, then emit a safe proposal.
 
@@ -5110,23 +5147,35 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
     project = _governed_consolidation_project(principal, request.project)
     config = SemanticEditorConfig.from_env()
     try:
+        retrieval_source = "federated_semantic_candidates"
+        fallback_reason: str | None = None
         try:
             hits, _total = await federated_search(request.query, project, limit=clamp_retrieval_limit(request.limit))
+            candidate_ids = [_semantic_graph_node_id(hit) for hit in hits]
+            candidate_ids = [item for item in candidate_ids if item]
+            records = select_authoritative_records(
+                project=project,
+                candidate_ids=candidate_ids,
+                records=_memory_service().get_records(candidate_ids, project=project),
+            )
         except (EmbeddingPreparationTimeout, ResponseTimeout, StorageNotReady) as exc:
             # Projection retrieval is an optional proposal input.  A slow or
-            # unavailable embedding contour must produce an explicit,
-            # retryable semantic-editor result instead of bubbling out as an
-            # unhandled 500 or affecting the SQLite-authoritative core.
-            raise GovernedSemanticEditorUnavailable(
-                "semantic candidate retrieval is temporarily unavailable"
-            ) from exc
-        candidate_ids = [_semantic_graph_node_id(hit) for hit in hits]
-        candidate_ids = [item for item in candidate_ids if item]
-        records = select_authoritative_records(
-            project=project,
-            candidate_ids=candidate_ids,
-            records=_memory_service().get_records(candidate_ids, project=project),
-        )
+            # unavailable embedding contour may use a bounded, transparent
+            # SQLite lexical fallback. It never treats the fallback as vector
+            # authority and fails explicitly when no same-project evidence
+            # matches.
+            retrieval_source = "sqlite_lexical_fallback"
+            fallback_reason = "embedding_retrieval_unavailable"
+            records = _governed_semantic_lexical_fallback_records(
+                project=project,
+                query=request.query,
+                limit=clamp_retrieval_limit(request.limit),
+            )
+            candidate_ids = [str(item.get("source_id") or item.get("id") or "") for item in records]
+            if not records:
+                raise GovernedSemanticEditorUnavailable(
+                    "semantic candidate retrieval is temporarily unavailable"
+                ) from exc
         completion = LocalGatewaySemanticCompletion(config)
         job_id = f"governed-semantic-{uuid.uuid4().hex}"
         admission = _llm_governor().admit(
@@ -5147,6 +5196,8 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 retrieved_records=records,
                 completion=completion,
             )
+            proposal["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
+            proposal["semantic_editor"]["retrieval_source"] = retrieval_source
         finally:
             _llm_governor().release(job_id)
         stored: dict[str, Any] | None = None
@@ -5158,9 +5209,10 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
             "stored": request.store_proposal,
             "inserted": inserted,
             "retrieval": {
-                "source": "federated_semantic_candidates",
+                "source": retrieval_source,
                 "candidate_count": len(candidate_ids),
                 "sqlite_revalidated_count": len(records),
+                "fallback_reason": fallback_reason,
             },
             "admission": admission.as_dict(),
             "side_effects": {
