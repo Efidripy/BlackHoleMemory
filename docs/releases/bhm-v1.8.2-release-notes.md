@@ -1,6 +1,6 @@
 # BlackHoleMemory v1.8.2 — release-surface cleanup
 
-Статус: published-source release candidate. Tag `v1.8.1` остаётся immutable.
+Статус: released. Tag `v1.8.1` остаётся immutable.
 
 ## Identity
 
