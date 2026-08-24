@@ -7,7 +7,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts" / "restore_bhm_public_evidence.py"
+SCRIPT = ROOT / "scripts" / "bhm-restore-public-evidence.py"
 
 
 def _load_module():
