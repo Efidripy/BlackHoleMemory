@@ -103,32 +103,7 @@
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi143-semantic-relevance.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
       "path": "scripts/benchmark-bhm-wi15-security.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-wi150-parser-families.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-wi153-parser-families.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-wi158-bitbake-parser.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-wi162-github-actions.py",
       "role": "benchmark",
       "release": true
     },
