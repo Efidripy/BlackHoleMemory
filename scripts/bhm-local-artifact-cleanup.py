@@ -86,6 +86,17 @@ def _tree_bytes(path: Path) -> int:
     return total
 
 
+def _tree_contains_files(path: Path) -> bool:
+    """Return whether a candidate directory contains any ordinary file."""
+
+    for child in path.rglob("*"):
+        if _is_reparse_point(child):
+            raise ArtifactCleanupError(f"reparse-point inside candidate: {child}")
+        if child.is_file():
+            return True
+    return False
+
+
 def _load_policy(policy_path: Path) -> dict[str, Any]:
     try:
         policy = json.loads(policy_path.read_text(encoding="utf-8"))
@@ -125,6 +136,8 @@ def _candidate_from_path(root: Path, path: Path, rule: dict[str, Any]) -> Artifa
     if kind not in {"file", "directory"}:
         raise ArtifactCleanupError(f"unsupported rule kind: {kind}")
     if bool(rule.get("emptyOnly")) and any(path.iterdir()):
+        return None
+    if bool(rule.get("treeEmptyOnly")) and _tree_contains_files(path):
         return None
     return ArtifactCandidate(
         rule_id=str(rule["id"]),

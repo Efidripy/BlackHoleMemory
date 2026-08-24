@@ -119,8 +119,58 @@ def test_inaccessible_candidate_is_reported_and_blocks_apply(monkeypatch, tmp_pa
         module.apply_plan(tmp_path, policy, as_of="2024-01-01T00:00:00Z", expected_digest=plan["plan_digest"])
 
 
+def test_tree_empty_only_accepts_empty_subdirectories_but_not_files(tmp_path: Path):
+    module = _load_module()
+    output = tmp_path / "output"
+    (output / "playwright").mkdir(parents=True)
+    policy = _policy(tmp_path)
+    payload = json.loads(policy.read_text(encoding="utf-8"))
+    payload["managedRoots"].append(".")
+    payload["rules"] = [
+        {
+            "id": "empty-output-tree",
+            "parent": ".",
+            "glob": "output",
+            "kind": "directory",
+            "treeEmptyOnly": True,
+            "minAgeDays": 0,
+        }
+    ]
+    policy.write_text(json.dumps(payload), encoding="utf-8")
+
+    plan = module.build_plan(tmp_path, policy, as_of="2027-01-01T00:00:00Z")
+    assert [row["path"] for row in plan["candidates"]] == ["output"]
+
+    (output / "playwright" / "receipt.yml").write_text("receipt", encoding="utf-8")
+    plan = module.build_plan(tmp_path, policy, as_of="2027-01-01T00:00:00Z")
+    assert plan["candidates"] == []
+
+
 def test_default_policy_excludes_acl_owned_runtime_legacy_residue():
     payload = json.loads((REPO_ROOT / "config" / "local-artifact-retention-policy.json").read_text(encoding="utf-8"))
 
     assert ".runtime-legacy" not in payload["managedRoots"]
     assert all(rule.get("parent") != ".runtime-legacy" for rule in payload["rules"])
+
+
+def test_default_policy_keeps_new_cleanup_scope_named_and_narrow():
+    payload = json.loads((REPO_ROOT / "config" / "local-artifact-retention-policy.json").read_text(encoding="utf-8"))
+    rules = {str(rule["id"]): rule for rule in payload["rules"]}
+
+    temporal_patch = rules["superseded-temporal-app-patch-20260822"]
+    assert temporal_patch == {
+        "id": "superseded-temporal-app-patch-20260822",
+        "parent": ".tmp",
+        "glob": "temporal-app.diff",
+        "kind": "file",
+        "minAgeDays": 1,
+    }
+    output_root = rules["empty-historical-playwright-output-root"]
+    assert output_root == {
+        "id": "empty-historical-playwright-output-root",
+        "parent": ".",
+        "glob": "output",
+        "kind": "directory",
+        "treeEmptyOnly": True,
+        "minAgeDays": 3,
+    }
