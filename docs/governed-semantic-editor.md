@@ -22,6 +22,9 @@ Qdrant/Mem0 retrieval candidate IDs
 - The local editor sees every candidate identity and revision, but evidence
   text has a fixed 12,000-character total budget. Full canonical revisions
   remain in SQLite for validation and operator review.
+- When a local OpenAI-compatible runner supports `response_format=json_schema`,
+  the editor supplies its bounded proposal schema. BHM still independently
+  parses every response, re-reads its SQLite basis and rejects invalid content.
 - If the local model itself is unavailable, BHM emits an explicitly labelled
   deterministic `no_op` preview instead of treating the failure as a memory
   write or a semantic result. The receipt reports a stable redacted

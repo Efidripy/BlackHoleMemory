@@ -47,6 +47,40 @@ MAX_MODEL_RECORD_CONTENT_CHARS = 1_800
 DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS = 60.0
 DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS = 180
 
+# The local gateway still independently parses and validates this response.
+# This only asks compatible local runners to constrain syntactic JSON so a
+# malformed prose answer cannot consume the bounded foreground editor budget.
+GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA: dict[str, Any] = {
+    "name": "governed_semantic_proposal",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["operation", "basis_memory_ids", "candidate", "confidence", "conflicts", "reason"],
+        "properties": {
+            "operation": {"type": "string", "enum": sorted(OPERATIONS)},
+            "basis_memory_ids": {"type": "array", "minItems": 1, "maxItems": MAX_BASIS, "items": {"type": "string", "maxLength": 180}},
+            "candidate": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["title", "content", "memory_type", "concepts", "files"],
+                "properties": {
+                    "title": {"type": "string", "maxLength": 240},
+                    "content": {"type": "string", "maxLength": 12000},
+                    "memory_type": {"type": "string", "maxLength": 96},
+                    "concepts": {"type": "array", "maxItems": 24, "items": {"type": "string", "maxLength": 240}},
+                    "files": {"type": "array", "maxItems": 24, "items": {"type": "string", "maxLength": 240}},
+                    "target_memory_id": {"type": "string", "maxLength": 180},
+                    "relation": {"type": "string", "maxLength": 96},
+                },
+            },
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "conflicts": {"type": "array", "maxItems": MAX_CONFLICTS, "items": {"type": "string", "maxLength": 240}},
+            "reason": {"type": "string", "maxLength": 480},
+        },
+    },
+}
+
 
 class GovernedSemanticEditorError(GovernedConsolidationError):
     """A semantic candidate is malformed or violates governance policy."""
@@ -158,6 +192,7 @@ class LocalGatewaySemanticCompletion:
             max_tokens=self.config.max_tokens,
             temperature=0.0,
             json_required_keys=("operation", "basis_memory_ids", "candidate", "confidence", "conflicts", "reason"),
+            json_schema=GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA,
             messages=(
                 {
                     "role": "user",
@@ -441,6 +476,7 @@ def _sha256(value: str) -> str:
 
 __all__ = [
     "GOVERNED_SEMANTIC_EDITOR_ANALYZER",
+    "GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA",
     "GOVERNED_SEMANTIC_EDITOR_SCHEMA_VERSION",
     "GovernedSemanticEditorError",
     "GovernedSemanticEditorUnavailable",

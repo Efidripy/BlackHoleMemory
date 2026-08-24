@@ -9,6 +9,7 @@ from blackholememory.domain import Memory
 from blackholememory.governed_semantic_editor import DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS
 from blackholememory.governed_semantic_editor import DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS
 from blackholememory.governed_semantic_editor import GovernedSemanticEditorError
+from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA
 from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
 from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
@@ -166,6 +167,7 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     assert isinstance(content, str)
     assert json.loads(content)["project"] == "multiserversubgen"
     assert json.loads(content)["records"][0]["memory_id"] == "mem_bhm_a"
+    assert captured["request"].json_schema == GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA
     assert result["operation"] == "create"
 
 
