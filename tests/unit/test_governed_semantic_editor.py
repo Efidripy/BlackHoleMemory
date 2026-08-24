@@ -14,6 +14,7 @@ from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_PR
 from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
 from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
+from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION
 from blackholememory.governed_semantic_editor import _model_records
 from blackholememory.governed_semantic_editor import build_semantic_proposal
 from blackholememory.governed_semantic_editor import select_authoritative_records
@@ -259,6 +260,32 @@ def test_local_gateway_semantic_completion_exposes_only_stable_failure_code(
         "validation_checked": False,
         "missing_keys": [],
     }
+
+
+def test_local_gateway_semantic_completion_retries_one_schema_rejection_without_exposing_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = LocalGatewaySemanticCompletion(
+        SemanticEditorConfig(True, "http://127.0.0.1:13666/v1", "qwen2.5-coder-7b-instruct", 10.0, 180)
+    )
+    requests = []
+    responses = [
+        SimpleNamespace(ok=False, parsed_json=None, failure={"code": "schema_validation_failed"}),
+        SimpleNamespace(ok=True, parsed_json=_candidate()),
+    ]
+
+    def fake_complete(request):
+        requests.append(request)
+        return responses.pop(0)
+
+    monkeypatch.setattr(completion.gateway, "complete", fake_complete)
+
+    result = completion.complete(project="multiserversubgen", query="uninstall safety", records=[_record("mem_bhm_a", "evidence")])
+
+    assert result["operation"] == "create"
+    assert len(requests) == 2
+    assert requests[0].chat_template_kwargs == requests[1].chat_template_kwargs == {"enable_thinking": False}
+    assert requests[1].messages[-1] == {"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
 
 
 def test_local_gateway_semantic_completion_exposes_redacted_validation_diagnostic(

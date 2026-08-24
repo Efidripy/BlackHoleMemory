@@ -13,7 +13,7 @@ import json
 import os
 import time
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 from uuid import uuid4
 
@@ -62,6 +62,12 @@ MAX_MODEL_EVIDENCE_CHARS = 6_000
 MAX_MODEL_RECORD_CONTENT_CHARS = 1_800
 DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS = 60.0
 DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS = 180
+_SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION = (
+    "The prior completion was rejected because it was not valid for the strict "
+    "proposal contract. Return a fresh JSON object only. Use exactly operation, "
+    "candidate, confidence, conflicts and reason. confidence must be a decimal "
+    "between 0.0 and 1.0. Do not include prose, markdown, percentages, or IDs."
+)
 
 # The local gateway still independently parses and validates this response.
 # This only asks compatible local runners to constrain syntactic JSON so a
@@ -271,6 +277,17 @@ class LocalGatewaySemanticCompletion:
             ),
         )
         result = self.gateway.complete(request)
+        # A local completion that ignores the runner's JSON schema is not
+        # accepted. One fresh, content-free corrective retry handles transient
+        # chat-template drift without exposing the rejected output, relaxing
+        # validation, or producing a mutation. The retry budget is exactly one.
+        if not result.ok and str((result.failure or {}).get("code") or "") == "schema_validation_failed":
+            retry_request = replace(
+                request,
+                request_id=f"gse_{uuid4().hex}",
+                messages=request.messages + ({"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION},),
+            )
+            result = self.gateway.complete(retry_request)
         if not result.ok or not isinstance(result.parsed_json, Mapping):
             code = str((result.failure or {}).get("code") or "local_model_invalid_response")
             raise GovernedSemanticEditorUnavailable(
