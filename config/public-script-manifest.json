@@ -78,37 +78,37 @@
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi10-factories.py",
+      "path": "scripts/benchmark-bhm-factories.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi11-unified-mcp.py",
+      "path": "scripts/benchmark-bhm-unified-mcp.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi12-human-ui.py",
+      "path": "scripts/benchmark-bhm-human-ui.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi13-capability-router.py",
+      "path": "scripts/benchmark-bhm-capability-router.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi14-migration.py",
+      "path": "scripts/benchmark-bhm-migration.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi15-security.py",
+      "path": "scripts/benchmark-bhm-security.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi17-product-value.py",
+      "path": "scripts/benchmark-bhm-product-value.py",
       "role": "benchmark",
       "release": true
     },
@@ -1058,37 +1058,37 @@
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi10-factories.py",
+      "path": "scripts/validate-bhm-factories.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi11-unified-mcp.py",
+      "path": "scripts/validate-bhm-unified-mcp.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi12-human-ui.py",
+      "path": "scripts/validate-bhm-human-ui.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi13-capability-router.py",
+      "path": "scripts/validate-bhm-capability-router.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi14-migration.py",
+      "path": "scripts/validate-bhm-migration.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi15-security.py",
+      "path": "scripts/validate-bhm-security.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi17-final-acceptance.py",
+      "path": "scripts/validate-bhm-final-acceptance.py",
       "role": "quality-gate",
       "release": true
     },

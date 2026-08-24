@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = ROOT / "scripts" / "validate-bhm-wi12-human-ui.py"
+    path = ROOT / "scripts" / "validate-bhm-human-ui.py"
     spec = importlib.util.spec_from_file_location("validate_bhm_wi12_human_ui", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

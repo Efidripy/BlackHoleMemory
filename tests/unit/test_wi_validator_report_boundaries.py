@@ -20,13 +20,13 @@ REPORT_WRITER_SCRIPTS = (
     "validate-bhm-task-graph.py",
     "validate-bhm-unified-context.py",
     "validate-bhm-llm-code-fabric.py",
-    "validate-bhm-wi10-factories.py",
-    "validate-bhm-wi11-unified-mcp.py",
-    "validate-bhm-wi12-human-ui.py",
-    "validate-bhm-wi13-capability-router.py",
-    "validate-bhm-wi14-migration.py",
-    "validate-bhm-wi15-security.py",
-    "validate-bhm-wi17-final-acceptance.py",
+    "validate-bhm-factories.py",
+    "validate-bhm-unified-mcp.py",
+    "validate-bhm-human-ui.py",
+    "validate-bhm-capability-router.py",
+    "validate-bhm-migration.py",
+    "validate-bhm-security.py",
+    "validate-bhm-final-acceptance.py",
 )
 
 

@@ -20,7 +20,7 @@ from blackholememory.human_ui_bridge import verify_human_ui_bridge_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-human-ui.py"
-BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi12-human-ui.py"
+BENCHMARK = ROOT / "scripts" / "benchmark-bhm-human-ui.py"
 WI12_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 

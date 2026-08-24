@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = ROOT / "scripts" / "validate-bhm-wi14-migration.py"
+SCRIPT = ROOT / "scripts" / "validate-bhm-migration.py"
 
 
 def _load_module():

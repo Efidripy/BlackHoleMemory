@@ -21,7 +21,7 @@ from blackholememory.security_trust_boundary import verify_security_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-security-trust-boundary.py"
-BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi15-security.py"
+BENCHMARK = ROOT / "scripts" / "benchmark-bhm-security.py"
 WI15_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 

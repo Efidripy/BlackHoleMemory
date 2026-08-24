@@ -20,7 +20,7 @@ from blackholememory.capability_router import verify_capability_route_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-capability-router.py"
-BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi13-capability-router.py"
+BENCHMARK = ROOT / "scripts" / "benchmark-bhm-capability-router.py"
 WI13_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 

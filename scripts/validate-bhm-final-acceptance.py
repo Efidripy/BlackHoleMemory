@@ -20,7 +20,7 @@ from blackholememory.product_value import verify_product_value_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-product-value.py"
-BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi17-product-value.py"
+BENCHMARK = ROOT / "scripts" / "benchmark-bhm-product-value.py"
 WI17_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
 
 
