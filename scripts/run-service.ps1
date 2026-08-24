@@ -20,6 +20,33 @@ $srcPath = Join-Path $repoRoot "src"
 $localLlmModelsProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'local_llm_models'
 $callerCredential = Initialize-BhmCallerCredential
 Write-Host "[INFO] BHM caller credential ready: source=$($callerCredential.source) fingerprint=$($callerCredential.fingerprint)"
+
+function Import-ExplicitOperatorFeatureConfiguration {
+  # Windows does not update the environment block of an already-open parent
+  # process after a User-scoped setting changes.  The desktop launcher can
+  # therefore start a fresh API process without opt-in governed features that
+  # the operator explicitly persisted.  Import only the small non-secret
+  # feature allowlist; runtime validation still owns every value's meaning.
+  foreach ($name in @(
+      'BHM_GOVERNED_CONSOLIDATION_ENABLED',
+      'BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED',
+      'BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL',
+      'BHM_GOVERNED_SEMANTIC_EDITOR_MODEL',
+      'BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS',
+      'BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS'
+    )) {
+    if (-not [string]::IsNullOrWhiteSpace([string][Environment]::GetEnvironmentVariable($name, 'Process'))) {
+      continue
+    }
+    $userValue = [string][Environment]::GetEnvironmentVariable($name, 'User')
+    if (-not [string]::IsNullOrWhiteSpace($userValue)) {
+      Set-Item -Path "Env:$name" -Value $userValue.Trim()
+    }
+  }
+}
+
+Import-ExplicitOperatorFeatureConfiguration
+
 # The destructive/operator capability is deliberately separate from the
 # caller token. Load it from the Windows User environment only when the
 # launcher did not already provide a process-scoped value; never print it.

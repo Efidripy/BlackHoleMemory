@@ -157,3 +157,26 @@ def test_service_inherits_operator_capability_from_user_scope_without_logging_it
     assert "GetEnvironmentVariable('BHM_ADMIN_CAPABILITY', 'User')" in text
     assert "$env:BHM_ADMIN_CAPABILITY = $userAdminCapability" in text
     assert "Write-Host" not in text[text.index("BHM_ADMIN_CAPABILITY") : text.index("$apiParts")]
+
+
+def test_service_imports_only_explicit_non_secret_governed_feature_configuration_from_user_scope():
+    text = SERVICE.read_text(encoding="utf-8")
+    feature_block = text[
+        text.index("function Import-ExplicitOperatorFeatureConfiguration") : text.index(
+            "# The destructive/operator capability"
+        )
+    ]
+
+    for name in (
+        "BHM_GOVERNED_CONSOLIDATION_ENABLED",
+        "BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED",
+        "BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL",
+        "BHM_GOVERNED_SEMANTIC_EDITOR_MODEL",
+        "BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS",
+        "BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS",
+    ):
+        assert name in feature_block
+
+    assert "BHM_CALLER_TOKEN" not in feature_block
+    assert "BHM_ADMIN_CAPABILITY" not in feature_block
+    assert "Write-Host" not in feature_block
