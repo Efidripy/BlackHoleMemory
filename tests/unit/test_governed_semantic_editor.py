@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 
 from blackholememory.domain import Memory
+from blackholememory.governed_semantic_editor import DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS
+from blackholememory.governed_semantic_editor import DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS
 from blackholememory.governed_semantic_editor import GovernedSemanticEditorError
 from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
 from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
@@ -165,6 +167,18 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     assert json.loads(content)["project"] == "multiserversubgen"
     assert json.loads(content)["records"][0]["memory_id"] == "mem_bhm_a"
     assert result["operation"] == "create"
+
+
+def test_semantic_editor_local_defaults_fit_bounded_foreground_proposal_workload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS", raising=False)
+
+    config = SemanticEditorConfig.from_env()
+
+    assert config.timeout_seconds == DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS == 60.0
+    assert config.max_tokens == DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS == 180
 
 
 def test_local_gateway_semantic_completion_bounds_total_evidence_without_dropping_candidate_ids() -> None:

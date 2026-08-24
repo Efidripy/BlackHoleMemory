@@ -54,8 +54,11 @@ Restart the BHM API through the canonical launcher after changing persistent
 environment variables. The canonical launcher imports this explicit,
 non-secret governed allowlist from Windows User scope into its child process,
 so the approved local configuration survives a desktop restart. The adapter accepts only the existing local-only
-gateway boundary. It has a 45-second default timeout and a 900-token bound;
-override only through the documented `BHM_GOVERNED_SEMANTIC_EDITOR_*` settings.
+gateway boundary. It has a 60-second default timeout and a 180-token compact
+proposal bound; override only through the documented
+`BHM_GOVERNED_SEMANTIC_EDITOR_*` settings. The default is deliberately not a
+long prose budget: that would make a healthy local 7B provider look unavailable
+before it could finish a foreground proposal.
 
 ## Operator flow
 

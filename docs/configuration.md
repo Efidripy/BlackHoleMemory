@@ -60,8 +60,11 @@ admin capability through that allowlist.
 
 Optional settings are `BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL`,
 `BHM_GOVERNED_SEMANTIC_EDITOR_MODEL`,
-`BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS` (1–120; default `45`) and
-`BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS` (64–2048; default `900`). The base
+`BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS` (1–120; default `60`) and
+`BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS` (64–2048; default `180`). The compact
+proposal budget is intentional: a larger prose-sized completion can exceed the
+foreground deadline on the supported local 7B model despite a healthy provider.
+The base
 URL goes through the existing local-only endpoint policy, so a remote URL,
 credentials in the URL, redirects and oversized response are rejected. See
 [governed-semantic-editor.md](governed-semantic-editor.md) for the operator

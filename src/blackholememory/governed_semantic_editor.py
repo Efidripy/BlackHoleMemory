@@ -44,6 +44,8 @@ MIN_CREATE_CONFIDENCE = 0.72
 # revisions; the model receives only a bounded analysis view.
 MAX_MODEL_EVIDENCE_CHARS = 12_000
 MAX_MODEL_RECORD_CONTENT_CHARS = 1_800
+DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS = 60.0
+DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS = 180
 
 
 class GovernedSemanticEditorError(GovernedConsolidationError):
@@ -76,8 +78,18 @@ class SemanticEditorConfig:
             "1", "true", "yes", "on"
         }
         try:
-            timeout_seconds = min(max(float(os.getenv("BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS", "45")), 1.0), 120.0)
-            max_tokens = min(max(int(os.getenv("BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS", "900")), 64), 2048)
+            # The governed editor returns a compact strict proposal, not prose.
+            # Keep its default inference budget suitable for the supported local
+            # Qwen 7B runtime: 900 tokens can outlive the foreground timeout and
+            # turn a healthy provider into a misleading timeout fallback.
+            timeout_seconds = min(
+                max(float(os.getenv("BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS", str(DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS))), 1.0),
+                120.0,
+            )
+            max_tokens = min(
+                max(int(os.getenv("BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS", str(DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS))), 64),
+                2048,
+            )
         except ValueError as exc:
             raise GovernedSemanticEditorUnavailable("invalid local semantic editor configuration") from exc
         return cls(
