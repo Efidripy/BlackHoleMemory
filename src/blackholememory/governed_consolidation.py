@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -57,6 +58,12 @@ class GovernedConsolidationStale(GovernedConsolidationError):
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _elapsed_ms(started_at: float) -> float:
+    """Return a content-free proposal duration with a stable representation."""
+
+    return round(max(0.0, (time.perf_counter() - started_at) * 1_000.0), 3)
 
 
 def _canonical_json(value: Any) -> str:
@@ -195,6 +202,7 @@ def build_proposal(
     conflicts: Iterable[str] = (),
     analyzer: str = GOVERNED_CONSOLIDATION_ANALYZER,
     model_or_provider: str | None = None,
+    analysis_duration_ms: float | None = None,
 ) -> dict[str, Any]:
     """Build one deterministic, non-persisting project-scoped proposal."""
 
@@ -241,6 +249,12 @@ def build_proposal(
             "model_or_provider": identity["model_or_provider"],
             "created_at": _utc_now_iso(),
         },
+        # This is deliberately content-free: candidates are the bounded
+        # authority records examined by the analyzer, not model samples.
+        "observability": {
+            "candidate_count": len(decoded_basis),
+            "analysis_duration_ms": round(max(0.0, float(analysis_duration_ms or 0.0)), 3),
+        },
         "requires_human_approval": True,
         "execution": {
             "proposal_only": True,
@@ -261,6 +275,7 @@ def analyze_records(
     not call an LLM, network service, Mem0 client or embedding provider.
     """
 
+    started_at = time.perf_counter()
     source = list(records)
     if len(source) > MAX_BASIS:
         raise GovernedConsolidationError(f"records exceed {MAX_BASIS}")
@@ -281,7 +296,15 @@ def analyze_records(
         nonempty = [item for item in contents if item]
         if not nonempty:
             candidate = {"title": "", "content": "", "memory_type": "fact", "concepts": [], "files": []}
-            return build_proposal(project=project, records=source, operation="no_op", candidate=candidate, reason="basis has no analyzable content", confidence=0.0)
+            return build_proposal(
+                project=project,
+                records=source,
+                operation="no_op",
+                candidate=candidate,
+                reason="basis has no analyzable content",
+                confidence=0.0,
+                analysis_duration_ms=_elapsed_ms(started_at),
+            )
         candidate = {
             "title": str(source[0].get("title") or "Consolidated project fact")[:240],
             "content": max(nonempty, key=lambda item: (len(item), item))[:MAX_CONTENT_CHARS],
@@ -291,7 +314,15 @@ def analyze_records(
         }
         reason = "deterministic bounded baseline selected the most complete same-project fact"
         score = 0.55
-    return build_proposal(project=project, records=source, operation=operation, candidate=candidate, reason=reason, confidence=score)
+    return build_proposal(
+        project=project,
+        records=source,
+        operation=operation,
+        candidate=candidate,
+        reason=reason,
+        confidence=score,
+        analysis_duration_ms=_elapsed_ms(started_at),
+    )
 
 
 @dataclass(frozen=True)
@@ -301,6 +332,8 @@ class GovernedApplyResult:
     outbox_event_ids: tuple[str, ...]
     memory_ids: tuple[str, ...]
     link_id: str | None
+    apply_duration_ms: float
+    outbox: dict[str, Any]
 
 
 class GovernedConsolidationRepository:
@@ -604,9 +637,32 @@ def dry_run_apply(*, proposal: Mapping[str, Any], repository: SQLiteMemoryReposi
     return {"proposal_id": proposal["proposal_id"], "status": proposal["status"], "can_apply": bool(proposal["status"] == "approved" and validation["current"]), "validation": validation, "requires": {"apply": True, "proposal_confirmation": proposal["proposal_id"], "human_approval": True}, "execution": {"dry_run": True, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False}}
 
 
+def _outbox_observability(repository: SQLiteMemoryRepository, event_ids: Iterable[str]) -> dict[str, Any]:
+    """Report only the outbox work created by this apply; never drive it."""
+
+    observed_at = datetime.now(timezone.utc)
+    events = [event for event_id in event_ids if (event := repository.get_outbox_event(event_id)) is not None]
+    status_counts: dict[str, int] = {}
+    pending_ages: list[float] = []
+    for event in events:
+        status = event.status.value
+        status_counts[status] = status_counts.get(status, 0) + 1
+        if status != "completed":
+            created_at = datetime.fromisoformat(event.created_at.replace("Z", "+00:00"))
+            pending_ages.append(max(0.0, (observed_at - created_at).total_seconds() * 1_000.0))
+    return {
+        "event_count": len(events),
+        "status_counts": dict(sorted(status_counts.items())),
+        "pending_projection_event_count": len(pending_ages),
+        "projection_lag_ms": round(max(pending_ages, default=0.0), 3),
+        "observed_at": observed_at.isoformat().replace("+00:00", "Z"),
+    }
+
+
 def apply_approved_proposal(*, database_path: Path | str, proposal_id: str, project: str, apply: bool, confirmation: str) -> GovernedApplyResult:
     """Apply one exact approved proposal through the repository transaction."""
 
+    started_at = time.perf_counter()
     if not apply or confirmation != proposal_id:
         raise GovernedConsolidationApprovalRequired("apply=true and exact proposal confirmation are required")
     proposal_store = GovernedConsolidationRepository(database_path)
@@ -631,7 +687,16 @@ def apply_approved_proposal(*, database_path: Path | str, proposal_id: str, proj
     except (MemoryRevisionConflict, MemoryRepositoryIntegrityError, GovernedConsolidationStale) as exc:
         proposal_store.mark_stale(proposal_id=proposal_id, project=project, reason=type(exc).__name__)
         raise GovernedConsolidationStale("proposal basis changed before atomic apply") from exc
-    return GovernedApplyResult(proposal_id=proposal_id, status="applied", outbox_event_ids=tuple(result.outbox_event_id for result in results), memory_ids=tuple(result.memory.id for result in results), link_id=stored_link.id if stored_link else None)
+    outbox_event_ids = tuple(result.outbox_event_id for result in results)
+    return GovernedApplyResult(
+        proposal_id=proposal_id,
+        status="applied",
+        outbox_event_ids=outbox_event_ids,
+        memory_ids=tuple(result.memory.id for result in results),
+        link_id=stored_link.id if stored_link else None,
+        apply_duration_ms=_elapsed_ms(started_at),
+        outbox=_outbox_observability(repository, outbox_event_ids),
+    )
 
 
 __all__ = [
