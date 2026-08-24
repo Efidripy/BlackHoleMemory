@@ -62,17 +62,8 @@ uv run python scripts\run-bhm-value-benchmark.py --cases 1000 --repeats 10 --out
 Сравниваются только `file-only` и `bhm-full`; live BHM tools не вызываются, SQLite,
 Qdrant и Mem0 не изменяются.
 
-Команда полного прогона:
-
-```powershell
-uv run python scripts\run-bhm-local-model-replay.py `
-  --cases 111 `
-  --repeats 3 `
-  --max-in-flight 4 `
-  --max-tokens 96 `
-  --tool-budget 0 `
-  --output-dir .runtime\local-model-replay-666-20260804
-```
+Полный runner намеренно хранится только в ignored operator checkout: это
+hardware/model-specific diagnostic, а не portable GitHub или launcher feature.
 
 Это 666 model calls: 111 кейсов × 3 повтора × 2 режима. Полный запуск уже
 завершён с `total_model_calls=666`, `failed_calls=0` и receipt в

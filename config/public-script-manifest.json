@@ -123,22 +123,12 @@
       "release": true
     },
     {
-      "path": "scripts/bhm-admin-capability.ps1",
-      "role": "operator",
-      "release": true
-    },
-    {
       "path": "scripts/bhm-caller-credential.ps1",
       "role": "operator",
       "release": true
     },
     {
       "path": "scripts/bhm-capability-router.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-cbm-local-llm.py",
       "role": "operator",
       "release": true
     },
@@ -338,11 +328,6 @@
       "release": true
     },
     {
-      "path": "scripts/bhm_mcp_full_surface_memory.py",
-      "role": "runtime-support",
-      "release": true
-    },
-    {
       "path": "scripts/bhm_night_watch.py",
       "role": "runtime-support",
       "release": true
@@ -513,11 +498,6 @@
       "release": true
     },
     {
-      "path": "scripts/run-bhm-local-model-replay.py",
-      "role": "operator",
-      "release": true
-    },
-    {
       "path": "scripts/run-bhm-memory-evaluation.py",
       "role": "operator",
       "release": true
@@ -534,11 +514,6 @@
     },
     {
       "path": "scripts/run-bhm-value-benchmark.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/run-memory-curation.ps1",
       "role": "operator",
       "release": true
     },
@@ -739,11 +714,6 @@
     },
     {
       "path": "scripts/validate-bhm-llm-inventory.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-llm-gateway.py",
       "role": "quality-gate",
       "release": true
     },

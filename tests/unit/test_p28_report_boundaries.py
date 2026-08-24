@@ -18,7 +18,6 @@ REPORT_SCRIPTS = (
     "validate-bhm-semantic-relevance.py",
     "validate-bhm-cross-repository-history.py",
     "bhm-capability-router.py",
-    "bhm-cbm-local-llm.py",
     "bhm-code-graph-query.py",
     "bhm-code-graph.py",
     "bhm-conventions.py",
