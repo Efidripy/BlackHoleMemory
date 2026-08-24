@@ -122,6 +122,25 @@ def test_conflicting_or_low_confidence_semantic_result_becomes_no_op() -> None:
     assert low_confidence["semantic_editor"]["policy"]["decision"] == "insufficient_confidence"
 
 
+def test_no_op_discards_model_candidate_but_keeps_its_nonempty_reason() -> None:
+    source = [_record("mem_bhm_a", "A"), _record("mem_bhm_b", "B")]
+    candidate = _candidate(operation="no_op")
+    candidate["candidate"]["content"] = "untrusted candidate text must not enter the no-op receipt"
+    candidate["reason"] = "same-project evidence is insufficient for a change"
+
+    proposal = build_semantic_proposal(
+        project="multiserversubgen",
+        query="safety",
+        retrieved_records=source,
+        completion=_Completion(candidate),
+    )
+
+    assert proposal["operation"] == "no_op"
+    assert proposal["candidate"] == {"title": "", "content": "", "memory_type": "fact", "concepts": [], "files": []}
+    assert proposal["reason"] == candidate["reason"]
+    assert GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA["schema"]["properties"]["reason"]["minLength"] == 12
+
+
 def test_retrieval_hits_are_re_read_from_sqlite_and_cross_project_rows_fail_closed() -> None:
     canonical = [_record("mem_bhm_a", "A"), _record("mem_bhm_b", "B"), _record("mem_bhm_other", "C", project="other")]
     selected = select_authoritative_records(

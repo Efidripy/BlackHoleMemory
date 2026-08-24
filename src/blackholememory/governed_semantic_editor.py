@@ -77,7 +77,7 @@ GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA: dict[str, Any] = {
             },
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
             "conflicts": {"type": "array", "maxItems": MAX_CONFLICTS, "items": {"type": "string", "maxLength": 240}},
-            "reason": {"type": "string", "maxLength": 480},
+            "reason": {"type": "string", "minLength": 12, "maxLength": 480},
         },
     },
 }
@@ -401,6 +401,9 @@ def _apply_semantic_policy(
         "direct_mem0_writes": False,
         "direct_qdrant_writes": False,
     }
+    if operation == "no_op":
+        receipt["decision"] = "proposal_only"
+        return {"operation": "no_op", "candidate": no_op_candidate, "reason": model_reason, "receipt": receipt}
     if conflicts and operation not in {"no_op", "link"}:
         receipt["decision"] = "conflict_requires_operator_review"
         return {"operation": "no_op", "candidate": no_op_candidate, "reason": "semantic conflicts require operator review; no lifecycle candidate was emitted", "receipt": receipt}

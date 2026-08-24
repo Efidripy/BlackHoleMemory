@@ -42,6 +42,8 @@ Qdrant/Mem0 retrieval candidate IDs
   `archive`, or `link` proposal types.
 - Conflicts produce `no_op` (or an explicitly reviewed `link`), never a
   lifecycle suggestion. Low-confidence `create`/`revise` also becomes `no_op`.
+- A model-generated `no_op` keeps only its bounded reason; its candidate is
+  replaced with the canonical empty no-op candidate before any operator view.
 - `archive` and `supersede` are always human-approved and still need the usual
   exact-ID `apply=true` confirmation.
 - The editor never calls `Mem0.add/update/delete`, writes Qdrant, starts a
