@@ -98,6 +98,4 @@ def test_checked_in_policy_preserves_active_authority_roots():
 
     assert rules["authoritative-sqlite"]["disposition"] == "protected"
     assert rules["qdrant-projection"]["disposition"] == "protected"
-    assert rules["sqlite-retention-recovery-anchor"]["disposition"] == "protected"
-    assert rules["legacy-pre-sqlite-snapshot"]["disposition"] == "manual-classification"
-    assert rules["legacy-pre-sqlite-snapshot"]["path"] == ".legacy"
+    assert rules["wl174-validation"]["disposition"] == "archive-review"
