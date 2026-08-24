@@ -9,6 +9,7 @@ existing governed proposal pipeline.
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections.abc import Iterable, Mapping, Sequence
@@ -130,18 +131,27 @@ class LocalGatewaySemanticCompletion:
             messages=(
                 {
                     "role": "user",
-                    "content": {
-                        "query": query,
-                        "project": project,
-                        "records": [_model_record(record) for record in records],
-                        "contract": {
-                            "proposal_only": True,
-                            "allowed_operations": sorted(OPERATIONS),
-                            "must_use_only_supplied_basis": True,
-                            "no_direct_mem0_or_qdrant_writes": True,
-                            "no_auto_apply": True,
+                    # OpenAI-compatible local providers, including LM Studio,
+                    # require ``message.content`` to be text.  Keep the
+                    # structured evidence as JSON *inside* that text so the
+                    # gateway may use the canonical OpenAI chat contract
+                    # without weakening the model-facing proposal schema.
+                    "content": json.dumps(
+                        {
+                            "query": query,
+                            "project": project,
+                            "records": [_model_record(record) for record in records],
+                            "contract": {
+                                "proposal_only": True,
+                                "allowed_operations": sorted(OPERATIONS),
+                                "must_use_only_supplied_basis": True,
+                                "no_direct_mem0_or_qdrant_writes": True,
+                                "no_auto_apply": True,
+                            },
                         },
-                    },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    ),
                 },
             ),
         )
