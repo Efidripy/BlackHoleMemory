@@ -17,7 +17,7 @@ SCRIPT_MANIFEST = {"schema_version": "bhm.public-script-manifest.v1", "entries":
 def _write_manifest(root: Path, *, include_secret: bool = False) -> None:
     entries = list(SCRIPT_MANIFEST["entries"])
     if include_secret:
-        entries.append({"path": "scripts/secret.env", "role": "runtime", "release": True})
+        entries.append({"path": "scripts/secret.py", "role": "runtime", "release": True})
     path = root / "config/public-script-manifest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"schema_version": "bhm.public-script-manifest.v1", "entries": entries}), encoding="utf-8")
@@ -44,7 +44,7 @@ def _archive(*, include_symlink: bool = False) -> bytes:
                 {
                     "schema_version": "bhm.public-script-manifest.v1",
                     "entries": list(SCRIPT_MANIFEST["entries"])
-                    + ([{"path": "scripts/secret.env", "role": "runtime", "release": True}] if include_symlink else []),
+                    + ([{"path": "scripts/secret.py", "role": "runtime", "release": True}] if include_symlink else []),
                 }
             ).encode("utf-8"),
             "pyproject.toml": b"[project]\n",
@@ -56,7 +56,7 @@ def _archive(*, include_symlink: bool = False) -> bytes:
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
         if include_symlink:
-            info = tarfile.TarInfo("scripts/secret.env")
+            info = tarfile.TarInfo("scripts/secret.py")
             info.type = tarfile.SYMTYPE
             info.linkname = "outside"
             archive.addfile(info)
@@ -74,7 +74,7 @@ def _tree_listing(*, include_symlink: bool = False, mode: str = "100644") -> byt
         "LICENSE",
     ]
     if include_symlink:
-        paths.append("scripts/secret.env")
+        paths.append("scripts/secret.py")
     rows = [f"{mode} blob {'0' * 40}\t{path}" for path in paths]
     return ("\0".join(rows) + "\0").encode()
 

@@ -1,12 +1,23 @@
 # Script surface policy
 
-`scripts/` is a public product surface. Release materialization consumes only
-the explicit entries in
-[`config/public-script-manifest.json`](../config/public-script-manifest.json);
-an unlisted tracked script is fail-closed out of the release payload. It must
-therefore contain only stable,
-documented entrypoints for installation, runtime operation, recovery, release
-build/verification, and hermetic public quality gates.
+`scripts/` is a public source surface. The exact registry in
+[`config/public-script-manifest.json`](../config/public-script-manifest.json)
+classifies every tracked script and separately says whether it belongs to an
+installed launcher payload. An unlisted tracked script fails the public-tree
+gate; an entry with `release: false` remains available to contributors and CI,
+but is fail-closed out of the release payload.
+
+The three supported boundaries are:
+
+| Boundary | Contents | Audience |
+| --- | --- | --- |
+| Public source | Stable runtime/operator scripts plus reproducible tests, validators and frozen benchmark harnesses. | Contributors, CI and auditors. |
+| Packaged release | Only manifest entries with `release: true`: launcher/runtime dependencies and supported operator/recovery controls. | Operator and launcher user. |
+| `.local/` | Machine-bound, credential-bound, historical or project-hardcoded drills with an integrity manifest. | This development checkout only. |
+
+Tests and public quality gates are source evidence, not end-user launcher
+features. Their visibility allows independent review and reproducible CI; the
+release flag prevents them from inflating the installed application.
 
 ## Naming
 
@@ -46,11 +57,12 @@ same change when needed.
 ## Release manifest
 
 Each public script has exactly one manifest entry with its canonical path,
-role, and `release: true`. The manifest is part of the tracked source
-snapshot and is checked by both materialization and staged-source verification.
-Adding a script to `scripts/` does not publish or package it: the change must
-also add a reviewed manifest entry. Removing or relocating a script must remove
-the matching entry in the same commit.
+role and boolean `release` disposition. The manifest is part of the tracked
+source snapshot and is checked by public-tree, materialization and
+staged-source verification. Adding a script to `scripts/` does not implicitly
+package it: the change must add a reviewed entry and explicitly choose its
+release disposition. Removing or relocating a script must remove the matching
+entry in the same commit.
 
 ## Migration rule
 

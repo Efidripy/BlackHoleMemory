@@ -58,6 +58,7 @@ function Get-ReleaseScriptPayload {
         if (
             -not $relative.StartsWith("scripts/", [System.StringComparison]::Ordinal) -or
             $relative.Contains("\") -or
+            (-not $relative.EndsWith(".py", [System.StringComparison]::OrdinalIgnoreCase) -and -not $relative.EndsWith(".ps1", [System.StringComparison]::OrdinalIgnoreCase)) -or
             $relative.Split("/") | Where-Object { $_ -eq "" -or $_ -eq "." -or $_ -eq ".." }
         ) {
             throw "Unsafe public script manifest path: $relative"

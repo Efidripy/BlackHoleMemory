@@ -32,6 +32,7 @@ TRUST_METADATA_FILES = {
     "provenance.json",
     "release-trust.json",
 }
+PUBLIC_SCRIPT_MANIFEST = "config/public-script-manifest.json"
 
 
 def digest(data: bytes) -> str:
@@ -56,8 +57,68 @@ def safe_member(name: str) -> bool:
     )
 
 
+def release_script_paths(files: dict[str, bytes]) -> tuple[set[str], list[str]]:
+    """Read the packaged allowlist and return the exact permitted scripts.
+
+    A release package is intentionally narrower than the public Git source.
+    CI/test/benchmark scripts may be tracked with ``release: false`` but must
+    never be copied beside the launcher.  Keeping this check in the standalone
+    verifier protects promotion and post-install validation paths too.
+    """
+
+    failures: list[str] = []
+    payload = files.get(PUBLIC_SCRIPT_MANIFEST)
+    if payload is None:
+        return set(), [f"missing required file: {PUBLIC_SCRIPT_MANIFEST}"]
+    try:
+        document = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return set(), [f"invalid public script manifest: {exc}"]
+    if not isinstance(document, dict) or document.get("schema_version") != "bhm.public-script-manifest.v1":
+        return set(), ["unsupported public script manifest schema"]
+    entries = document.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return set(), ["public script manifest entries must be a non-empty array"]
+
+    seen: set[str] = set()
+    approved: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            failures.append("public script manifest contains a non-object entry")
+            continue
+        path = entry.get("path")
+        role = entry.get("role")
+        release = entry.get("release")
+        if (
+            not isinstance(path, str)
+            or not safe_member(path)
+            or not path.startswith("scripts/")
+            or not path.endswith((".py", ".ps1"))
+            or not isinstance(role, str)
+            or not role.strip()
+            or not isinstance(release, bool)
+        ):
+            failures.append("public script manifest contains an invalid entry")
+            continue
+        if path in seen:
+            failures.append(f"public script manifest contains duplicate entry: {path}")
+            continue
+        seen.add(path)
+        if release:
+            approved.add(path)
+    if not approved:
+        failures.append("public script manifest contains no release scripts")
+    return approved, failures
+
+
 def verify_mapping(files: dict[str, bytes], expected_version: str) -> dict[str, object]:
     failures: list[str] = []
+    approved_scripts, script_manifest_failures = release_script_paths(files)
+    failures.extend(script_manifest_failures)
+    actual_scripts = {path for path in files if path.startswith("scripts/")}
+    if not script_manifest_failures:
+        failures.extend(f"release script missing from payload: {path}" for path in sorted(approved_scripts - actual_scripts))
+        failures.extend(f"release payload contains unapproved script: {path}" for path in sorted(actual_scripts - approved_scripts))
     manifest_bytes = files.get("release-manifest.json")
     if manifest_bytes is None:
         failures.append("missing release-manifest.json")
