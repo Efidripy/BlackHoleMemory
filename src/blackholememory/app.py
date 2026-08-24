@@ -5110,7 +5110,16 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
     project = _governed_consolidation_project(principal, request.project)
     config = SemanticEditorConfig.from_env()
     try:
-        hits, _total = await federated_search(request.query, project, limit=clamp_retrieval_limit(request.limit))
+        try:
+            hits, _total = await federated_search(request.query, project, limit=clamp_retrieval_limit(request.limit))
+        except (EmbeddingPreparationTimeout, ResponseTimeout, StorageNotReady) as exc:
+            # Projection retrieval is an optional proposal input.  A slow or
+            # unavailable embedding contour must produce an explicit,
+            # retryable semantic-editor result instead of bubbling out as an
+            # unhandled 500 or affecting the SQLite-authoritative core.
+            raise GovernedSemanticEditorUnavailable(
+                "semantic candidate retrieval is temporarily unavailable"
+            ) from exc
         candidate_ids = [_semantic_graph_node_id(hit) for hit in hits]
         candidate_ids = [item for item in candidate_ids if item]
         records = select_authoritative_records(
