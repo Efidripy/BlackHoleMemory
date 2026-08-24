@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 import pytest
 
 from blackholememory.domain import Memory
 from blackholememory.governed_semantic_editor import GovernedSemanticEditorError
+from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
+from blackholememory.governed_semantic_editor import SemanticEditorConfig
 from blackholememory.governed_semantic_editor import build_semantic_proposal
 from blackholememory.governed_semantic_editor import select_authoritative_records
 
@@ -125,3 +130,36 @@ def test_retrieval_hits_are_re_read_from_sqlite_and_cross_project_rows_fail_clos
             candidate_ids=["mem_bhm_other"],
             records=canonical,
         )
+
+
+def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai_compatible_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = LocalGatewaySemanticCompletion(
+        SemanticEditorConfig(
+            enabled=True,
+            base_url="http://127.0.0.1:13666/v1",
+            model_id="qwen2.5-coder-7b-instruct",
+            timeout_seconds=10.0,
+            max_tokens=256,
+        )
+    )
+    captured = {}
+
+    def fake_complete(request):
+        captured["request"] = request
+        return SimpleNamespace(ok=True, parsed_json=_candidate())
+
+    monkeypatch.setattr(completion.gateway, "complete", fake_complete)
+
+    result = completion.complete(
+        project="multiserversubgen",
+        query="uninstall safety",
+        records=[_record("mem_bhm_a", "Normal uninstall is project-scoped.")],
+    )
+
+    content = captured["request"].messages[0]["content"]
+    assert isinstance(content, str)
+    assert json.loads(content)["project"] == "multiserversubgen"
+    assert json.loads(content)["records"][0]["memory_id"] == "mem_bhm_a"
+    assert result["operation"] == "create"
