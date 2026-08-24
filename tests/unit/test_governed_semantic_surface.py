@@ -32,6 +32,11 @@ class _MemoryService:
         assert project == "multiserversubgen"
         return [item for item in self.records if item["source_id"] in memory_ids]
 
+    def list_records(self, *, project: str, limit: int) -> list[dict]:
+        assert project == "multiserversubgen"
+        assert limit == 256
+        return list(self.records)
+
 
 class _Admission:
     allowed = True
@@ -77,7 +82,7 @@ class _Completion:
 
 
 def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlite(monkeypatch) -> None:
-    records = [_record("mem_bhm_a", "Normal uninstall is project-scoped."), _record("mem_bhm_b", "Install-state log is required.")]
+    records = [_record("mem_bhm_a", "Normal uninstall is project-scoped."), _record("mem_bhm_b", "Install-state safety log is required.")]
     governor = _Governor()
 
     async def _search(query: str, project: str, limit: int):
@@ -105,13 +110,45 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
         "source": "federated_semantic_candidates",
         "candidate_count": 2,
         "sqlite_revalidated_count": 2,
+        "fallback_reason": None,
     }
     assert result["side_effects"]["memory_lifecycle_mutation"] is False
     assert result["side_effects"]["qdrant_mutation"] is False
     assert governor.released
 
 
-def test_semantic_surface_maps_embedding_timeout_to_retryable_editor_unavailable(monkeypatch) -> None:
+def test_semantic_surface_uses_sqlite_lexical_fallback_when_embedding_retrieval_times_out(monkeypatch) -> None:
+    async def _timed_out(*_args, **_kwargs):
+        raise bhm_app.EmbeddingPreparationTimeout("provider detail must not escape")
+
+    records = [_record("mem_bhm_a", "Normal uninstall is project-scoped."), _record("mem_bhm_b", "Install-state safety log is required.")]
+    governor = _Governor()
+    monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
+    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(bhm_app, "federated_search", _timed_out)
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService(records))
+    monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _Completion)
+    monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
+
+    result = asyncio.run(
+        bhm_app._governed_semantic_proposal(
+            bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
+            principal=object(),
+        )
+    )
+
+    assert result["retrieval"] == {
+        "source": "sqlite_lexical_fallback",
+        "candidate_count": 2,
+        "sqlite_revalidated_count": 2,
+        "fallback_reason": "embedding_retrieval_unavailable",
+    }
+    assert result["proposal"]["execution"]["semantic_retrieval"] is False
+    assert governor.released
+
+
+def test_semantic_surface_maps_embedding_timeout_without_lexical_evidence_to_retryable_editor_unavailable(monkeypatch) -> None:
     async def _timed_out(*_args, **_kwargs):
         raise bhm_app.EmbeddingPreparationTimeout("provider detail must not escape")
 
@@ -119,6 +156,7 @@ def test_semantic_surface_maps_embedding_timeout_to_retryable_editor_unavailable
     monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
     monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(bhm_app, "federated_search", _timed_out)
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService([]))
 
     with pytest.raises(HTTPException) as raised:
         asyncio.run(

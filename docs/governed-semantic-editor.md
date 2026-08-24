@@ -19,6 +19,11 @@ Qdrant/Mem0 retrieval candidate IDs
 - SQLite remains the only authoritative lifecycle and provenance store.
 - Retrieval results are hints only. Every model input and proposal basis is
   re-read from the same project in SQLite before analysis.
+- If the bounded embedding contour is temporarily unavailable, one explicit
+  request may use a bounded same-project SQLite lexical fallback. Its response
+  reports `source=sqlite_lexical_fallback`; it is never represented as vector
+  retrieval and returns an explicit retryable error when no lexical evidence
+  matches.
 - The editor can return only `no_op`, `create`, `revise`, `supersede`,
   `archive`, or `link` proposal types.
 - Conflicts produce `no_op` (or an explicitly reviewed `link`), never a
@@ -40,7 +45,9 @@ The local model adapter has a second default-off flag:
 ```
 
 Restart the BHM API through the canonical launcher after changing persistent
-environment variables. The adapter accepts only the existing local-only
+environment variables. The canonical launcher imports this explicit,
+non-secret governed allowlist from Windows User scope into its child process,
+so the approved local configuration survives a desktop restart. The adapter accepts only the existing local-only
 gateway boundary. It has a 45-second default timeout and a 900-token bound;
 override only through the documented `BHM_GOVERNED_SEMANTIC_EDITOR_*` settings.
 
