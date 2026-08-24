@@ -28,7 +28,7 @@ tracked_source_files = _MODULE._tracked_source_files
     not _CROSSWALK.is_file(),
     reason="P28 crosswalk is local release evidence and is absent from public checkout",
 )
-def test_p28_acceptance_report_is_read_only_and_truthful() -> None:
+def test_acceptance_report_is_read_only_and_truthful() -> None:
     repo = Path(__file__).resolve().parents[2]
     report = build_report(repo)
     assert report["ok"] is True

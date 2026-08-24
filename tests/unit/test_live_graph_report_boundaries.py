@@ -25,7 +25,7 @@ def _make_hardlink(target: Path, source: Path) -> None:
         pytest.skip(f"hardlinks unavailable: {exc}")
 
 
-def test_p22_live_graph_report_writer_rejects_hardlink_target(tmp_path: Path) -> None:
+def test_report_writer_rejects_hardlink_target(tmp_path: Path) -> None:
     target = tmp_path / "report.json"
     outside = tmp_path / "outside.json"
     _make_hardlink(target, outside)
@@ -35,7 +35,7 @@ def test_p22_live_graph_report_writer_rejects_hardlink_target(tmp_path: Path) ->
     assert outside.read_text(encoding="utf-8") == "sentinel"
 
 
-def test_p22_live_graph_report_writer_creates_nested_json(tmp_path: Path) -> None:
+def test_report_writer_creates_nested_json(tmp_path: Path) -> None:
     target = tmp_path / "nested" / "report.json"
     MODULE._write_report(target, {"ok": True})
 

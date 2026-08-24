@@ -7,7 +7,7 @@ from pathlib import Path
 run = runpy.run_path(str(Path(__file__).parents[2] / "scripts" / "validate-bhm-semantic-relevance.py"))["run"]
 
 
-def test_wi97_labelled_relevance_is_bounded_and_deterministic() -> None:
+def test_labelled_relevance_is_bounded_and_deterministic() -> None:
     first = run(16)
     second = run(16)
 
