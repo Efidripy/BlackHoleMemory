@@ -22,6 +22,11 @@ Qdrant/Mem0 retrieval candidate IDs
 - The local editor sees a bounded semantic view of each candidate, with a fixed
   6,000-character total evidence budget. Full canonical identities and
   revisions remain in SQLite for validation and operator review.
+- The model-facing proposal contract is BHM-authored `system` text. Retrieved
+  evidence is sent separately as untrusted `user` data; BHM does not rely on
+  provider-specific `developer` roles that Qwen-compatible templates may
+  reject. A rejected syntactic or semantic response gets at most three fresh
+  strict-contract attempts, then becomes an explicit deterministic `no_op`.
 - When a local OpenAI-compatible runner supports `response_format=json_schema`,
   the editor supplies its bounded proposal schema. BHM still independently
   parses every response, re-reads its SQLite basis and rejects invalid content.
