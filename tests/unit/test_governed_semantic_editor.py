@@ -10,6 +10,7 @@ from blackholememory.governed_semantic_editor import DEFAULT_SEMANTIC_EDITOR_MAX
 from blackholememory.governed_semantic_editor import DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS
 from blackholememory.governed_semantic_editor import GovernedSemanticEditorError
 from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA
+from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_PROMPT_ID
 from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
 from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
@@ -190,6 +191,9 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     assert "memory_id" not in json.loads(content)["records"][0]
     assert captured["request"].json_schema == GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA
     assert result["operation"] == "create"
+    prompt = completion.gateway.prompts.get(GOVERNED_SEMANTIC_EDITOR_PROMPT_ID)
+    assert "candidate is still mandatory" in prompt.system
+    assert "no prose or markdown" in prompt.system
 
 
 def test_semantic_editor_local_defaults_fit_bounded_foreground_proposal_workload(
