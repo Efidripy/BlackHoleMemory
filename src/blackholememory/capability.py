@@ -63,6 +63,9 @@ _ADMIN_ROUTE_PREFIXES = (
     "/bhm/relation/prune-low-quality",
     "/bhm/relation/vote-quality",
     "/bhm/review-queue/apply",
+    # A consolidation review statement is immutable evidence and not an
+    # apply path, but it still carries an operator decision over live state.
+    "/bhm/consolidation/change-set/review",
     "/bhm/reindex-memory-metadata",
     "/bhm/schema/",
     "/bhm/triage-queue/apply",

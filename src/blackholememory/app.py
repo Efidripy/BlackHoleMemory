@@ -185,6 +185,9 @@ from .feedback_consolidation import FeedbackConsolidationError
 from .feedback_consolidation import build_feedback_consolidation_preview
 from .consolidation_change_set import ConsolidationChangeSetError
 from .consolidation_change_set import build_consolidation_change_set_preview
+from .consolidation_review import ConsolidationReviewError
+from .consolidation_review import append_consolidation_review
+from .consolidation_review import build_consolidation_review
 from .memory_doctor import MemoryDoctorSnapshotError
 from .memory_doctor import load_authoritative_sqlite_snapshot
 from .memory_doctor import run_authoritative_sqlite_memory_doctor
@@ -2954,6 +2957,23 @@ class ConsolidationChangeSetPreviewRequest(BaseModel):
     max_actions: int = Field(default=64, ge=1, le=128)
 
 
+class ConsolidationChangeSetReviewRequest(BaseModel):
+    """Authenticated operator decision over one freshly regenerated preview."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    as_of: str = Field(min_length=20, max_length=64)
+    candidates: list[dict[str, Any]] = Field(min_length=1, max_length=128)
+    change_set: dict[str, Any]
+    review_id: str = Field(min_length=1, max_length=96)
+    decision: Literal["approved_no_apply", "rejected", "deferred"]
+    action_ids: list[str] = Field(min_length=1, max_length=128)
+    reviewed_at: str = Field(min_length=20, max_length=64)
+    rationale_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    max_actions: int = Field(default=64, ge=1, le=128)
+
+
 class McpRepairRequest(BaseModel):
     """Bounded BHM-only repair action; client restart remains outside BHM ownership."""
 
@@ -4861,6 +4881,74 @@ def _utility_feedback_change_set_preview(
             "qdrant_mutation": False,
             "projection_mutation": False,
             "model_called": False,
+            "automatic_lifecycle_change": False,
+        },
+    }
+
+
+def _record_consolidation_change_set_review(
+    request: ConsolidationChangeSetReviewRequest,
+    *,
+    principal: Any,
+) -> dict[str, Any]:
+    """Persist a caller-bound decision after regenerating the exact preview.
+
+    Approval is intentionally a non-executable review statement. A future
+    apply implementation must not consume this artifact as authority to write.
+    """
+
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+    project = _canonical_project(request.project)
+    project_error = authorize_projects(principal, (project,), require_explicit=True)
+    if project_error:
+        raise HTTPException(status_code=403, detail={"code": project_error})
+    preview_request = ConsolidationChangeSetPreviewRequest(
+        project=project,
+        as_of=request.as_of,
+        candidates=request.candidates,
+        max_actions=request.max_actions,
+    )
+    regenerated = _utility_feedback_change_set_preview(preview_request)
+    if request.change_set != regenerated:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "consolidation_change_set_stale_or_tampered"},
+        )
+    try:
+        review = build_consolidation_review(
+            regenerated,
+            review_id=request.review_id,
+            decision=request.decision,
+            action_ids=request.action_ids,
+            reviewer_id=str(principal.caller_id),
+            reviewed_at=request.reviewed_at,
+            rationale_digest=request.rationale_digest,
+        )
+        _artifact, inserted = append_consolidation_review(_memory_service(), review)
+    except (ConsolidationReviewError, MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "consolidation_change_set_review_invalid", "reason": _safe_exception_text(exc)},
+        ) from exc
+    return {
+        "schema_version": "bhm.consolidation.change-set-review.ack.v1",
+        "project": review.project,
+        "review_id": review.review_id,
+        "change_set_digest": review.change_set_digest,
+        "authority_snapshot_digest": review.authority_snapshot_digest,
+        "action_ids": list(review.action_ids),
+        "decision": review.decision,
+        "inserted": inserted,
+        "replayed": not inserted,
+        "apply_performed": False,
+        "lifecycle_action": "none",
+        "side_effects": {
+            "sqlite_mutation": bool(inserted),
+            "memory_lifecycle_mutation": False,
+            "qdrant_mutation": False,
+            "projection_mutation": False,
+            "mem0_mutation": False,
             "automatic_lifecycle_change": False,
         },
     }
@@ -19704,6 +19792,21 @@ async def bhm_consolidation_change_set_preview(
         "bhm.consolidation.change_set_preview",
         _utility_feedback_change_set_preview,
         request,
+    )
+
+
+@app.post("/bhm/consolidation/change-set/review")
+async def bhm_consolidation_change_set_review(
+    request: ConsolidationChangeSetReviewRequest,
+    http_request: Request,
+) -> dict[str, Any]:
+    """Record an admin-gated review; it never applies a change-set."""
+
+    return await _run_bounded_write(
+        "bhm.consolidation.change_set_review",
+        _record_consolidation_change_set_review,
+        request,
+        principal=getattr(http_request.state, "bhm_caller_principal", None),
     )
 
 

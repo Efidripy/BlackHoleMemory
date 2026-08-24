@@ -98,6 +98,7 @@ _EXPLICIT_PROJECT_SCOPE_PATHS = frozenset(
         "/bhm/utility-feedback/report",
         "/bhm/utility-feedback/consolidation-preview",
         "/bhm/consolidation/change-set/preview",
+        "/bhm/consolidation/change-set/review",
         "/bhm/memory/restore-hard-deleted-preview",
         "/bhm/memory/timeline",
         "/bhm/recent-activity",

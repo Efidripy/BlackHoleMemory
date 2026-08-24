@@ -1,12 +1,27 @@
 from __future__ import annotations
 
+from importlib.util import module_from_spec
+from importlib.util import spec_from_file_location
 import subprocess
 from pathlib import Path
 
-from scripts.validate_public_tree import GIT_PROBE_TIMEOUT_SECONDS, _run_git, is_local, load_manifest
-
-
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _load_validator():
+    script = ROOT / "scripts" / "validate-public-tree.py"
+    spec = spec_from_file_location("validate_public_tree", script)
+    assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_VALIDATOR = _load_validator()
+GIT_PROBE_TIMEOUT_SECONDS = _VALIDATOR.GIT_PROBE_TIMEOUT_SECONDS
+_run_git = _VALIDATOR._run_git
+is_local = _VALIDATOR.is_local
+load_manifest = _VALIDATOR.load_manifest
 
 
 def test_manifest_declares_public_local_boundary() -> None:
