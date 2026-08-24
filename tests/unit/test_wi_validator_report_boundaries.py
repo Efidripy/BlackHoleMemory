@@ -10,11 +10,11 @@ from blackholememory.filesystem_boundaries import replace_bytes_safely
 ROOT = Path(__file__).resolve().parents[2]
 
 REPORT_WRITER_SCRIPTS = (
-    "validate-bhm-wi00-source-passport.py",
-    "validate-bhm-wi01-repository-index.py",
-    "validate-bhm-wi02-code-graph.py",
-    "validate-bhm-wi03-code-graph-query.py",
-    "validate-bhm-wi04-conventions.py",
+    "validate-bhm-source-passport.py",
+    "validate-bhm-repository-index.py",
+    "validate-bhm-code-graph.py",
+    "validate-bhm-code-graph-query.py",
+    "validate-bhm-conventions.py",
     "validate-bhm-wi05-session-capture.py",
     "validate-bhm-wi06-memory-graph.py",
     "validate-bhm-wi07-task-graph.py",

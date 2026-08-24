@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "cbm-integration.json"
 REGISTRY_PATH = ROOT / "config" / "source-registry.json"
 CLI_PATH = ROOT / "scripts" / "bhm-conventions.py"
-BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-wi04-conventions.py"
+BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-conventions.py"
 WI04_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 WI04_EXPECTED_CORE_TOOL_COUNT = 35
 

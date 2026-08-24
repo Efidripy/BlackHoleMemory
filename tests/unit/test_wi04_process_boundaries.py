@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = ROOT / "scripts" / "validate-bhm-wi04-conventions.py"
+    path = ROOT / "scripts" / "validate-bhm-conventions.py"
     spec = importlib.util.spec_from_file_location("validate_bhm_wi04_conventions", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

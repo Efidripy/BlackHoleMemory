@@ -18,7 +18,7 @@ LEGACY_LIVE_MEMORY_DEFAULTS = (
     REPO_ROOT / "scripts" / "promote-bhm-parser-v2.py",
     REPO_ROOT / "scripts" / "requeue-bhm-dead-letters.py",
     REPO_ROOT / "scripts" / "validate-bhm-p22-activation.py",
-    REPO_ROOT / "scripts" / "validate-bhm-wi01-repository-index.py",
+    REPO_ROOT / "scripts" / "validate-bhm-repository-index.py",
 )
 
 

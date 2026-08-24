@@ -16,7 +16,7 @@ def _load(name: str, filename: str):
     return module
 
 
-WI00 = _load("validate_bhm_wi00_source_passport", "validate-bhm-wi00-source-passport.py")
+WI00 = _load("validate_bhm_source_passport", "validate-bhm-source-passport.py")
 P21 = _load("validate_bhm_p21_18_source_freeze", "validate-bhm-p21.18-source-freeze.py")
 P2114 = _load("validate_bhm_p21_14_source_reclassification", "validate-bhm-p21.14-source-reclassification.py")
 P231 = _load("validate_bhm_p23_1_small_repo", "validate-bhm-p23.1-small-repo.py")
