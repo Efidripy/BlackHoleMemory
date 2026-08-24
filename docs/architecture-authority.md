@@ -8,9 +8,11 @@ memory state.
 ## Governed consolidation proposals
 
 Governed consolidation is a disabled-by-default, operator-reviewed layer for
-turning bounded same-project evidence into a compact canonical fact. Its first
-analyzer is `bhm-native-deterministic/v1`; it does not initialize Mem0, call a
-provider, or write a vector store. This boundary is deliberate: in installed
+turning bounded same-project evidence into a compact canonical fact. Its
+baseline analyzer is `bhm-native-deterministic/v1`; an additional opt-in
+`bhm-local-semantic-editor/v1` may use the local-only gateway to create strict
+proposal JSON. Neither analyzer initializes Mem0, writes a vector store, or
+applies a lifecycle change. This boundary is deliberate: in installed
 `mem0ai==2.0.4`, `Memory.add(..., infer=True)` can infer an
 add/update/delete action and persist it through its vector store, so it is not
 a safe authoritative dry-run API.
@@ -18,12 +20,16 @@ a safe authoritative dry-run API.
 The only permitted flow is:
 
 ```text
-same-project SQLite records -> typed proposal -> human approve/reject
+Qdrant/Mem0 candidate IDs -> same-project SQLite revalidation -> typed proposal -> human approve/reject
 -> exact revision/digest revalidation -> SQLite repository transaction
 -> memory_outbox -> existing Qdrant projector
 ```
 
-Proposal rows, decisions, stale receipts and apply receipts are separate
+Projection candidates never become authority: the semantic editor must re-read
+each selected memory ID, current revision and digest from SQLite before it can
+construct a proposal. Conflicts become `no_op` or a reviewed `link`; low
+confidence `create`/`revise` candidates become `no_op`. Proposal rows,
+decisions, stale receipts and apply receipts are separate
 SQLite tables; they are not canonical memories. An approved proposal still
 needs `apply=true` and an exact proposal-ID confirmation. The repository then
 rechecks every basis memory ID, project, current revision and content digest in
@@ -33,7 +39,8 @@ typed SQLite relation only; `archive` and `supersede` retain immutable revision
 provenance for recovery. There is no worker, polling, auto-merge, auto-archive,
 auto-supersede, direct Mem0 write, or direct Qdrant write.
 
-The controlled surface comprises REST/MCP inspection and a local operator CLI
+The controlled surface comprises REST/MCP inspection, local semantic preview,
+shadow metrics and a local operator CLI
 (`scripts/bhm-governed-consolidation.py`). It remains off until the explicit
 migration and runtime gates described in [configuration](configuration.md) are
 separately authorized. Ordinary MCP attach never exposes these operator tools.

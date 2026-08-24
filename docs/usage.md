@@ -72,6 +72,12 @@ number of selected authority records and local analyzer duration; an accepted
 apply reports its own duration plus the state and current lag of only the
 outbox events it created. It never returns memory content from telemetry.
 
+An optional local semantic editor can retrieve 1–20 candidate IDs through the
+existing semantic path, then re-read those records from SQLite and return a
+strict proposal-only JSON result. It is separately default-off and never turns
+Mem0/Qdrant into writers. Its preview/store/shadow flow is documented in
+[governed-semantic-editor.md](governed-semantic-editor.md).
+
 The REST/MCP endpoints are authenticated, project-scoped and operator-only for
 decision/apply. They are intentionally absent from the ordinary MCP attach
 catalog. See [authority and projection boundaries](architecture-authority.md)

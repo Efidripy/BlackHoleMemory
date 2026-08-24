@@ -2169,6 +2169,13 @@ def bhm_governed_semantic_proposal(
     )
 
 
+@mcp.tool(name="bhm_governed_semantic_shadow_metrics", description="Return content-free shadow metrics for stored local semantic editor proposals. It is read-only and never evaluates quality from model self-claims.")
+def bhm_governed_semantic_shadow_metrics(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+) -> dict[str, Any]:
+    return _get("/bhm/governed-consolidation/semantic-shadow-metrics", {"project": project})
+
+
 @mcp.tool(name="bhm_governed_consolidation_list", description="List bounded project-scoped governed consolidation proposals. Read-only; proposal contents remain operator-scoped.")
 def bhm_governed_consolidation_list(
     project: Annotated[str, Field(min_length=1, max_length=160)],

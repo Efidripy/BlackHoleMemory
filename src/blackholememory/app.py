@@ -207,6 +207,7 @@ from .governed_semantic_editor import SemanticEditorConfig
 from .governed_semantic_editor import build_semantic_proposal
 from .governed_semantic_editor import clamp_retrieval_limit
 from .governed_semantic_editor import select_authoritative_records
+from .governed_semantic_evaluation import summarize_shadow_proposals
 from .memory_doctor import MemoryDoctorSnapshotError
 from .memory_doctor import load_authoritative_sqlite_snapshot
 from .memory_doctor import run_authoritative_sqlite_memory_doctor
@@ -5163,6 +5164,31 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
             },
         }
     except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
+        raise _governed_consolidation_error(exc) from exc
+
+
+def _governed_semantic_shadow_metrics(*, project: str, principal: Any) -> dict[str, Any]:
+    """Summarize stored local-editor proposals without reading model prompts."""
+
+    _require_governed_consolidation_enabled()
+    canonical_project = _governed_consolidation_project(principal, project)
+    try:
+        proposals = GovernedConsolidationRepository(_governed_consolidation_database_path()).list(
+            project=canonical_project,
+            limit=200,
+        )
+        return {
+            "project": canonical_project,
+            "metrics": summarize_shadow_proposals(proposals),
+            "side_effects": {
+                "read_only": True,
+                "sqlite_mutation": False,
+                "qdrant_mutation": False,
+                "mem0_mutation": False,
+                "automatic_apply": False,
+            },
+        }
+    except (GovernedConsolidationError, OSError, ValueError) as exc:
         raise _governed_consolidation_error(exc) from exc
 
 
@@ -20117,6 +20143,19 @@ async def bhm_governed_semantic_proposal(request: GovernedSemanticProposalReques
             return await _governed_semantic_proposal(request, principal=principal)
     async with _bounded_read("bhm.governed_consolidation.semantic_proposal"):
         return await _governed_semantic_proposal(request, principal=principal)
+
+
+@app.get("/bhm/governed-consolidation/semantic-shadow-metrics")
+async def bhm_governed_semantic_shadow_metrics(
+    http_request: Request,
+    project: str = Query(min_length=1, max_length=160),
+) -> dict[str, Any]:
+    return await _run_bounded_read(
+        "bhm.governed_consolidation.semantic_shadow_metrics",
+        _governed_semantic_shadow_metrics,
+        project=project,
+        principal=getattr(http_request.state, "bhm_caller_principal", None),
+    )
 
 
 @app.get("/bhm/governed-consolidation/proposals")
