@@ -33,6 +33,7 @@ RELEASE_SOURCE_TREE_ARCHIVE_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_ARCHIVE_
 SOURCE_FOLDERS = ("assets", "plugins", "infra", "config", "src")
 SOURCE_FILES = ("pyproject.toml", "uv.lock", "LICENSE")
 PUBLIC_SCRIPT_MANIFEST = "config/public-script-manifest.json"
+REQUIRED_LAUNCHER_ROLES = {"runtime", "runtime-support"}
 GENERATED_FILES = {
     "BHM_Launcher.exe",
     "BHM_Launcher.exe",
@@ -60,6 +61,18 @@ def load_public_script_paths(root: Path) -> tuple[set[str], str | None]:
     entries = document.get("entries")
     if not isinstance(entries, list):
         return set(), "public script manifest entries must be an array"
+    release_roles = document.get("release_roles")
+    if release_roles is None:
+        release_role_set: set[str] | None = None
+    elif not isinstance(release_roles, list) or not release_roles or any(
+        not isinstance(role, str) or not role.strip() for role in release_roles
+    ):
+        return set(), "public script manifest has invalid release_roles"
+    else:
+        release_role_set = set(release_roles)
+        missing_launcher_roles = sorted(REQUIRED_LAUNCHER_ROLES - release_role_set)
+        if missing_launcher_roles:
+            return set(), f"public script manifest release_roles omit required launcher roles: {', '.join(missing_launcher_roles)}"
     paths: set[str] = set()
     seen_paths: set[str] = set()
     for entry in entries:
@@ -83,7 +96,7 @@ def load_public_script_paths(root: Path) -> tuple[set[str], str | None]:
         if path in seen_paths:
             return set(), f"public script manifest contains duplicate entry: {path}"
         seen_paths.add(path)
-        if release:
+        if release and (release_role_set is None or role in release_role_set):
             paths.add(path)
     if not paths:
         return set(), "public script manifest contains no release scripts"

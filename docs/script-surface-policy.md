@@ -57,12 +57,16 @@ same change when needed.
 ## Release manifest
 
 Each public script has exactly one manifest entry with its canonical path,
-role and boolean `release` disposition. The manifest is part of the tracked
-source snapshot and is checked by public-tree, materialization and
-staged-source verification. Adding a script to `scripts/` does not implicitly
-package it: the change must add a reviewed entry and explicitly choose its
-release disposition. Removing or relocating a script must remove the matching
-entry in the same commit.
+role and boolean `release` eligibility. The top-level `release_roles` profile
+is the second fail-closed decision: only eligible entries in this explicit
+role set are shipped beside the launcher. The current profile includes
+runtime, runtime-support and supported operator/recovery roles; it excludes
+`benchmark`, `quality-gate` and `release`, which remain source/CI tooling.
+The manifest is part of the tracked source snapshot and is checked by
+public-tree, materialization and staged-source verification. Adding a script
+to `scripts/` does not implicitly package it: the change must add a reviewed
+entry and explicitly choose its release eligibility and role. Removing or
+relocating a script must remove the matching entry in the same commit.
 
 ## Migration rule
 

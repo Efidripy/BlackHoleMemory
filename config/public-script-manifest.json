@@ -1,6 +1,12 @@
 {
   "schema_version": "bhm.public-script-manifest.v1",
-  "purpose": "Явный fail-closed список public scripts, допускаемых в release source и payload.",
+  "purpose": "Явный fail-closed реестр public source scripts и суженный launcher payload.",
+  "release_roles": [
+    "runtime",
+    "runtime-support",
+    "operator",
+    "operator-maintenance"
+  ],
   "entries": [
     {
       "path": "scripts/apply-bhm-permission-attestation.py",

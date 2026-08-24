@@ -21,11 +21,7 @@ REQUIRED_FILES = {
     "release-manifest.json",
 }
 LICENSE_REQUIRED_FROM = (1, 8, 0)
-CURRENT_P9_REQUIRED_FILES = {
-    "scripts/start-bhm-authoritative.ps1",
-    "scripts/validate-bhm-streamable-http.ps1",
-    "scripts/bhm-projection-operator.ps1",
-}
+REQUIRED_LAUNCHER_ROLES = {"runtime", "runtime-support"}
 TRUST_METADATA_FILES = {
     "release-manifest.json",
     "sbom.spdx.json",
@@ -80,6 +76,21 @@ def release_script_paths(files: dict[str, bytes]) -> tuple[set[str], list[str]]:
     if not isinstance(entries, list) or not entries:
         return set(), ["public script manifest entries must be a non-empty array"]
 
+    release_roles = document.get("release_roles")
+    if release_roles is None:
+        release_role_set: set[str] | None = None
+    elif not isinstance(release_roles, list) or not release_roles or any(
+        not isinstance(profile_role, str) or not profile_role.strip() for profile_role in release_roles
+    ):
+        return set(), ["public script manifest has invalid release_roles"]
+    else:
+        release_role_set = set(release_roles)
+        missing_launcher_roles = sorted(REQUIRED_LAUNCHER_ROLES - release_role_set)
+        if missing_launcher_roles:
+            return set(), [
+                "public script manifest release_roles omit required launcher roles: "
+                + ", ".join(missing_launcher_roles)
+            ]
     seen: set[str] = set()
     approved: set[str] = set()
     for entry in entries:
@@ -104,7 +115,7 @@ def release_script_paths(files: dict[str, bytes]) -> tuple[set[str], list[str]]:
             failures.append(f"public script manifest contains duplicate entry: {path}")
             continue
         seen.add(path)
-        if release:
+        if release and (release_role_set is None or role in release_role_set):
             approved.add(path)
     if not approved:
         failures.append("public script manifest contains no release scripts")
@@ -175,14 +186,6 @@ def verify_mapping(files: dict[str, bytes], expected_version: str) -> dict[str, 
             failures.append(f"missing required file: {required}")
     if parsed_version >= LICENSE_REQUIRED_FROM and "LICENSE" not in files:
         failures.append("missing required file: LICENSE")
-    # v1.7.0 is a sealed historical baseline.  Current releases must carry
-    # the P9 operational scripts so an archive cannot pass while omitting the
-    # lifecycle/recovery validators introduced after that baseline.
-    if expected != "1.7.0":
-        for required in CURRENT_P9_REQUIRED_FILES:
-            if required not in files:
-                failures.append(f"missing required file: {required}")
-
     try:
         version = json.loads(files["config/version-manifest.json"].decode("utf-8"))
         if str(version.get("release_version") or "") != expected:
