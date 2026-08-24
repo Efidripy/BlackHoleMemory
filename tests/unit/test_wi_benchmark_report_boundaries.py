@@ -26,7 +26,7 @@ REPORT_WRITER_SCRIPTS = (
     "benchmark-bhm-migration.py",
     "benchmark-bhm-security.py",
     "benchmark-bhm-product-value.py",
-    "rebuild-bhm-p28-wi68-inventory.py",
+    "rebuild-bhm-component-inventory.py",
 )
 
 

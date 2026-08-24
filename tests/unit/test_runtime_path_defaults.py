@@ -14,10 +14,10 @@ LEGACY_LIVE_MEMORY_DEFAULTS = (
     REPO_ROOT / "scripts" / "bhm_classify_projection_orphans.py",
     REPO_ROOT / "scripts" / "bhm_quarantine_projection_orphans.py",
     REPO_ROOT / "scripts" / "bhm_reconcile_projection.py",
-    REPO_ROOT / "scripts" / "build-bhm-p22-live-graphs.py",
+    REPO_ROOT / "scripts" / "build-bhm-live-graphs.py",
     REPO_ROOT / "scripts" / "promote-bhm-parser-v2.py",
     REPO_ROOT / "scripts" / "requeue-bhm-dead-letters.py",
-    REPO_ROOT / "scripts" / "validate-bhm-p22-activation.py",
+    REPO_ROOT / "scripts" / "validate-bhm-graph-activation.py",
     REPO_ROOT / "scripts" / "validate-bhm-repository-index.py",
 )
 

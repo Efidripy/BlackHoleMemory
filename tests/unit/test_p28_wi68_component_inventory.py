@@ -40,7 +40,7 @@ def test_wi68_validator_git_probe_is_bounded_and_fail_closed(monkeypatch, tmp_pa
 
 
 def test_wi68_rebuild_git_probe_is_bounded_and_fail_closed(monkeypatch) -> None:
-    module = _load("rebuild_bhm_p28_wi68_inventory", "scripts/rebuild-bhm-p28-wi68-inventory.py")
+    module = _load("rebuild_bhm_component_inventory", "scripts/rebuild-bhm-component-inventory.py")
     calls: dict[str, object] = {}
 
     def timeout(*_args, **kwargs):

@@ -19,10 +19,10 @@ def _load(name: str, filename: str):
 
 
 MODULES = [
-    _load("validate_bhm_p22_activation", "validate-bhm-p22-activation.py"),
-    _load("validate_bhm_p22_continuity", "validate-bhm-p22-continuity.py"),
-    _load("validate_bhm_p23_1", "validate-bhm-p23.1-small-repo.py"),
-    _load("validate_bhm_p23_2", "validate-bhm-p23.2-compatibility-disposition.py"),
+    _load("validate_bhm_graph_activation", "validate-bhm-graph-activation.py"),
+    _load("validate_bhm_graph_continuity", "validate-bhm-graph-continuity.py"),
+    _load("validate_bhm_small_repository", "validate-bhm-small-repository.py"),
+    _load("validate_bhm_compatibility_disposition", "validate-bhm-compatibility-disposition.py"),
 ]
 
 

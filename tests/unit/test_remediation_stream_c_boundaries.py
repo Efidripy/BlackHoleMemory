@@ -28,7 +28,7 @@ def test_restore_rejects_traversal_evidence_path():
 
 
 def test_p22_backup_is_bound_to_recovery_root(tmp_path: Path):
-    module = load("p22_stream_c", "validate-bhm-p22-activation.py")
+    module = load("graph_activation_stream_c", "validate-bhm-graph-activation.py")
     source = tmp_path / "source.sqlite3"
     source.write_bytes(b"SQLite format 3\x00synthetic")
     with pytest.raises(RuntimeError, match="approved recovery root"):
@@ -93,7 +93,7 @@ def test_requeue_revalidates_preview_digest(tmp_path: Path):
 
 
 def test_p23_database_must_be_disposable():
-    module = load("p23_stream_c", "validate-bhm-p23.1-small-repo.py")
+    module = load("small_repository_stream_c", "validate-bhm-small-repository.py")
     with pytest.raises(ValueError, match="approved disposable root"):
         module.approved_database_path(Path("C:/not-approved.sqlite3"))
 

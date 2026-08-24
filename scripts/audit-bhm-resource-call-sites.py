@@ -208,11 +208,11 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
 
 
 MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
-    ("scripts/validate-bhm-wl300-1-memory-class.py", "_fixture", "shutil.copy2"): BoundaryExpectation(
+    ("scripts/validate-bhm-memory-class.py", "_fixture", "shutil.copy2"): BoundaryExpectation(
         disposition="disposable-sqlite-fixture-copy",
         scope_signals=("root / \"memory-v1.sqlite3\"", "root / \"memory-v2.sqlite3\""),
     ),
-    ("scripts/validate-bhm-wl300-1-memory-class.py", "_check", "shutil.rmtree"): BoundaryExpectation(
+    ("scripts/validate-bhm-memory-class.py", "_check", "shutil.rmtree"): BoundaryExpectation(
         disposition="disposable-validator-cleanup",
         scope_signals=("shutil.rmtree(raw_root, ignore_errors=True)", "tempfile.mkdtemp(prefix=\"bhm-wl300-1-\")"),
     ),
@@ -278,7 +278,7 @@ MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         disposition="safe-partial-release-cleanup",
         scope_signals=("assert_safe_path(path", "shutil.rmtree(path, ignore_errors=True)"),
     ),
-    ("scripts/validate-bhm-p23.1-small-repo.py", "main", "shutil.copytree"): BoundaryExpectation(
+    ("scripts/validate-bhm-small-repository.py", "main", "shutil.copytree"): BoundaryExpectation(
         disposition="disposable-validator-copy",
         scope_signals=("tempfile.TemporaryDirectory", "copy_root =", "ignore_patterns", "incremental_update_and_cleanup"),
     ),
