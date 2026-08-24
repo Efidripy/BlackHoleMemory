@@ -1,0 +1,41 @@
+# Script surface policy
+
+`scripts/` is a public product surface: every file in it is shipped with the
+source and release materialization. It must therefore contain only stable,
+documented entrypoints for installation, runtime operation, recovery, release
+build/verification, and hermetic public quality gates.
+
+## Naming
+
+Public script names use lowercase kebab-case and describe their action:
+
+```text
+bhm-<verb>-<object>[-<qualifier>].py
+<verb>-bhm-<object>[-<qualifier>].ps1
+```
+
+Allowed verbs are `start`, `stop`, `run`, `check`, `validate`,
+`audit`, `build`, `verify`, `repair`, `migrate`, `plan`,
+`apply`, `manage`, `export` and `restore`. Work-item, worklist, phase,
+incident and personal identifiers do not belong in a public filename.
+
+## Local-only tooling
+
+One-shot research, synthetic acceptance drills, historical migration receipts,
+machine-bound diagnostics, benchmark experiments and credential-bound helpers
+belong below `.local/scripts/`. That directory is intentionally ignored and is
+never included in a release. Historical identifiers may remain there because
+they are local provenance, not public operator contracts.
+
+Before moving a script out of the public surface, prove that it is not required
+by the package, release materialization, CI, public documentation or a
+publicly tracked test. Move its matching local-only test and fixture in the
+same change when needed.
+
+## Migration rule
+
+Rename and relocate one role group at a time. Update code, tests, CI, docs,
+release packaging and any launch specification atomically; then run the
+public-tree validator, affected tests and a runtime smoke check. Compatibility
+wrappers are temporary and must be tracked in the migration receipt rather
+than becoming a second permanent entrypoint.
