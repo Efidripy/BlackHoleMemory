@@ -26,11 +26,6 @@ REPORT_WRITER_SCRIPTS = (
     "benchmark-bhm-wi14-migration.py",
     "benchmark-bhm-wi15-security.py",
     "benchmark-bhm-wi17-product-value.py",
-    "benchmark-bhm-wi143-semantic-relevance.py",
-    "benchmark-bhm-wi150-parser-families.py",
-    "benchmark-bhm-wi153-parser-families.py",
-    "benchmark-bhm-wi158-bitbake-parser.py",
-    "benchmark-bhm-wi162-github-actions.py",
     "rebuild-bhm-p28-wi68-inventory.py",
 )
 
