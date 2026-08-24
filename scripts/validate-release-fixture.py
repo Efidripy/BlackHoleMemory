@@ -13,7 +13,7 @@ from types import ModuleType
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 REVISION = "0123456789abcdef0123456789abcdef01234567"
 TREE = "fedcba9876543210fedcba9876543210fedcba98"
 
@@ -32,7 +32,7 @@ def _load_script(name: str, module_name: str) -> ModuleType:
 def _write_fixture(root: Path) -> None:
     files = {
         "config/version-manifest.json": json.dumps({"release_version": VERSION}),
-        "pyproject.toml": '[project]\nname = "BlackHoleMemory"\nversion = "1.8.1"\n',
+        "pyproject.toml": '[project]\nname = "BlackHoleMemory"\nversion = "1.8.2"\n',
         "uv.lock": 'version = 1\nrevision = 1\nrequires-python = ">=3.12"\n',
         "plugins/bhm-codex-connector/.codex-plugin/plugin.json": json.dumps({"version": VERSION}),
         "scripts/bhm_launcher.py": "# hermetic release fixture\n",

@@ -4,7 +4,7 @@
 
 Security fixes are maintained for the current release line declared by
 `config/version-manifest.json`. The repository currently identifies itself as
-`1.8.1`; the historical `v1.8.0` tag remains immutable. A future release must
+`1.8.2`; the historical `v1.8.0` tag remains immutable. A future release must
 use a new SemVer value and update the manifest atomically.
 
 | Release line | Support |
