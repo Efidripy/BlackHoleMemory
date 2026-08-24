@@ -19,6 +19,16 @@ Tests and public quality gates are source evidence, not end-user launcher
 features. Their visibility allows independent review and reproducible CI; the
 release flag prevents them from inflating the installed application.
 
+### Historical test labels
+
+Some test files still contain `P`, `W`, `WI` or `WL` identifiers. They are
+historical implementation trace labels, not commands or features offered to an
+operator. Those tests remain visible only while they protect a supported
+runtime, release or compatibility contract. A rename must first establish the
+test's behaviour-based name and update all CI, documentation and fixture
+references atomically; an unreferenced name alone is never evidence that a
+test may be deleted or hidden.
+
 ## Naming
 
 Public script names use lowercase kebab-case and describe their action:
