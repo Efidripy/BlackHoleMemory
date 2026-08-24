@@ -34,7 +34,10 @@ The policy lives in
 It currently permits only stale root test/lint/browser caches, stale local
 coverage/log files and empty historical `pytest-*` runtime scratch directories,
 and one named superseded launcher cold-start rehearsal whose root launcher and
-release archive were independently verified afterward. New high-volume runtime
+release archive were independently verified afterward. It also permits the one
+named, non-applicable `temporal-app.diff` scratch patch and a historical
+`output/` root only when it contains no files (empty subdirectories are
+permitted) and its direct age gate passes. New high-volume runtime
 categories must be classified by owner, recovery dependency and retention
 period before they gain a rule.
 

@@ -6,6 +6,8 @@
     ".pytest_cache",
     ".ruff_cache",
     ".playwright-cli",
+    ".tmp",
+    "output",
     ".coverage",
     ".ci-local.log"
   ],
@@ -73,6 +75,21 @@
       "glob": "launcher-cold-start-9e2ddff332bd4a57825ea1378e23fb5f",
       "kind": "directory",
       "emptyOnly": false,
+      "minAgeDays": 3
+    },
+    {
+      "id": "superseded-temporal-app-patch-20260822",
+      "parent": ".tmp",
+      "glob": "temporal-app.diff",
+      "kind": "file",
+      "minAgeDays": 1
+    },
+    {
+      "id": "empty-historical-playwright-output-root",
+      "parent": ".",
+      "glob": "output",
+      "kind": "directory",
+      "treeEmptyOnly": true,
       "minAgeDays": 3
     }
   ]
