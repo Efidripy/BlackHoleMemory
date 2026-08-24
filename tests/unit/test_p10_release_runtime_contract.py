@@ -67,6 +67,15 @@ def test_release_builder_uses_immutable_source_snapshot_for_compiler_and_copy():
     assert "$sourceSnapshot -ne [string]$sourceSnapshotResult.source_snapshot_sha256" in text
 
 
+def test_release_builder_bounds_script_payload_to_public_manifest():
+    text = BUILDER.read_text(encoding="utf-8")
+    assert "Get-ReleaseScriptPayload" in text
+    assert "config\\public-script-manifest.json" in text
+    assert "$scriptDataArgs" in text
+    assert '$foldersToCopy = @("assets", "plugins", "infra", "config", "src")' in text
+    assert 'Join-Path $sourceRoot "scripts") + ";scripts"' not in text
+
+
 def test_release_builder_checks_custom_output_root_before_creation():
     text = BUILDER.read_text(encoding="utf-8")
     assert "Resolve-SafeArtifactRoot" in text

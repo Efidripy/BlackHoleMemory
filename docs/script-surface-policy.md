@@ -1,7 +1,10 @@
 # Script surface policy
 
-`scripts/` is a public product surface: every file in it is shipped with the
-source and release materialization. It must therefore contain only stable,
+`scripts/` is a public product surface. Release materialization consumes only
+the explicit entries in
+[`config/public-script-manifest.json`](../config/public-script-manifest.json);
+an unlisted tracked script is fail-closed out of the release payload. It must
+therefore contain only stable,
 documented entrypoints for installation, runtime operation, recovery, release
 build/verification, and hermetic public quality gates.
 
@@ -31,6 +34,15 @@ Before moving a script out of the public surface, prove that it is not required
 by the package, release materialization, CI, public documentation or a
 publicly tracked test. Move its matching local-only test and fixture in the
 same change when needed.
+
+## Release manifest
+
+Each public script has exactly one manifest entry with its canonical path,
+role, and `release: true`. The manifest is part of the tracked source
+snapshot and is checked by both materialization and staged-source verification.
+Adding a script to `scripts/` does not publish or package it: the change must
+also add a reviewed manifest entry. Removing or relocating a script must remove
+the matching entry in the same commit.
 
 ## Migration rule
 

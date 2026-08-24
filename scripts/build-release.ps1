@@ -29,6 +29,69 @@ function Assert-Path {
     }
 }
 
+function Get-ReleaseScriptPayload {
+    param([Parameter(Mandatory = $true)][string]$SourceRoot)
+
+    $manifestPath = Join-Path $SourceRoot "config\public-script-manifest.json"
+    Assert-Path -Path $manifestPath -Message "Missing public script manifest: $manifestPath"
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw "Unable to parse public script manifest: $manifestPath"
+    }
+    if ($null -eq $manifest -or $manifest.schema_version -ne "bhm.public-script-manifest.v1" -or $null -eq $manifest.entries) {
+        throw "Unsupported public script manifest: $manifestPath"
+    }
+
+    $seen = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $payload = @()
+    foreach ($entry in @($manifest.entries)) {
+        $relative = [string]$entry.path
+        $role = [string]$entry.role
+        if ([string]::IsNullOrWhiteSpace($relative) -or [string]::IsNullOrWhiteSpace($role) -or -not ($entry.release -is [bool])) {
+            throw "Invalid public script manifest entry."
+        }
+        if (-not [bool]$entry.release) {
+            continue
+        }
+        if (
+            -not $relative.StartsWith("scripts/", [System.StringComparison]::Ordinal) -or
+            $relative.Contains("\") -or
+            $relative.Split("/") | Where-Object { $_ -eq "" -or $_ -eq "." -or $_ -eq ".." }
+        ) {
+            throw "Unsafe public script manifest path: $relative"
+        }
+        if (-not $seen.Add($relative)) {
+            throw "Duplicate public script manifest path: $relative"
+        }
+        $source = Join-Path $SourceRoot ($relative.Replace("/", "\"))
+        Assert-Path -Path $source -Message "Manifest-approved script is missing: $relative"
+        $payload += [pscustomobject]@{
+            Relative = $relative
+            Source = $source
+            DestinationDirectory = ([IO.Path]::GetDirectoryName($relative.Replace("/", "\")))
+        }
+    }
+    if ($payload.Count -eq 0) {
+        throw "Public script manifest contains no release scripts."
+    }
+
+    $materialized = @(
+        Get-ChildItem -LiteralPath (Join-Path $SourceRoot "scripts") -Recurse -File -Force |
+            ForEach-Object {
+                "scripts/" + $_.FullName.Substring((Join-Path $SourceRoot "scripts").Length).TrimStart("\", "/").Replace("\", "/")
+            }
+    )
+    $declared = @($payload | ForEach-Object { $_.Relative })
+    $unexpected = Compare-Object -ReferenceObject $declared -DifferenceObject $materialized -PassThru |
+        Where-Object { $_ -in $materialized }
+    if ($unexpected) {
+        throw "Materialized source contains script absent from public manifest: $($unexpected -join ', ')"
+    }
+    return $payload
+}
+
 function Resolve-SafeArtifactRoot {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -290,6 +353,11 @@ $sourceRoot = $sourceSnapshotRoot
 $launcherPy = Join-Path $sourceRoot "scripts\bhm_launcher.py"
 $iconPath = Join-Path $sourceRoot "assets\bhm-control-panel.ico"
 $licensePath = Join-Path $sourceRoot "LICENSE"
+$publicScriptPayload = @(Get-ReleaseScriptPayload -SourceRoot $sourceRoot)
+$scriptDataArgs = @()
+foreach ($script in $publicScriptPayload) {
+    $scriptDataArgs += "--add-data", ($script.Source + ";" + $script.DestinationDirectory)
+}
 
 Write-Step "Compiling launcher with PyInstaller"
 $pyInstallerArgs = @(
@@ -302,7 +370,7 @@ $pyInstallerArgs = @(
     "--workpath", (Join-Path $buildDir "work"),
     "--distpath", $distDir,
     "--add-data", ((Join-Path $sourceRoot "assets") + ";assets"),
-    "--add-data", ((Join-Path $sourceRoot "scripts") + ";scripts"),
+    $scriptDataArgs,
     "--add-data", ((Join-Path $sourceRoot "plugins") + ";plugins"),
     "--add-data", ((Join-Path $sourceRoot "infra") + ";infra"),
     "--add-data", ((Join-Path $sourceRoot "config") + ";config"),
@@ -323,7 +391,7 @@ if (Test-Path -LiteralPath $iconPath) {
         "--workpath", (Join-Path $buildDir "work"),
         "--distpath", $distDir,
         "--add-data", ((Join-Path $sourceRoot "assets") + ";assets"),
-        "--add-data", ((Join-Path $sourceRoot "scripts") + ";scripts"),
+        $scriptDataArgs,
         "--add-data", ((Join-Path $sourceRoot "plugins") + ";plugins"),
         "--add-data", ((Join-Path $sourceRoot "infra") + ";infra"),
         "--add-data", ((Join-Path $sourceRoot "config") + ";config"),
@@ -345,7 +413,7 @@ Write-Step "Assembling clean distribution folder"
 # trusted build therefore remains non-mutating with respect to the checkout.
 Move-Item -LiteralPath $compiledExe -Destination $releaseExe -Force
 
-$foldersToCopy = @("assets", "scripts", "plugins", "infra", "config", "src")
+$foldersToCopy = @("assets", "plugins", "infra", "config", "src")
 foreach ($folder in $foldersToCopy) {
     $source = Join-Path $sourceRoot $folder
     $destination = Join-Path $releaseDir $folder
@@ -360,6 +428,11 @@ foreach ($folder in $foldersToCopy) {
         New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
         Copy-Item -LiteralPath $file.FullName -Destination $target -Force
     }
+}
+foreach ($script in $publicScriptPayload) {
+    $targetDirectory = Join-Path $releaseDir $script.DestinationDirectory
+    New-Item -ItemType Directory -Path $targetDirectory -Force | Out-Null
+    Copy-Item -LiteralPath $script.Source -Destination (Join-Path $targetDirectory ([IO.Path]::GetFileName($script.Relative))) -Force
 }
 Copy-Item -LiteralPath (Join-Path $sourceRoot "pyproject.toml") -Destination (Join-Path $releaseDir "pyproject.toml") -Force
 Copy-Item -LiteralPath (Join-Path $sourceRoot "uv.lock") -Destination (Join-Path $releaseDir "uv.lock") -Force

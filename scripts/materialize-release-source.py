@@ -23,8 +23,9 @@ RELEASE_MATERIALIZE_GIT_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_MATERIALIZE_
 RELEASE_ARCHIVE_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_ARCHIVE_TIMEOUT_SECONDS
 
 
-SOURCE_FOLDERS = ("assets", "scripts", "plugins", "infra", "config", "src")
+SOURCE_FOLDERS = ("assets", "plugins", "infra", "config", "src")
 SOURCE_FILES = ("pyproject.toml", "uv.lock", "LICENSE")
+PUBLIC_SCRIPT_MANIFEST = "config/public-script-manifest.json"
 
 
 def digest_bytes(payload: bytes) -> str:
@@ -57,7 +58,48 @@ def git_value(root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def git_tracked_entries(root: Path) -> dict[str, tuple[str, str]]:
+def load_public_script_paths(root: Path) -> set[str]:
+    """Load the checked-in, fail-closed release allowlist for scripts/."""
+
+    manifest_path = root / PUBLIC_SCRIPT_MANIFEST
+    try:
+        raw = manifest_path.read_text(encoding="utf-8")
+        document = json.loads(raw)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"public script manifest is unavailable or invalid: {exc}") from exc
+    if not isinstance(document, dict) or document.get("schema_version") != "bhm.public-script-manifest.v1":
+        raise SystemExit("public script manifest has unsupported schema")
+    entries = document.get("entries")
+    if not isinstance(entries, list):
+        raise SystemExit("public script manifest entries must be an array")
+    paths: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise SystemExit("public script manifest contains a non-object entry")
+        path = entry.get("path")
+        role = entry.get("role")
+        release = entry.get("release")
+        if (
+            not isinstance(path, str)
+            or not path.startswith("scripts/")
+            or "\\" in path
+            or PurePosixPath(path).is_absolute()
+            or ".." in PurePosixPath(path).parts
+            or not isinstance(role, str)
+            or not role.strip()
+            or not isinstance(release, bool)
+        ):
+            raise SystemExit("public script manifest contains an invalid entry")
+        if release:
+            if path in paths:
+                raise SystemExit(f"public script manifest contains duplicate entry: {path}")
+            paths.add(path)
+    if not paths:
+        raise SystemExit("public script manifest contains no release scripts")
+    return paths
+
+
+def git_tracked_entries(root: Path, public_scripts: set[str]) -> dict[str, tuple[str, str]]:
     """Return the pinned HEAD mode/type for every tracked path."""
 
     try:
@@ -82,13 +124,13 @@ def git_tracked_entries(root: Path) -> dict[str, tuple[str, str]]:
             mode, kind, _object_id = header.split(" ", 2)
         except ValueError as exc:
             raise SystemExit(f"Git tracked-tree query returned malformed entry: {record!r}") from exc
-        if allowed(relative):
+        if allowed(relative, public_scripts):
             entries[relative] = (mode, kind)
     return entries
 
 
-def allowed(relative: str) -> bool:
-    return relative in SOURCE_FILES or relative.split("/", 1)[0] in SOURCE_FOLDERS
+def allowed(relative: str, public_scripts: set[str]) -> bool:
+    return relative in SOURCE_FILES or relative in public_scripts or relative.split("/", 1)[0] in SOURCE_FOLDERS
 
 
 def safe_relative(name: str) -> str:
@@ -123,7 +165,13 @@ def materialize(*, repo_root: Path, output_root: Path, expected_revision: str, e
         raise SystemExit("source tree changed before archive materialization")
     if git_value(repo_root, "status", "--porcelain", "--untracked-files=all"):
         raise SystemExit("source tree is not clean before archive materialization")
-    tracked_entries = git_tracked_entries(repo_root)
+    public_scripts = load_public_script_paths(repo_root)
+    tracked_entries = git_tracked_entries(repo_root, public_scripts)
+    if PUBLIC_SCRIPT_MANIFEST not in tracked_entries:
+        raise SystemExit("public script manifest is not a tracked release source file")
+    missing_manifest_scripts = sorted(public_scripts - set(tracked_entries))
+    if missing_manifest_scripts:
+        raise SystemExit(f"public script manifest lists untracked release script: {missing_manifest_scripts[0]}")
     unsupported = sorted(
         relative
         for relative, (mode, kind) in tracked_entries.items()
@@ -157,7 +205,7 @@ def materialize(*, repo_root: Path, output_root: Path, expected_revision: str, e
         with tarfile.open(fileobj=io.BytesIO(archive.stdout), mode="r:") as stream:
             for member in stream:
                 relative = safe_relative(member.name)
-                if not allowed(relative):
+                if not allowed(relative, public_scripts):
                     continue
                 if member.isdir():
                     continue

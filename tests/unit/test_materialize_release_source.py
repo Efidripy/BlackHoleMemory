@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import sys
 import tarfile
 from pathlib import Path
@@ -10,6 +11,16 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+SCRIPT_MANIFEST = {"schema_version": "bhm.public-script-manifest.v1", "entries": [{"path": "scripts/bhm_launcher.py", "role": "runtime", "release": True}]}
+
+
+def _write_manifest(root: Path, *, include_secret: bool = False) -> None:
+    entries = list(SCRIPT_MANIFEST["entries"])
+    if include_secret:
+        entries.append({"path": "scripts/secret.env", "role": "runtime", "release": True})
+    path = root / "config/public-script-manifest.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"schema_version": "bhm.public-script-manifest.v1", "entries": entries}), encoding="utf-8")
 
 
 def _module():
@@ -29,6 +40,13 @@ def _archive(*, include_symlink: bool = False) -> bytes:
             "scripts/bhm_launcher.py": b"launcher\n",
             "src/blackholememory/app.py": b"app\n",
             "config/version-manifest.json": b"{}\n",
+            "config/public-script-manifest.json": json.dumps(
+                {
+                    "schema_version": "bhm.public-script-manifest.v1",
+                    "entries": list(SCRIPT_MANIFEST["entries"])
+                    + ([{"path": "scripts/secret.env", "role": "runtime", "release": True}] if include_symlink else []),
+                }
+            ).encode("utf-8"),
             "pyproject.toml": b"[project]\n",
             "uv.lock": b"version = 1\n",
             "LICENSE": b"0BSD\n",
@@ -50,6 +68,7 @@ def _tree_listing(*, include_symlink: bool = False, mode: str = "100644") -> byt
         "scripts/bhm_launcher.py",
         "src/blackholememory/app.py",
         "config/version-manifest.json",
+        "config/public-script-manifest.json",
         "pyproject.toml",
         "uv.lock",
         "LICENSE",
@@ -65,6 +84,7 @@ def test_materializer_extracts_only_tracked_allowlist_and_binds_digest(tmp_path,
     revision = "a" * 40
     tree = "b" * 40
     archive = _archive()
+    _write_manifest(tmp_path / "repo")
 
     class Result:
         def __init__(self, stdout):
@@ -95,7 +115,7 @@ def test_materializer_extracts_only_tracked_allowlist_and_binds_digest(tmp_path,
     )
 
     assert result["ok"] is True
-    assert result["file_count"] == 6
+    assert result["file_count"] == 7
     assert (tmp_path / "snapshot/scripts/bhm_launcher.py").is_file()
     assert not (tmp_path / "snapshot/README.md").exists()
     assert timeouts == [
@@ -112,6 +132,7 @@ def test_materializer_rejects_symlink_source_entry(tmp_path, monkeypatch):
     revision = "a" * 40
     tree = "b" * 40
     archive = _archive(include_symlink=True)
+    _write_manifest(tmp_path / "repo", include_secret=True)
 
     class Result:
         def __init__(self, stdout):
@@ -144,6 +165,7 @@ def test_materializer_rejects_unsupported_tracked_mode(tmp_path, monkeypatch):
     module = _module()
     revision = "a" * 40
     tree = "b" * 40
+    _write_manifest(tmp_path / "repo")
 
     class Result:
         def __init__(self, stdout):
@@ -175,6 +197,7 @@ def test_materializer_cleans_partial_output_on_missing_tracked_entry(tmp_path, m
     revision = "a" * 40
     tree = "b" * 40
     archive = _archive()
+    _write_manifest(tmp_path / "repo")
 
     class Result:
         def __init__(self, stdout):
@@ -188,7 +211,7 @@ def test_materializer_cleans_partial_output_on_missing_tracked_entry(tmp_path, m
         if "status" in command:
             return Result("")
         if "ls-tree" in command:
-            return Result(_tree_listing() + b"100644 blob " + b"0" * 40 + b"\tscripts/missing.py\0")
+            return Result(_tree_listing() + b"100644 blob " + b"0" * 40 + b"\tsrc/blackholememory/missing.py\0")
         if "archive" in command:
             return Result(archive)
         raise AssertionError(command)
@@ -243,3 +266,50 @@ def test_materializer_rejects_hardlinked_existing_output_before_git_probe(tmp_pa
             expected_revision="a" * 40,
             expected_tree="b" * 40,
         )
+
+
+def test_materializer_omits_tracked_script_absent_from_manifest(tmp_path, monkeypatch):
+    module = _module()
+    revision = "a" * 40
+    tree = "b" * 40
+    _write_manifest(tmp_path / "repo")
+
+    class Result:
+        def __init__(self, stdout):
+            self.stdout = stdout
+
+    archive = _archive()
+    payload = io.BytesIO()
+    with tarfile.open(fileobj=payload, mode="w:") as source:
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:") as original:
+            for member in original:
+                extracted = original.extractfile(member)
+                source.addfile(member, extracted)
+        extra = tarfile.TarInfo("scripts/local-only.py")
+        content = b"local only\n"
+        extra.size = len(content)
+        source.addfile(extra, io.BytesIO(content))
+
+    def fake_run(command, **_kwargs):
+        if command[-2:] == ["rev-parse", "HEAD"]:
+            return Result(revision + "\n")
+        if command[-2:] == ["rev-parse", "HEAD^{tree}"]:
+            return Result(tree + "\n")
+        if "status" in command:
+            return Result("")
+        if "ls-tree" in command:
+            return Result(_tree_listing() + b"100644 blob " + b"0" * 40 + b"\tscripts/local-only.py\0")
+        if "archive" in command:
+            return Result(payload.getvalue())
+        raise AssertionError(command)
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    result = module.materialize(
+        repo_root=tmp_path / "repo",
+        output_root=tmp_path / "snapshot",
+        expected_revision=revision,
+        expected_tree=tree,
+    )
+
+    assert result["ok"] is True
+    assert not (tmp_path / "snapshot/scripts/local-only.py").exists()
