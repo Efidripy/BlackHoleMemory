@@ -235,6 +235,18 @@ class LocalGatewaySemanticCompletion:
                         separators=(",", ":"),
                     ),
                 },
+                {
+                    "role": "user",
+                    # Place the response contract after untrusted evidence.
+                    # This keeps record text from becoming the most recent
+                    # instruction in the local model's context.
+                    "content": (
+                        "Evidence block complete. Reply now with JSON only: one object with "
+                        "operation, candidate, confidence, conflicts and reason. No prose, "
+                        "markdown or explanation. For no_op use an empty candidate object "
+                        "with title, content, memory_type, concepts and files."
+                    ),
+                },
             ),
         )
         result = self.gateway.complete(request)
