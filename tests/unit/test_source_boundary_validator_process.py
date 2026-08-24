@@ -40,6 +40,16 @@ def test_wi00_git_probe_is_bounded(monkeypatch) -> None:
     assert calls["timeout"] == WI00.GIT_PROBE_TIMEOUT_SECONDS
 
 
+def test_source_freeze_flags_reject_only_source_mutation_or_training() -> None:
+    safe_operational_flags = {"integration_enabled": True, "code_index_enabled": True}
+    unsafe_flags = {**safe_operational_flags, "source_import_enabled": True, "training_enabled": True}
+
+    assert WI00._unsafe_source_flags(safe_operational_flags) == []
+    assert P21._unsafe_source_flags(safe_operational_flags) == []
+    assert WI00._unsafe_source_flags(unsafe_flags) == ["source_import_enabled", "training_enabled"]
+    assert P21._unsafe_source_flags(unsafe_flags) == ["source_import_enabled", "training_enabled"]
+
+
 def test_p21_source_freeze_git_probe_is_bounded(monkeypatch) -> None:
     calls: dict[str, object] = {}
 

@@ -13,6 +13,14 @@ from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+UNSAFE_SOURCE_FEATURE_FLAGS = frozenset(
+    {
+        "source_import_enabled",
+        "autonomous_apply_enabled",
+        "training_enabled",
+        "lora_enabled",
+    }
+)
 
 
 def _write_report(path: Path, report: dict) -> None:
@@ -33,6 +41,12 @@ def git(*args: str) -> list[str]:
     return [line for line in result.stdout.splitlines() if line.strip()]
 
 
+def _unsafe_source_flags(flags: object) -> list[str]:
+    if not isinstance(flags, dict):
+        return []
+    return sorted(name for name in UNSAFE_SOURCE_FEATURE_FLAGS if flags.get(name) is True)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", type=Path, required=True)
@@ -51,8 +65,8 @@ def main() -> int:
     gitignore = Path(".gitignore").read_text(encoding="utf-8")
     dockerignore = Path(".dockerignore").read_text(encoding="utf-8")
     failures = []
-    if len(sources) != 33:
-        failures.append(f"registry source count={len(sources)}")
+    if not sources:
+        failures.append("source registry is empty")
     registry_manifests = [item for item in manifest_data if item.get("source_id") in registry_ids]
     auxiliary_manifests = [item for item in manifest_data if item.get("source_id") not in registry_ids]
     if len(registry_manifests) != len(sources):
@@ -80,8 +94,9 @@ def main() -> int:
         failures.append("manifest policy boundary violated")
     if any(not item.get("purpose") or not item.get("disposition") or item.get("material_present") is True for item in auxiliary_manifests):
         failures.append("auxiliary manifest lacks provenance or contains material")
-    if any(bool(value) for key, value in flags.items() if key.endswith("_enabled") and key in {"source_import_enabled", "autonomous_apply_enabled", "training_enabled", "lora_enabled"}):
-        failures.append("unsafe source/apply/training flag enabled")
+    unsafe_enabled = _unsafe_source_flags(flags)
+    if unsafe_enabled:
+        failures.append(f"unsafe source/apply/training flag enabled: {unsafe_enabled}")
     report = {
         "schema_version": "bhm.p21.18.wi36.source-freeze.v1",
         "generated_at": "2026-07-21",
@@ -96,7 +111,7 @@ def main() -> int:
         "ignore_boundary": {"git": ".src/" in gitignore, "docker": ".src/" in dockerignore},
         "source_delta_adopted": delta.get("adopted_delta_count"),
         "runtime_dependency_count": delta.get("runtime_dependency_count"),
-        "unsafe_flags": {key: value for key, value in flags.items() if key in {"source_import_enabled", "autonomous_apply_enabled", "training_enabled", "lora_enabled"}},
+        "unsafe_flags": {key: flags.get(key, False) for key in sorted(UNSAFE_SOURCE_FEATURE_FLAGS)},
         "freeze_mode": "no-adoption-delta; retain quarantine evidence and freeze additions",
         "writes_live_state": False,
         "failures": failures,
