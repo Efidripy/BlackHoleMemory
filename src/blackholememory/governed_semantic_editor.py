@@ -90,9 +90,19 @@ class GovernedSemanticEditorError(GovernedConsolidationError):
 class GovernedSemanticEditorUnavailable(GovernedSemanticEditorError):
     """The opt-in local semantic adapter cannot run in the current runtime."""
 
-    def __init__(self, message: str, *, code: str = "local_model_unavailable") -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "local_model_unavailable",
+        diagnostic: Mapping[str, Any] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
+        # Never retain model output or source evidence in an error receipt.
+        # The bounded values below are enough to distinguish a malformed
+        # reply from a provider outage during operator diagnosis.
+        self.diagnostic = _redacted_gateway_diagnostic(diagnostic)
 
 
 class SemanticCompletion(Protocol):
@@ -229,8 +239,27 @@ class LocalGatewaySemanticCompletion:
             raise GovernedSemanticEditorUnavailable(
                 f"local semantic editor did not return valid proposal JSON: {code}",
                 code=code,
+                diagnostic={
+                    "response_chars": len(str(getattr(result, "content", "") or "")),
+                    "parsed_json": isinstance(result.parsed_json, Mapping),
+                    "validation_checked": bool((getattr(result, "validation", {}) or {}).get("checked")),
+                    "missing_keys": list((getattr(result, "validation", {}) or {}).get("missing_keys") or ()),
+                },
             )
         return dict(result.parsed_json)
+
+
+def _redacted_gateway_diagnostic(value: Mapping[str, Any] | None) -> dict[str, Any]:
+    """Return bounded contract telemetry without model output or evidence."""
+
+    source = dict(value or {})
+    missing = source.get("missing_keys")
+    return {
+        "response_chars": min(max(int(source.get("response_chars") or 0), 0), 100_000),
+        "parsed_json": bool(source.get("parsed_json")),
+        "validation_checked": bool(source.get("validation_checked")),
+        "missing_keys": [str(item)[:64] for item in missing[:16]] if isinstance(missing, list) else [],
+    }
 
 
 def clamp_retrieval_limit(value: int) -> int:

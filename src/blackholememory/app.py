@@ -5218,6 +5218,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                     "schema_version": "bhm.governed-semantic-editor.v1",
                     "retrieved_candidate_count": len(records),
                     "selected_basis_count": len(proposal.get("basis") or []),
+                    "gateway_diagnostic": dict(getattr(exc, "diagnostic", {}) or {}),
                     "policy": {
                         "decision": "local_model_unavailable_deterministic_no_op",
                         "manual_approval_required": True,

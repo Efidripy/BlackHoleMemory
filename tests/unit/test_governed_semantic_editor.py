@@ -220,6 +220,41 @@ def test_local_gateway_semantic_completion_exposes_only_stable_failure_code(
         completion.complete(project="multiserversubgen", query="uninstall safety", records=[_record("mem_bhm_a", "evidence")])
 
     assert getattr(raised.value, "code") == "schema_validation_failed"
+    assert getattr(raised.value, "diagnostic") == {
+        "response_chars": 0,
+        "parsed_json": False,
+        "validation_checked": False,
+        "missing_keys": [],
+    }
+
+
+def test_local_gateway_semantic_completion_exposes_redacted_validation_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = LocalGatewaySemanticCompletion(
+        SemanticEditorConfig(True, "http://127.0.0.1:13666/v1", "qwen2.5-coder-7b-instruct", 10.0, 180)
+    )
+    monkeypatch.setattr(
+        completion.gateway,
+        "complete",
+        lambda _request: SimpleNamespace(
+            ok=False,
+            parsed_json={"operation": "no_op"},
+            content="private model reply must not be exposed",
+            validation={"checked": True, "missing_keys": ["candidate", "confidence", "reason"]},
+            failure={"code": "schema_validation_failed"},
+        ),
+    )
+
+    with pytest.raises(GovernedSemanticEditorError) as raised:
+        completion.complete(project="multiserversubgen", query="uninstall safety", records=[_record("mem_bhm_a", "evidence")])
+
+    assert getattr(raised.value, "diagnostic") == {
+        "response_chars": len("private model reply must not be exposed"),
+        "parsed_json": True,
+        "validation_checked": True,
+        "missing_keys": ["candidate", "confidence", "reason"],
+    }
 
 
 def test_local_gateway_semantic_completion_bounds_total_evidence_without_authority_identifiers() -> None:
