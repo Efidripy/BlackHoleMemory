@@ -43,6 +43,24 @@ Mem0 or Qdrant. Disablement is reversible by removing the flag; existing
 proposal evidence remains inert. The authority contract is documented in
 [architecture-authority.md](architecture-authority.md).
 
+### Local semantic proposal editor (default off)
+
+`BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED` defaults to unset/`false`. When it is
+explicitly enabled alongside governed consolidation, the authenticated operator
+surface may call a local-only OpenAI-compatible model to propose strict JSON.
+It is not a worker or polling switch: one explicit request performs one bounded
+foreground inference and returns a proposal or an error. Core API/MCP behavior
+does not depend on it.
+
+Optional settings are `BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL`,
+`BHM_GOVERNED_SEMANTIC_EDITOR_MODEL`,
+`BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS` (1–120; default `45`) and
+`BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS` (64–2048; default `900`). The base
+URL goes through the existing local-only endpoint policy, so a remote URL,
+credentials in the URL, redirects and oversized response are rejected. See
+[governed-semantic-editor.md](governed-semantic-editor.md) for the operator
+sequence and shadow-mode evidence contract.
+
 ## Local loopback endpoints and IPv6
 
 Каталог endpoint’ов принимает только сконфигурированные локальные hosts для

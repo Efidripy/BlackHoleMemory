@@ -10,6 +10,7 @@
   policy, capability gates и границы эскалации.
 - [SQLite retention](sqlite-retention.md) — автоматическая и офлайн-очистка истории.
 - [Authority boundaries](architecture-authority.md) — SQLite/outbox authority и governed consolidation proposals.
+- [Governed semantic editor](governed-semantic-editor.md) — local-model proposals, SQLite revalidation and shadow-mode quality gates.
 - [Data hygiene](data-hygiene.md) — двухфазная очистка точных disposable project IDs.
 - [Local artifact cleanup](local-artifact-cleanup.md) — fail-closed очистка только воспроизводимых локальных cache/scratch-артефактов.
 - [Runtime artifact governance](runtime-artifact-governance.md) — ownership, protection и архивирование тяжёлых локальных receipts/rollback-артефактов.
