@@ -18,7 +18,7 @@ def _load(name: str, relative: str):
 
 
 def test_wi01_benchmark_git_fixture_process_is_bounded(monkeypatch, tmp_path: Path) -> None:
-    module = _load("benchmark_bhm_wi01_repository_index", "scripts/benchmark-bhm-wi01-repository-index.py")
+    module = _load("benchmark_bhm_repository_index", "scripts/benchmark-bhm-repository-index.py")
     calls: dict[str, object] = {}
 
     def timeout(*_args, **kwargs):
@@ -36,7 +36,7 @@ def test_wi01_benchmark_git_fixture_process_is_bounded(monkeypatch, tmp_path: Pa
 
 
 def test_wi01_validator_child_process_is_bounded(monkeypatch) -> None:
-    module = _load("validate_bhm_wi01_repository_index", "scripts/validate-bhm-wi01-repository-index.py")
+    module = _load("validate_bhm_repository_index", "scripts/validate-bhm-repository-index.py")
     calls: dict[str, object] = {}
 
     def timeout(*_args, **kwargs):

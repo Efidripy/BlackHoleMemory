@@ -10,10 +10,10 @@ from blackholememory.filesystem_boundaries import replace_bytes_safely
 ROOT = Path(__file__).resolve().parents[2]
 
 REPORT_WRITER_SCRIPTS = (
-    "benchmark-bhm-wi01-repository-index.py",
-    "benchmark-bhm-wi02-code-graph.py",
-    "benchmark-bhm-wi03-code-graph-query.py",
-    "benchmark-bhm-wi04-conventions.py",
+    "benchmark-bhm-repository-index.py",
+    "benchmark-bhm-code-graph.py",
+    "benchmark-bhm-code-graph-query.py",
+    "benchmark-bhm-conventions.py",
     "benchmark-bhm-wi05-session-capture.py",
     "benchmark-bhm-wi06-memory-graph.py",
     "benchmark-bhm-wi07-task-graph.py",

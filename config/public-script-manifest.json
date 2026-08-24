@@ -33,22 +33,22 @@
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi01-repository-index.py",
+      "path": "scripts/benchmark-bhm-repository-index.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi02-code-graph.py",
+      "path": "scripts/benchmark-bhm-code-graph.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi03-code-graph-query.py",
+      "path": "scripts/benchmark-bhm-code-graph-query.py",
       "role": "benchmark",
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-wi04-conventions.py",
+      "path": "scripts/benchmark-bhm-conventions.py",
       "role": "benchmark",
       "release": true
     },
@@ -1008,27 +1008,27 @@
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi00-source-passport.py",
+      "path": "scripts/validate-bhm-source-passport.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi01-repository-index.py",
+      "path": "scripts/validate-bhm-repository-index.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi02-code-graph.py",
+      "path": "scripts/validate-bhm-code-graph.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi03-code-graph-query.py",
+      "path": "scripts/validate-bhm-code-graph-query.py",
       "role": "quality-gate",
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-wi04-conventions.py",
+      "path": "scripts/validate-bhm-conventions.py",
       "role": "quality-gate",
       "release": true
     },
