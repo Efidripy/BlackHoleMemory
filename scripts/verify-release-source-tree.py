@@ -18,6 +18,7 @@ import stat
 import subprocess
 import tarfile
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.filesystem_boundaries import assert_safe_path
@@ -29,8 +30,9 @@ RELEASE_SOURCE_TREE_GIT_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_SOURCE_TREE_
 RELEASE_SOURCE_TREE_ARCHIVE_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_ARCHIVE_TIMEOUT_SECONDS
 
 
-SOURCE_FOLDERS = ("assets", "scripts", "plugins", "infra", "config", "src")
+SOURCE_FOLDERS = ("assets", "plugins", "infra", "config", "src")
 SOURCE_FILES = ("pyproject.toml", "uv.lock", "LICENSE")
+PUBLIC_SCRIPT_MANIFEST = "config/public-script-manifest.json"
 GENERATED_FILES = {
     "BHM_Launcher.exe",
     "BHM_Launcher.exe",
@@ -46,7 +48,46 @@ def sha256(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def source_paths(root: Path) -> dict[str, Path]:
+def load_public_script_paths(root: Path) -> tuple[set[str], str | None]:
+    """Return manifest-approved script paths or a diagnostic failure."""
+
+    try:
+        document = json.loads((root / PUBLIC_SCRIPT_MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return set(), f"public script manifest is unavailable or invalid: {exc}"
+    if not isinstance(document, dict) or document.get("schema_version") != "bhm.public-script-manifest.v1":
+        return set(), "public script manifest has unsupported schema"
+    entries = document.get("entries")
+    if not isinstance(entries, list):
+        return set(), "public script manifest entries must be an array"
+    paths: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return set(), "public script manifest contains a non-object entry"
+        path = entry.get("path")
+        role = entry.get("role")
+        release = entry.get("release")
+        if (
+            not isinstance(path, str)
+            or not path.startswith("scripts/")
+            or "\\" in path
+            or PurePosixPath(path).is_absolute()
+            or ".." in PurePosixPath(path).parts
+            or not isinstance(role, str)
+            or not role.strip()
+            or not isinstance(release, bool)
+        ):
+            return set(), "public script manifest contains an invalid entry"
+        if release:
+            if path in paths:
+                return set(), f"public script manifest contains duplicate entry: {path}"
+            paths.add(path)
+    if not paths:
+        return set(), "public script manifest contains no release scripts"
+    return paths, None
+
+
+def source_paths(root: Path, public_scripts: set[str]) -> dict[str, Path]:
     result: dict[str, Path] = {}
     for folder in SOURCE_FOLDERS:
         base = root / folder
@@ -59,6 +100,10 @@ def source_paths(root: Path) -> dict[str, Path]:
     for relative in SOURCE_FILES:
         path = root / relative
         if path.is_file():
+            result[relative] = path
+    for relative in public_scripts:
+        path = root.joinpath(*PurePosixPath(relative).parts)
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc":
             result[relative] = path
     return result
 
@@ -184,11 +229,11 @@ def git_blob_snapshot(root: Path, expected_paths: set[str]) -> dict[str, bytes] 
         return None
 
 
-def allowed_tracked_paths(paths: set[str]) -> set[str]:
+def allowed_tracked_paths(paths: set[str], public_scripts: set[str]) -> set[str]:
     return {
         relative
         for relative in paths
-        if relative in SOURCE_FILES or relative.split("/", 1)[0] in SOURCE_FOLDERS
+        if relative in SOURCE_FILES or relative in public_scripts or relative.split("/", 1)[0] in SOURCE_FOLDERS
     }
 
 
@@ -229,14 +274,21 @@ def verify(
     if status:
         failures.append("source tree is no longer clean")
 
+    public_scripts, manifest_error = load_public_script_paths(source_root)
+    if manifest_error:
+        failures.append(manifest_error)
     tracked = git_tracked_paths(source_root)
     if tracked is None:
         failures.append("unable to resolve exact tracked source tree from Git")
         tracked_source = set()
     else:
-        tracked_source = allowed_tracked_paths(tracked)
-    source = source_paths(source_root)
-    staged = source_paths(release_root)
+        tracked_source = allowed_tracked_paths(tracked, public_scripts)
+        if PUBLIC_SCRIPT_MANIFEST not in tracked_source:
+            failures.append("public script manifest is not a tracked release source file")
+        missing_manifest_scripts = sorted(public_scripts - tracked_source)
+        failures.extend(f"public script manifest lists untracked release script: {item}" for item in missing_manifest_scripts)
+    source = source_paths(source_root, public_scripts)
+    staged = source_paths(release_root, public_scripts)
     boundary_issues = boundary_failures(source, source_root, "source") + boundary_failures(staged, release_root, "staged")
     failures.extend(boundary_issues)
     source_missing = sorted(tracked_source - set(source))
@@ -314,13 +366,20 @@ def verify_source_only(*, source_root: Path, expected_revision: str, expected_tr
         failures.append("source tree changed during release preflight")
     if git_value(source_root, "status", "--porcelain", "--untracked-files=all"):
         failures.append("source tree is no longer clean")
+    public_scripts, manifest_error = load_public_script_paths(source_root)
+    if manifest_error:
+        failures.append(manifest_error)
     tracked = git_tracked_paths(source_root)
     if tracked is None:
         failures.append("unable to resolve exact tracked source tree from Git")
         tracked_source: set[str] = set()
     else:
-        tracked_source = allowed_tracked_paths(tracked)
-    source = source_paths(source_root)
+        tracked_source = allowed_tracked_paths(tracked, public_scripts)
+        if PUBLIC_SCRIPT_MANIFEST not in tracked_source:
+            failures.append("public script manifest is not a tracked release source file")
+        missing_manifest_scripts = sorted(public_scripts - tracked_source)
+        failures.extend(f"public script manifest lists untracked release script: {item}" for item in missing_manifest_scripts)
+    source = source_paths(source_root, public_scripts)
     boundary_issues = boundary_failures(source, source_root, "source")
     failures.extend(boundary_issues)
     missing = sorted(tracked_source - set(source))

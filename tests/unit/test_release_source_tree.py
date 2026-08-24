@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
+TRACKED_PATHS = {
+    "scripts/bhm_launcher.py",
+    "src/blackholememory/app.py",
+    "config/version-manifest.json",
+    "config/public-script-manifest.json",
+    "pyproject.toml",
+    "uv.lock",
+    "LICENSE",
+}
 
 
 def _module():
@@ -22,8 +32,19 @@ def _module():
 def _fixture(root: Path) -> Path:
     (root / "src/blackholememory").mkdir(parents=True)
     (root / "config").mkdir()
+    (root / "scripts").mkdir()
     (root / "src/blackholememory/app.py").write_text("print('stable')\n", encoding="utf-8")
     (root / "config/version-manifest.json").write_text("{}\n", encoding="utf-8")
+    (root / "scripts/bhm_launcher.py").write_text("print('launcher')\n", encoding="utf-8")
+    (root / "config/public-script-manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": "bhm.public-script-manifest.v1",
+                "entries": [{"path": "scripts/bhm_launcher.py", "role": "runtime", "release": True}],
+            }
+        ),
+        encoding="utf-8",
+    )
     for name in ("pyproject.toml", "uv.lock", "LICENSE"):
         (root / name).write_text(f"{name}\n", encoding="utf-8")
     return root
@@ -42,13 +63,7 @@ def test_source_tree_verifier_accepts_matching_staged_snapshot(tmp_path, monkeyp
         "git_value",
         lambda _root, *args: "a" * 40 if args == ("rev-parse", "HEAD") else "b" * 40 if args == ("rev-parse", "HEAD^{tree}") else "",
     )
-    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: {
-        "src/blackholememory/app.py",
-        "config/version-manifest.json",
-        "pyproject.toml",
-        "uv.lock",
-        "LICENSE",
-    })
+    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: TRACKED_PATHS)
     monkeypatch.setattr(module, "git_blob_snapshot", lambda root, paths: _git_blobs(source, paths))
 
     result = module.verify(
@@ -102,13 +117,7 @@ def test_source_tree_verifier_rejects_staged_tamper(tmp_path, monkeypatch):
         "git_value",
         lambda _root, *args: "a" * 40 if args == ("rev-parse", "HEAD") else "b" * 40 if args == ("rev-parse", "HEAD^{tree}") else "",
     )
-    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: {
-        "src/blackholememory/app.py",
-        "config/version-manifest.json",
-        "pyproject.toml",
-        "uv.lock",
-        "LICENSE",
-    })
+    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: TRACKED_PATHS)
     monkeypatch.setattr(module, "git_blob_snapshot", lambda root, paths: _git_blobs(source, paths))
 
     result = module.verify(
@@ -138,13 +147,7 @@ def test_source_tree_verifier_rejects_linked_source_file(tmp_path, monkeypatch):
         "git_value",
         lambda _root, *args: "a" * 40 if args == ("rev-parse", "HEAD") else "b" * 40 if args == ("rev-parse", "HEAD^{tree}") else "",
     )
-    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: {
-        "src/blackholememory/app.py",
-        "config/version-manifest.json",
-        "pyproject.toml",
-        "uv.lock",
-        "LICENSE",
-    })
+    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: TRACKED_PATHS)
     monkeypatch.setattr(module, "git_blob_snapshot", lambda root, paths: _git_blobs(source, paths))
 
     result = module.verify(source_root=source, release_root=staged, expected_revision="a" * 40, expected_tree="b" * 40)
@@ -213,13 +216,7 @@ def test_source_tree_verifier_rejects_ignored_or_untracked_source_file(tmp_path,
         "git_value",
         lambda _root, *args: "a" * 40 if args == ("rev-parse", "HEAD") else "b" * 40 if args == ("rev-parse", "HEAD^{tree}") else "",
     )
-    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: {
-        "src/blackholememory/app.py",
-        "config/version-manifest.json",
-        "pyproject.toml",
-        "uv.lock",
-        "LICENSE",
-    })
+    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: TRACKED_PATHS)
     monkeypatch.setattr(module, "git_blob_snapshot", lambda root, paths: _git_blobs(source, paths))
 
     result = module.verify(source_root=source, release_root=staged, expected_revision="a" * 40, expected_tree="b" * 40)
@@ -238,13 +235,7 @@ def test_source_tree_verifier_allows_launcher_as_generated_root_artifact(tmp_pat
         "git_value",
         lambda _root, *args: "a" * 40 if args == ("rev-parse", "HEAD") else "b" * 40 if args == ("rev-parse", "HEAD^{tree}") else "",
     )
-    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: {
-        "src/blackholememory/app.py",
-        "config/version-manifest.json",
-        "pyproject.toml",
-        "uv.lock",
-        "LICENSE",
-    })
+    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: TRACKED_PATHS)
     monkeypatch.setattr(module, "git_blob_snapshot", lambda root, paths: _git_blobs(source, paths))
 
     result = module.verify(source_root=source, release_root=staged, expected_revision="a" * 40, expected_tree="b" * 40)
@@ -261,13 +252,7 @@ def test_source_only_preflight_rejects_non_tracked_source(tmp_path, monkeypatch)
         "git_value",
         lambda _root, *args: "a" * 40 if args == ("rev-parse", "HEAD") else "b" * 40 if args == ("rev-parse", "HEAD^{tree}") else "",
     )
-    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: {
-        "src/blackholememory/app.py",
-        "config/version-manifest.json",
-        "pyproject.toml",
-        "uv.lock",
-        "LICENSE",
-    })
+    monkeypatch.setattr(module, "git_tracked_paths", lambda _root: TRACKED_PATHS)
     monkeypatch.setattr(module, "git_blob_snapshot", lambda root, paths: _git_blobs(source, paths))
 
     result = module.verify_source_only(source_root=source, expected_revision="a" * 40, expected_tree="b" * 40)
