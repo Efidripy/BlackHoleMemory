@@ -262,6 +262,26 @@ MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         disposition="temporary-reconciliation-cleanup",
         scope_signals=("temp_root: Path | None = None", "tempfile.mkdtemp", "shutil.rmtree(temp_root, ignore_errors=True)"),
     ),
+    ("scripts/bhm-create-external-live-backup.py", "_copy_json", "shutil.copyfile"): BoundaryExpectation(
+        disposition="reparse-checked-staged-json-copy",
+        scope_signals=("if _is_reparse_point(source)", "temporary = destination.with_suffix", "shutil.copyfile(source, temporary)", "os.replace(temporary, destination)"),
+    ),
+    ("scripts/bhm-create-external-live-backup.py", "_copy_json", "os.replace"): BoundaryExpectation(
+        disposition="atomic-staged-json-replacement",
+        scope_signals=("if _is_reparse_point(source)", "temporary = destination.with_suffix", "shutil.copyfile(source, temporary)", "os.replace(temporary, destination)"),
+    ),
+    ("scripts/bhm-create-external-live-backup.py", "create_backup", "shutil.rmtree"): BoundaryExpectation(
+        disposition="new-destination-failure-cleanup",
+        scope_signals=("if destination_root.exists()", "destination_root.mkdir(parents=False)", "shutil.rmtree(destination_root, ignore_errors=True)"),
+    ),
+    ("scripts/bhm-finalize-runtime-temp-trash.py", "finalize", "shutil.rmtree"): BoundaryExpectation(
+        disposition="digest-confirmed-reparse-checked-stage-finalization",
+        scope_signals=("plan = build_plan(runtime_root, stage_name)", "if digest != expected_plan_digest", "shutil.rmtree(target, onerror=_remove_readonly)"),
+    ),
+    ("scripts/bhm-local-artifact-cleanup.py", "apply_plan", "shutil.rmtree"): BoundaryExpectation(
+        disposition="digest-confirmed-reparse-checked-policy-cleanup",
+        scope_signals=("if plan[\"plan_digest\"] != expected_digest", "if plan[\"blocked\"]", "if not path.exists() or _is_reparse_point(path)", "shutil.rmtree(path)"),
+    ),
     ("scripts/generate-bhm-mcp-adapters.py", "_backup_target", "shutil.copyfile"): BoundaryExpectation(
         disposition="confined-adapter-rollback-backup",
         scope_signals=("assert_safe_path(path)", "assert_safe_path(backup_dir", "backup_path.parent.mkdir", "assert_safe_path(backup_path)"),
