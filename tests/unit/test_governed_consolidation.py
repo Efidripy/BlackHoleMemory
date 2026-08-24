@@ -241,6 +241,11 @@ def test_accepted_apply_reaches_qdrant_only_through_existing_projector(tmp_path:
     # The governed transaction adds only a canonical revision and its outbox
     # event.  It cannot initialize Mem0 or invoke a vector-store method.
     assert qdrant.upsert_calls == 0
+    assert result.apply_duration_ms >= 0.0
+    assert result.outbox["event_count"] == len(result.outbox_event_ids) == 1
+    assert result.outbox["status_counts"] == {"pending": 1}
+    assert result.outbox["pending_projection_event_count"] == 1
+    assert result.outbox["projection_lag_ms"] >= 0.0
     accepted = repository.get_memory(result.memory_ids[0], project="multiserversubgen")
     assert accepted is not None
     projector = QdrantProjector(qdrant, lambda _memory: [0.25, 0.75], expected_dimensions=2)
@@ -361,3 +366,5 @@ def test_redacted_multiserversubgen_fixture_builds_required_canonical_fact(tmp_p
         "Normal uninstall is project-scoped, interactive, requires a valid install-state log, and never performs host-wide cleanup by default. Legacy/orphan recovery is explicit manual-only and owner-reviewed."
     )
     assert proposal["execution"] == {"proposal_only": True, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False, "automatic_apply": False}
+    assert proposal["observability"]["candidate_count"] == 2
+    assert proposal["observability"]["analysis_duration_ms"] >= 0.0

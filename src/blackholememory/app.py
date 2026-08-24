@@ -5129,7 +5129,7 @@ def _governed_consolidation_apply(request: GovernedConsolidationApplyRequest, *,
         result = apply_approved_proposal(database_path=_governed_consolidation_database_path(), proposal_id=request.proposal_id, project=project, apply=request.apply, confirmation=request.confirmation)
     except (GovernedConsolidationError, OSError, ValueError) as exc:
         raise _governed_consolidation_error(exc) from exc
-    return {"proposal_id": result.proposal_id, "status": result.status, "memory_ids": list(result.memory_ids), "outbox_event_ids": list(result.outbox_event_ids), "link_id": result.link_id, "side_effects": {"sqlite_mutation": True, "memory_lifecycle_mutation": bool(result.memory_ids), "memory_outbox_mutation": bool(result.outbox_event_ids), "qdrant_mutation": False, "mem0_mutation": False, "projection": "existing_outbox_projector"}}
+    return {"proposal_id": result.proposal_id, "status": result.status, "memory_ids": list(result.memory_ids), "outbox_event_ids": list(result.outbox_event_ids), "link_id": result.link_id, "observability": {"apply_duration_ms": result.apply_duration_ms, "outbox": result.outbox}, "side_effects": {"sqlite_mutation": True, "memory_lifecycle_mutation": bool(result.memory_ids), "memory_outbox_mutation": bool(result.outbox_event_ids), "qdrant_mutation": False, "mem0_mutation": False, "projection": "existing_outbox_projector"}}
 
 
 def _require_typed_memory_boundary(

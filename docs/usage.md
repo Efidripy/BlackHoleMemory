@@ -67,6 +67,11 @@ and leaves vector projection to the existing sidecar. A changed basis is marked
 `supersede` keep immutable revision provenance for recovery. There is no
 background processing, polling, auto-merge or auto-archive.
 
+The bounded observability contract is content-safe: a proposal reports the
+number of selected authority records and local analyzer duration; an accepted
+apply reports its own duration plus the state and current lag of only the
+outbox events it created. It never returns memory content from telemetry.
+
 The REST/MCP endpoints are authenticated, project-scoped and operator-only for
 decision/apply. They are intentionally absent from the ordinary MCP attach
 catalog. See [authority and projection boundaries](architecture-authority.md)
