@@ -39,6 +39,39 @@ Metadata-only changes are projected with a stable
 Qdrant `set_payload` instead of recomputing an embedding. Points created before
 this digest existed are treated as stale once and refreshed from SQLite.
 
+## Governed consolidation (operator-gated)
+
+Governed consolidation creates a typed `no_op`, `create`, `revise`,
+`supersede`, `archive` or `link` **proposal** from a bounded same-project set
+of canonical SQLite memories. It is not an autonomous Mem0 editor: the
+default analyzer is deterministic and non-persisting because upstream
+`mem0ai==2.0.4` inference can write its vector store.
+
+The feature is disabled by default. Do not enable it against a running live
+database. First use the local CLI to inspect status and, only in an authorized
+offline window, prepare a digest-bound migration using an already verified
+backup:
+
+```powershell
+uv run python .\scripts\bhm-governed-consolidation.py `
+  --action status `
+  --database .\.runtime\live-memory\memories.sqlite3
+```
+
+After a separately approved migration and shadow activation, the required
+operator sequence is: create/replay proposal → inspect/validate → approve or
+reject → dry-run → explicit `apply=true` with the exact proposal ID. Apply
+performs same-transaction SQLite revalidation, emits the normal outbox event,
+and leaves vector projection to the existing sidecar. A changed basis is marked
+`stale`; no partial lifecycle operation is committed. `archive` and
+`supersede` keep immutable revision provenance for recovery. There is no
+background processing, polling, auto-merge or auto-archive.
+
+The REST/MCP endpoints are authenticated, project-scoped and operator-only for
+decision/apply. They are intentionally absent from the ordinary MCP attach
+catalog. See [authority and projection boundaries](architecture-authority.md)
+and [configuration](configuration.md) before requesting activation.
+
 ## Memory refinery
 
 The refinery normalizes project aliases, tags, display titles, summaries and

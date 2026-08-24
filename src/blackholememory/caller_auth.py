@@ -63,6 +63,10 @@ _AUTH_ONLY_EXACT_PATHS = frozenset(
         "/bhm/llm/model-router",
         "/bhm/llm/cache",
         "/bhm/hooks/queue/status",
+        # Governed consolidation status is process-level and content-safe.
+        # It must remain visible to an authenticated operator even when that
+        # caller is deliberately restricted to a single project.
+        "/bhm/governed-consolidation/status",
     }
 )
 _AUTH_ONLY_PREFIXES = ("/bhm/mcp/", "/bhm/telemetry/")
@@ -99,6 +103,10 @@ _EXPLICIT_PROJECT_SCOPE_PATHS = frozenset(
         "/bhm/utility-feedback/consolidation-preview",
         "/bhm/consolidation/change-set/preview",
         "/bhm/consolidation/change-set/review",
+        "/bhm/governed-consolidation/proposals",
+        "/bhm/governed-consolidation/proposals/decision",
+        "/bhm/governed-consolidation/proposals/apply",
+        "/bhm/governed-consolidation/proposals/dry-run",
         "/bhm/memory/restore-hard-deleted-preview",
         "/bhm/memory/timeline",
         "/bhm/recent-activity",

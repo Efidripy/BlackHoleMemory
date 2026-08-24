@@ -128,12 +128,15 @@ _MODE_ALIASES = {
 }
 
 _DEFAULT_RUNTIME_DIR = Path(__file__).resolve().parents[2] / ".runtime"
-_MEMORY_STORE_SCHEMA_VERSIONS = frozenset({1, 2})
+_MEMORY_STORE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
 # Compatibility alias for versioned contract/report scripts.  The plural set
 # remains the readiness source of truth; this scalar names the latest schema.
 _MEMORY_STORE_SCHEMA_VERSION = max(_MEMORY_STORE_SCHEMA_VERSIONS)
 _FRESHNESS_SCHEMA_TABLES = frozenset(
     {"freshness_candidates", "freshness_candidate_events", "freshness_scan_state"}
+)
+_GOVERNED_CONSOLIDATION_SCHEMA_TABLES = frozenset(
+    {"governed_consolidation_proposals", "governed_consolidation_events"}
 )
 _REQUIRED_MEMORY_STORE_TABLES = frozenset(
     {
@@ -177,8 +180,10 @@ def _inspect_memory_store_schema_uncached(
             }
             if not _REQUIRED_MEMORY_STORE_TABLES.issubset(tables):
                 return False, "sqlite_schema_tables_missing"
-            if version == 2 and not _FRESHNESS_SCHEMA_TABLES.issubset(tables):
+            if version >= 2 and not _FRESHNESS_SCHEMA_TABLES.issubset(tables):
                 return False, "sqlite_freshness_schema_missing_tables"
+            if version >= 3 and not _GOVERNED_CONSOLIDATION_SCHEMA_TABLES.issubset(tables):
+                return False, "sqlite_governed_consolidation_schema_missing_tables"
             quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0]).casefold()
             return (
                 (True, "sqlite_schema_valid")

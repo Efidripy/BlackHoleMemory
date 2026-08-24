@@ -44,12 +44,19 @@ from .temporal_contract import normalize_temporal_timestamp
 
 MEMORY_STORE_SCHEMA_VERSION = 1
 FRESHNESS_SCHEMA_VERSION = 2
+GOVERNED_CONSOLIDATION_SCHEMA_VERSION = 3
+# Governance tables are an explicit operator migration.  New and legacy
+# runtime initialization intentionally remains on the ordinary schema rather
+# than upgrading a live authority store at startup.
 MEMORY_STORE_SCHEMA_LATEST_VERSION = FRESHNESS_SCHEMA_VERSION
 SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS = frozenset(
-    {MEMORY_STORE_SCHEMA_VERSION, FRESHNESS_SCHEMA_VERSION}
+    {MEMORY_STORE_SCHEMA_VERSION, FRESHNESS_SCHEMA_VERSION, GOVERNED_CONSOLIDATION_SCHEMA_VERSION}
 )
 FRESHNESS_SCHEMA_TABLES = frozenset(
     {"freshness_candidates", "freshness_candidate_events", "freshness_scan_state"}
+)
+GOVERNED_CONSOLIDATION_SCHEMA_TABLES = frozenset(
+    {"governed_consolidation_proposals", "governed_consolidation_events"}
 )
 MEMORY_STORE_BUSY_TIMEOUT_MS = 5_000
 MEMORY_STORE_WRITE_RETRY_DELAYS = (0.025, 0.05, 0.1, 0.2, 0.4)
@@ -238,6 +245,17 @@ class MemoryRepository(Protocol):
         retry_after_seconds: float = 5.0,
         max_attempts: int = 5,
     ) -> OutboxEvent: ...
+
+    def apply_governed_consolidation(
+        self,
+        *,
+        proposal_id: str,
+        project: str,
+        basis: Sequence[Mapping[str, str]],
+        memories: Sequence[Memory],
+        expected_revision_ids: Mapping[str, str | None],
+        link: MemoryLink | None = None,
+    ) -> tuple[list[SaveMemoryResult], MemoryLink | None]: ...
 
 
 def _json_dumps(value: Any, field_name: str) -> str:
@@ -501,6 +519,8 @@ class SQLiteMemoryRepository:
                 if not _REQUIRED_MEMORY_STORE_TABLES.issubset(tables):
                     return False
                 if version >= FRESHNESS_SCHEMA_VERSION and not FRESHNESS_SCHEMA_TABLES.issubset(tables):
+                    return False
+                if version >= GOVERNED_CONSOLIDATION_SCHEMA_VERSION and not GOVERNED_CONSOLIDATION_SCHEMA_TABLES.issubset(tables):
                     return False
                 return fast or str(connection.execute("PRAGMA quick_check").fetchone()[0]).casefold() == "ok"
             finally:
@@ -1012,6 +1032,141 @@ class SQLiteMemoryRepository:
                 )
                 for memory in items
             ]
+
+    @staticmethod
+    def _save_link_in_transaction(connection: sqlite3.Connection, link: MemoryLink) -> None:
+        connection.execute(
+            """
+            INSERT INTO memory_links(
+                link_id, project, source_id, target_id, relation,
+                created_at, updated_at, metadata_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(link_id) DO UPDATE SET
+                project = excluded.project,
+                source_id = excluded.source_id,
+                target_id = excluded.target_id,
+                relation = excluded.relation,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                metadata_json = excluded.metadata_json
+            """,
+            (
+                link.id,
+                link.project,
+                link.source_id,
+                link.target_id,
+                link.relation,
+                link.created_at,
+                link.updated_at,
+                _json_dumps(link.metadata, "link.metadata"),
+            ),
+        )
+
+    def apply_governed_consolidation(
+        self,
+        *,
+        proposal_id: str,
+        project: str,
+        basis: Sequence[Mapping[str, str]],
+        memories: Sequence[Memory],
+        expected_revision_ids: Mapping[str, str | None],
+        link: MemoryLink | None = None,
+    ) -> tuple[list[SaveMemoryResult], MemoryLink | None]:
+        """Commit one approved governed proposal with canonical effects atomically.
+
+        The proposal tables are created only by the dedicated additive
+        migration.  This method owns the commit boundary so an accepted memory
+        revision, its outbox row and the proposal's applied receipt cannot
+        split across transactions.
+        """
+
+        normalized_project = str(project or "").strip()
+        normalized_proposal_id = str(proposal_id or "").strip()
+        if not normalized_project or not normalized_proposal_id:
+            raise MemoryRepositoryIntegrityError("governed proposal id and project are required")
+        if len(basis) < 1 or len(basis) > 32:
+            raise MemoryRepositoryIntegrityError("governed proposal basis must contain 1..32 rows")
+        items = list(memories)
+        if len(items) > 32 or len({memory.id for memory in items}) != len(items):
+            raise MemoryRepositoryIntegrityError("governed proposal mutation set is invalid")
+        if any(memory.project != normalized_project for memory in items):
+            raise MemoryRepositoryIntegrityError("governed proposal memory project mismatch")
+        if link is not None and link.project != normalized_project:
+            raise MemoryRepositoryIntegrityError("governed proposal link project mismatch")
+
+        expected_basis = [
+            {
+                "memory_id": str(item.get("memory_id") or ""),
+                "revision_id": str(item.get("revision_id") or ""),
+                "content_sha256": str(item.get("content_sha256") or "").lower(),
+            }
+            for item in basis
+        ]
+        if any(not all(item.values()) or len(item["content_sha256"]) != 64 for item in expected_basis):
+            raise MemoryRepositoryIntegrityError("governed proposal basis is malformed")
+
+        with self._write_transaction() as connection:
+            try:
+                proposal = connection.execute(
+                    "SELECT project, status, basis_json, requires_human_approval FROM governed_consolidation_proposals WHERE proposal_id = ?",
+                    (normalized_proposal_id,),
+                ).fetchone()
+            except sqlite3.OperationalError as exc:
+                raise MemoryRepositoryIntegrityError("governed consolidation migration is required") from exc
+            if proposal is None or str(proposal["project"]) != normalized_project:
+                raise MemoryRepositoryIntegrityError("governed proposal is absent or cross-project")
+            if str(proposal["status"]) != "approved" or int(proposal["requires_human_approval"]) != 1:
+                raise MemoryRevisionConflict("governed proposal is not approved")
+            stored_basis = _json_loads(str(proposal["basis_json"]), "governed proposal basis")
+            if _json_dumps(stored_basis, "governed proposal basis") != _json_dumps(expected_basis, "governed proposal basis"):
+                raise MemoryRevisionConflict("governed proposal basis changed")
+            for item in expected_basis:
+                row = connection.execute(
+                    """
+                    SELECT m.project, m.current_revision_id, r.content_sha256
+                    FROM memories AS m
+                    JOIN memory_revisions AS r ON r.revision_id = m.current_revision_id
+                    WHERE m.memory_id = ?
+                    """,
+                    (item["memory_id"],),
+                ).fetchone()
+                if (
+                    row is None
+                    or str(row["project"]) != normalized_project
+                    or str(row["current_revision_id"]) != item["revision_id"]
+                    or str(row["content_sha256"]).lower() != item["content_sha256"]
+                ):
+                    raise MemoryRevisionConflict(f"governed proposal basis drifted: {item['memory_id']}")
+
+            results = [
+                self._save_memory_in_transaction(
+                    connection,
+                    memory,
+                    expected_revision_id=expected_revision_ids.get(memory.id),
+                )
+                for memory in items
+            ]
+            if link is not None:
+                self._save_link_in_transaction(connection, link)
+            now = utc_now_iso()
+            connection.execute(
+                "UPDATE governed_consolidation_proposals SET status = 'applied', applied_at = ?, updated_at = ? WHERE proposal_id = ? AND status = 'approved'",
+                (now, now, normalized_proposal_id),
+            )
+            event_payload = _json_dumps(
+                {
+                    "memory_ids": [result.memory.id for result in results],
+                    "outbox_event_ids": [result.outbox_event_id for result in results],
+                    "link_id": link.id if link is not None else None,
+                },
+                "governed proposal event",
+            )
+            event_id = f"gce_bhm_{hashlib.sha256((normalized_proposal_id + ':applied:' + event_payload).encode('utf-8')).hexdigest()[:24]}"
+            connection.execute(
+                "INSERT INTO governed_consolidation_events(event_id, proposal_id, action, details_json, created_at) VALUES (?, ?, 'applied', ?, ?)",
+                (event_id, normalized_proposal_id, event_payload, now),
+            )
+            return results, link
 
     def save_memories_refinery_atomic(
         self,

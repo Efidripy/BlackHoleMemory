@@ -10,6 +10,7 @@ from blackholememory.mcp_surfaces import McpSurface
 from blackholememory.mcp_surfaces import catalog_report
 from blackholememory.mcp_surfaces import filter_tools
 from blackholememory.mcp_surfaces import is_tool_allowed
+from blackholememory.mcp_surfaces import requires_admin_capability
 from blackholememory.mcp_surfaces import resolve_mcp_surface
 
 
@@ -37,7 +38,7 @@ def test_registered_catalog_has_no_missing_or_duplicate_core_tools():
     assert report["missing_core"] == []
     assert report["missing_extended_public"] == []
     assert report["duplicates"] == []
-    assert report["admin_count"] == 159
+    assert report["admin_count"] == 167
 
 
 def test_surface_resolution_fails_closed_and_supports_operator_aliases(monkeypatch):
@@ -68,3 +69,13 @@ def test_core_surface_rejects_unlisted_tools_before_dispatch():
     assert is_tool_allowed("bhm_health", McpSurface.CORE)
     assert not is_tool_allowed("bhm_admin_export", McpSurface.CORE)
     assert is_tool_allowed("bhm_admin_export", McpSurface.ADMIN)
+
+
+def test_governed_consolidation_is_operator_only_not_an_attach_default():
+    """Proposal review is never exposed through the ordinary MCP catalog."""
+
+    tool = "bhm_governed_consolidation_apply"
+    assert tool not in CORE_TOOL_NAMES
+    assert not is_tool_allowed(tool, McpSurface.CORE)
+    assert is_tool_allowed(tool, McpSurface.ADMIN)
+    assert requires_admin_capability(tool, McpSurface.ADMIN)

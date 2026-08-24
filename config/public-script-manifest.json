@@ -189,6 +189,11 @@
       "release": true
     },
     {
+      "path": "scripts/bhm-governed-consolidation.py",
+      "role": "operator-maintenance",
+      "release": true
+    },
+    {
       "path": "scripts/bhm-llm-code-fabric.py",
       "role": "operator",
       "release": true
