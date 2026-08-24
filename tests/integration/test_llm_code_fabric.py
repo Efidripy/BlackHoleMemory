@@ -1,7 +1,7 @@
 from blackholememory import app as bhm_app
 
 
-def test_wi09_code_fabric_route_is_hidden_and_proposal_only():
+def test_code_fabric_route_is_hidden_and_proposal_only():
     route = next(route for route in bhm_app.app.routes if getattr(route, "path", "") == "/bhm/llm/code-fabric/plan")
     assert route.include_in_schema is False
     result = bhm_app.bhm_llm_code_fabric_plan(

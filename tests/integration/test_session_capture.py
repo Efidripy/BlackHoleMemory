@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from blackholememory import app as bhm_app
 
 
-def test_wi05_hidden_session_capture_route_is_read_only(monkeypatch):
+def test_hidden_session_capture_route_is_read_only(monkeypatch):
     now = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 
     class FakeObservationStore:
