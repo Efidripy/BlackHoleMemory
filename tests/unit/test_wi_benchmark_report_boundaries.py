@@ -11,6 +11,21 @@ ROOT = Path(__file__).resolve().parents[2]
 
 REPORT_WRITER_SCRIPTS = (
     "benchmark-bhm-repository-index.py",
+    "benchmark-bhm-code-graph.py",
+    "benchmark-bhm-code-graph-query.py",
+    "benchmark-bhm-conventions.py",
+    "benchmark-bhm-session-capture.py",
+    "benchmark-bhm-memory-graph.py",
+    "benchmark-bhm-task-graph.py",
+    "benchmark-bhm-unified-context.py",
+    "benchmark-bhm-llm-code-fabric.py",
+    "benchmark-bhm-factories.py",
+    "benchmark-bhm-unified-mcp.py",
+    "benchmark-bhm-human-ui.py",
+    "benchmark-bhm-capability-router.py",
+    "benchmark-bhm-migration.py",
+    "benchmark-bhm-security.py",
+    "benchmark-bhm-product-value.py",
     "rebuild-bhm-component-inventory.py",
 )
 
