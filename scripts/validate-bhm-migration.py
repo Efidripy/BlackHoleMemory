@@ -21,7 +21,7 @@ from blackholememory.migration_compatibility import verify_migration_digest
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-migration.py"
-BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi14-migration.py"
+BENCHMARK = ROOT / "scripts" / "benchmark-bhm-migration.py"
 CHILD_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 

@@ -44,7 +44,7 @@ def _run_migration_rehearsal() -> tuple[bool, int | None, bool]:
 
     try:
         result = subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "validate-bhm-wi14-migration.py")],
+            [sys.executable, str(ROOT / "scripts" / "validate-bhm-migration.py")],
             cwd=ROOT,
             env={**__import__("os").environ, "PYTHONPATH": str(ROOT / "src")},
             capture_output=True,

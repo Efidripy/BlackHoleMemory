@@ -22,7 +22,7 @@ from blackholememory.unified_mcp_contract import verify_unified_mcp_contract_dig
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-unified-mcp.py"
-BENCHMARK = ROOT / "scripts" / "benchmark-bhm-wi11-unified-mcp.py"
+BENCHMARK = ROOT / "scripts" / "benchmark-bhm-unified-mcp.py"
 WI11_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 WI11_EXPECTED_CORE_TOOL_COUNT = 35
 
