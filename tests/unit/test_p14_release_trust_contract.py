@@ -313,12 +313,30 @@ def test_trust_builder_git_identity_callers_use_registry_bound_timeout(monkeypat
     monkeypatch.setenv("BHM_SOURCE_TREE", "a" * 40)
     root = tmp_path / "checkout"
     root.mkdir()
+    (root / ".git").mkdir()
 
     assert build_trust.source_revision(root) == "a" * 40
     assert build_trust.source_dirty(root) is True
     assert build_trust.source_tree(root) == "a" * 40
     assert len(calls) == 3
     assert {call["timeout"] for call in calls} == {build_trust.RELEASE_TRUST_GIT_TIMEOUT_SECONDS}
+
+
+def test_trust_builder_uses_pinned_provenance_for_non_git_staging_root(monkeypatch, tmp_path):
+    root = tmp_path / "release-staging"
+    root.mkdir()
+    monkeypatch.setenv("BHM_SOURCE_REVISION", "a" * 40)
+    monkeypatch.setenv("BHM_SOURCE_DIRTY", "false")
+    monkeypatch.setenv("BHM_SOURCE_TREE", "b" * 40)
+
+    def unexpected_git(*_args, **_kwargs):
+        raise AssertionError("non-Git staging root must not discover a parent checkout")
+
+    monkeypatch.setattr(build_trust.subprocess, "run", unexpected_git)
+
+    assert build_trust.source_revision(root) == "a" * 40
+    assert build_trust.source_dirty(root) is False
+    assert build_trust.source_tree(root) == "b" * 40
 
 
 def test_trust_verifier_rejects_duplicate_consumed_package_evidence(tmp_path, monkeypatch):
