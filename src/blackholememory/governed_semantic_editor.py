@@ -270,10 +270,11 @@ class LocalGatewaySemanticCompletion:
                     ),
                 },
                 {
-                    "role": "user",
-                    # Place the response contract after untrusted evidence.
-                    # This keeps record text from becoming the most recent
-                    # instruction in the local model's context.
+                    # This is fixed BHM-authored contract text, not caller or
+                    # memory evidence. Keep it outside the untrusted-data
+                    # envelope so the model receives a final authoritative
+                    # output boundary after the retrieved records.
+                    "role": "developer",
                     "content": (
                         "Evidence block complete. Reply now with JSON only: one object with "
                         "operation, candidate, confidence, conflicts and reason. No prose, "
@@ -293,7 +294,7 @@ class LocalGatewaySemanticCompletion:
             attempt_request = request if attempt == 0 else replace(
                 request,
                 request_id=f"gse_{uuid4().hex}",
-                messages=request.messages + ({"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION},),
+                messages=request.messages + ({"role": "developer", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION},),
             )
             try:
                 return self._complete_validated(attempt_request)

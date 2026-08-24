@@ -188,6 +188,31 @@ def test_gateway_applies_safety_envelope_before_transport_and_marks_proposal():
     assert result.provenance["injection_findings"] == ["ignore_previous_instructions"]
 
 
+def test_gateway_preserves_static_developer_contract_outside_untrusted_evidence_envelope():
+    captured = {}
+
+    def transport(_url, payload, _headers, _timeout):
+        captured.update(payload)
+        return {"choices": [{"message": {"content": '{"status":"ok"}'}}]}
+
+    result = _gateway(transport).complete(
+        GatewayRequest(
+            "req-developer-contract",
+            "probe",
+            "local-model",
+            (
+                {"role": "user", "content": "untrusted evidence"},
+                {"role": "developer", "content": "Return JSON only."},
+            ),
+            json_required_keys=("status",),
+        )
+    )
+
+    assert result.ok is True
+    assert captured["messages"][1]["content"].startswith("[UNTRUSTED_DATA_BEGIN]")
+    assert captured["messages"][2] == {"role": "developer", "content": "Return JSON only."}
+
+
 def test_default_http_transport_uses_local_policy_and_bounded_response(monkeypatch):
     captured = {}
 
