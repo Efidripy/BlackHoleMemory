@@ -36,7 +36,7 @@ def test_ui_boot_report_is_redacted_and_navigation_is_same_origin():
     assert "crystals_total" not in links
 
 
-def test_wi12_hidden_route_and_existing_galaxy_surface():
+def test_hidden_route_and_existing_galaxy_surface():
     routes = {str(route.path): route for route in bhm_app.app.routes if hasattr(route, "path")}
     assert routes["/bhm/human-ui/preview"].include_in_schema is False
     assert routes["/bhm/galaxy"].path == "/bhm/galaxy"
