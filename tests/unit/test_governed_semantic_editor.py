@@ -13,6 +13,7 @@ from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_JS
 from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_PROMPT_ID
 from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
 from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
+from blackholememory.governed_semantic_editor import MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
 from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION
 from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_NO_OP_EXAMPLE
@@ -287,6 +288,7 @@ def test_local_gateway_semantic_completion_retries_one_schema_rejection_without_
 
     assert result["operation"] == "create"
     assert len(requests) == 2
+    assert MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS == 3
     assert requests[0].chat_template_kwargs == requests[1].chat_template_kwargs == {"enable_thinking": False}
     assert requests[1].messages[-1] == {"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
 
@@ -315,6 +317,27 @@ def test_local_gateway_semantic_completion_retries_semantically_invalid_json_onc
     assert result["operation"] == "create"
     assert len(requests) == 2
     assert requests[1].messages[-1] == {"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION}
+
+
+def test_local_gateway_semantic_completion_stops_after_three_invalid_contract_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = LocalGatewaySemanticCompletion(
+        SemanticEditorConfig(True, "http://127.0.0.1:13666/v1", "qwen2.5-coder-7b-instruct", 10.0, 180)
+    )
+    requests = []
+
+    def fake_complete(request):
+        requests.append(request)
+        return SimpleNamespace(ok=False, parsed_json=None, failure={"code": "schema_validation_failed"})
+
+    monkeypatch.setattr(completion.gateway, "complete", fake_complete)
+
+    with pytest.raises(GovernedSemanticEditorUnavailable, match="valid proposal JSON") as raised:
+        completion.complete(project="multiserversubgen", query="uninstall safety", records=[_record("mem_bhm_a", "evidence")])
+
+    assert raised.value.code == "schema_validation_failed"
+    assert len(requests) == MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS
 
 
 def test_local_gateway_semantic_completion_exposes_redacted_validation_diagnostic(
