@@ -181,6 +181,24 @@ def test_semantic_editor_local_defaults_fit_bounded_foreground_proposal_workload
     assert config.max_tokens == DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS == 180
 
 
+def test_local_gateway_semantic_completion_exposes_only_stable_failure_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completion = LocalGatewaySemanticCompletion(
+        SemanticEditorConfig(True, "http://127.0.0.1:13666/v1", "qwen2.5-coder-7b-instruct", 10.0, 180)
+    )
+    monkeypatch.setattr(
+        completion.gateway,
+        "complete",
+        lambda _request: SimpleNamespace(ok=False, parsed_json=None, failure={"code": "schema_validation_failed"}),
+    )
+
+    with pytest.raises(GovernedSemanticEditorError) as raised:
+        completion.complete(project="multiserversubgen", query="uninstall safety", records=[_record("mem_bhm_a", "evidence")])
+
+    assert getattr(raised.value, "code") == "schema_validation_failed"
+
+
 def test_local_gateway_semantic_completion_bounds_total_evidence_without_dropping_candidate_ids() -> None:
     records = [_record(f"mem_bhm_{index}", "x" * 8_000) for index in range(20)]
 

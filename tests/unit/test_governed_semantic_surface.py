@@ -86,7 +86,7 @@ class _UnavailableCompletion:
         pass
 
     def complete(self, **_kwargs) -> dict:
-        raise bhm_app.GovernedSemanticEditorUnavailable("provider timeout")
+        raise bhm_app.GovernedSemanticEditorUnavailable("provider response failed", code="schema_validation_failed")
 
 
 def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlite(monkeypatch) -> None:
@@ -206,5 +206,5 @@ def test_semantic_surface_returns_explicit_deterministic_no_op_when_local_model_
     assert result["proposal"]["operation"] == "no_op"
     assert result["proposal"]["semantic_editor"]["policy"]["decision"] == "local_model_unavailable_deterministic_no_op"
     assert result["proposal"]["execution"]["local_model_called"] is False
-    assert result["retrieval"]["model_fallback_reason"] == "local_model_unavailable"
+    assert result["retrieval"]["model_fallback_reason"] == "schema_validation_failed"
     assert governor.released

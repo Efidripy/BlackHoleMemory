@@ -24,7 +24,9 @@ Qdrant/Mem0 retrieval candidate IDs
   remain in SQLite for validation and operator review.
 - If the local model itself is unavailable, BHM emits an explicitly labelled
   deterministic `no_op` preview instead of treating the failure as a memory
-  write or a semantic result. The receipt reports `model_fallback_reason`.
+  write or a semantic result. The receipt reports a stable redacted
+  `model_fallback_reason` (for example `schema_validation_failed` or
+  `transport_error`), never raw provider text.
 - If the bounded embedding contour is temporarily unavailable, one explicit
   request may use a bounded same-project SQLite lexical fallback. Its response
   reports `source=sqlite_lexical_fallback`; it is never represented as vector

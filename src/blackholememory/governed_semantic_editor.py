@@ -55,6 +55,10 @@ class GovernedSemanticEditorError(GovernedConsolidationError):
 class GovernedSemanticEditorUnavailable(GovernedSemanticEditorError):
     """The opt-in local semantic adapter cannot run in the current runtime."""
 
+    def __init__(self, message: str, *, code: str = "local_model_unavailable") -> None:
+        super().__init__(message)
+        self.code = code
+
 
 class SemanticCompletion(Protocol):
     """Small testable boundary around a local-only structured completion."""
@@ -91,7 +95,10 @@ class SemanticEditorConfig:
                 2048,
             )
         except ValueError as exc:
-            raise GovernedSemanticEditorUnavailable("invalid local semantic editor configuration") from exc
+            raise GovernedSemanticEditorUnavailable(
+                "invalid local semantic editor configuration",
+                code="semantic_editor_invalid_configuration",
+            ) from exc
         return cls(
             enabled=enabled,
             base_url=str(os.getenv("BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL") or os.getenv("OPENAI_BASE_URL") or "http://127.0.0.1:1234/v1").strip(),
@@ -106,9 +113,15 @@ class LocalGatewaySemanticCompletion:
 
     def __init__(self, config: SemanticEditorConfig) -> None:
         if not config.enabled:
-            raise GovernedSemanticEditorUnavailable("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED is not set")
+            raise GovernedSemanticEditorUnavailable(
+                "BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED is not set",
+                code="semantic_editor_disabled",
+            )
         if not config.model_id:
-            raise GovernedSemanticEditorUnavailable("local semantic editor model is not configured")
+            raise GovernedSemanticEditorUnavailable(
+                "local semantic editor model is not configured",
+                code="semantic_editor_model_not_configured",
+            )
         self.config = config
         self.gateway = LocalLLMGateway(
             prompts=PromptRegistry([
@@ -175,7 +188,10 @@ class LocalGatewaySemanticCompletion:
         result = self.gateway.complete(request)
         if not result.ok or not isinstance(result.parsed_json, Mapping):
             code = str((result.failure or {}).get("code") or "local_model_invalid_response")
-            raise GovernedSemanticEditorUnavailable(f"local semantic editor did not return valid proposal JSON: {code}")
+            raise GovernedSemanticEditorUnavailable(
+                f"local semantic editor did not return valid proposal JSON: {code}",
+                code=code,
+            )
         return dict(result.parsed_json)
 
 

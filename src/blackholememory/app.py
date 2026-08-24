@@ -5199,7 +5199,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                     completion=completion,
                 )
                 model_fallback_reason: str | None = None
-            except GovernedSemanticEditorUnavailable:
+            except GovernedSemanticEditorUnavailable as exc:
                 # A local model is an optional proposal generator. Preserve a
                 # useful, auditable shadow result when it times out or its
                 # provider rejects the request, but never disguise that
@@ -5210,7 +5210,10 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                     retrieved_records=records,
                     reason="local semantic editor is unavailable; deterministic no-op emitted for operator review",
                 )
-                model_fallback_reason = "local_model_unavailable"
+                # Publish only the stable, redacted adapter reason code.  The
+                # exception text may contain a provider detail and must not
+                # become a public API or proposal receipt field.
+                model_fallback_reason = str(getattr(exc, "code", "local_model_unavailable"))
                 proposal["semantic_editor"] = {
                     "schema_version": "bhm.governed-semantic-editor.v1",
                     "retrieved_candidate_count": len(records),
