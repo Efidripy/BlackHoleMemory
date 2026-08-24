@@ -206,6 +206,7 @@ def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai
     assert json.loads(content)["records"][0]["title"] == "mem_bhm_a"
     assert "memory_id" not in json.loads(content)["records"][0]
     assert captured["request"].json_schema == GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA
+    assert captured["request"].chat_template_kwargs == {"enable_thinking": False}
     assert result["operation"] == "create"
     prompt = completion.gateway.prompts.get(GOVERNED_SEMANTIC_EDITOR_PROMPT_ID)
     assert "candidate is still mandatory" in prompt.system

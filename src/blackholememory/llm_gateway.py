@@ -64,6 +64,10 @@ class GatewayRequest:
     source: str = "local-llm-gateway"
     workload: str = "foreground"
     queue_wait_ms: float = 0.0
+    # A deliberately narrow compatibility hint for local chat templates.  Do
+    # not turn this into an arbitrary provider-extra-body escape hatch: the
+    # gateway remains the policy boundary for every outbound local request.
+    chat_template_kwargs: dict[str, bool] | None = None
 
 
 @dataclass
@@ -175,6 +179,26 @@ def _bounded_request_timeout(value: float) -> float:
     return max(min(requested, float(LLM_HTTP_TIMEOUT_SECONDS)), 1.0)
 
 
+def _bounded_chat_template_kwargs(value: dict[str, bool] | None) -> dict[str, bool]:
+    """Validate the small local-template compatibility contract.
+
+    LM Studio's Qwen template accepts ``enable_thinking``.  Keeping this
+    allowlist explicit prevents callers from injecting arbitrary provider
+    request fields through an otherwise generic gateway request.
+    """
+
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("chat template kwargs must be a mapping")
+    if set(value) - {"enable_thinking"}:
+        raise ValueError("unsupported chat template kwargs")
+    enable_thinking = value.get("enable_thinking")
+    if not isinstance(enable_thinking, bool):
+        raise ValueError("enable_thinking must be a boolean")
+    return {"enable_thinking": enable_thinking}
+
+
 class LocalOpenAICompatibleAdapter:
     def __init__(self, *, transport: Transport | None = None) -> None:
         self._transport = transport or _http_transport
@@ -268,6 +292,9 @@ class LocalOpenAICompatibleAdapter:
         if request.tools:
             payload["tools"] = list(request.tools)
             payload["tool_choice"] = request.tool_choice or "auto"
+        chat_template_kwargs = _bounded_chat_template_kwargs(request.chat_template_kwargs)
+        if chat_template_kwargs:
+            payload["chat_template_kwargs"] = chat_template_kwargs
         return payload
 
     @staticmethod
