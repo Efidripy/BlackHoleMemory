@@ -62,6 +62,7 @@ MAX_MODEL_EVIDENCE_CHARS = 6_000
 MAX_MODEL_RECORD_CONTENT_CHARS = 1_800
 DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS = 60.0
 DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS = 180
+MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS = 3
 _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION = (
     "The prior completion was rejected because it was not valid for the strict "
     "proposal contract. Return a fresh JSON object only. Use exactly operation, "
@@ -284,25 +285,29 @@ class LocalGatewaySemanticCompletion:
                 },
             ),
         )
-        return self._complete_with_one_contract_retry(request)
+        return self._complete_with_contract_retries(request)
 
-    def _complete_with_one_contract_retry(self, request: GatewayRequest) -> Mapping[str, Any]:
-        try:
-            return self._complete_validated(request)
-        except GovernedSemanticEditorUnavailable as exc:
-            # A local completion that ignores the runner's JSON schema or
-            # violates the bounded semantic shape is not accepted. One fresh,
-            # content-free corrective retry handles transient template drift
-            # without exposing the rejected output, relaxing validation, or
-            # producing a mutation. The retry budget is exactly one.
-            if exc.code not in {"schema_validation_failed", "semantic_validation_failed"}:
-                raise
-        retry_request = replace(
-            request,
-            request_id=f"gse_{uuid4().hex}",
-            messages=request.messages + ({"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION},),
-        )
-        return self._complete_validated(retry_request)
+    def _complete_with_contract_retries(self, request: GatewayRequest) -> Mapping[str, Any]:
+        last_error: GovernedSemanticEditorUnavailable | None = None
+        for attempt in range(MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS):
+            attempt_request = request if attempt == 0 else replace(
+                request,
+                request_id=f"gse_{uuid4().hex}",
+                messages=request.messages + ({"role": "user", "content": _SEMANTIC_EDITOR_JSON_RETRY_INSTRUCTION},),
+            )
+            try:
+                return self._complete_validated(attempt_request)
+            except GovernedSemanticEditorUnavailable as exc:
+                # A local completion that ignores the runner's JSON schema or
+                # violates the bounded semantic shape is not accepted. Up to
+                # three independent, content-free attempts handle transient
+                # template drift without exposing a rejected output, relaxing
+                # validation, or producing a mutation.
+                if exc.code not in {"schema_validation_failed", "semantic_validation_failed"}:
+                    raise
+                last_error = exc
+        assert last_error is not None
+        raise last_error
 
     def _complete_validated(self, request: GatewayRequest) -> Mapping[str, Any]:
         result = self.gateway.complete(request)
