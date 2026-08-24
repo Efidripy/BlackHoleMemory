@@ -39,12 +39,12 @@ MIN_RETRIEVAL_CANDIDATES = 1
 MAX_QUERY_CHARS = 480
 MAX_CONFLICTS = 16
 MIN_CREATE_CONFIDENCE = 0.72
-# Workflow/checkpoint/session records are operational traces, not durable
-# propositions to consolidate. Feeding them to a semantic editor also turns
-# arbitrary historical instructions into model evidence. They remain fully
-# searchable through their own BHM surfaces but are excluded here.
+# Workflow/checkpoint/session records are operational traces, while runbooks
+# and architecture notes are instruction-bearing documents rather than atomic
+# propositions to consolidate. Feeding any of them to a semantic editor turns
+# historical instructions into model evidence. They remain searchable through
+# their own BHM surfaces but are excluded here.
 SEMANTIC_EDITOR_MEMORY_TYPES = frozenset({
-    "architecture",
     "audit",
     "bug",
     "crystal",
@@ -52,7 +52,6 @@ SEMANTIC_EDITOR_MEMORY_TYPES = frozenset({
     "fact",
     "knowledge-crystal",
     "pattern",
-    "runbook",
 })
 # Keep the local 7B editor inside a practical foreground budget even when an
 # operator requests all 20 candidates. SQLite keeps the complete canonical
