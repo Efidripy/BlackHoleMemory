@@ -22,6 +22,14 @@ Allowed verbs are `start`, `stop`, `run`, `check`, `validate`,
 `apply`, `manage`, `export` and `restore`. Work-item, worklist, phase,
 incident and personal identifiers do not belong in a public filename.
 
+The sole naming exception is a manifest entry with role `runtime-support` that
+is imported as a Python module by the launcher or another public runtime
+entrypoint. It may keep its `snake_case` module name until its implementation
+is moved into `src/blackholememory/`; renaming that kind of file mechanically
+would break imports and packaged-launcher contracts. Such a module is not an
+operator CLI and must not acquire a second public wrapper merely to satisfy
+the filename convention.
+
 ## Local-only tooling
 
 One-shot research, synthetic acceptance drills, historical migration receipts,
