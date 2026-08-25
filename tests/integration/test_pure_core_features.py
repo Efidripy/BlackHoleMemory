@@ -3022,6 +3022,67 @@ def test_mcp_context_compile_wrapper_can_select_a_native_profile(monkeypatch):
     ]
 
 
+def test_context_compile_recent_scope_uses_authoritative_sqlite_without_provider_warmup(monkeypatch):
+    project_name = "blackholememory"
+    records = [
+        {
+            "source_id": "fresh-memory",
+            "project": project_name,
+            "memory_type": "fact",
+            "content": "fresh canonical context",
+            "updated_at": "2026-08-25T10:00:00+00:00",
+            "metadata": {
+                "source_system": "bhm",
+                "source_kind": "mcp",
+                "updated_at": "2026-08-25T10:00:00+00:00",
+                "source_refs": ["docs/usage.md"],
+            },
+        }
+    ]
+    captured: list[object] = []
+
+    async def unexpected_warmup():
+        raise AssertionError("freshness context must not warm up the provider")
+
+    async def unexpected_federated(*_args, **_kwargs):
+        raise AssertionError("freshness context must not call federated retrieval")
+
+    def fake_authoritative(request):
+        captured.append(request)
+        return records, len(records)
+
+    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", unexpected_warmup)
+    monkeypatch.setattr(bhm_app, "federated_search", unexpected_federated)
+    monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", fake_authoritative)
+
+    response = TestClient(bhm_app.app).post(
+        "/bhm/context/compile",
+        json={"query": "fresh", "project": project_name, "history_scope": "recent", "token_budget": 128},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["retrieval"]["mode"] == "authoritative-freshness"
+    assert payload["retrieval"]["provider"] == "sqlite"
+    assert payload["filters"]["history_scope"] == "recent"
+    assert payload["filters"]["freshness_days"] == 30
+    assert payload["citations"][0]["id"] == "fresh-memory"
+    assert captured[0].history_scope == "recent"
+    assert captured[0].freshness_days == 30
+
+
+def test_mcp_context_compile_wrapper_forwards_history_scope_and_freshness(monkeypatch):
+    calls: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr("blackholememory.bhm_mcp._post", lambda path, body: calls.append((path, body)) or {"ok": True})
+    monkeypatch.setattr("blackholememory.bhm_mcp._read_native_env_value", lambda _key: None)
+    from blackholememory.bhm_mcp import bhm_context_compile
+
+    assert bhm_context_compile("recent", project="blackholememory", history_scope="recent", freshness_days=7) == {"ok": True}
+    assert calls[0][1]["history_scope"] == "recent"
+    assert calls[0][1]["freshness_days"] == 7
+
+
 def test_context_compile_can_explicitly_apply_deterministic_tiers(monkeypatch):
     async def fake_ready():
         return None

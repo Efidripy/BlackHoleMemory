@@ -408,15 +408,18 @@ def bhm_context_compile(
     include_archived: bool = False,
     include_logs: bool = False,
     include_historical: bool = False,
+    freshness_days: Annotated[int | None, Field(ge=1, le=3650)] = None,
+    history_scope: Literal["current", "recent", "all"] | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "query": query,
         "include_archived": include_archived,
         "include_logs": include_logs,
-        "include_historical": include_historical,
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
         **({"tiered_context": True} if tiered_context else {}),
     }
+    if include_historical:
+        body["include_historical"] = True
     active_profile = profile or _read_native_env_value("BHM_CONTEXT_PROFILE")
     if active_profile:
         body["profile"] = active_profile
@@ -448,6 +451,10 @@ def bhm_context_compile(
         body["semantic_type"] = semantic_type
     if priority:
         body["priority"] = priority
+    if freshness_days is not None:
+        body["freshness_days"] = freshness_days
+    if history_scope is not None:
+        body["history_scope"] = history_scope
     return _post("/bhm/context/compile", body)
 
 

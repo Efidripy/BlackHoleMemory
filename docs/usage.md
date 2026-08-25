@@ -142,8 +142,9 @@ CLI, полный порядок остановки/запуска и restore о
 
 ## Freshness and review inventory
 
-For retrieval UX, `POST /bhm/search` and `POST /bhm/search/advanced` (and the
-matching MCP tools) accept `history_scope=current|recent|all`. `current` is
+For retrieval UX, `POST /bhm/search`, `POST /bhm/search/advanced`, and
+`POST /bhm/context/compile` (and the matching MCP tools) accept
+`history_scope=current|recent|all`. `current` is
 the default live-memory view; `recent` includes historical records from the
 last 30 days; `all` includes the full historical layer. `freshness_days`
 (`1..3650`) overrides the 30-day recent window when needed. The cutoff uses
