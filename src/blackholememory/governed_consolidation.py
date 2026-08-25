@@ -507,6 +507,63 @@ class GovernedConsolidationRepository:
             self._append_event(connection, proposal_id, desired, now, {"actor_digest": actor_digest})
         return self.get(proposal_id, project=project)
 
+    def decide_automatically(
+        self,
+        *,
+        proposal_id: str,
+        project: str,
+        decision: str,
+        actor: str,
+        policy_version: str,
+        reason_codes: Iterable[str],
+    ) -> dict[str, Any]:
+        """Persist one deterministic policy decision without storing model text.
+
+        This is deliberately separate from the operator decision surface.  The
+        resulting proposal status is identical, while the event receipt makes
+        the automated actor, policy version and bounded reason codes explicit.
+        """
+
+        if decision not in {"approve", "reject"}:
+            raise GovernedConsolidationError("decision must be approve or reject")
+        actor_digest = _sha256(_bounded_text(actor, limit=240, field="actor", required=True))
+        normalized_policy = _bounded_text(policy_version, limit=120, field="policy_version", required=True)
+        normalized_reasons = _bounded_items(list(reason_codes), limit=12, field="reason_codes")
+        if not normalized_reasons:
+            raise GovernedConsolidationError("reason_codes is required")
+        now = _utc_now_iso()
+        with self._write() as connection:
+            row = connection.execute(
+                "SELECT status FROM governed_consolidation_proposals WHERE proposal_id = ? AND project = ?",
+                (proposal_id, project),
+            ).fetchone()
+            if row is None:
+                raise GovernedConsolidationError("proposal not found")
+            status = str(row["status"])
+            desired = "approved" if decision == "approve" else "rejected"
+            if status == desired:
+                return self.get(proposal_id, project=project)
+            if status != "proposed":
+                raise GovernedConsolidationError(f"proposal cannot be automatically {decision}d from {status}")
+            column = "approved" if decision == "approve" else "rejected"
+            connection.execute(
+                f"UPDATE governed_consolidation_proposals SET status = ?, {column}_at = ?, {column}_by_digest = ?, updated_at = ? WHERE proposal_id = ?",
+                (desired, now, actor_digest, now, proposal_id),
+            )
+            self._append_event(
+                connection,
+                proposal_id,
+                desired,
+                now,
+                {
+                    "actor_digest": actor_digest,
+                    "automatic": True,
+                    "policy_version": normalized_policy,
+                    "reason_codes": normalized_reasons,
+                },
+            )
+        return self.get(proposal_id, project=project)
+
     @staticmethod
     def _append_event(connection: sqlite3.Connection, proposal_id: str, action: str, now: str, details: Mapping[str, Any]) -> None:
         event_digest = _sha256(_canonical_json({"proposal_id": proposal_id, "action": action, "at": now, "details": dict(details)}))

@@ -17,10 +17,11 @@ applies a lifecycle change. This boundary is deliberate: in installed
 add/update/delete action and persist it through its vector store, so it is not
 a safe authoritative dry-run API.
 
-The only permitted flow is:
+The only permitted authority flow is:
 
 ```text
-Qdrant/Mem0 candidate IDs -> same-project SQLite revalidation -> typed proposal -> human approve/reject
+Qdrant/Mem0 candidate IDs -> same-project SQLite revalidation -> typed proposal
+-> manual review OR explicit deterministic policy auto-review
 -> exact revision/digest revalidation -> SQLite repository transaction
 -> memory_outbox -> existing Qdrant projector
 ```
@@ -29,15 +30,20 @@ Projection candidates never become authority: the semantic editor must re-read
 each selected memory ID, current revision and digest from SQLite before it can
 construct a proposal. Conflicts become `no_op` or a reviewed `link`; low
 confidence `create`/`revise` candidates become `no_op`. Proposal rows,
-decisions, stale receipts and apply receipts are separate
-SQLite tables; they are not canonical memories. An approved proposal still
-needs `apply=true` and an exact proposal-ID confirmation. The repository then
+decisions, stale receipts and apply receipts are separate SQLite tables; they
+are not canonical memories. In manual mode an approved proposal still needs
+`apply=true` and an exact proposal-ID confirmation. In separately opt-in
+auto-review mode, only a `bhm-local-semantic-editor/v1` proposal with the
+required editor receipt, no conflicts and its operation-specific high threshold
+is approved by `bhm-governed-auto-review/v1`; its event stores policy version,
+actor digest and reason codes, not model output. The repository then
 rechecks every basis memory ID, project, current revision and content digest in
 the same transaction that creates a revision/lifecycle change and its outbox
 event. Drift marks the proposal stale and applies nothing. `link` writes a
 typed SQLite relation only; `archive` and `supersede` retain immutable revision
-provenance for recovery. There is no worker, polling, auto-merge, auto-archive,
-auto-supersede, direct Mem0 write, or direct Qdrant write.
+provenance for recovery. The auto policy does not start a worker, poll or
+generate proposals from memory writes. There is no direct Mem0 write or direct
+Qdrant write.
 
 The controlled surface comprises REST/MCP inspection, local semantic preview,
 shadow metrics and a local operator CLI

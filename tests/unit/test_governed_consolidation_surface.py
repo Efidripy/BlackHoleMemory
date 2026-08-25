@@ -31,11 +31,31 @@ def test_governed_status_is_authenticated_but_not_project_scoped(monkeypatch) ->
 
     assert anonymous.status_code == 401
     assert authenticated.status_code == 200
-    assert authenticated.json() == {"state": "disabled", "enabled": False}
+    payload = authenticated.json()
+    assert payload["state"] == "disabled"
+    assert payload["enabled"] is False
+    assert payload["auto_review_apply"]["enabled"] is False
+    assert payload["auto_review_apply"]["mode"] == "approval-gated"
     assert (
         caller_auth.caller_route_policy("/bhm/governed-consolidation/status", "GET")
         is caller_auth.CallerRoutePolicy.AUTH_ONLY
     )
+
+
+def test_governed_status_reports_policy_auto_review_mode_only_when_enabled(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED", "1")
+    monkeypatch.setattr(
+        bhm_app,
+        "governed_consolidation_status",
+        lambda _database: {"state": "approval-gated", "enabled": True, "mode": "approval-gated"},
+    )
+
+    response = _client().get("/bhm/governed-consolidation/status")
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "policy-auto-reviewed"
+    assert response.json()["mode"] == "policy-auto-reviewed"
+    assert response.json()["auto_review_apply"]["enabled"] is True
 
 
 def test_disabled_governed_proposal_route_fails_closed_before_memory_access(monkeypatch) -> None:

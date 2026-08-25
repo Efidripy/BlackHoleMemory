@@ -208,3 +208,68 @@ def test_semantic_surface_returns_explicit_deterministic_no_op_when_local_model_
     assert result["proposal"]["execution"]["local_model_called"] is False
     assert result["retrieval"]["model_fallback_reason"] == "schema_validation_failed"
     assert governor.released
+
+
+def test_stored_semantic_proposal_invokes_auto_review_only_with_explicit_flag(monkeypatch) -> None:
+    records = [_record("mem_bhm_a", "Normal uninstall is project-scoped."), _record("mem_bhm_b", "Install-state log is required.")]
+    governor = _Governor()
+    stored: dict[str, object] = {}
+    auto_calls: list[dict] = []
+
+    async def _search(*_args, **_kwargs):
+        return ([{"metadata": {"source_id": "mem_bhm_a"}}, {"metadata": {"source_id": "mem_bhm_b"}}], 2)
+
+    class _Store:
+        def __init__(self, _database) -> None:
+            pass
+
+        def create(self, proposal: dict):
+            stored.update(proposal)
+            return stored, True
+
+        def get(self, _proposal_id: str, *, project: str):
+            assert project == "multiserversubgen"
+            return stored
+
+    def _auto_review(**kwargs):
+        auto_calls.append(kwargs)
+        stored["status"] = "applied"
+        return {
+            "automatic_apply": True,
+            "side_effects": {
+                "sqlite_mutation": True,
+                "memory_lifecycle_mutation": True,
+                "memory_outbox_mutation": True,
+            },
+        }
+
+    monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
+    monkeypatch.setenv("BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED", "1")
+    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(bhm_app, "federated_search", _search)
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService(records))
+    monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _Completion)
+    monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
+    monkeypatch.setattr(bhm_app, "GovernedConsolidationRepository", _Store)
+    monkeypatch.setattr(bhm_app, "auto_review_and_apply_proposal", _auto_review)
+
+    preview = asyncio.run(
+        bhm_app._governed_semantic_proposal(
+            bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
+            principal=object(),
+        )
+    )
+    persisted = asyncio.run(
+        bhm_app._governed_semantic_proposal(
+            bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety", store_proposal=True),
+            principal=object(),
+        )
+    )
+
+    assert preview["automatic_review"] is None
+    assert preview["side_effects"]["automatic_apply"] is False
+    assert len(auto_calls) == 1
+    assert persisted["proposal"]["status"] == "applied"
+    assert persisted["automatic_review"]["automatic_apply"] is True
+    assert persisted["side_effects"]["memory_outbox_mutation"] is True

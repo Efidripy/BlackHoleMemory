@@ -2136,7 +2136,7 @@ def bhm_consolidation_change_set_review(
     )
 
 
-@mcp.tool(name="bhm_governed_consolidation_status", description="Report the disabled, proposal-only, approval-gated, or degraded governed consolidation state. It never writes SQLite, Mem0, or Qdrant.")
+@mcp.tool(name="bhm_governed_consolidation_status", description="Report the disabled, proposal-only, approval-gated, policy-auto-reviewed, or degraded governed consolidation state. It never writes SQLite, Mem0, or Qdrant.")
 def bhm_governed_consolidation_status() -> dict[str, Any]:
     return _get("/bhm/governed-consolidation/status")
 
@@ -2156,7 +2156,7 @@ def bhm_governed_consolidation_create(
     )
 
 
-@mcp.tool(name="bhm_governed_semantic_proposal", description="Retrieve up to 20 semantic candidates, re-read their canonical SQLite revisions, and return or explicitly store one local-model proposal. It never applies a memory change or writes Qdrant/Mem0 directly.")
+@mcp.tool(name="bhm_governed_semantic_proposal", description="Retrieve up to 20 semantic candidates, re-read their canonical SQLite revisions, and return or explicitly store one local-model proposal. Preview never mutates; an explicitly stored proposal may enter the separately feature-gated deterministic auto-review/apply path. It never writes Qdrant/Mem0 directly.")
 def bhm_governed_semantic_proposal(
     project: Annotated[str, Field(min_length=1, max_length=160)],
     query: Annotated[str, Field(min_length=1, max_length=480)],

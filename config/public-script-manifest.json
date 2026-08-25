@@ -89,6 +89,11 @@
       "release": true
     },
     {
+      "path": "scripts/evaluate-governed-semantic-editor.py",
+      "role": "quality-gate",
+      "release": true
+    },
+    {
       "path": "scripts/benchmark-bhm-unified-mcp.py",
       "role": "benchmark",
       "release": true
