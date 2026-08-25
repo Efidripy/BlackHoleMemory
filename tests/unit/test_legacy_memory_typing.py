@@ -31,6 +31,8 @@ def _typed_database(tmp_path: Path) -> tuple[SQLiteMemoryRepository, Path, Path]
         ("code", "workflow", "code metadata project=blackholememory path=src/app.py"),
         ("compact", "transient-context", "BHM pre-compact transit buffer:"),
         ("runbook", "runbook", "How to recover the local service"),
+        ("workflow", "workflow", "Historical workflow receipt"),
+        ("deploy", "runbook", "lnv-push deploy runbook:"),
         ("unknown", "workflow", "ambiguous workflow"),
     ):
         repository.save_memory(_memory(memory_id, memory_type, title))
@@ -52,11 +54,11 @@ def test_plan_is_read_only_and_only_maps_structurally_unambiguous_rows(tmp_path:
     before = database.read_bytes()
     plan = build_legacy_memory_typing_plan(database, backup)
     assert database.read_bytes() == before
-    assert plan["summary"]["target_count"] == 6
+    assert plan["summary"]["target_count"] == 8
     with pytest.raises(LegacyMemoryTypingError, match="operator confirmation"):
         apply_legacy_memory_typing(database, backup, plan, expected_plan_digest=plan["plan_digest"])
     result = apply_legacy_memory_typing(database, backup, plan, expected_plan_digest=plan["plan_digest"], confirm_operator=True, offline_verified=True)
-    assert result["target_count"] == len(result["outbox_event_ids"]) == 6
+    assert result["target_count"] == len(result["outbox_event_ids"]) == 8
     trace = repository.get_memory("trace", project="blackholememory")
     checkpoint = repository.get_memory("checkpoint", project="blackholememory")
     decision = repository.get_memory("decision", project="blackholememory")
@@ -64,15 +66,19 @@ def test_plan_is_read_only_and_only_maps_structurally_unambiguous_rows(tmp_path:
     code = repository.get_memory("code", project="blackholememory")
     compact = repository.get_memory("compact", project="blackholememory")
     runbook = repository.get_memory("runbook", project="blackholememory")
+    workflow = repository.get_memory("workflow", project="blackholememory")
+    deploy = repository.get_memory("deploy", project="blackholememory")
     unknown = repository.get_memory("unknown", project="blackholememory")
-    assert trace and checkpoint and decision and fact and code and compact and runbook and unknown
+    assert trace and checkpoint and decision and fact and code and compact and runbook and workflow and deploy and unknown
     assert (trace.memory_class.value, trace.event_role.value) == ("episodic", "trace")
     assert (checkpoint.memory_class.value, checkpoint.event_role.value) == ("episodic", "trace")
     assert (decision.memory_class.value, decision.event_role.value) == ("semantic", "decision")
     assert (fact.memory_class.value, fact.event_role.value) == ("semantic", "fact")
     assert (code.memory_class.value, code.event_role.value) == ("episodic", "trace")
     assert (compact.memory_class.value, compact.event_role.value) == ("episodic", "trace")
-    assert (runbook.memory_class.value, runbook.event_role.value) == ("unclassified", "unclassified")
+    assert (runbook.memory_class.value, runbook.event_role.value) == ("episodic", "trace")
+    assert (workflow.memory_class.value, workflow.event_role.value) == ("episodic", "trace")
+    assert (deploy.memory_class.value, deploy.event_role.value) == ("unclassified", "unclassified")
     assert (unknown.memory_class.value, unknown.event_role.value) == ("unclassified", "unclassified")
     assert unknown.current_revision.content == "ambiguous workflow body"
 
