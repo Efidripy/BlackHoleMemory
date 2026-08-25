@@ -52,6 +52,14 @@ function Import-ExplicitOperatorFeatureConfiguration {
 
 Import-ExplicitOperatorFeatureConfiguration
 
+# Governed semantic passes share the local 14B GPU with the embedding model.
+# Give that bounded contour a little more cold-start room while retaining the
+# hard resource-limits.py ceiling; ordinary lexical startup remains unchanged.
+if ($env:BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED -in @('1', 'true', 'yes', 'on') -and
+    [string]::IsNullOrWhiteSpace([string]$env:BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS)) {
+  $env:BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS = '10'
+}
+
 # The destructive/operator capability is deliberately separate from the
 # caller token. Load it from the Windows User environment only when the
 # launcher did not already provide a process-scoped value; never print it.
