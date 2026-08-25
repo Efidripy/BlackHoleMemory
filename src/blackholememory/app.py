@@ -5296,9 +5296,32 @@ def _classify_semantic_retry(proposal: Mapping[str, Any]) -> tuple[bool, str, st
 
     operation = str(proposal.get("operation") or "")
     conflicts = list(proposal.get("conflicts") or [])
-    policy = proposal.get("semantic_editor", {}).get("policy", {}) if isinstance(proposal.get("semantic_editor"), Mapping) else {}
+    editor = proposal.get("semantic_editor")
+    policy = editor.get("policy") if isinstance(editor, Mapping) else None
+    execution = proposal.get("execution")
+    if str(proposal.get("analyzer") or "").endswith(":fallback") or (
+        isinstance(execution, Mapping) and execution.get("local_model_called") is False
+    ):
+        return True, "fallback", operation
+    if not isinstance(editor, Mapping) or not isinstance(policy, Mapping) or editor.get("shadow_safe") is not True:
+        return True, "incomplete_receipt", operation
+    if not str(policy.get("decision") or "").strip():
+        return True, "incomplete_receipt", operation
     if conflicts:
         return True, "conflict", operation
+    try:
+        confidence = float(proposal.get("confidence"))
+    except (TypeError, ValueError):
+        confidence = -1.0
+    retry_threshold = {
+        "create": 0.90,
+        "revise": 0.90,
+        "link": 0.90,
+        "supersede": 0.97,
+        "archive": 0.97,
+    }.get(operation)
+    if retry_threshold is not None and confidence < retry_threshold:
+        return True, "low_confidence", operation
     if operation == "no_op":
         decision = str(policy.get("decision") or "")
         if "confidence" in decision:

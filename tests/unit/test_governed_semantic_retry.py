@@ -96,3 +96,82 @@ def test_fallback_then_two_matching_answers_reaches_consensus(monkeypatch) -> No
     assert result["semantic_editor"]["retry"]["outcome"] == "consensus"
     assert result["semantic_editor"]["retry"]["attempts"][0]["classification"] == "fallback"
     assert fallback is None
+
+
+def test_explicit_fallback_receipt_is_retried(monkeypatch) -> None:
+    fallback = _proposal(operation="create", content="fallback candidate")
+    fallback["analyzer"] = "bhm-local-semantic-editor/v1:fallback"
+    fallback["execution"]["local_model_called"] = False
+    result, _ = _run(
+        monkeypatch,
+        [fallback, _proposal(operation="create", content="same"), _proposal(operation="create", content="same")],
+    )
+
+    assert result["operation"] == "create"
+    assert result["semantic_editor"]["retry"]["attempts"][0]["classification"] == "fallback"
+    assert result["semantic_editor"]["retry"]["outcome"] == "consensus"
+
+
+def test_conflict_then_two_matching_answers_reaches_consensus(monkeypatch) -> None:
+    result, _ = _run(
+        monkeypatch,
+        [
+            _proposal(operation="no_op", content="", conflicts=["contradiction"], decision="conflict_requires_operator_review"),
+            _proposal(operation="create", content="resolved answer"),
+            _proposal(operation="create", content="resolved answer"),
+        ],
+    )
+
+    assert result["operation"] == "create"
+    assert result["semantic_editor"]["retry"]["outcome"] == "consensus"
+    assert result["semantic_editor"]["retry"]["attempts"][0]["classification"] == "conflict"
+
+
+def test_low_confidence_then_two_matching_answers_reaches_consensus(monkeypatch) -> None:
+    result, _ = _run(
+        monkeypatch,
+        [
+            _proposal(operation="create", content="weak answer", confidence=0.5),
+            _proposal(operation="create", content="strong answer"),
+            _proposal(operation="create", content="strong answer"),
+        ],
+    )
+
+    assert result["operation"] == "create"
+    assert result["semantic_editor"]["retry"]["attempts"][0]["classification"] == "low_confidence"
+
+
+def test_incomplete_receipt_is_retried_and_never_accepted(monkeypatch) -> None:
+    incomplete = _proposal(operation="create", content="missing receipt")
+    incomplete.pop("semantic_editor")
+    result, _ = _run(
+        monkeypatch,
+        [incomplete, _proposal(operation="create", content="same"), _proposal(operation="create", content="same")],
+    )
+
+    assert result["operation"] == "create"
+    assert result["semantic_editor"]["retry"]["outcome"] == "consensus"
+    assert result["semantic_editor"]["retry"]["attempts"][0]["classification"] == "incomplete_receipt"
+
+
+def test_three_no_ops_are_bounded_and_return_no_op(monkeypatch) -> None:
+    result, _ = _run(
+        monkeypatch,
+        [
+            _proposal(operation="no_op", content="", confidence=0.0),
+            _proposal(operation="no_op", content="", confidence=0.1),
+            _proposal(operation="no_op", content="", confidence=0.2),
+        ],
+    )
+
+    retry = result["semantic_editor"]["retry"]
+    assert result["operation"] == "no_op"
+    assert retry["attempt_count"] == retry["max_attempts"] == 3
+    assert retry["consensus_count"] == 0
+
+
+def test_retry_limit_is_hard_bounded(monkeypatch) -> None:
+    monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS", "99")
+    assert bhm_app._governed_semantic_retry_limit() == 3
+    monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS", "0")
+    assert bhm_app._governed_semantic_retry_limit() == 1
