@@ -41,12 +41,23 @@ def _rule_for(*, memory_type: str, title: str, upsert_key: str) -> dict[str, str
     # labels such as architecture and workflow for session receipts.
     if (
         normalized_key.startswith(("checkpoint:", "session-record:"))
+        or normalized_key.startswith(("code-metadata:", "hook-compact-source:"))
+        or normalized_title.startswith("code metadata ")
         or "hybrid session record" in normalized_title
+        or "pre-compact transit buffer" in normalized_title
         or " checkpoint:" in normalized_title
         or normalized_type == "checkpoint"
     ):
         return {
-            "rule_id": "durable-history-marker",
+            "rule_id": (
+                "repository-index-marker"
+                if normalized_key.startswith("code-metadata:")
+                or normalized_title.startswith("code metadata ")
+                else "hook-compact-transit"
+                if normalized_key.startswith("hook-compact-source:")
+                or "pre-compact transit buffer" in normalized_title
+                else "durable-history-marker"
+            ),
             "memory_class": MemoryClass.EPISODIC.value,
             "event_role": MemoryEventRole.TRACE.value,
         }
@@ -56,6 +67,14 @@ def _rule_for(*, memory_type: str, title: str, upsert_key: str) -> dict[str, str
         "decision": MemoryEventRole.DECISION.value,
         "fact": MemoryEventRole.FACT.value,
         "pattern": MemoryEventRole.FACT.value,
+        "decision-log": MemoryEventRole.DECISION.value,
+        "knowledge-crystal": MemoryEventRole.FACT.value,
+        "crystal": MemoryEventRole.FACT.value,
+        "bug": MemoryEventRole.FACT.value,
+        "bugfix": MemoryEventRole.FACT.value,
+        "error": MemoryEventRole.FACT.value,
+        "production-access-check": MemoryEventRole.FACT.value,
+        "production-ssh-access": MemoryEventRole.FACT.value,
     }
     event_role = semantic_roles.get(normalized_type)
     if event_role is not None:
@@ -64,6 +83,28 @@ def _rule_for(*, memory_type: str, title: str, upsert_key: str) -> dict[str, str
             "memory_class": MemoryClass.SEMANTIC.value,
             "event_role": event_role,
         }
+
+    trace_types = {
+        "audit",
+        "diagnostic",
+        "log",
+        "release-receipt",
+        "security-discovery",
+        "security_discovery",
+        "security_scan_checkpoint",
+        "session_preflight",
+        "validation",
+    }
+    if normalized_type in trace_types:
+        return {
+            "rule_id": f"legacy-trace-type:{normalized_type}",
+            "memory_class": MemoryClass.EPISODIC.value,
+            "event_role": MemoryEventRole.TRACE.value,
+        }
+
+    # ``procedural`` memories require a structured procedure_contract.  A
+    # free-form legacy runbook cannot be promoted safely without constructing
+    # that contract, so leave it unclassified for the governed semantic pass.
     return None
 
 
