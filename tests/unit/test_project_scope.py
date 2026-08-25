@@ -385,6 +385,19 @@ def test_federated_search_bounds_cold_embedding_before_vector_contours(monkeypat
     assert contour_calls == []
 
 
+def test_provider_call_fails_fast_when_late_calls_fill_capacity():
+    slots = bhm_app._RETRIEVAL_PROVIDER_SLOTS
+    acquired = [slots.acquire(blocking=False) for _ in range(bhm_app._RETRIEVAL_PROVIDER_WORKERS)]
+    assert all(acquired)
+    try:
+        with pytest.raises(bhm_app.RetrievalProviderCapacityExceeded):
+            asyncio.run(bhm_app._run_bounded_provider_call(lambda: "never-called"))
+    finally:
+        for was_acquired in acquired:
+            if was_acquired:
+                slots.release()
+
+
 def test_embedding_provider_connection_error_remains_fallback_grace_eligible(monkeypatch):
     class FailingEmbedder:
         @staticmethod

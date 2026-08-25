@@ -76,6 +76,29 @@ def test_empty_query_delegates_to_advanced_search():
     assert calls == ["   "]
 
 
+def test_typed_query_uses_authoritative_advanced_path_without_provider():
+    calls = []
+
+    async def advanced(request):
+        calls.append(request.event_role)
+        return {"advanced": True}
+
+    async def provider_must_not_run(*_args, **_kwargs):
+        raise AssertionError("typed retrieval must not call provider search")
+
+    service = _service(federated_search=provider_must_not_run, advanced_search=advanced)
+    result = asyncio.run(service.execute(_request(event_role="trace")))
+
+    assert result["advanced"] is True
+    assert result["retrieval"] == {
+        "mode": "authoritative-typed",
+        "provider": "sqlite",
+        "semantic_projection_used": False,
+    }
+    assert result["side_effects"]["sqlite_mutation"] is False
+    assert calls == ["trace"]
+
+
 def test_federated_result_and_fallback_preserve_response_policy():
     async def federated(query, project, **kwargs):
         return ([{"id": "m1"}], 1)

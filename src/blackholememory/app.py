@@ -5,6 +5,7 @@ import asyncio
 import base64
 import copy
 import ctypes
+import functools
 import hashlib
 import importlib.util
 import json
@@ -18,6 +19,7 @@ import threading
 import urllib.error
 import urllib.request
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -587,6 +589,18 @@ _READ_QUEUE_LIMIT = _env_int("BHM_READ_QUEUE_LIMIT", 20, 0)
 _READ_RETRY_AFTER_SECONDS = _env_int("BHM_READ_RETRY_AFTER_SECONDS", 1, 1)
 _READ_ACQUIRE_TIMEOUT_SECONDS = _env_float("BHM_READ_ACQUIRE_TIMEOUT_SECONDS", 1.0, 0.0)
 _READ_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_READS)
+
+# Provider SDK calls are synchronous and may outlive the response deadline.
+# Never put those calls on asyncio's shared default executor: a few cold or
+# wedged embedding/Qdrant requests there can starve health, telemetry and
+# recovery probes.  The gate is non-blocking so excess provider work fails
+# closed into the existing fallback-grace path instead of queueing forever.
+_RETRIEVAL_PROVIDER_WORKERS = _env_int("BHM_RETRIEVAL_PROVIDER_WORKERS", 4, 1)
+_RETRIEVAL_PROVIDER_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_RETRIEVAL_PROVIDER_WORKERS,
+    thread_name_prefix="bhm-retrieval-provider",
+)
+_RETRIEVAL_PROVIDER_SLOTS = threading.BoundedSemaphore(_RETRIEVAL_PROVIDER_WORKERS)
 _READ_BACKPRESSURE_LOCK = asyncio.Lock()
 _READ_BACKPRESSURE_ACTIVE = 0
 _READ_BACKPRESSURE_WAITING = 0
@@ -648,6 +662,10 @@ class ResponseTimeout(Exception):
 
 class EmbeddingPreparationTimeout(ResponseTimeout):
     """A bounded federated query embedding did not complete in time."""
+
+
+class RetrievalProviderCapacityExceeded(ResponseTimeout):
+    """All bounded provider slots are occupied by still-running SDK calls."""
 
 
 _PROVIDER_WARMUP_REQUIRED = os.getenv("BHM_PROVIDER_WARMUP_DISABLED", "").lower() not in {"1", "true", "yes"}
@@ -13977,6 +13995,29 @@ def _consume_late_read_worker(task: asyncio.Task[Any]) -> None:
         pass
 
 
+async def _run_bounded_provider_call(worker: Any, /, *args: Any, **kwargs: Any) -> Any:
+    """Run one synchronous provider call outside asyncio's shared executor.
+
+    Timed-out SDK calls cannot be force-cancelled.  A dedicated, non-growing
+    executor plus a non-blocking slot gate prevents those late calls from
+    starving health/readiness probes or building an unbounded queue.
+    """
+
+    if not _RETRIEVAL_PROVIDER_SLOTS.acquire(blocking=False):
+        raise RetrievalProviderCapacityExceeded("retrieval provider capacity is busy")
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(
+        _RETRIEVAL_PROVIDER_EXECUTOR,
+        functools.partial(worker, *args, **kwargs),
+    )
+
+    def release_slot(_completed: Any) -> None:
+        _RETRIEVAL_PROVIDER_SLOTS.release()
+
+    future.add_done_callback(release_slot)
+    return await future
+
+
 async def _prepare_federated_query_embedding(project_name: str, query: str) -> tuple[Any, float]:
     """Prepare one reusable embedding without letting a cold provider block search.
 
@@ -13992,7 +14033,7 @@ async def _prepare_federated_query_embedding(project_name: str, query: str) -> t
         memory = get_project_mem0_memory(project_name)
         return _cached_query_embedding(memory, query)
 
-    worker_task = asyncio.create_task(asyncio.to_thread(prepare))
+    worker_task = asyncio.create_task(_run_bounded_provider_call(prepare))
     try:
         embedding = await asyncio.wait_for(
             asyncio.shield(worker_task),
@@ -14459,7 +14500,7 @@ async def _run_timed_retrieval_contour(name: str, worker: Any, /, *args: Any, **
     """
 
     started = time.perf_counter()
-    worker_task = asyncio.create_task(asyncio.to_thread(worker, *args, **kwargs))
+    worker_task = asyncio.create_task(_run_bounded_provider_call(worker, *args, **kwargs))
     try:
         result = await asyncio.wait_for(
             asyncio.shield(worker_task),
@@ -14654,6 +14695,12 @@ async def federated_search(
         or valid_to is not None
         or include_temporal_unknown
     )
+    # Typed/temporal retrieval is an authoritative memory query.  Do not fan
+    # it out through the code-graph JSON (which is a separate, rebuildable
+    # surface and can be very large); graph expansion is reserved for the
+    # normal unfiltered context path.
+    if typed_filter_requested or temporal_filter_requested or include_historical:
+        include_graph_expansion = False
     pushdown_ready = _typed_projection_pushdown_ready() if typed_filter_requested else False
     # Legacy projections may lack typed payload fields.  Keep a bounded wide
     # pool until an operator has proven V2 parity; final filtering remains
@@ -18996,7 +19043,6 @@ async def bhm_forget_apply(request: ForgetApplyRequest) -> dict:
 async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
     project_name = _effective_search_project(request.project)
     try:
-        await _ensure_provider_warmup_ready()
         memories, total = await _run_bounded_read(
             "bhm.search.advanced",
             _advanced_search_live_memories,
