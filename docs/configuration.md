@@ -104,6 +104,12 @@ credentials in the URL, redirects and oversized response are rejected. See
 [governed-semantic-editor.md](governed-semantic-editor.md) for the operator
 sequence and shadow-mode evidence contract.
 
+For an explicitly approved local backfill, the launcher also imports the
+non-secret governor overrides `BHM_LLM_GOVERNOR_MAX_VRAM_RATIO` and
+`BHM_LLM_GOVERNOR_PAUSE_ON_USER_ACTIVITY` from Windows User scope. Keep the
+defaults for routine work. A temporary override must remain local, preserve the
+GPU temperature/VRAM guards, and be removed after the bounded run completes.
+
 ## Local loopback endpoints and IPv6
 
 Каталог endpoint’ов принимает только сконфигурированные локальные hosts для
