@@ -13758,24 +13758,54 @@ def _load_galaxy_authoritative_nodes_sync(
     limit: int | None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    history_scope: str | None = None,
+    freshness_days: int | None = None,
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
     project_key = _canonical_project(project) if project else None
     service = _memory_service()
     class_value = memory_class.value if memory_class else None
     role_value = event_role.value if event_role else None
-    if memory_class is None and event_role is None:
-        # Keep the helper compatible with lightweight operator/test service
-        # doubles that implement the pre-typed contract signature.
-        total = service.count_records(project=project_key)
-        records = service.list_records(project=project_key, limit=limit)
-    else:
-        total = service.count_records(project=project_key, memory_class=class_value, event_role=role_value)
-        records = service.list_records(
+    history = resolve_history_scope(history_scope, freshness_days=freshness_days)
+    if history.scope == "current" and history.freshness_days is None and (memory_class is not None or event_role is not None):
+        count_kwargs: dict[str, Any] = {"project": project_key}
+        list_kwargs: dict[str, Any] = {"project": project_key, "limit": limit}
+        if class_value is not None:
+            count_kwargs["memory_class"] = class_value
+            list_kwargs["memory_class"] = class_value
+        if role_value is not None:
+            count_kwargs["event_role"] = role_value
+            list_kwargs["event_role"] = role_value
+        total = service.count_records(**count_kwargs)
+        records = service.list_records(**list_kwargs)
+        available_projects = [project_key] if project_key and total > 0 else [] if project_key else service.list_projects()
+        nodes = [node for record in records if (node := _galaxy_memory_record_node(record)) is not None]
+        return nodes, total, available_projects
+    # Read the complete bounded SQLite authority page set before applying the
+    # scope predicate, so recent/current modes do not lose records to an early
+    # limit or a noisy historical prefix.
+    list_kwargs: dict[str, Any] = {"project": project_key, "limit": None}
+    if class_value is not None:
+        list_kwargs["memory_class"] = class_value
+    if role_value is not None:
+        list_kwargs["event_role"] = role_value
+    all_records = service.list_records(**list_kwargs)
+    records = [
+        record
+        for record in all_records
+        if _memory_matches_filters(
+            record,
             project=project_key,
-            memory_class=class_value,
-            event_role=role_value,
-            limit=limit,
+            memory_class=memory_class,
+            event_role=event_role,
+            include_archived=False,
+            include_logs=True,
+            include_historical=history.include_historical,
+            freshness_days=history.freshness_days,
         )
+    ]
+    total = len(records)
+    if limit is not None:
+        records = records[:limit]
     nodes = [node for record in records if (node := _galaxy_memory_record_node(record)) is not None]
     # A scoped Galaxy response must not disclose project names outside the
     # caller's requested scope.  ``list_projects()`` is intentionally global
@@ -13796,8 +13826,18 @@ async def _load_galaxy_authoritative_nodes(
     limit: int | None,
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    history_scope: str | None = None,
+    freshness_days: int | None = None,
 ) -> tuple[list[dict[str, Any]], int, list[str]]:
-    return await asyncio.to_thread(_load_galaxy_authoritative_nodes_sync, project, limit, memory_class, event_role)
+    return await asyncio.to_thread(
+        _load_galaxy_authoritative_nodes_sync,
+        project,
+        limit,
+        memory_class,
+        event_role,
+        history_scope,
+        freshness_days,
+    )
 
 
 def _load_galaxy_authoritative_links_sync(project: str | None) -> list[dict[str, Any]]:
@@ -13811,24 +13851,45 @@ async def _build_galaxy_data(
     domain: str = "memory",
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    history_scope: str | None = None,
+    freshness_days: int | None = None,
 ) -> dict[str, Any]:
     """Build a newest-first visual read model from authoritative SQLite."""
 
     _require_typed_memory_boundary(memory_class=memory_class, event_role=event_role)
     del domain  # Kept as a compatibility query parameter for older launchers.
+    history = resolve_history_scope(history_scope, freshness_days=freshness_days)
     requested_project = _canonical_project(project) if project else ""
     if memory_class is None and event_role is None:
-        memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(
-            requested_project or None,
-            limit,
-        )
+        if history.scope == "current" and history.freshness_days is None:
+            memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(
+                requested_project or None,
+                limit,
+            )
+        else:
+            memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(
+                requested_project or None,
+                limit,
+                history_scope=history.scope,
+                freshness_days=history.freshness_days,
+            )
     else:
-        memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(
-            requested_project or None,
-            limit,
-            memory_class,
-            event_role,
-        )
+        if history.scope == "current" and history.freshness_days is None:
+            memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(
+                requested_project or None,
+                limit,
+                memory_class,
+                event_role,
+            )
+        else:
+            memory_nodes, total_memory_count, available_projects = await _load_galaxy_authoritative_nodes(
+                requested_project or None,
+                limit,
+                memory_class,
+                event_role,
+                history.scope,
+                history.freshness_days,
+            )
     visible_memory_ids = {str(node["id"]) for node in memory_nodes}
     persisted_links = await asyncio.to_thread(_load_galaxy_authoritative_links_sync, requested_project or None)
 
@@ -13901,6 +13962,12 @@ async def _build_galaxy_data(
             *links,
         ]
 
+    summary_filters: dict[str, Any] = {
+        "memory_class": memory_class.value if memory_class else None,
+        "event_role": event_role.value if event_role else None,
+    }
+    if history_scope is not None or freshness_days is not None:
+        summary_filters.update({"history_scope": history.scope, "freshness_days": history.freshness_days})
     summary = {
         "project": requested_project or "all-projects",
         "memory_records": len(memory_nodes),
@@ -13911,10 +13978,7 @@ async def _build_galaxy_data(
         "top_projects": available_projects,
         "mode": "all" if limit is None else "limited",
         "limit": limit,
-        "filters": {
-            "memory_class": memory_class.value if memory_class else None,
-            "event_role": event_role.value if event_role else None,
-        },
+        "filters": summary_filters,
         "authority": "sqlite-authoritative",
         "order": "updated_at_desc",
         "generated_at": _utc_now_iso(),
@@ -18652,6 +18716,8 @@ async def bhm_galaxy_data(
     domain: str = "memory",
     memory_class: MemoryClass | None = None,
     event_role: MemoryEventRole | None = None,
+    history_scope: Literal["current", "recent", "all"] | None = None,
+    freshness_days: int | None = None,
 ) -> dict:
     """Return the newest SQLite-authoritative memory view for Galaxy."""
 
@@ -18665,14 +18731,28 @@ async def bhm_galaxy_data(
             raise HTTPException(status_code=422, detail={"code": "galaxy_limit_invalid"}) from exc
         if parsed_limit < 1:
             raise HTTPException(status_code=422, detail={"code": "galaxy_limit_invalid"})
-    if memory_class is None and event_role is None:
+    try:
+        resolve_history_scope(history_scope, freshness_days=freshness_days)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "galaxy_history_scope_invalid"}) from exc
+    if history_scope is None and freshness_days is None and memory_class is None and event_role is None:
         return await _build_galaxy_data(project, parsed_limit, domain=domain)
+    if memory_class is None and event_role is None:
+        return await _build_galaxy_data(
+            project,
+            parsed_limit,
+            domain=domain,
+            history_scope=history_scope,
+            freshness_days=freshness_days,
+        )
     return await _build_galaxy_data(
         project,
         parsed_limit,
         domain=domain,
         memory_class=memory_class,
         event_role=event_role,
+        history_scope=history_scope,
+        freshness_days=freshness_days,
     )
 
 

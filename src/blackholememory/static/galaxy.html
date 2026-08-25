@@ -1720,6 +1720,15 @@
                 <option value="unclassified">Unclassified</option>
               </select>
             </div>
+            <div class="field">
+              <label for="historyScope">История памяти</label>
+              <select id="historyScope" aria-describedby="historyScopeHint">
+                <option value="current" selected>Только актуальная</option>
+                <option value="recent">Актуальная + последние 30 дней</option>
+                <option value="all">Вся история</option>
+              </select>
+              <div id="historyScopeHint" class="mini-note">Recent использует окно 30 дней и не меняет содержимое памяти.</div>
+            </div>
             <div class="field" hidden>
               <label for="galaxyDomain">Слой данных</label>
               <select id="galaxyDomain" aria-describedby="galaxyDomainHint">
@@ -2325,6 +2334,7 @@
       project: document.getElementById("project"),
       memoryClass: document.getElementById("memoryClass"),
       eventRole: document.getElementById("eventRole"),
+      historyScope: document.getElementById("historyScope"),
       limit: document.getElementById("limit"),
       domain: document.getElementById("galaxyDomain"),
       layoutMode: document.getElementById("layoutMode"),
@@ -2422,6 +2432,7 @@
     controls.project.value = params.get("project") || "";
     controls.memoryClass.value = ["", "episodic", "semantic", "procedural", "working", "unclassified"].includes(params.get("memory_class")) ? (params.get("memory_class") || "") : "";
     controls.eventRole.value = ["", "fact", "decision", "qa", "trace", "feedback", "skill_run", "unclassified"].includes(params.get("event_role")) ? (params.get("event_role") || "") : "";
+    controls.historyScope.value = ["current", "recent", "all"].includes(params.get("history_scope")) ? params.get("history_scope") : "current";
     controls.limit.value = ["50", "200", "500", "1000", "all"].includes(params.get("limit")) ? params.get("limit") : "200";
     controls.domain.value = "memory";
     state.preset = ["knowledge", "balanced", "custom"].includes(params.get("preset")) ? params.get("preset") : "knowledge";
@@ -3041,6 +3052,7 @@
     controls.limit.addEventListener("change", () => loadGalaxy(true));
     controls.memoryClass.addEventListener("change", () => loadGalaxy(true));
     controls.eventRole.addEventListener("change", () => loadGalaxy(true));
+    controls.historyScope.addEventListener("change", () => loadGalaxy(true));
     controls.hopDepth.addEventListener("input", () => {
       state.hopDepth = Number(controls.hopDepth.value || "1");
       updateHopDepthLabel();
@@ -3836,6 +3848,7 @@
       if (controls.project.value.trim()) query.set("project", controls.project.value.trim());
       if (controls.memoryClass.value) query.set("memory_class", controls.memoryClass.value);
       if (controls.eventRole.value) query.set("event_role", controls.eventRole.value);
+      query.set("history_scope", controls.historyScope.value || "current");
       query.set("limit", controls.limit.value || "200");
       query.set("domain", "memory");
       query.set("preset", state.preset);

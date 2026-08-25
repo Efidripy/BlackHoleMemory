@@ -39,6 +39,16 @@ def test_galaxy_project_scope_and_depth_are_primary_controls() -> None:
     assert "closeProjectSuggestions();\n          loadGalaxy(true);" in html
 
 
+def test_galaxy_exposes_explicit_history_scope_control() -> None:
+    html = _html()
+
+    assert '<select id="historyScope"' in html
+    for value in ("current", "recent", "all"):
+        assert f'<option value="{value}"' in html
+    assert 'controls.historyScope.addEventListener("change", () => loadGalaxy(true))' in html
+    assert 'query.set("history_scope", controls.historyScope.value || "current")' in html
+
+
 def test_galaxy_discloses_returned_and_total_authoritative_records() -> None:
     html = _html()
 
