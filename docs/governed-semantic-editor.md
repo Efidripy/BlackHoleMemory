@@ -10,7 +10,7 @@ Qdrant/Mem0 retrieval candidate IDs
   -> local model, strict JSON only
   -> deterministic policy validation
   -> governed proposal queue
-  -> operator approve/reject, dry-run, explicit apply
+  -> manual review/apply OR default-off deterministic auto review/apply
   -> SQLite transaction -> outbox -> existing Qdrant projector
 ```
 
@@ -49,10 +49,16 @@ Qdrant/Mem0 retrieval candidate IDs
   lifecycle suggestion. Low-confidence `create`/`revise` also becomes `no_op`.
 - A model-generated `no_op` keeps only its bounded reason; its candidate is
   replaced with the canonical empty no-op candidate before any operator view.
-- `archive` and `supersede` are always human-approved and still need the usual
-  exact-ID `apply=true` confirmation.
+- Default mode keeps all operations manual. The separately default-off
+  `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED` policy can decide and apply a stored
+  local-model proposal without the two manual actions. Its thresholds are
+  `0.90` for `create`/`revise`/`link` and `0.97` for `supersede`/`archive`; all
+  conflicts, `no_op`, fallback, missing editor receipt and low-confidence cases
+  are rejected. The event receipt contains only policy version, actor digest
+  and reason codes.
 - The editor never calls `Mem0.add/update/delete`, writes Qdrant, starts a
-  worker, polls a provider, or applies a proposal itself.
+  worker or polls a provider. Automatic apply, when opted in, is performed by a
+  separate deterministic policy adapter through the existing SQLite transaction.
 
 ## Activation
 
@@ -63,6 +69,13 @@ The local model adapter has a second default-off flag:
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED', '1', 'User')
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL', 'http://127.0.0.1:1234/v1', 'User')
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_SEMANTIC_EDITOR_MODEL', 'qwen2.5-coder-7b-instruct', 'User')
+```
+
+The automatic policy stage is independent and remains off unless explicitly
+enabled after its disposable rehearsal:
+
+```powershell
+[Environment]::SetEnvironmentVariable('BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED', '1', 'User')
 ```
 
 Restart the BHM API through the canonical launcher after changing persistent
@@ -80,11 +93,12 @@ before it could finish a foreground proposal.
 1. Call `POST /bhm/governed-consolidation/semantic-proposals` with `project`,
    `query`, and `store_proposal=false` to inspect a non-persisted candidate.
 2. Repeat with `store_proposal=true` only when the proposal belongs in the
-   review queue. This writes a proposal row only; it does not mutate memory.
-3. Inspect, validate, then approve or reject it through the existing governed
-   routes or MCP tools.
-4. Run dry-run. Only an explicit `apply=true` and matching proposal ID can
-   make a canonical SQLite change.
+   review queue. With auto-review disabled, this writes a proposal row only.
+3. In manual mode, inspect/validate, decide and run explicit apply through the
+   existing governed routes or MCP tools.
+4. In auto mode, the persisted local-model proposal is reviewed immediately by
+   the deterministic policy and, if eligible, passed to the same transactional
+   apply. The response returns a content-safe policy/apply receipt.
 
 The MCP equivalents are `bhm_governed_semantic_proposal` and
 `bhm_governed_semantic_shadow_metrics`. They remain operator-scoped, like the
@@ -126,7 +140,8 @@ weaken a failed threshold. A failed run is evidence to improve the
 prompt/model/fixture, not permission to auto-apply or alter the live review
 queue.
 
-In shadow mode, `store_proposal=true` creates reviewable proposals and metrics
-only. `GET /bhm/governed-consolidation/semantic-shadow-metrics` reports counts
-and operator outcomes. It reports quality as unknown until explicit apply/reject
-labels exist; model confidence is not treated as truth.
+With auto-review disabled, `store_proposal=true` creates reviewable proposals
+and metrics only. `GET /bhm/governed-consolidation/semantic-shadow-metrics`
+reports counts and outcomes. Model confidence is never truth by itself: the
+automatic mode adds deterministic policy gates and SQLite revalidation, rather
+than asking the model to approve or apply its own output.

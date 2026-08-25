@@ -200,6 +200,9 @@ from .governed_consolidation import dry_run_apply as dry_run_governed_consolidat
 from .governed_consolidation import runtime_enabled as governed_consolidation_enabled
 from .governed_consolidation import runtime_status as governed_consolidation_status
 from .governed_consolidation import validate_proposal_current as validate_governed_consolidation_proposal
+from .governed_auto_review import auto_review_and_apply_proposal
+from .governed_auto_review import policy_status as governed_auto_review_policy_status
+from .governed_auto_review import runtime_enabled as governed_auto_review_apply_enabled
 from .governed_semantic_editor import GovernedSemanticEditorError
 from .governed_semantic_editor import GovernedSemanticEditorUnavailable
 from .governed_semantic_editor import LocalGatewaySemanticCompletion
@@ -3011,7 +3014,7 @@ class GovernedConsolidationCreateRequest(BaseModel):
 
 
 class GovernedSemanticProposalRequest(BaseModel):
-    """Run one bounded local semantic pass; persistence stays explicit."""
+    """Run one bounded local semantic pass; persistence remains explicit."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -5254,12 +5257,24 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
             _llm_governor().release(job_id)
         stored: dict[str, Any] | None = None
         inserted = False
+        automatic_review: dict[str, Any] | None = None
         if request.store_proposal:
             stored, inserted = GovernedConsolidationRepository(_governed_consolidation_database_path()).create(proposal)
+            if governed_auto_review_apply_enabled():
+                automatic_review = auto_review_and_apply_proposal(
+                    database_path=_governed_consolidation_database_path(),
+                    proposal_id=str(stored["proposal_id"]),
+                    project=project,
+                )
+                stored = GovernedConsolidationRepository(_governed_consolidation_database_path()).get(
+                    str(stored["proposal_id"]),
+                    project=project,
+                )
         return {
             "proposal": stored or proposal,
             "stored": request.store_proposal,
             "inserted": inserted,
+            "automatic_review": automatic_review,
             "retrieval": {
                 "source": retrieval_source,
                 "candidate_count": len(candidate_ids),
@@ -5269,12 +5284,12 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
             },
             "admission": admission.as_dict(),
             "side_effects": {
-                "sqlite_mutation": bool(inserted),
-                "memory_lifecycle_mutation": False,
-                "memory_outbox_mutation": False,
+                "sqlite_mutation": bool(inserted) or bool(automatic_review and automatic_review["side_effects"]["sqlite_mutation"]),
+                "memory_lifecycle_mutation": bool(automatic_review and automatic_review["side_effects"]["memory_lifecycle_mutation"]),
+                "memory_outbox_mutation": bool(automatic_review and automatic_review["side_effects"]["memory_outbox_mutation"]),
                 "qdrant_mutation": False,
                 "mem0_mutation": False,
-                "automatic_apply": False,
+                "automatic_apply": bool(automatic_review and automatic_review["automatic_apply"]),
             },
         }
     except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
@@ -20221,9 +20236,14 @@ async def bhm_consolidation_change_set_review(
 
 @app.get("/bhm/governed-consolidation/status")
 async def bhm_governed_consolidation_status() -> dict[str, Any]:
-    """Return disabled/proposal-only/approval-gated state without a write."""
+    """Return the governed mode and auto-review policy without a write."""
 
     result = governed_consolidation_status(_governed_consolidation_database_path())
+    auto_review = governed_auto_review_policy_status()
+    result["auto_review_apply"] = auto_review
+    if result.get("enabled") and auto_review["enabled"]:
+        result["state"] = "policy-auto-reviewed"
+        result["mode"] = "policy-auto-reviewed"
     config = SemanticEditorConfig.from_env()
     result["semantic_editor"] = {
         "schema_version": "bhm.governed-semantic-editor.v1",
@@ -20234,7 +20254,7 @@ async def bhm_governed_consolidation_status() -> dict[str, Any]:
         "model_id": config.model_id or None,
         "direct_mem0_writes": False,
         "direct_qdrant_writes": False,
-        "automatic_apply": False,
+        "automatic_apply": auto_review["enabled"],
     }
     return result
 
@@ -20246,11 +20266,11 @@ async def bhm_governed_consolidation_create(request: GovernedConsolidationCreate
 
 @app.post("/bhm/governed-consolidation/semantic-proposals")
 async def bhm_governed_semantic_proposal(request: GovernedSemanticProposalRequest, http_request: Request) -> dict[str, Any]:
-    """Return or explicitly store one local semantic proposal; never apply it."""
+    """Return a preview or store one local proposal for governed processing."""
 
-    # A stored proposal only changes the governed review queue, never a
-    # canonical memory.  The same bounded writer wrapper records the audit
-    # boundary and preserves caller project authorization.
+    # Preview remains read-only. A stored local-model proposal can be routed
+    # through the separately feature-gated policy review/apply path; it never
+    # gains direct Mem0 or Qdrant write authority.
     principal = getattr(http_request.state, "bhm_caller_principal", None)
     if request.store_proposal:
         async with _bounded_write("bhm.governed_consolidation.semantic_proposal"):

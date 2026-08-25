@@ -35,13 +35,24 @@ with explicit confirmation, reopen and run readiness/parity smoke. The local
 operator CLI requires both `--confirm` and `--offline-writer-verified` for the
 migration path. Do not point it at a live database.
 
-Even after the flag and schema are present, every lifecycle mutation stays
-approval-gated: an operator must approve one proposal and submit `apply=true`
-with the exact proposal ID as confirmation. Proposal creation, inspection,
-validation and dry-run do not change canonical memories, revisions, outbox,
-Mem0 or Qdrant. Disablement is reversible by removing the flag; existing
-proposal evidence remains inert. The authority contract is documented in
-[architecture-authority.md](architecture-authority.md).
+In the normal mode, every lifecycle mutation stays approval-gated: an operator
+must approve one proposal and submit `apply=true` with the exact proposal ID as
+confirmation. `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED` is a third, separately
+default-off opt-in for the semantic stored-proposal route only. When enabled,
+BHM performs a deterministic policy review and uses the same exact-ID apply
+path automatically. It accepts only a confirmed local-model proposal with no
+conflicts and an operation-specific high-confidence threshold (`0.90` for
+`create`/`revise`/`link`, `0.97` for `supersede`/`archive`). It rejects no-op,
+fallback, malformed or low-confidence candidates and records only the policy
+version, actor digest and reason codes. The flag neither polls for work nor
+generates a proposal from every memory write.
+
+Proposal preview, inspection, validation and dry-run remain non-mutating.
+Regardless of the mode, the apply revalidates revision/digest inside the SQLite
+transaction and writes only the normal `memory_outbox`; it never writes Mem0 or
+Qdrant directly. Disablement is reversible by removing the auto-review flag
+and restarting the API; existing proposal evidence remains inspectable. The
+authority contract is documented in [architecture-authority.md](architecture-authority.md).
 
 ### Local semantic proposal editor (default off)
 
@@ -57,6 +68,17 @@ configuration allowlist from Windows User environment into its child process.
 This preserves an already approved local activation across a desktop restart;
 it neither enables the feature by default nor imports caller credentials or
 admin capability through that allowlist.
+
+To enable the automatic policy stage after a disposable rehearsal, persist the
+additional non-secret User setting and restart through the canonical launcher:
+
+```powershell
+[Environment]::SetEnvironmentVariable('BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED', '1', 'User')
+```
+
+Removing that value (or setting it to `0`) and restarting immediately restores
+the manual approval/apply mode. The REST status response exposes the active
+policy version and thresholds without memory content.
 
 Optional settings are `BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL`,
 `BHM_GOVERNED_SEMANTIC_EDITOR_MODEL`,

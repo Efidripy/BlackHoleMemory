@@ -39,7 +39,7 @@ Metadata-only changes are projected with a stable
 Qdrant `set_payload` instead of recomputing an embedding. Points created before
 this digest existed are treated as stale once and refreshed from SQLite.
 
-## Governed consolidation (operator-gated)
+## Governed consolidation (manual or policy-auto-reviewed)
 
 Governed consolidation creates a typed `no_op`, `create`, `revise`,
 `supersede`, `archive` or `link` **proposal** from a bounded same-project set
@@ -58,14 +58,21 @@ uv run python .\scripts\bhm-governed-consolidation.py `
   --database .\.runtime\live-memory\memories.sqlite3
 ```
 
-After a separately approved migration and shadow activation, the required
-operator sequence is: create/replay proposal → inspect/validate → approve or
+After a separately approved migration and shadow activation, the standard
+manual sequence is: create/replay proposal → inspect/validate → approve or
 reject → dry-run → explicit `apply=true` with the exact proposal ID. Apply
 performs same-transaction SQLite revalidation, emits the normal outbox event,
 and leaves vector projection to the existing sidecar. A changed basis is marked
 `stale`; no partial lifecycle operation is committed. `archive` and
-`supersede` keep immutable revision provenance for recovery. There is no
-background processing, polling, auto-merge or auto-archive.
+`supersede` keep immutable revision provenance for recovery.
+
+When the separate `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED=1` flag is enabled,
+the stored local-model semantic proposal route substitutes a deterministic
+policy review and the same guarded apply for the two manual clicks. It accepts
+only conflict-free local-model proposals at the documented high thresholds and
+records policy version/actor digest/reason codes; fallback, `no_op`, malformed,
+conflicted and low-confidence proposals are rejected. It does not create a
+background worker, poll for new memories, or alter the manual recovery routes.
 
 The bounded observability contract is content-safe: a proposal reports the
 number of selected authority records and local analyzer duration; an accepted
@@ -74,7 +81,8 @@ outbox events it created. It never returns memory content from telemetry.
 
 An optional local semantic editor can retrieve 1–20 candidate IDs through the
 existing semantic path, then re-read those records from SQLite and return a
-strict proposal-only JSON result. It is separately default-off and never turns
+strict proposal JSON result. Its normal preview stays proposal-only; its stored
+route can enter the separate default-off automatic policy stage. It never turns
 Mem0/Qdrant into writers. Its preview/store/shadow flow is documented in
 [governed-semantic-editor.md](governed-semantic-editor.md).
 

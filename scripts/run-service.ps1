@@ -29,6 +29,7 @@ function Import-ExplicitOperatorFeatureConfiguration {
   # feature allowlist; runtime validation still owns every value's meaning.
   foreach ($name in @(
       'BHM_GOVERNED_CONSOLIDATION_ENABLED',
+      'BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED',
       'BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED',
       'BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL',
       'BHM_GOVERNED_SEMANTIC_EDITOR_MODEL',
