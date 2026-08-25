@@ -19,6 +19,8 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
         'BHM_PROJECTION_WORKER_ENABLED = "false"',
         'BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"',
         'BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = "true"',
+        'BHM_TYPED_MEMORY_CONTRACT_ENABLED = "true"',
+        'BHM_TYPED_MEMORY_PROJECTION_READY = "false"',
         "/health/ready",
         "/bhm/health",
         "/health/cutover",
@@ -147,6 +149,8 @@ def test_service_authoritative_switch_sets_complete_writer_gate_contract():
         'BHM_PROJECTION_WORKER_ENABLED = "false"',
         'BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"',
         'BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = "true"',
+        'BHM_TYPED_MEMORY_CONTRACT_ENABLED = "true"',
+        'BHM_TYPED_MEMORY_PROJECTION_READY = "false"',
     ):
         assert marker in authoritative_block
 

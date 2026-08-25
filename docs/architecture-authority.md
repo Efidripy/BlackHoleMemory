@@ -93,6 +93,13 @@ backup and an offline authority-writer proof. It changes only typed
 classification and the `artifact_kind` metadata, preserves content/revision/
 lifecycle, and emits ordinary outbox events for the existing projector.
 
+The canonical authoritative launcher enables the typed-memory API boundary
+only after WL-300.1's additive SQLite capability has been installed. Each
+typed request still verifies the live capability marker and returns a
+fail-closed `409` after a stale/manual database restore. Typed Qdrant-filter
+pushdown is a distinct gate and remains disabled until projection parity has
+been re-proven; SQLite remains the final filter in the meantime.
+
 For an intentional semantic upgrade pass, the governed semantic proposal
 surface accepts `include_historical=true`. That flag is required to let typed
 checkpoint/session traces become model evidence. If the result is a policy-safe

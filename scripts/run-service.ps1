@@ -131,6 +131,12 @@ if ($Authoritative) {
   $env:BHM_PROJECTION_WORKER_ENABLED = "false"
   $env:BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"
   $env:BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = "true"
+  # The API validates the additive SQLite capability marker before accepting
+  # typed intent. This remains fail-closed after a manual DB restore.
+  $env:BHM_TYPED_MEMORY_CONTRACT_ENABLED = "true"
+  # Historical Qdrant payload compatibility remains the default until the
+  # typed-field projection parity gate is deliberately enabled.
+  $env:BHM_TYPED_MEMORY_PROJECTION_READY = "false"
   Resolve-AuthoritativeProviderEndpoint
 }
 
