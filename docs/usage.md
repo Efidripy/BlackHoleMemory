@@ -142,6 +142,15 @@ CLI, полный порядок остановки/запуска и restore о
 
 ## Freshness and review inventory
 
+For retrieval UX, `POST /bhm/search` and `POST /bhm/search/advanced` (and the
+matching MCP tools) accept an optional `freshness_days` filter. It keeps
+records whose authoritative `updated_at` is within that many UTC days, with a
+safe bounded range of `1..3650`. The filter is applied before sorting and
+pagination on SQLite, so it is suitable for reducing noisy historical trace
+results without changing memory content. Combine it with
+`include_historical=true` when reviewing recent history; omit that flag for
+the default current-memory view.
+
 `audit-bhm-freshness-review.py` is a bounded, read-only baseline for review
 planning. It opens the SQLite authority using `mode=ro` plus `PRAGMA
 query_only=ON`; it does not write SQLite, Qdrant, Mem0, lifecycle state, or
