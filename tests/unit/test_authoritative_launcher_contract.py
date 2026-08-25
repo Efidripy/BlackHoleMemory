@@ -176,6 +176,8 @@ def test_service_imports_only_explicit_non_secret_governed_feature_configuration
         "BHM_GOVERNED_SEMANTIC_EDITOR_MODEL",
         "BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS",
         "BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS",
+        "BHM_LLM_GOVERNOR_MAX_VRAM_RATIO",
+        "BHM_LLM_GOVERNOR_PAUSE_ON_USER_ACTIVITY",
     ):
         assert name in feature_block
 

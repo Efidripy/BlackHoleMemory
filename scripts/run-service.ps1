@@ -36,7 +36,9 @@ function Import-ExplicitOperatorFeatureConfiguration {
       'BHM_GOVERNED_SEMANTIC_EDITOR_MODEL',
       'BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS',
       'BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS',
-      'BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS'
+      'BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS',
+      'BHM_LLM_GOVERNOR_MAX_VRAM_RATIO',
+      'BHM_LLM_GOVERNOR_PAUSE_ON_USER_ACTIVITY'
     )) {
     if (-not [string]::IsNullOrWhiteSpace([string][Environment]::GetEnvironmentVariable($name, 'Process'))) {
       continue
