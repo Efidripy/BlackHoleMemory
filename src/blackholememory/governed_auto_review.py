@@ -49,24 +49,36 @@ def runtime_enabled() -> bool:
     return str(os.getenv("BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED") or "").strip().casefold() in {"1", "true", "yes", "on"}
 
 
+def operator_consent_required() -> bool:
+    """Require an explicit launcher/operator action before lifecycle apply."""
+
+    return str(os.getenv("BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED") or "").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def policy_status() -> dict[str, Any]:
     return {
         "enabled": runtime_enabled(),
-        "mode": "policy-auto-reviewed" if runtime_enabled() else "approval-gated",
+        "mode": "operator-consent" if operator_consent_required() else ("policy-auto-reviewed" if runtime_enabled() else "approval-gated"),
         "policy_version": GOVERNED_AUTO_REVIEW_APPLY_POLICY_VERSION,
         "actor": GOVERNED_AUTO_REVIEW_APPLY_ACTOR,
         "minimum_confidence_by_operation": dict(_AUTO_CONFIDENCE_BY_OPERATION),
         "direct_mem0_writes": False,
         "direct_qdrant_writes": False,
+        "operator_consent_required": operator_consent_required(),
     }
 
 
-def review_proposal(proposal: Mapping[str, Any]) -> AutoReviewDecision:
+def review_proposal(proposal: Mapping[str, Any], *, allow_operator_consent: bool = False) -> AutoReviewDecision:
     """Return a content-free, deterministic policy decision for one proposal."""
 
     operation = str(proposal.get("operation") or "")
     reasons: list[str] = []
-    if not runtime_enabled():
+    if not runtime_enabled() and not allow_operator_consent:
         reasons.append("auto_review_apply_disabled")
     if operation == "no_op":
         reasons.append("no_op")
@@ -110,6 +122,15 @@ def auto_review_and_apply_proposal(*, database_path: Path | str, proposal_id: st
     proposal = store.get(proposal_id, project=project)
     if not runtime_enabled():
         return _receipt(proposal_id, str(proposal["status"]), decision=None, apply_result=None, idempotent=False)
+    if operator_consent_required():
+        return _receipt(
+            proposal_id,
+            str(proposal["status"]),
+            decision=None,
+            apply_result=None,
+            idempotent=False,
+            deferred_reason="operator_consent_required",
+        )
     if proposal["status"] == "applied":
         return _receipt(proposal_id, "applied", decision=None, apply_result=None, idempotent=True)
     if proposal["status"] == "approved":
@@ -175,6 +196,7 @@ def _receipt(
     apply_result: Any,
     idempotent: bool,
     proposal: Mapping[str, Any] | None = None,
+    deferred_reason: str | None = None,
 ) -> dict[str, Any]:
     return {
         "proposal_id": proposal_id,
@@ -182,6 +204,7 @@ def _receipt(
         "automatic_review": decision is not None,
         "automatic_apply": bool(apply_result is not None),
         "idempotent": idempotent,
+        "deferred_reason": deferred_reason,
         "policy": policy_status(),
         "decision": decision.as_dict() if decision is not None else None,
         "apply": (
@@ -212,6 +235,7 @@ __all__ = [
     "AutoReviewDecision",
     "auto_review_and_apply_proposal",
     "policy_status",
+    "operator_consent_required",
     "review_proposal",
     "runtime_enabled",
 ]

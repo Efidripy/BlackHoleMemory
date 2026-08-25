@@ -170,6 +170,7 @@ def test_service_imports_only_explicit_non_secret_governed_feature_configuration
     for name in (
         "BHM_GOVERNED_CONSOLIDATION_ENABLED",
         "BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED",
+        "BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED",
         "BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED",
         "BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL",
         "BHM_GOVERNED_SEMANTIC_EDITOR_MODEL",
