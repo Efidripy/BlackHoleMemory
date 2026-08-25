@@ -420,15 +420,37 @@ def select_authoritative_records(
     return [by_id[item] for item in requested]
 
 
+def _legacy_trace_memory_id(record: Mapping[str, Any]) -> str | None:
+    """Return an exact safe-to-retire historical source, never model input IDs.
+
+    A record only qualifies after the explicit historical route has selected it:
+    it must be a typed checkpoint/session trace produced by the backfill or
+    current writer. Older unclassified workflow records remain excluded.
+    """
+
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+    artifact_kind = str(metadata.get("artifact_kind") or "").strip().casefold()
+    event_role = str(record.get("event_role") or metadata.get("event_role") or "").strip().casefold()
+    memory_id = str(record.get("id") or record.get("source_id") or "").strip()
+    if artifact_kind in {"checkpoint", "session-record"} and event_role == "trace" and memory_id:
+        return memory_id
+    return None
+
+
 def select_consolidatable_records(
     records: Iterable[Mapping[str, Any]],
+    *,
+    include_historical: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Keep only durable fact-like evidence for local semantic consolidation."""
+    """Keep durable evidence; typed trace history is explicit opt-in only."""
 
     selected: list[dict[str, Any]] = []
     excluded: dict[str, int] = {}
     for raw in records:
         record = dict(raw)
+        if include_historical and _legacy_trace_memory_id(record):
+            selected.append(record)
+            continue
         memory_type = str(record.get("memory_type") or record.get("type") or "").strip().casefold()
         if memory_type in SEMANTIC_EDITOR_MEMORY_TYPES:
             selected.append(record)
@@ -444,6 +466,7 @@ def build_semantic_proposal(
     query: str,
     retrieved_records: Sequence[Mapping[str, Any]],
     completion: SemanticCompletion,
+    retire_historical_basis: bool = False,
 ) -> dict[str, Any]:
     """Generate and deterministically validate one proposal-only editor result."""
 
@@ -477,11 +500,20 @@ def build_semantic_proposal(
         candidate=candidate,
         model_reason=reason,
     )
+    # The model never sees opaque IDs and cannot select archive targets.  Once
+    # it has produced a policy-safe create, the trusted adapter may attach only
+    # exact typed trace basis rows that entered through the explicit history
+    # route. Applying the proposal then atomically creates the successor and
+    # archives those sources with canonical_successor provenance.
+    retire_ids = [item for item in (_legacy_trace_memory_id(record) for record in selected) if item]
+    candidate_for_proposal = dict(policy["candidate"])
+    if retire_historical_basis and policy["operation"] == "create" and retire_ids:
+        candidate_for_proposal["retire_basis_memory_ids"] = retire_ids
     proposal = build_proposal(
         project=canonical_project,
         records=selected,
         operation=policy["operation"],
-        candidate=policy["candidate"],
+        candidate=candidate_for_proposal,
         reason=policy["reason"],
         confidence=confidence,
         conflicts=conflicts,
@@ -495,6 +527,11 @@ def build_semantic_proposal(
         "retrieved_candidate_count": len(records),
         "selected_basis_count": len(selected),
         "policy": policy["receipt"],
+        "legacy_rollover": {
+            "requested": retire_historical_basis,
+            "eligible_basis_memory_ids": retire_ids,
+            "retire_basis_memory_ids": candidate_for_proposal.get("retire_basis_memory_ids", []),
+        },
         "shadow_safe": True,
     }
     proposal["execution"].update({"local_model_called": True, "semantic_retrieval": True, "automatic_apply": False})

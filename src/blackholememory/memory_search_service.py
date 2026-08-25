@@ -85,6 +85,7 @@ class MemorySearchService:
                 priority=request.priority,
                 include_archived=request.include_archived,
                 include_logs=request.include_logs,
+                include_historical=getattr(request, "include_historical", False),
             )
             hits, total = federated_result
             query_plan = build_retrieval_query_plan(
@@ -143,6 +144,7 @@ class MemorySearchService:
                     "files": request.files or [],
                     "include_archived": request.include_archived,
                     "include_logs": request.include_logs,
+                    "include_historical": getattr(request, "include_historical", False),
                     "domain": request.domain,
                     "semantic_type": request.semantic_type,
                     "priority": request.priority,
@@ -174,6 +176,7 @@ class MemorySearchService:
                 files=request.files,
                 query=request.query,
                 include_logs=request.include_logs,
+                include_historical=getattr(request, "include_historical", False),
                 domain=request.domain,
                 semantic_type=request.semantic_type,
                 priority=request.priority,

@@ -24,12 +24,22 @@ def _install_artifact_stores(monkeypatch):
                 "source_id": f"mem_bhm_artifact_{len(memories) + 1:04d}",
                 "project": request.project,
                 "memory_type": request.type,
+                "memory_class": request.memory_class,
+                "event_role": request.event_role,
                 "content": request.content,
-                "metadata": {"upsert_key": request.upsert_key},
+                "metadata": {"upsert_key": request.upsert_key, **dict(request.metadata or {})},
             }
             memories[request.upsert_key] = existing
             return "created", existing
-        existing.update({"content": request.content, "memory_type": request.type})
+        existing.update(
+            {
+                "content": request.content,
+                "memory_type": request.type,
+                "memory_class": request.memory_class,
+                "event_role": request.event_role,
+                "metadata": {"upsert_key": request.upsert_key, **dict(request.metadata or {})},
+            }
+        )
         return "updated", existing
 
     monkeypatch.setattr(bhm_app, "_upsert_live_memory", upsert)
@@ -99,3 +109,28 @@ def test_generic_checkpoint_derives_stable_first_class_upsert_key(monkeypatch):
     assert checkpoints[0]["metadata"]["upsert_key"] == (
         "checkpoint:blackholememory:workflow:stable-generic-checkpoint"
     )
+    stored = memories[checkpoints[0]["metadata"]["upsert_key"]]
+    assert stored["memory_class"] is bhm_app.MemoryClass.EPISODIC
+    assert stored["event_role"] is bhm_app.MemoryEventRole.TRACE
+    assert stored["metadata"]["artifact_kind"] == "checkpoint"
+
+
+def test_session_record_sets_trace_metadata_on_canonical_memory(monkeypatch):
+    _checkpoints, sessions, memories = _install_artifact_stores(monkeypatch)
+    request = bhm_app.SessionRecordCreateRequest(
+        project="BlackHoleMemory",
+        title="Typed session record",
+        done="done",
+        next="next",
+        checks="unit",
+        risks="none",
+        decisions="typed history",
+    )
+
+    _action, record = bhm_app._create_session_record(request)
+
+    stored = memories[record["metadata"]["upsert_key"]]
+    assert stored["memory_class"] is bhm_app.MemoryClass.EPISODIC
+    assert stored["event_role"] is bhm_app.MemoryEventRole.TRACE
+    assert stored["metadata"]["artifact_kind"] == "session-record"
+    assert sessions[0]["metadata"]["artifact_kind"] == "session-record"

@@ -120,6 +120,7 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
         "sqlite_revalidated_count": 2,
         "fallback_reason": None,
         "model_fallback_reason": None,
+        "include_historical": False,
     }
     assert result["side_effects"]["memory_lifecycle_mutation"] is False
     assert result["side_effects"]["qdrant_mutation"] is False
@@ -153,6 +154,7 @@ def test_semantic_surface_uses_sqlite_lexical_fallback_when_embedding_retrieval_
         "sqlite_revalidated_count": 2,
         "fallback_reason": "embedding_retrieval_unavailable",
         "model_fallback_reason": None,
+        "include_historical": False,
     }
     assert result["proposal"]["execution"]["semantic_retrieval"] is False
     assert governor.released

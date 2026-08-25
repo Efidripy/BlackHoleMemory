@@ -206,6 +206,51 @@ def test_semantic_editor_excludes_operational_records_from_consolidation_evidenc
     assert excluded == {"checkpoint": 1, "workflow": 1}
 
 
+def test_explicit_historical_upgrade_attaches_only_typed_trace_successors() -> None:
+    legacy = _record("mem_bhm_legacy", "Legacy uninstall rule.")
+    legacy["memory_type"] = "workflow"
+    legacy["event_role"] = "trace"
+    legacy["metadata"].update({"event_role": "trace", "artifact_kind": "session-record"})
+    current = _record("mem_bhm_current", "Current install-state rule.")
+
+    selected, excluded = select_consolidatable_records(
+        [legacy, current], include_historical=True
+    )
+    assert excluded == {}
+    assert {item["source_id"] for item in selected} == {"mem_bhm_legacy", "mem_bhm_current"}
+
+    proposal = build_semantic_proposal(
+        project="multiserversubgen",
+        query="upgrade legacy uninstall rule",
+        retrieved_records=selected,
+        completion=_Completion(_candidate()),
+        retire_historical_basis=True,
+    )
+
+    assert proposal["operation"] == "create"
+    assert proposal["candidate"]["retire_basis_memory_ids"] == ["mem_bhm_legacy"]
+    assert proposal["semantic_editor"]["legacy_rollover"] == {
+        "requested": True,
+        "eligible_basis_memory_ids": ["mem_bhm_legacy"],
+        "retire_basis_memory_ids": ["mem_bhm_legacy"],
+    }
+
+
+def test_ordinary_semantic_pass_never_attaches_legacy_retirement() -> None:
+    legacy = _record("mem_bhm_legacy", "Legacy rule.")
+    legacy["memory_type"] = "workflow"
+    legacy["event_role"] = "trace"
+    legacy["metadata"].update({"event_role": "trace", "artifact_kind": "checkpoint"})
+    proposal = build_semantic_proposal(
+        project="multiserversubgen",
+        query="ordinary fact",
+        retrieved_records=[legacy, _record("mem_bhm_current", "Current fact.")],
+        completion=_Completion(_candidate()),
+    )
+    assert "retire_basis_memory_ids" not in proposal["candidate"]
+    assert proposal["semantic_editor"]["legacy_rollover"]["requested"] is False
+
+
 def test_local_gateway_semantic_completion_sends_textual_json_evidence_to_openai_compatible_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
