@@ -54,11 +54,11 @@ def test_plan_is_read_only_and_only_maps_structurally_unambiguous_rows(tmp_path:
     before = database.read_bytes()
     plan = build_legacy_memory_typing_plan(database, backup)
     assert database.read_bytes() == before
-    assert plan["summary"]["target_count"] == 8
+    assert plan["summary"]["target_count"] == 9
     with pytest.raises(LegacyMemoryTypingError, match="operator confirmation"):
         apply_legacy_memory_typing(database, backup, plan, expected_plan_digest=plan["plan_digest"])
     result = apply_legacy_memory_typing(database, backup, plan, expected_plan_digest=plan["plan_digest"], confirm_operator=True, offline_verified=True)
-    assert result["target_count"] == len(result["outbox_event_ids"]) == 8
+    assert result["target_count"] == len(result["outbox_event_ids"]) == 9
     trace = repository.get_memory("trace", project="blackholememory")
     checkpoint = repository.get_memory("checkpoint", project="blackholememory")
     decision = repository.get_memory("decision", project="blackholememory")
@@ -78,7 +78,7 @@ def test_plan_is_read_only_and_only_maps_structurally_unambiguous_rows(tmp_path:
     assert (compact.memory_class.value, compact.event_role.value) == ("episodic", "trace")
     assert (runbook.memory_class.value, runbook.event_role.value) == ("episodic", "trace")
     assert (workflow.memory_class.value, workflow.event_role.value) == ("episodic", "trace")
-    assert (deploy.memory_class.value, deploy.event_role.value) == ("unclassified", "unclassified")
+    assert (deploy.memory_class.value, deploy.event_role.value) == ("episodic", "trace")
     assert (unknown.memory_class.value, unknown.event_role.value) == ("unclassified", "unclassified")
     assert unknown.current_revision.content == "ambiguous workflow body"
 
