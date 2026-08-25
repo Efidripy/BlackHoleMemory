@@ -110,6 +110,12 @@ non-secret governor overrides `BHM_LLM_GOVERNOR_MAX_VRAM_RATIO` and
 defaults for routine work. A temporary override must remain local, preserve the
 GPU temperature/VRAM guards, and be removed after the bounded run completes.
 
+When governed semantic editor mode is enabled, the authoritative launcher sets
+`BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS=10` unless the operator
+already supplied a value. This gives the local 14B plus embedding model a
+bounded cold-start window; the source-level hard ceiling is 15 seconds and the
+normal lexical startup path remains unchanged.
+
 ## Local loopback endpoints and IPv6
 
 Каталог endpoint’ов принимает только сконфигурированные локальные hosts для

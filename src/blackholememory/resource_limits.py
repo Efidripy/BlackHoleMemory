@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -62,7 +63,25 @@ BHM_CODE_GRAPH_SOFT_WAIT_SECONDS = 20
 BHM_INDEX_MAX_FILES_PER_RUN = 666
 BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS = 3
 BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS = 3
-BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS = 3
+def _bounded_env_seconds(name: str, default: float, *, minimum: float, maximum: float) -> float:
+    """Read one operator timeout without allowing an unbounded wait."""
+
+    try:
+        value = float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    return min(max(value, minimum), maximum)
+
+
+# Cold local embedding can legitimately take longer while the 14B model owns
+# the GPU. Keep the normal three-second contour by default, but let the
+# authoritative semantic launcher opt into a bounded ten-second window.
+BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS = _bounded_env_seconds(
+    "BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS",
+    3.0,
+    minimum=3.0,
+    maximum=15.0,
+)
 EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS = 20
 QDRANT_SDK_TIMEOUT_SECONDS = 10
 QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS = 2.0
@@ -137,7 +156,7 @@ RESOURCE_LIMITS: tuple[ResourceLimit, ...] = (
     ResourceLimit("repository.index_max_files_per_run", "repository-index", BHM_INDEX_MAX_FILES_PER_RUN, "files", "resource_limits.BHM_INDEX_MAX_FILES_PER_RUN"),
     ResourceLimit("outbound.bhm_speculative_search_timeout", "outbound-http", BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_SPECULATIVE_SEARCH_TIMEOUT_SECONDS"),
     ResourceLimit("retrieval.federated_contour_timeout", "retrieval", BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS"),
-    ResourceLimit("retrieval.embedding_preparation_timeout", "retrieval", BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS"),
+    ResourceLimit("retrieval.embedding_preparation_timeout", "retrieval", BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS, "seconds", "resource_limits.BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS", "BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS"),
     ResourceLimit("outbound.external_search_timeout", "outbound-http", EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS"),
     ResourceLimit("qdrant.sdk_timeout", "qdrant-sdk", QDRANT_SDK_TIMEOUT_SECONDS, "seconds", "resource_limits.QDRANT_SDK_TIMEOUT_SECONDS"),
     ResourceLimit("qdrant.health_http_timeout", "qdrant-health-http", QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS"),
