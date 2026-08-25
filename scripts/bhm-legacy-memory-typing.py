@@ -51,6 +51,16 @@ def _write(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
 
 
+def _summary(payload: dict) -> dict:
+    return {
+        "schema_version": payload.get("schema_version"),
+        "plan_digest": payload.get("plan_digest"),
+        "target_snapshot_digest": payload.get("target_snapshot_digest"),
+        "summary": payload.get("summary"),
+        "execution": payload.get("execution"),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
@@ -61,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-plan-digest")
     parser.add_argument("--confirm-operator", action="store_true")
     parser.add_argument("--offline-verified", action="store_true")
+    parser.add_argument("--summary-only", action="store_true")
     args = parser.parse_args(argv)
     try:
         plan_path = _path(args.plan, must_exist=args.apply)
@@ -68,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
         if not args.apply:
             plan = build_legacy_memory_typing_plan(args.database, args.existing_backup)
             _write(plan_path, plan)
-            print(json.dumps(plan, ensure_ascii=False, indent=2, sort_keys=True))
+            print(json.dumps(_summary(plan) if args.summary_only else plan, ensure_ascii=False, indent=2, sort_keys=True))
             return 0
         if not args.expected_plan_digest:
             raise LegacyMemoryTypingError("--expected-plan-digest is required with --apply")
