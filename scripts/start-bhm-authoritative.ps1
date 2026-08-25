@@ -35,6 +35,13 @@ function Set-AuthoritativeEnvironment {
   $env:BHM_PROJECTION_WORKER_ENABLED = "false"
   $env:BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"
   $env:BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = "true"
+  # WL-300.1 added the capability marker through an additive, verified SQLite
+  # migration. The API verifies that marker at every typed boundary, so a
+  # stale or restored database fails closed instead of accepting typed intent.
+  $env:BHM_TYPED_MEMORY_CONTRACT_ENABLED = "true"
+  # Typed Qdrant pushdown needs a separate parity proof. SQLite post-filtering
+  # remains authoritative until that evidence has been explicitly recorded.
+  $env:BHM_TYPED_MEMORY_PROJECTION_READY = "false"
   if ([string]::IsNullOrWhiteSpace([string]$env:BHM_STORAGE_STARTUP_TIMEOUT_SECONDS)) {
     $env:BHM_STORAGE_STARTUP_TIMEOUT_SECONDS = "120"
   }
