@@ -7,6 +7,7 @@ import pytest
 
 from blackholememory import app as bhm_app
 from blackholememory.retrieval_filters import build_candidate_filters
+from blackholememory.retrieval_scope import resolve_history_scope
 
 
 def test_candidate_filters_push_project_and_taxonomy_predicates_downstream():
@@ -163,6 +164,46 @@ def test_freshness_days_contract_is_bounded():
         bhm_app.MemoryAdvancedSearchRequest(freshness_days=0)
     with pytest.raises(ValueError):
         bhm_app.MemoryAdvancedSearchRequest(freshness_days=3651)
+
+
+def test_history_scope_normalizes_current_recent_and_all():
+    assert resolve_history_scope(None) == resolve_history_scope("current")
+    recent = resolve_history_scope("recent")
+    assert recent.include_historical is True
+    assert recent.freshness_days == 30
+    assert resolve_history_scope("recent", freshness_days=7).freshness_days == 7
+    assert resolve_history_scope("all").include_historical is True
+    assert resolve_history_scope(None, include_historical=True).scope == "all"
+
+
+def test_advanced_search_recent_scope_includes_only_recent_history(monkeypatch):
+    now = datetime.now(timezone.utc)
+    records = [
+        {
+            "source_id": "recent-trace",
+            "project": "blackholememory",
+            "event_role": "trace",
+            "content": "recent receipt",
+            "updated_at": (now - timedelta(days=2)).isoformat().replace("+00:00", "Z"),
+            "metadata": {"event_role": "trace"},
+        },
+        {
+            "source_id": "old-trace",
+            "project": "blackholememory",
+            "event_role": "trace",
+            "content": "old receipt",
+            "updated_at": (now - timedelta(days=31)).isoformat().replace("+00:00", "Z"),
+            "metadata": {"event_role": "trace"},
+        },
+    ]
+    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    window, total = bhm_app._advanced_search_live_memories(
+        bhm_app.MemoryAdvancedSearchRequest(
+            project="blackholememory", history_scope="recent", limit=10
+        )
+    )
+    assert total == 1
+    assert [item["source_id"] for item in window] == ["recent-trace"]
 
 
 def test_federated_search_pushes_the_same_project_boundary_to_both_contours(monkeypatch):

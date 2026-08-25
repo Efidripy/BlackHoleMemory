@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 from .retrieval_query_plan import build_retrieval_query_plan
+from .retrieval_scope import resolve_history_scope
 
 
 def read_only_side_effects() -> dict[str, Any]:
@@ -57,6 +58,12 @@ class MemorySearchService:
     async def execute(self, request: Any) -> dict[str, Any]:
         """Return a stable search response without changing storage state."""
 
+        history = resolve_history_scope(
+            getattr(request, "history_scope", None),
+            include_historical=getattr(request, "include_historical", False),
+            freshness_days=getattr(request, "freshness_days", None),
+        )
+
         if not request.query.strip():
             response = await self._dependencies.advanced_search(request)
             response.setdefault("side_effects", read_only_side_effects())
@@ -70,7 +77,7 @@ class MemorySearchService:
         typed_or_temporal = any(
             getattr(request, field, None) is not None
             for field in ("memory_class", "event_role", "as_of", "valid_from", "valid_to")
-        ) or bool(getattr(request, "include_temporal_unknown", False)) or getattr(request, "freshness_days", None) is not None
+        ) or bool(getattr(request, "include_temporal_unknown", False)) or history.freshness_days is not None
         if typed_or_temporal:
             response = await self._dependencies.advanced_search(request)
             response.setdefault("retrieval", {})
@@ -78,7 +85,7 @@ class MemorySearchService:
                 {
                     "mode": (
                         "authoritative-freshness"
-                        if getattr(request, "freshness_days", None) is not None
+                        if history.freshness_days is not None
                         else "authoritative-typed"
                     ),
                     "provider": "sqlite",
@@ -109,10 +116,10 @@ class MemorySearchService:
                 "priority": request.priority,
                 "include_archived": request.include_archived,
                 "include_logs": request.include_logs,
-                "include_historical": getattr(request, "include_historical", False),
+                "include_historical": history.include_historical,
             }
-            if getattr(request, "freshness_days", None) is not None:
-                federated_kwargs["freshness_days"] = request.freshness_days
+            if history.freshness_days is not None:
+                federated_kwargs["freshness_days"] = history.freshness_days
             federated_result = await self._dependencies.federated_search(
                 request.query,
                 project_name,
@@ -179,7 +186,8 @@ class MemorySearchService:
                     "domain": request.domain,
                     "semantic_type": request.semantic_type,
                     "priority": request.priority,
-                    "freshness_days": getattr(request, "freshness_days", None),
+                    "freshness_days": history.freshness_days,
+                    "history_scope": history.scope,
                 },
                 "retrieval": {
                     "mode": "federated",
@@ -208,11 +216,11 @@ class MemorySearchService:
                 files=request.files,
                 query=request.query,
                 include_logs=request.include_logs,
-                include_historical=getattr(request, "include_historical", False),
+                include_historical=history.include_historical,
                 domain=request.domain,
                 semantic_type=request.semantic_type,
                 priority=request.priority,
-                freshness_days=getattr(request, "freshness_days", None),
+                freshness_days=history.freshness_days,
                 include_archived=request.include_archived,
                 limit=request.limit,
                 offset=request.offset,

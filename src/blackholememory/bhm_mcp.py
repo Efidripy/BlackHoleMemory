@@ -323,7 +323,7 @@ def bhm_preflight(project: str = DEFAULT_PROJECT, query: str | None = None, limi
     }
 
 
-@mcp.tool(name="bhm_search", description="Native BHM search. Historical checkpoint/session trace records are excluded by default; request include_historical or event_role=trace to inspect them. Use freshness_days for a bounded updated_at window.")
+@mcp.tool(name="bhm_search", description="Native BHM search. Use history_scope=current|recent|all for an explicit history view; recent defaults to 30 days and can be narrowed with freshness_days.")
 def bhm_search(
     query: str = "",
     project: str | None = None,
@@ -345,6 +345,7 @@ def bhm_search(
     include_logs: bool = False,
     include_historical: bool = False,
     freshness_days: Annotated[int | None, Field(ge=1, le=3650)] = None,
+    history_scope: Literal["current", "recent", "all"] | None = None,
 ) -> dict[str, Any]:
     body = {
         "query": query,
@@ -354,6 +355,7 @@ def bhm_search(
         "include_logs": include_logs,
         "include_historical": include_historical,
         **({"freshness_days": freshness_days} if freshness_days is not None else {}),
+        **({"history_scope": history_scope} if history_scope is not None else {}),
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     if project:
@@ -671,7 +673,7 @@ def bhm_forget_apply(
     )
 
 
-@mcp.tool(name="bhm_search_advanced", description="Search live BHM memories with structured filters, including a bounded updated_at freshness window.")
+@mcp.tool(name="bhm_search_advanced", description="Search live BHM memories with structured filters and explicit history_scope=current|recent|all.")
 def bhm_search_advanced(
     query: str = "",
     project: str | None = None,
@@ -690,6 +692,7 @@ def bhm_search_advanced(
     semantic_type: str | None = None,
     priority: str | None = None,
     freshness_days: Annotated[int | None, Field(ge=1, le=3650)] = None,
+    history_scope: Literal["current", "recent", "all"] | None = None,
     limit: int = 10,
     offset: int = 0,
 ) -> dict[str, Any]:
@@ -698,6 +701,7 @@ def bhm_search_advanced(
         "include_archived": include_archived,
         "include_logs": include_logs,
         **({"freshness_days": freshness_days} if freshness_days is not None else {}),
+        **({"history_scope": history_scope} if history_scope is not None else {}),
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
         "limit": limit,
         "offset": offset,
