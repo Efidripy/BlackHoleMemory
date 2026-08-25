@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from blackholememory import app as bhm_app
 from blackholememory.retrieval_filters import build_candidate_filters
@@ -112,6 +115,54 @@ def test_memory_listing_and_fallback_keep_trace_history_opt_in(monkeypatch):
     assert {item["source_id"] for item in bhm_app._fallback_memory_records(
         project="blackholememory", include_historical=True
     )} == {"mem-current", "mem-trace"}
+
+
+def test_advanced_search_freshness_filters_updated_at_before_pagination(monkeypatch):
+    now = datetime.now(timezone.utc)
+    recent = (now - timedelta(days=2)).isoformat().replace("+00:00", "Z")
+    old = (now - timedelta(days=45)).isoformat().replace("+00:00", "Z")
+    records = [
+        {
+            "source_id": "mem-recent-trace",
+            "project": "blackholememory",
+            "memory_type": "workflow",
+            "event_role": "trace",
+            "content": "recent workflow receipt",
+            "updated_at": recent,
+            "metadata": {"event_role": "trace", "priority": "high"},
+        },
+        {
+            "source_id": "mem-old-trace",
+            "project": "blackholememory",
+            "memory_type": "workflow",
+            "event_role": "trace",
+            "content": "old workflow receipt",
+            "updated_at": old,
+            "metadata": {"event_role": "trace", "priority": "high"},
+        },
+    ]
+    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+
+    window, total = bhm_app._advanced_search_live_memories(
+        bhm_app.MemoryAdvancedSearchRequest(
+            query="workflow receipt",
+            project="blackholememory",
+            include_historical=True,
+            freshness_days=7,
+            priority="high",
+            limit=1,
+        )
+    )
+
+    assert total == 1
+    assert [item["source_id"] for item in window] == ["mem-recent-trace"]
+
+
+def test_freshness_days_contract_is_bounded():
+    with pytest.raises(ValueError):
+        bhm_app.MemoryAdvancedSearchRequest(freshness_days=0)
+    with pytest.raises(ValueError):
+        bhm_app.MemoryAdvancedSearchRequest(freshness_days=3651)
 
 
 def test_federated_search_pushes_the_same_project_boundary_to_both_contours(monkeypatch):

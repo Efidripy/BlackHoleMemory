@@ -70,13 +70,17 @@ class MemorySearchService:
         typed_or_temporal = any(
             getattr(request, field, None) is not None
             for field in ("memory_class", "event_role", "as_of", "valid_from", "valid_to")
-        ) or bool(getattr(request, "include_temporal_unknown", False))
+        ) or bool(getattr(request, "include_temporal_unknown", False)) or getattr(request, "freshness_days", None) is not None
         if typed_or_temporal:
             response = await self._dependencies.advanced_search(request)
             response.setdefault("retrieval", {})
             response["retrieval"].update(
                 {
-                    "mode": "authoritative-typed",
+                    "mode": (
+                        "authoritative-freshness"
+                        if getattr(request, "freshness_days", None) is not None
+                        else "authoritative-typed"
+                    ),
                     "provider": "sqlite",
                     "semantic_projection_used": False,
                 }
@@ -88,26 +92,31 @@ class MemorySearchService:
         try:
             await self._dependencies.ensure_provider_warmup_ready()
             started = time.perf_counter()
+            federated_kwargs = {
+                "limit": request.limit,
+                "offset": request.offset,
+                "memory_type": request.memory_type,
+                "memory_class": getattr(request, "memory_class", None),
+                "event_role": getattr(request, "event_role", None),
+                "as_of": getattr(request, "as_of", None),
+                "valid_from": getattr(request, "valid_from", None),
+                "valid_to": getattr(request, "valid_to", None),
+                "include_temporal_unknown": getattr(request, "include_temporal_unknown", False),
+                "concepts": request.concepts,
+                "files": request.files,
+                "domain": request.domain,
+                "semantic_type": request.semantic_type,
+                "priority": request.priority,
+                "include_archived": request.include_archived,
+                "include_logs": request.include_logs,
+                "include_historical": getattr(request, "include_historical", False),
+            }
+            if getattr(request, "freshness_days", None) is not None:
+                federated_kwargs["freshness_days"] = request.freshness_days
             federated_result = await self._dependencies.federated_search(
                 request.query,
                 project_name,
-                limit=request.limit,
-                offset=request.offset,
-                memory_type=request.memory_type,
-                memory_class=getattr(request, "memory_class", None),
-                event_role=getattr(request, "event_role", None),
-                as_of=getattr(request, "as_of", None),
-                valid_from=getattr(request, "valid_from", None),
-                valid_to=getattr(request, "valid_to", None),
-                include_temporal_unknown=getattr(request, "include_temporal_unknown", False),
-                concepts=request.concepts,
-                files=request.files,
-                domain=request.domain,
-                semantic_type=request.semantic_type,
-                priority=request.priority,
-                include_archived=request.include_archived,
-                include_logs=request.include_logs,
-                include_historical=getattr(request, "include_historical", False),
+                **federated_kwargs,
             )
             hits, total = federated_result
             query_plan = build_retrieval_query_plan(
@@ -170,6 +179,7 @@ class MemorySearchService:
                     "domain": request.domain,
                     "semantic_type": request.semantic_type,
                     "priority": request.priority,
+                    "freshness_days": getattr(request, "freshness_days", None),
                 },
                 "retrieval": {
                     "mode": "federated",
@@ -202,6 +212,7 @@ class MemorySearchService:
                 domain=request.domain,
                 semantic_type=request.semantic_type,
                 priority=request.priority,
+                freshness_days=getattr(request, "freshness_days", None),
                 include_archived=request.include_archived,
                 limit=request.limit,
                 offset=request.offset,

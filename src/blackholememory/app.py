@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from collections import Counter
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Literal, Mapping, Sequence
 
@@ -1145,6 +1145,7 @@ def _fallback_memory_records(
     valid_from: str | None = None,
     valid_to: str | None = None,
     include_temporal_unknown: bool = False,
+    freshness_days: int | None = None,
 ) -> list[dict]:
     return [
         item for item in _load_live_memories()
@@ -1166,6 +1167,7 @@ def _fallback_memory_records(
             valid_from=valid_from,
             valid_to=valid_to,
             include_temporal_unknown=include_temporal_unknown,
+            freshness_days=freshness_days,
         )
     ]
 
@@ -1198,6 +1200,7 @@ def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> di
         valid_from=request.valid_from,
         valid_to=request.valid_to,
         include_temporal_unknown=request.include_temporal_unknown,
+        freshness_days=request.freshness_days,
     )
     records = _fallback_rank_records(request.query, records)[: max(min(request.top_k, 200), 1)]
     results = [
@@ -1233,6 +1236,7 @@ def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> di
             "include_archived": request.include_archived,
             "include_logs": request.include_logs,
             "include_historical": request.include_historical,
+            "freshness_days": request.freshness_days,
         },
     }
 
@@ -1260,6 +1264,7 @@ def _fallback_grace_memories_response(
     include_archived: bool = False,
     limit: int = 20,
     offset: int = 0,
+    freshness_days: int | None = None,
 ) -> dict:
     items = _fallback_memory_records(
         project=project,
@@ -1278,6 +1283,7 @@ def _fallback_grace_memories_response(
         valid_from=valid_from,
         valid_to=valid_to,
         include_temporal_unknown=include_temporal_unknown,
+        freshness_days=freshness_days,
     )
     items = _fallback_rank_records(query, items)
     total = len(items)
@@ -2845,6 +2851,8 @@ class SearchRequest(BaseModel):
     include_archived: bool = False
     include_logs: bool = False
     include_historical: bool = False
+    # Read-only freshness window based on the authoritative updated_at field.
+    freshness_days: int | None = Field(default=None, ge=1, le=3650)
 
 
 class RememberRequest(BaseModel):
@@ -2923,6 +2931,8 @@ class MemoryAdvancedSearchRequest(BaseModel):
     include_archived: bool = False
     include_logs: bool = False
     include_historical: bool = False
+    # Read-only freshness window based on the authoritative updated_at field.
+    freshness_days: int | None = Field(default=None, ge=1, le=3650)
     domain: str | None = None
     semantic_type: str | None = None
     priority: str | None = None
@@ -6603,6 +6613,22 @@ def _metadata_matches_taxonomy_filters(
     return True
 
 
+def _freshness_matches(record: Mapping[str, Any], freshness_days: int | None) -> bool:
+    """Keep only records updated within the requested UTC freshness window."""
+
+    if freshness_days is None:
+        return True
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
+    updated_at = parse_timestamp(
+        record.get("updated_at")
+        or metadata.get("updated_at")
+    )
+    if updated_at is None:
+        return False
+    cutoff = datetime.now(timezone.utc) - timedelta(days=freshness_days)
+    return updated_at >= cutoff
+
+
 def _memory_matches_filters(
     record: dict,
     project: str | None = None,
@@ -6621,6 +6647,7 @@ def _memory_matches_filters(
     valid_from: str | None = None,
     valid_to: str | None = None,
     include_temporal_unknown: bool = False,
+    freshness_days: int | None = None,
 ) -> bool:
     metadata = record.get("metadata") or {}
     record_concepts = set(record.get("tags") or [])
@@ -6635,6 +6662,8 @@ def _memory_matches_filters(
         include_archived=include_archived,
         include_logs=include_logs,
     ):
+        return False
+    if not _freshness_matches(record, freshness_days):
         return False
     try:
         if not temporal_matches(
@@ -6701,6 +6730,7 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
             valid_from=request.valid_from,
             valid_to=request.valid_to,
             include_temporal_unknown=request.include_temporal_unknown,
+            freshness_days=request.freshness_days,
         ):
             continue
 
@@ -7591,6 +7621,7 @@ def _vector_item_matches_search_request(item: dict, request: SearchRequest) -> b
             domain=request.domain,
             semantic_type=request.semantic_type,
             priority=request.priority,
+            freshness_days=request.freshness_days,
         )
     if metadata_source_id:
         return False
@@ -14136,6 +14167,7 @@ def _vector_hit_matches_filters(
     include_archived: bool = False,
     include_logs: bool = False,
     include_historical: bool = False,
+    freshness_days: int | None = None,
 ) -> bool:
     metadata = hit.get("metadata") or {}
     accepted_projects = _project_aliases(project)
@@ -14175,6 +14207,8 @@ def _vector_hit_matches_filters(
                 return False
         except TemporalValidationError:
             return False
+    if not _freshness_matches(hit, freshness_days):
+        return False
     return _metadata_matches_taxonomy_filters(
         metadata,
         domain=domain,
@@ -14282,6 +14316,7 @@ def _strict_retrieval_hits(
     include_archived: bool = False,
     include_logs: bool = False,
     include_historical: bool = False,
+    freshness_days: int | None = None,
     limit: int = 10,
 ) -> list[dict]:
     """Hydrate candidates from authoritative SQLite before exposing them.
@@ -14337,6 +14372,7 @@ def _strict_retrieval_hits(
             include_archived=include_archived,
             include_logs=include_logs,
             include_historical=include_historical,
+            freshness_days=freshness_days,
         ):
             continue
         enriched = dict(hit)
@@ -18897,6 +18933,49 @@ def mem0_search(request: SearchRequest) -> dict:
     try:
         _ensure_provider_warmup_ready_sync()
         project_name = _effective_search_project(request.project)
+        if request.freshness_days is not None:
+            memories, total = _advanced_search_live_memories(
+                MemoryAdvancedSearchRequest(
+                    query=request.query,
+                    project=project_name,
+                    memory_class=request.memory_class,
+                    event_role=request.event_role,
+                    include_archived=request.include_archived,
+                    include_logs=request.include_logs,
+                    include_historical=request.include_historical,
+                    domain=request.domain,
+                    semantic_type=request.semantic_type,
+                    priority=request.priority,
+                    freshness_days=request.freshness_days,
+                    limit=request.top_k,
+                )
+            )
+            results = [
+                {
+                    "id": item.get("source_id"),
+                    "memory": item.get("content") or "",
+                    "metadata": {**(item.get("metadata") or {}), "project": item.get("project")},
+                    "score": 0.0,
+                }
+                for item in memories
+            ]
+            return {
+                "ok": True,
+                "result": {"results": results, "total": total},
+                "filters": {
+                    "project": request.project,
+                    "memory_class": request.memory_class.value if request.memory_class else None,
+                    "event_role": request.event_role.value if request.event_role else None,
+                    "domain": request.domain,
+                    "semantic_type": request.semantic_type,
+                    "priority": request.priority,
+                    "include_archived": request.include_archived,
+                    "include_logs": request.include_logs,
+                    "include_historical": request.include_historical,
+                    "freshness_days": request.freshness_days,
+                },
+                "retrieval": {"mode": "authoritative-freshness", "provider": "sqlite"},
+            }
         hits, total = asyncio.run(
             federated_search(
                 request.query,
@@ -18927,6 +19006,7 @@ def mem0_search(request: SearchRequest) -> dict:
                 "include_archived": request.include_archived,
                 "include_logs": request.include_logs,
                 "include_historical": request.include_historical,
+                "freshness_days": request.freshness_days,
             },
             "retrieval": {
                 "mode": "federated",
@@ -19071,6 +19151,7 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 "domain": request.domain,
                 "semantic_type": request.semantic_type,
                 "priority": request.priority,
+                "freshness_days": request.freshness_days,
             },
             "side_effects": read_only_side_effects(),
         }
@@ -19095,6 +19176,7 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 domain=request.domain,
                 semantic_type=request.semantic_type,
                 priority=request.priority,
+                freshness_days=request.freshness_days,
                 include_archived=request.include_archived,
                 limit=request.limit,
                 offset=request.offset,
