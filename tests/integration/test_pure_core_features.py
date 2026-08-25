@@ -3071,6 +3071,37 @@ def test_context_compile_recent_scope_uses_authoritative_sqlite_without_provider
     assert captured[0].freshness_days == 30
 
 
+def test_context_compile_recovers_to_authoritative_sqlite_when_provider_warmup_times_out(monkeypatch):
+    records = [
+        {
+            "source_id": "fallback-memory",
+            "project": "blackholememory",
+            "memory_type": "fact",
+            "content": "SQLite remains available during provider recovery",
+            "updated_at": "2026-08-25T10:00:00+00:00",
+            "metadata": {"source_system": "bhm", "source_kind": "mcp"},
+        }
+    ]
+
+    async def timeout_warmup():
+        raise bhm_app.ResponseTimeout("provider warmup is still in progress")
+
+    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", timeout_warmup)
+    monkeypatch.setattr(bhm_app, "_is_fallback_grace_error", lambda _exc: True)
+    monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", lambda _request: (records, len(records)))
+
+    response = TestClient(bhm_app.app).post(
+        "/bhm/context/compile",
+        json={"query": "recovery", "project": "blackholememory", "token_budget": 128},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["retrieval"]["mode"] == "authoritative-fallback-grace"
+    assert payload["retrieval"]["provider"] == "sqlite"
+    assert payload["citations"][0]["id"] == "fallback-memory"
+
+
 def test_mcp_context_compile_wrapper_forwards_history_scope_and_freshness(monkeypatch):
     calls: list[tuple[str, dict]] = []
 

@@ -2973,6 +2973,44 @@ class ContextCompileRequest(BaseModel):
     token_budget: int | None = Field(default=None, ge=64, le=MAX_CONTEXT_TOKEN_BUDGET)
 
 
+def _authoritative_context_compile_request(
+    request: ContextCompileRequest,
+    *,
+    project: str,
+    include_archived: bool,
+    include_logs: bool,
+    include_historical: bool,
+    freshness_days: int | None,
+    history_scope: str,
+    limit: int,
+) -> MemoryAdvancedSearchRequest:
+    """Translate context filters to the bounded SQLite retrieval contract."""
+
+    return MemoryAdvancedSearchRequest(
+        query=request.query,
+        project=project,
+        memory_type=request.memory_type,
+        memory_class=request.memory_class,
+        event_role=request.event_role,
+        as_of=request.as_of,
+        valid_from=request.valid_from,
+        valid_to=request.valid_to,
+        include_temporal_unknown=request.include_temporal_unknown,
+        concepts=request.concepts,
+        files=request.files,
+        include_archived=include_archived,
+        include_logs=include_logs,
+        include_historical=include_historical,
+        freshness_days=freshness_days,
+        history_scope=history_scope,
+        domain=request.domain,
+        semantic_type=request.semantic_type,
+        priority=request.priority,
+        limit=limit,
+        offset=0,
+    )
+
+
 class RetrievalExplainRequest(BaseModel):
     """Request for bounded ranking and routing diagnostics."""
 
@@ -19363,28 +19401,15 @@ async def bhm_context_compile(
         # A freshness window is correctness-first: Qdrant/Mem0 may rank a
         # candidate, but only SQLite can prove that its current revision is in
         # the requested window. Avoid provider warmup entirely on this path.
-        authoritative_request = MemoryAdvancedSearchRequest(
-            query=request.query,
+        authoritative_request = _authoritative_context_compile_request(
+            request,
             project=project_name,
-            memory_type=request.memory_type,
-            memory_class=request.memory_class,
-            event_role=request.event_role,
-            as_of=request.as_of,
-            valid_from=request.valid_from,
-            valid_to=request.valid_to,
-            include_temporal_unknown=request.include_temporal_unknown,
-            concepts=request.concepts,
-            files=request.files,
             include_archived=effective_include_archived,
             include_logs=effective_include_logs,
             include_historical=history.include_historical,
             freshness_days=history.freshness_days,
             history_scope=history.scope,
-            domain=request.domain,
-            semantic_type=request.semantic_type,
-            priority=request.priority,
             limit=candidate_limit,
-            offset=0,
         )
         authoritative_records, total = await _run_bounded_read(
             "bhm.context.compile.authoritative",
@@ -19398,34 +19423,56 @@ async def bhm_context_compile(
         retrieval_mode = "authoritative-freshness"
         retrieval_provider = "sqlite"
     else:
-        await _ensure_provider_warmup_ready()
-        hits, total = await federated_search(
-            request.query,
-            project_name,
-            limit=candidate_limit,
-            memory_type=request.memory_type,
-            memory_class=request.memory_class,
-            event_role=request.event_role,
-            as_of=request.as_of,
-            valid_from=request.valid_from,
-            valid_to=request.valid_to,
-            include_temporal_unknown=request.include_temporal_unknown,
-            concepts=request.concepts,
-            files=request.files,
-            domain=request.domain,
-            semantic_type=request.semantic_type,
-            priority=request.priority,
-            include_archived=effective_include_archived,
-            include_logs=effective_include_logs,
-            include_historical=history.include_historical,
-        )
+        try:
+            await _ensure_provider_warmup_ready()
+            hits, total = await federated_search(
+                request.query,
+                project_name,
+                limit=candidate_limit,
+                memory_type=request.memory_type,
+                memory_class=request.memory_class,
+                event_role=request.event_role,
+                as_of=request.as_of,
+                valid_from=request.valid_from,
+                valid_to=request.valid_to,
+                include_temporal_unknown=request.include_temporal_unknown,
+                concepts=request.concepts,
+                files=request.files,
+                domain=request.domain,
+                semantic_type=request.semantic_type,
+                priority=request.priority,
+                include_archived=effective_include_archived,
+                include_logs=effective_include_logs,
+                include_historical=history.include_historical,
+            )
+        except Exception as exc:
+            if not _is_fallback_grace_error(exc):
+                raise
+            authoritative_request = _authoritative_context_compile_request(
+                request,
+                project=project_name,
+                include_archived=effective_include_archived,
+                include_logs=effective_include_logs,
+                include_historical=history.include_historical,
+                freshness_days=None,
+                history_scope=history.scope,
+                limit=candidate_limit,
+            )
+            authoritative_records, total = await _run_bounded_read(
+                "bhm.context.compile.fallback",
+                _advanced_search_live_memories,
+                authoritative_request,
+            )
+            hits = [_context_hit_from_authoritative_record(record) for record in authoritative_records]
+            retrieval_mode = "authoritative-fallback-grace"
+            retrieval_provider = "sqlite"
 
     # Retrieval already applies these filters, but the compiler fails closed
     # once more so a degraded/monkeypatched provider cannot leak another
     # project or archived/log memory into an agent context.
     strict_hits = (
         hits
-        if history.freshness_days is not None
+        if retrieval_mode != "federated"
         else _strict_retrieval_hits(
             hits,
             project_name=project_name,
