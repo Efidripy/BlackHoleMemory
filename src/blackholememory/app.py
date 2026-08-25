@@ -2960,6 +2960,10 @@ class ContextCompileRequest(BaseModel):
     include_archived: bool = False
     include_logs: bool = False
     include_historical: bool = False
+    # Keep context assembly on the same explicit history contract as search
+    # and Galaxy. ``include_historical`` remains the compatibility alias.
+    freshness_days: int | None = Field(default=None, ge=1, le=3650)
+    history_scope: Literal["current", "recent", "all"] | None = None
     domain: str | None = None
     semantic_type: str | None = None
     priority: str | None = None
@@ -14369,6 +14373,34 @@ def _context_item_from_vector_hit(hit: dict) -> dict[str, Any]:
     }
 
 
+def _context_hit_from_authoritative_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Adapt an already-filtered SQLite record to the context hit contract."""
+
+    serialized = _serialize_memory_record(dict(record))
+    metadata = dict(serialized.get("metadata") or {})
+    metadata.update(
+        {
+            "source_id": serialized.get("id"),
+            "project": serialized.get("project"),
+            "memory_type": serialized.get("type"),
+            "memory_class": serialized.get("memory_class"),
+            "event_role": serialized.get("event_role"),
+            "context_origin": _VECTOR_CONTEXT_LOCAL,
+        }
+    )
+    return {
+        "id": serialized.get("id"),
+        "source_id": serialized.get("id"),
+        "content": serialized.get("content") or "",
+        "memory": serialized.get("content") or "",
+        # The authoritative lexical path is ordered, but does not produce a
+        # vector similarity score. Keep that distinction explicit.
+        "score": 0.0,
+        "context_origin": _VECTOR_CONTEXT_LOCAL,
+        "metadata": metadata,
+    }
+
+
 def _strict_retrieval_hits(
     hits: list[dict],
     *,
@@ -19307,7 +19339,14 @@ async def bhm_context_compile(
 ) -> dict[str, Any]:
     """Compile a bounded, project-scoped context from the canonical retrieval path."""
 
-    await _ensure_provider_warmup_ready()
+    try:
+        history = resolve_history_scope(
+            request.history_scope,
+            include_historical=request.include_historical,
+            freshness_days=request.freshness_days,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=_safe_exception_text(exc)) from exc
     try:
         context_profile = resolve_context_profile(request.profile or settings.context_profile, repo_root=settings.repo_root)
     except ValueError as exc:
@@ -19318,49 +19357,95 @@ async def bhm_context_compile(
     effective_include_logs = request.include_logs or context_profile.include_logs
     project_name = _canonical_project(request.project or settings.qdrant_collection)
     candidate_limit = min(max(effective_limit, 20), 50)
-    hits, total = await federated_search(
-        request.query,
-        project_name,
-        limit=candidate_limit,
-        memory_type=request.memory_type,
-        memory_class=request.memory_class,
-        event_role=request.event_role,
-        as_of=request.as_of,
-        valid_from=request.valid_from,
-        valid_to=request.valid_to,
-        include_temporal_unknown=request.include_temporal_unknown,
-        concepts=request.concepts,
-        files=request.files,
-        domain=request.domain,
-        semantic_type=request.semantic_type,
-        priority=request.priority,
-        include_archived=effective_include_archived,
-        include_logs=effective_include_logs,
-        include_historical=request.include_historical,
-    )
+    retrieval_mode = "federated"
+    retrieval_provider = None
+    if history.freshness_days is not None:
+        # A freshness window is correctness-first: Qdrant/Mem0 may rank a
+        # candidate, but only SQLite can prove that its current revision is in
+        # the requested window. Avoid provider warmup entirely on this path.
+        authoritative_request = MemoryAdvancedSearchRequest(
+            query=request.query,
+            project=project_name,
+            memory_type=request.memory_type,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
+            as_of=request.as_of,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            include_temporal_unknown=request.include_temporal_unknown,
+            concepts=request.concepts,
+            files=request.files,
+            include_archived=effective_include_archived,
+            include_logs=effective_include_logs,
+            include_historical=history.include_historical,
+            freshness_days=history.freshness_days,
+            history_scope=history.scope,
+            domain=request.domain,
+            semantic_type=request.semantic_type,
+            priority=request.priority,
+            limit=candidate_limit,
+            offset=0,
+        )
+        authoritative_records, total = await _run_bounded_read(
+            "bhm.context.compile.authoritative",
+            _advanced_search_live_memories,
+            authoritative_request,
+        )
+        hits = [
+            _context_hit_from_authoritative_record(record)
+            for record in authoritative_records
+        ]
+        retrieval_mode = "authoritative-freshness"
+        retrieval_provider = "sqlite"
+    else:
+        await _ensure_provider_warmup_ready()
+        hits, total = await federated_search(
+            request.query,
+            project_name,
+            limit=candidate_limit,
+            memory_type=request.memory_type,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
+            as_of=request.as_of,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            include_temporal_unknown=request.include_temporal_unknown,
+            concepts=request.concepts,
+            files=request.files,
+            domain=request.domain,
+            semantic_type=request.semantic_type,
+            priority=request.priority,
+            include_archived=effective_include_archived,
+            include_logs=effective_include_logs,
+            include_historical=history.include_historical,
+        )
 
-    # Federated retrieval already applies these filters, but the compiler fails
-    # closed once more so a degraded/monkeypatched provider cannot leak another
+    # Retrieval already applies these filters, but the compiler fails closed
+    # once more so a degraded/monkeypatched provider cannot leak another
     # project or archived/log memory into an agent context.
-    strict_hits = _strict_retrieval_hits(
-        hits,
-        project_name=project_name,
-        memory_type=request.memory_type,
-        memory_class=request.memory_class,
-        event_role=request.event_role,
-        as_of=request.as_of,
-        valid_from=request.valid_from,
-        valid_to=request.valid_to,
-        include_temporal_unknown=request.include_temporal_unknown,
-        concepts=request.concepts,
-        files=request.files,
-        domain=request.domain,
-        semantic_type=request.semantic_type,
-        priority=request.priority,
-        include_archived=effective_include_archived,
-        include_logs=effective_include_logs,
-        include_historical=request.include_historical,
-        limit=effective_limit,
+    strict_hits = (
+        hits
+        if history.freshness_days is not None
+        else _strict_retrieval_hits(
+            hits,
+            project_name=project_name,
+            memory_type=request.memory_type,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
+            as_of=request.as_of,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            include_temporal_unknown=request.include_temporal_unknown,
+            concepts=request.concepts,
+            files=request.files,
+            domain=request.domain,
+            semantic_type=request.semantic_type,
+            priority=request.priority,
+            include_archived=effective_include_archived,
+            include_logs=effective_include_logs,
+            include_historical=history.include_historical,
+            limit=effective_limit,
+        )
     )
     context_hits: Sequence[Mapping[str, Any]] = strict_hits
     tier_report: dict[str, Any] | None = None
@@ -19441,7 +19526,9 @@ async def bhm_context_compile(
             "files": request.files or [],
             "include_archived": effective_include_archived,
             "include_logs": effective_include_logs,
-            "include_historical": request.include_historical,
+            "include_historical": history.include_historical,
+            "history_scope": history.scope,
+            "freshness_days": history.freshness_days,
             "domain": request.domain,
             "semantic_type": request.semantic_type,
             "priority": request.priority,
@@ -19451,7 +19538,8 @@ async def bhm_context_compile(
         "profile_recommendation": profile_recommendation,
         "context_confidence": context_confidence,
         "retrieval": {
-            "mode": "federated",
+            "mode": retrieval_mode,
+            **({"provider": retrieval_provider} if retrieval_provider else {}),
             "total": total,
             "candidate_count": len(hits),
             "eligible_count": len(strict_hits),
