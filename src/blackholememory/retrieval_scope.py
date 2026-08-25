@@ -32,6 +32,8 @@ def resolve_history_scope(
     migrate without accidentally widening a current-memory query.
     """
 
+    if freshness_days is not None and not 1 <= int(freshness_days) <= 3650:
+        raise ValueError("freshness_days must be between 1 and 3650")
     requested = str(history_scope or "").strip().casefold()
     if requested not in {"", "current", "recent", "all"}:
         raise ValueError("history_scope must be one of: current, recent, all")
