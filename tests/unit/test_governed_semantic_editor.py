@@ -18,6 +18,7 @@ from blackholememory.governed_semantic_editor import MAX_SEMANTIC_EDITOR_CONTRAC
 from blackholememory.governed_semantic_editor import SemanticEditorConfig
 from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_NO_OP_EXAMPLE
 from blackholememory.governed_semantic_editor import _model_records
+from blackholememory.governed_semantic_editor import _validate_model_output_shape
 from blackholememory.governed_semantic_editor import build_semantic_proposal
 from blackholememory.governed_semantic_editor import select_authoritative_records
 from blackholememory.governed_semantic_editor import select_consolidatable_records
@@ -92,6 +93,18 @@ def test_semantic_editor_generates_only_validated_same_project_proposal() -> Non
     }
 
 
+def test_semantic_editor_rejects_incomplete_lifecycle_and_link_contracts_before_proposal_build() -> None:
+    missing_relation = _candidate(operation="link")
+    missing_relation["candidate"].pop("relation", None)
+    missing_content = _candidate(operation="supersede")
+    missing_content["candidate"]["content"] = ""
+
+    with pytest.raises(GovernedSemanticEditorError, match="candidate relation is required"):
+        _validate_model_output_shape(missing_relation)
+    with pytest.raises(GovernedSemanticEditorError, match="candidate content is required"):
+        _validate_model_output_shape(missing_content)
+
+
 def test_semantic_editor_binds_model_output_to_bounded_sqlite_revalidated_basis() -> None:
     candidate = _candidate()
     candidate["basis_memory_ids"] = ["foreign-memory-id"]
@@ -104,6 +117,22 @@ def test_semantic_editor_binds_model_output_to_bounded_sqlite_revalidated_basis(
     )
 
     assert [item["memory_id"] for item in proposal["basis"]] == ["mem_bhm_a", "mem_bhm_b"]
+
+
+def test_semantic_editor_discards_model_target_id_and_binds_link_to_same_project_basis() -> None:
+    candidate = _candidate(operation="link")
+    candidate["candidate"]["target_memory_id"] = "invented-memory-id"
+    candidate["candidate"]["relation"] = "supports"
+
+    proposal = build_semantic_proposal(
+        project="multiserversubgen",
+        query="link the supplied facts",
+        retrieved_records=[_record("mem_bhm_a", "A"), _record("mem_bhm_b", "B")],
+        completion=_Completion(candidate),
+    )
+
+    assert proposal["operation"] == "link"
+    assert proposal["candidate"]["target_memory_id"] == "mem_bhm_a"
 
 
 def test_conflicting_or_low_confidence_semantic_result_becomes_no_op() -> None:

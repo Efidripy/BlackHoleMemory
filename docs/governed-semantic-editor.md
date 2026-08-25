@@ -97,6 +97,35 @@ Multisubgen-style acceptance corpus. It has expected operations, required
 conflicts, and prohibited operations, but no live memory text. The evaluator
 checks a proposal factory without executing a model or writing any storage.
 
+That label-only corpus proves evaluator mechanics, not local-model usefulness.
+`tests/fixtures/governed-semantic-editor-evidence.json` is the separate
+30-case synthetic, redacted evidence corpus for a real proposal-only model
+gate: 29 same-project model cases plus one cross-project fail-closed preflight.
+It contains neither production memory, credentials, local paths, nor model
+outputs. The gate cannot persist to SQLite or a queue, write Qdrant/Mem0, or
+approve/apply a proposal. Its result has only case IDs, expected/actual
+operations, boolean checks and redacted failure classes.
+
+Run it only with an explicitly enabled local editor and write its receipt
+under ignored runtime scratch space:
+
+```powershell
+$env:BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED = '1'
+$env:BHM_GOVERNED_SEMANTIC_EDITOR_MODEL = 'qwen/qwen2.5-coder-14b'
+uv run python scripts/evaluate-governed-semantic-editor.py `
+  --output .runtime/scratch/governed-semantic-model-evaluation.json
+```
+
+The gate is intentionally strict: zero forbidden operations, no authority
+boundary violation, every conflict safely routed, each operation family
+represented, cross-project evidence rejected before the model call, and at
+least 90% exact post-policy operation accuracy. Candidate-term coverage applies
+to content-producing `create`/`revise`/`supersede` operations; a `link` is
+validated by its typed relation and same-project basis instead. It does not
+weaken a failed threshold. A failed run is evidence to improve the
+prompt/model/fixture, not permission to auto-apply or alter the live review
+queue.
+
 In shadow mode, `store_proposal=true` creates reviewable proposals and metrics
 only. `GET /bhm/governed-consolidation/semantic-shadow-metrics` reports counts
 and operator outcomes. It reports quality as unknown until explicit apply/reject
