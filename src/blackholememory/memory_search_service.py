@@ -62,6 +62,28 @@ class MemorySearchService:
             response.setdefault("side_effects", read_only_side_effects())
             return response
 
+        # Typed/temporal filters are correctness-first queries.  Until the
+        # typed Qdrant payload parity gate is enabled, answer them directly
+        # from the SQLite-authoritative advanced path.  This avoids sending a
+        # wide legacy projection through provider/graph retrieval and keeps a
+        # slow local embedding model from taking the API with it.
+        typed_or_temporal = any(
+            getattr(request, field, None) is not None
+            for field in ("memory_class", "event_role", "as_of", "valid_from", "valid_to")
+        ) or bool(getattr(request, "include_temporal_unknown", False))
+        if typed_or_temporal:
+            response = await self._dependencies.advanced_search(request)
+            response.setdefault("retrieval", {})
+            response["retrieval"].update(
+                {
+                    "mode": "authoritative-typed",
+                    "provider": "sqlite",
+                    "semantic_projection_used": False,
+                }
+            )
+            response.setdefault("side_effects", read_only_side_effects())
+            return response
+
         project_name = self._dependencies.effective_search_project(request.project)
         try:
             await self._dependencies.ensure_provider_warmup_ready()
