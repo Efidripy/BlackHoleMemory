@@ -313,6 +313,7 @@ OPERATOR_ACTIONS: tuple[OperatorActionSpec, ...] = (
     OperatorActionSpec("orphan_classification", "Classify orphans", "Classify Qdrant REVIEW points without deleting."),
     OperatorActionSpec("index_status", "Index status / plan", "Check repository index freshness and next work."),
     OperatorActionSpec("receipts", "Operator receipts", "List recent maintenance and rollback receipts."),
+    OperatorActionSpec("consolidation", "Apply memory proposals", "Review and apply eligible governed proposals after explicit confirmation.", True, "Maintenance"),
     OperatorActionSpec("backup", "SQLite backup", "Create and verify an online rollback backup.", group="Maintenance"),
     OperatorActionSpec("cleanup", "Cleanup", "Preview retention, then apply by exact digest.", True, "Maintenance"),
     OperatorActionSpec("repair", "Repair indexes", "Preview and repair canonical links/indexes.", True, "Maintenance"),
@@ -348,6 +349,7 @@ _LAST_TELEMETRY: dict[str, str] = {
     "provider_state": "--",
     "mcp_state": "--",
     "projection_queue": "--",
+    "consolidation_queue": "--",
     "slo_state": "--",
     "last_sys": "--",
 }
@@ -1294,6 +1296,84 @@ def operator_receipts(_project: str) -> dict[str, Any]:
     return {"action": "receipts", "runtime_root": ".runtime", "count": len(items), "items": items[:100]}
 
 
+def operator_consolidation_preview(project: str) -> dict[str, Any]:
+    """Read the bounded governed queue; no proposal or memory mutation occurs."""
+
+    result = safe_json_request(
+        f"{BHM_BASE_URL}/bhm/governed-consolidation/proposals?{urlencode({'project': project, 'status': 'proposed', 'limit': 200})}",
+        method="GET",
+        project=project,
+        timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+        max_bytes=min(MAX_HTTP_BYTES * 8, 2 * 1024 * 1024),
+        admin=True,
+    )
+    if not result.ok:
+        raise RuntimeError(result.error or f"HTTP {result.status_code}")
+    proposals = result.data.get("proposals") if isinstance(result.data.get("proposals"), list) else []
+    return {
+        "action": "consolidation",
+        "phase": "preview",
+        "project": project,
+        "count": len(proposals),
+        "proposals": proposals,
+        "side_effects": {"read_only": True, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False},
+    }
+
+
+def operator_consolidation_apply(preview: dict[str, Any], project: str) -> dict[str, Any]:
+    """Apply only eligible proposed items after one explicit operator consent."""
+
+    from blackholememory.governed_auto_review import review_proposal
+
+    proposals = preview.get("proposals") if isinstance(preview.get("proposals"), list) else []
+    backup = operator_sqlite_backup(project)
+    applied: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for raw in proposals[:200]:
+        if not isinstance(raw, dict):
+            continue
+        proposal_id = str(raw.get("proposal_id") or "")
+        if not proposal_id:
+            continue
+        decision = review_proposal(raw, allow_operator_consent=True)
+        if decision.decision != "approve":
+            skipped.append({"proposal_id": proposal_id, "reason_codes": list(decision.reason_codes)})
+            continue
+        approved = safe_json_request(
+            f"{BHM_BASE_URL}/bhm/governed-consolidation/proposals/decision",
+            method="POST",
+            payload={"project": project, "proposal_id": proposal_id, "decision": "approve"},
+            project=project,
+            timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+            admin=True,
+        )
+        if not approved.ok:
+            skipped.append({"proposal_id": proposal_id, "reason_codes": [approved.error or f"HTTP {approved.status_code}"]})
+            continue
+        result = safe_json_request(
+            f"{BHM_BASE_URL}/bhm/governed-consolidation/proposals/apply",
+            method="POST",
+            payload={"project": project, "proposal_id": proposal_id, "apply": True, "confirmation": proposal_id},
+            project=project,
+            timeout=PROCESS_CONTROL_TIMEOUT_SECONDS,
+            admin=True,
+        )
+        if result.ok:
+            applied.append({"proposal_id": proposal_id, **result.data})
+        else:
+            skipped.append({"proposal_id": proposal_id, "reason_codes": [result.error or f"HTTP {result.status_code}"]})
+    return {
+        "action": "consolidation",
+        "phase": "apply",
+        "project": project,
+        "backup": backup,
+        "applied_count": len(applied),
+        "skipped_count": len(skipped),
+        "applied": applied,
+        "skipped": skipped,
+    }
+
+
 def operator_reconcile_preview(project: str) -> dict[str, Any]:
     root = find_project_root()
     script = root / "scripts" / "bhm_reconcile_projection.py"
@@ -1395,6 +1475,7 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
         "cutover": (f"{BHM_BASE_URL}/health/cutover?{encoded_project}", "GET", None),
         "slo": (f"{BHM_BASE_URL}/bhm/health/slo?{encoded_project}", "GET", None),
         "mcp": (f"{BHM_BASE_URL}/bhm/telemetry/mcp-panel?{encoded_project}", "GET", None),
+        "governed": (f"{BHM_BASE_URL}/bhm/governed-consolidation/proposals?{urlencode({'project': project_name, 'status': 'proposed', 'limit': 200})}", "GET", None),
     }
 
     def execute(item: tuple[str, tuple[str, str, dict[str, Any] | None]]) -> tuple[str, JsonRequestResult]:
@@ -1411,6 +1492,7 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     cutover = results["cutover"].data
     slo = results["slo"].data
     mcp = results["mcp"].data
+    governed = results["governed"].data
     counts = activity.get("counts") if isinstance(activity.get("counts"), dict) else {}
     warmup = ((profile.get("readiness") or {}).get("provider_warmup") or {}) if isinstance(profile, dict) else {}
     memory_store = cutover.get("memory_store") if isinstance(cutover.get("memory_store"), dict) else {}
@@ -1443,6 +1525,7 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
         "provider_state": provider_state,
         "mcp_state": mcp_state,
         "projection_queue": f"{projection_pending} / {projection_failed}" if results["slo"].ok else results["slo"].error or error_label,
+        "consolidation_queue": value_or_error("governed", governed.get("count")),
         "slo_state": str(slo.get("status") or results["slo"].error or error_label).upper(),
         "last_sys": datetime.now().strftime("%H:%M:%S") if any(result.ok for result in results.values()) else error_label,
     }
@@ -3266,6 +3349,8 @@ class DashboardScreen(QWidget):
             return with_context(lambda: operator_index_status(project))
         if key == "receipts":
             return with_context(lambda: operator_receipts(project))
+        if key == "consolidation":
+            return with_context(lambda: operator_consolidation_preview(project))
         if key == "backup":
             return with_context(lambda: operator_sqlite_backup(project))
         if key == "cleanup":
@@ -3389,6 +3474,8 @@ class DashboardScreen(QWidget):
             return
         phase = str(payload.get("phase") or "")
         if key in OPERATOR_MUTATION_KEYS and phase in {"preview", ""}:
+            if key == "consolidation" and int(payload.get("count") or 0) == 0:
+                return
             self._operator_previews[key] = payload
             if key == "qdrant_recovery":
                 prompt = (
@@ -3414,6 +3501,7 @@ class DashboardScreen(QWidget):
         project = validate_launcher_project(str(context.get("project") or ""))
         path = str(context.get("path") or "")
         operations: dict[str, Callable[[], dict[str, Any]]] = {
+            "consolidation": lambda: operator_consolidation_apply(preview, project),
             "cleanup": lambda: operator_cleanup_apply(preview, project),
             "repair": lambda: operator_repair_indexes(project),
             "restore": lambda: operator_restore_backup(path, project),
@@ -3544,6 +3632,7 @@ class DashboardScreen(QWidget):
             ("provider_state", "Provider Warm-up", COLOR_YELLOW),
             ("mcp_state", "MCP Transport", COLOR_CYAN),
             ("projection_queue", "Projection P/F", COLOR_PINK),
+            ("consolidation_queue", "Memory Review Queue", COLOR_YELLOW),
             ("slo_state", "BHM SLO", COLOR_GREEN),
             ("last_sys", "Last Refresh", COLOR_GREEN),
         ]

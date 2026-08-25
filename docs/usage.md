@@ -39,7 +39,7 @@ Metadata-only changes are projected with a stable
 Qdrant `set_payload` instead of recomputing an embedding. Points created before
 this digest existed are treated as stale once and refreshed from SQLite.
 
-## Governed consolidation (manual or policy-auto-reviewed)
+## Governed consolidation (manual, launcher-consent, or policy-auto-reviewed)
 
 Governed consolidation creates a typed `no_op`, `create`, `revise`,
 `supersede`, `archive` or `link` **proposal** from a bounded same-project set
@@ -68,11 +68,15 @@ and leaves vector projection to the existing sidecar. A changed basis is marked
 
 When the separate `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED=1` flag is enabled,
 the stored local-model semantic proposal route substitutes a deterministic
-policy review and the same guarded apply for the two manual clicks. It accepts
-only conflict-free local-model proposals at the documented high thresholds and
-records policy version/actor digest/reason codes; fallback, `no_op`, malformed,
-conflicted and low-confidence proposals are rejected. It does not create a
-background worker, poll for new memories, or alter the manual recovery routes.
+policy review and the same guarded apply for the two manual clicks. Set
+`BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` to keep that route queued until the
+launcher **Apply memory proposals** button is pressed. The launcher displays
+the proposed-item count, makes one verified backup, then approves/applies only
+eligible proposals; no-op, fallback, malformed, conflicted and low-confidence
+items remain queued with redacted reason codes. Semantic degraded passes are
+bounded to three attempts and require 2-of-3 candidate-digest agreement. The
+flow does not create a background worker, poll for new memories, or alter the
+manual recovery routes.
 
 The bounded observability contract is content-safe: a proposal reports the
 number of selected authority records and local analyzer duration; an accepted

@@ -351,6 +351,7 @@ def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes
         "orphan_classification",
         "index_status",
         "receipts",
+        "consolidation",
         "backup",
         "cleanup",
         "repair",
@@ -361,6 +362,7 @@ def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes
         "exchange",
     ]
     assert {item.key for item in launcher.OPERATOR_ACTIONS if item.mutation} == {
+        "consolidation",
         "cleanup",
         "repair",
         "projection",
@@ -369,11 +371,9 @@ def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes
         "restore",
         "exchange",
     }
-    assert [item.group for item in launcher.OPERATOR_ACTIONS] == [
-        *(["Diagnostics"] * 6),
-        *(["Maintenance"] * 5),
-        *(["Recovery & transfer"] * 3),
-    ]
+    assert [item.group for item in launcher.OPERATOR_ACTIONS].count("Diagnostics") == 6
+    assert [item.group for item in launcher.OPERATOR_ACTIONS].count("Maintenance") == 6
+    assert [item.group for item in launcher.OPERATOR_ACTIONS].count("Recovery & transfer") == 3
     assert [tag for tag, _label, _url in launcher.QUICK_LINKS[:2]] == ["BHM", "GALAXY"]
 
 
@@ -405,7 +405,7 @@ def test_operator_drawer_live_geometry_is_scrollable_and_non_overlapping(
             for button in drawer.findChildren(launcher.QPushButton)
             if button.objectName() in {"OperatorActionButton", "OperatorDangerButton"}
         ]
-        assert len(buttons) == 14
+        assert len(buttons) == 15
         assert {button.height() for button in buttons} == {30}
         assert [
             label.text() for label in drawer.findChildren(launcher.QLabel, "OperatorGroupTitle")

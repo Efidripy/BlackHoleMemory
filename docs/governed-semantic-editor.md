@@ -10,7 +10,7 @@ Qdrant/Mem0 retrieval candidate IDs
   -> local model, strict JSON only
   -> deterministic policy validation
   -> governed proposal queue
-  -> manual review/apply OR default-off deterministic auto review/apply
+  -> queued launcher consent OR default-off deterministic auto review/apply
   -> SQLite transaction -> outbox -> existing Qdrant projector
 ```
 
@@ -56,6 +56,12 @@ Qdrant/Mem0 retrieval candidate IDs
   conflicts, `no_op`, fallback, missing editor receipt and low-confidence cases
   are rejected. The event receipt contains only policy version, actor digest
   and reason codes.
+- If `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` is set, the automatic policy
+  stage only leaves eligible proposals in the queue. The launcher exposes the
+  queue count and its **Apply memory proposals** action performs one verified
+  backup, explicit approve, and exact-ID apply for each eligible item. Degraded
+  results are retried at most three times and need 2-of-3 candidate-digest
+  consensus; disagreement remains `no_op`.
 - The editor never calls `Mem0.add/update/delete`, writes Qdrant, starts a
   worker or polls a provider. Automatic apply, when opted in, is performed by a
   separate deterministic policy adapter through the existing SQLite transaction.
@@ -76,6 +82,7 @@ enabled after its disposable rehearsal:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED', '1', 'User')
+[Environment]::SetEnvironmentVariable('BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED', '1', 'User')
 ```
 
 Restart the BHM API through the canonical launcher after changing persistent
@@ -95,10 +102,13 @@ before it could finish a foreground proposal.
 2. Repeat with `store_proposal=true` only when the proposal belongs in the
    review queue. With auto-review disabled, this writes a proposal row only.
 3. In manual mode, inspect/validate, decide and run explicit apply through the
-   existing governed routes or MCP tools.
+   existing governed routes or MCP tools. With operator consent enabled, open
+   the launcher drawer and press **Apply memory proposals**; the preview count
+   and final receipt show applied and skipped items.
 4. In auto mode, the persisted local-model proposal is reviewed immediately by
    the deterministic policy and, if eligible, passed to the same transactional
-   apply. The response returns a content-safe policy/apply receipt.
+   apply. The response returns a content-safe policy/apply receipt. Consent
+   mode defers that apply until the launcher action.
 
 The MCP equivalents are `bhm_governed_semantic_proposal` and
 `bhm_governed_semantic_shadow_metrics`. They remain operator-scoped, like the

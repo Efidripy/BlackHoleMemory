@@ -40,12 +40,22 @@ must approve one proposal and submit `apply=true` with the exact proposal ID as
 confirmation. `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED` is a third, separately
 default-off opt-in for the semantic stored-proposal route only. When enabled,
 BHM performs a deterministic policy review and uses the same exact-ID apply
-path automatically. It accepts only a confirmed local-model proposal with no
-conflicts and an operation-specific high-confidence threshold (`0.90` for
-`create`/`revise`/`link`, `0.97` for `supersede`/`archive`). It rejects no-op,
-fallback, malformed or low-confidence candidates and records only the policy
-version, actor digest and reason codes. The flag neither polls for work nor
-generates a proposal from every memory write.
+path automatically, unless `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` is set.
+That consent switch keeps proposals queued until the launcher operator presses
+**Apply memory proposals**; the launcher previews the bounded queue, creates a
+verified backup, then approves and applies only policy-eligible items. It
+accepts only a confirmed local-model proposal with no conflicts and an
+operation-specific high-confidence threshold (`0.90` for `create`/`revise`/`link`,
+`0.97` for `supersede`/`archive`). It rejects no-op, fallback, malformed or
+low-confidence candidates and records only the policy version, actor digest and
+reason codes. Neither flag polls for work or generates a proposal from every
+memory write.
+
+Semantic degraded results are retried at most three bounded times. After a
+fallback, no-op, conflict or low-confidence pass, lifecycle apply requires a
+2-of-3 matching candidate digest; disagreement emits a no-op and performs no
+authority mutation. `BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS` may lower the
+bound (1–3) for a local test, but cannot raise it.
 
 Proposal preview, inspection, validation and dry-run remain non-mutating.
 Regardless of the mode, the apply revalidates revision/digest inside the SQLite
@@ -74,10 +84,12 @@ additional non-secret User setting and restart through the canonical launcher:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED', '1', 'User')
+[Environment]::SetEnvironmentVariable('BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED', '1', 'User')
 ```
 
-Removing that value (or setting it to `0`) and restarting immediately restores
-the manual approval/apply mode. The REST status response exposes the active
+Removing the auto-review value (or setting it to `0`) and restarting restores
+the manual approval/apply mode. Keeping `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1`
+selects the launcher-button consent mode. The REST status response exposes the active
 policy version and thresholds without memory content.
 
 Optional settings are `BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL`,

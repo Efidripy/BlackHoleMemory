@@ -30,11 +30,13 @@ function Import-ExplicitOperatorFeatureConfiguration {
   foreach ($name in @(
       'BHM_GOVERNED_CONSOLIDATION_ENABLED',
       'BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED',
+      'BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED',
       'BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED',
       'BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL',
       'BHM_GOVERNED_SEMANTIC_EDITOR_MODEL',
       'BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS',
-      'BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS'
+      'BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS',
+      'BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS'
     )) {
     if (-not [string]::IsNullOrWhiteSpace([string][Environment]::GetEnvironmentVariable($name, 'Process'))) {
       continue

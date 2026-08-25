@@ -10,6 +10,7 @@ import pytest
 from blackholememory.domain import Memory
 from blackholememory.governed_auto_review import auto_review_and_apply_proposal
 from blackholememory.governed_auto_review import review_proposal
+from blackholememory.governed_auto_review import operator_consent_required
 from blackholememory.governed_consolidation import GovernedConsolidationRepository
 from blackholememory.governed_consolidation import build_proposal
 from blackholememory.governed_consolidation_migration import apply_governed_consolidation_migration
@@ -88,6 +89,22 @@ def test_disabled_auto_review_leaves_persisted_proposal_untouched(tmp_path: Path
     assert GovernedConsolidationRepository(database).get(stored["proposal_id"], project="multiserversubgen")["status"] == "proposed"
 
 
+def test_operator_consent_defers_enabled_auto_review_without_mutation(tmp_path: Path, monkeypatch) -> None:
+    repository, database = _repository(tmp_path)
+    stored, _ = GovernedConsolidationRepository(database).create(_semantic_proposal(repository))
+    outbox_before = len(repository.list_outbox())
+    monkeypatch.setenv("BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED", "1")
+    monkeypatch.setenv("BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED", "1")
+
+    receipt = auto_review_and_apply_proposal(database_path=database, proposal_id=stored["proposal_id"], project="multiserversubgen")
+
+    assert operator_consent_required() is True
+    assert receipt["status"] == "proposed"
+    assert receipt["deferred_reason"] == "operator_consent_required"
+    assert receipt["automatic_apply"] is False
+    assert len(repository.list_outbox()) == outbox_before
+
+
 def test_eligible_semantic_proposal_is_auto_approved_applied_and_idempotent(tmp_path: Path, monkeypatch) -> None:
     repository, database = _repository(tmp_path)
     stored, _ = GovernedConsolidationRepository(database).create(_semantic_proposal(repository))
@@ -138,6 +155,22 @@ def test_policy_accepts_all_supported_lifecycle_operations_at_their_threshold(mo
 
     assert decision.decision == "approve"
     assert decision.reason_codes == ("policy_eligible",)
+
+
+def test_operator_consent_review_can_admit_eligible_proposal_without_auto_flag(monkeypatch) -> None:
+    monkeypatch.delenv("BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED", raising=False)
+    proposal = {
+        "operation": "create",
+        "confidence": 0.95,
+        "conflicts": [],
+        "analyzer": GOVERNED_SEMANTIC_EDITOR_ANALYZER,
+        "semantic_editor": {"shadow_safe": True},
+        "execution": {"local_model_called": True},
+    }
+
+    decision = review_proposal(proposal, allow_operator_consent=True)
+
+    assert decision.decision == "approve"
 
 
 def test_conflict_or_model_fallback_is_rejected_without_authority_mutation(tmp_path: Path, monkeypatch) -> None:

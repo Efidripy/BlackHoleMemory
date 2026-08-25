@@ -203,6 +203,7 @@ from .governed_consolidation import validate_proposal_current as validate_govern
 from .governed_auto_review import auto_review_and_apply_proposal
 from .governed_auto_review import policy_status as governed_auto_review_policy_status
 from .governed_auto_review import runtime_enabled as governed_auto_review_apply_enabled
+from .governed_auto_review import operator_consent_required as governed_operator_consent_required
 from .governed_semantic_editor import GovernedSemanticEditorError
 from .governed_semantic_editor import GovernedSemanticEditorUnavailable
 from .governed_semantic_editor import LocalGatewaySemanticCompletion
@@ -5211,48 +5212,14 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
         if not admission.allowed:
             raise GovernedSemanticEditorUnavailable(f"local semantic editor admission denied: {admission.code}")
         try:
-            try:
-                proposal = await asyncio.to_thread(
-                    build_semantic_proposal,
-                    project=project,
-                    query=request.query,
-                    retrieved_records=records,
-                    completion=completion,
-                )
-                model_fallback_reason: str | None = None
-            except GovernedSemanticEditorUnavailable as exc:
-                # A local model is an optional proposal generator. Preserve a
-                # useful, auditable shadow result when it times out or its
-                # provider rejects the request, but never disguise that
-                # degraded result as semantic inference or a lifecycle plan.
-                proposal = deterministic_no_op(
-                    project=project,
-                    query=request.query,
-                    retrieved_records=records,
-                    reason="local semantic editor is unavailable; deterministic no-op emitted for operator review",
-                )
-                # Publish only the stable, redacted adapter reason code.  The
-                # exception text may contain a provider detail and must not
-                # become a public API or proposal receipt field.
-                model_fallback_reason = str(getattr(exc, "code", "local_model_unavailable"))
-                proposal["semantic_editor"] = {
-                    "schema_version": "bhm.governed-semantic-editor.v1",
-                    "retrieved_candidate_count": len(records),
-                    "selected_basis_count": len(proposal.get("basis") or []),
-                    "gateway_diagnostic": dict(getattr(exc, "diagnostic", {}) or {}),
-                    "policy": {
-                        "decision": "local_model_unavailable_deterministic_no_op",
-                        "manual_approval_required": True,
-                        "auto_apply": False,
-                        "direct_mem0_writes": False,
-                        "direct_qdrant_writes": False,
-                    },
-                    "shadow_safe": True,
-                }
-            proposal["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
-            proposal["execution"]["local_model_called"] = model_fallback_reason is None
-            proposal["semantic_editor"]["retrieval_source"] = retrieval_source
-            proposal["semantic_editor"]["excluded_candidate_types"] = excluded_candidate_types
+            proposal, model_fallback_reason = await _run_governed_semantic_with_retries(
+                project=project,
+                query=request.query,
+                records=records,
+                completion=completion,
+                retrieval_source=retrieval_source,
+                excluded_candidate_types=excluded_candidate_types,
+            )
         finally:
             _llm_governor().release(job_id)
         stored: dict[str, Any] | None = None
@@ -5294,6 +5261,217 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
         }
     except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
         raise _governed_consolidation_error(exc) from exc
+
+
+GOVERNED_SEMANTIC_RETRY_SCHEMA_VERSION = "bhm.governed-semantic-retry.v1"
+GOVERNED_SEMANTIC_RETRY_MAX_ATTEMPTS = 3
+
+
+def _governed_semantic_retry_limit() -> int:
+    """Return an explicit bounded retry count; invalid values fail safe."""
+
+    raw = str(os.getenv("BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS") or "").strip()
+    if not raw:
+        return GOVERNED_SEMANTIC_RETRY_MAX_ATTEMPTS
+    try:
+        value = int(raw)
+    except ValueError:
+        return GOVERNED_SEMANTIC_RETRY_MAX_ATTEMPTS
+    return max(1, min(GOVERNED_SEMANTIC_RETRY_MAX_ATTEMPTS, value))
+
+
+def _semantic_proposal_candidate_digest(proposal: Mapping[str, Any]) -> str:
+    candidate = proposal.get("candidate") if isinstance(proposal.get("candidate"), Mapping) else {}
+    payload = {
+        "operation": str(proposal.get("operation") or ""),
+        "candidate": dict(candidate),
+        "confidence": proposal.get("confidence"),
+        "conflicts": list(proposal.get("conflicts") or []),
+    }
+    return hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
+
+
+def _classify_semantic_retry(proposal: Mapping[str, Any]) -> tuple[bool, str, str]:
+    """Classify a model proposal without exposing its content."""
+
+    operation = str(proposal.get("operation") or "")
+    conflicts = list(proposal.get("conflicts") or [])
+    policy = proposal.get("semantic_editor", {}).get("policy", {}) if isinstance(proposal.get("semantic_editor"), Mapping) else {}
+    if conflicts:
+        return True, "conflict", operation
+    if operation == "no_op":
+        decision = str(policy.get("decision") or "")
+        if "confidence" in decision:
+            return True, "low_confidence", operation
+        return True, "no_op", operation
+    return False, "accepted", operation
+
+
+def _retry_attempt_receipt(*, attempt: int, proposal: Mapping[str, Any], classification: str, operation: str) -> dict[str, Any]:
+    try:
+        confidence = round(float(proposal.get("confidence")), 6)
+    except (TypeError, ValueError):
+        confidence = None
+    return {
+        "attempt": attempt,
+        "classification": classification,
+        "operation": operation,
+        "confidence": confidence,
+        "conflict_count": len(list(proposal.get("conflicts") or [])),
+        "candidate_digest": _semantic_proposal_candidate_digest(proposal),
+    }
+
+
+def _retry_receipt(*, attempts: list[dict[str, Any]], max_attempts: int, outcome: str, consensus_count: int = 0) -> dict[str, Any]:
+    return {
+        "schema_version": GOVERNED_SEMANTIC_RETRY_SCHEMA_VERSION,
+        "attempt_count": len(attempts),
+        "max_attempts": max_attempts,
+        "outcome": outcome,
+        "consensus_count": consensus_count,
+        "attempts": attempts,
+    }
+
+
+async def _run_governed_semantic_with_retries(
+    *,
+    project: str,
+    query: str,
+    records: list[dict[str, Any]],
+    completion: LocalGatewaySemanticCompletion,
+    retrieval_source: str,
+    excluded_candidate_types: Mapping[str, int],
+) -> tuple[dict[str, Any], str | None]:
+    """Retry only degraded semantic outcomes and require 2-of-3 agreement.
+
+    A clean first result returns immediately. A retryable result receives at
+    most three model passes. A lifecycle proposal is returned only when two
+    attempts share the same redacted candidate digest; otherwise a no-op is
+    emitted and the existing auto-review policy rejects it.
+    """
+
+    max_attempts = _governed_semantic_retry_limit()
+    attempts: list[dict[str, Any]] = []
+    proposals: list[dict[str, Any]] = []
+    candidate_counts: Counter[str] = Counter()
+    fallback_reason: str | None = None
+    had_retryable = False
+    for attempt in range(1, max_attempts + 1):
+        try:
+            proposal = await asyncio.to_thread(
+                build_semantic_proposal,
+                project=project,
+                query=query,
+                retrieved_records=records,
+                completion=completion,
+            )
+            fallback_reason = None
+            retryable, classification, operation = _classify_semantic_retry(proposal)
+            receipt = _retry_attempt_receipt(attempt=attempt, proposal=proposal, classification=classification, operation=operation)
+            attempts.append(receipt)
+            proposals.append(proposal)
+            if not retryable:
+                if not had_retryable:
+                    proposal["semantic_editor"]["retry"] = _retry_receipt(attempts=attempts, max_attempts=max_attempts, outcome="accepted")
+                    proposal["semantic_editor"]["retrieval_source"] = retrieval_source
+                    proposal["semantic_editor"]["excluded_candidate_types"] = dict(excluded_candidate_types)
+                    proposal["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
+                    proposal["execution"]["local_model_called"] = True
+                    return proposal, None
+                # Once a degraded pass occurred, one clean answer is not
+                # enough: it must agree with a second independent pass.
+                key = receipt["candidate_digest"]
+                candidate_counts[key] += 1
+                if candidate_counts[key] >= 2:
+                    winner = next(item for item in proposals if _semantic_proposal_candidate_digest(item) == key)
+                    winner["semantic_editor"]["retry"] = _retry_receipt(attempts=attempts, max_attempts=max_attempts, outcome="consensus", consensus_count=candidate_counts[key])
+                    winner["semantic_editor"]["retrieval_source"] = retrieval_source
+                    winner["semantic_editor"]["excluded_candidate_types"] = dict(excluded_candidate_types)
+                    winner["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
+                    winner["execution"]["local_model_called"] = True
+                    return winner, None
+                if attempt < max_attempts:
+                    continue
+                break
+            key = receipt["candidate_digest"]
+            candidate_counts[key] += 1
+            had_retryable = True
+            if candidate_counts[key] >= 2:
+                winner = next(item for item in proposals if _semantic_proposal_candidate_digest(item) == key)
+                winner["semantic_editor"]["retry"] = _retry_receipt(attempts=attempts, max_attempts=max_attempts, outcome="consensus", consensus_count=candidate_counts[key])
+                winner["semantic_editor"]["retrieval_source"] = retrieval_source
+                winner["semantic_editor"]["excluded_candidate_types"] = dict(excluded_candidate_types)
+                winner["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
+                winner["execution"]["local_model_called"] = True
+                return winner, None
+        except (GovernedSemanticEditorUnavailable, GovernedSemanticEditorError) as exc:
+            fallback_reason = str(getattr(exc, "code", "local_model_unavailable"))
+            had_retryable = True
+            attempts.append(
+                {
+                    "attempt": attempt,
+                    "classification": "fallback",
+                    "operation": "no_op",
+                    "confidence": None,
+                    "conflict_count": 0,
+                    "candidate_digest": None,
+                }
+            )
+        if attempt < max_attempts:
+            continue
+
+    if proposals:
+        final = deterministic_no_op(
+            project=project,
+            query=query,
+            retrieved_records=records,
+            reason="semantic retries exhausted without a 2-of-3 proposal consensus",
+        )
+        final["semantic_editor"] = {
+            "schema_version": "bhm.governed-semantic-editor.v1",
+            "retrieved_candidate_count": len(records),
+            "selected_basis_count": len(final.get("basis") or []),
+            "policy": {
+                "decision": "retry_exhausted_no_consensus",
+                "manual_approval_required": True,
+                "auto_apply": False,
+                "direct_mem0_writes": False,
+                "direct_qdrant_writes": False,
+            },
+            "shadow_safe": True,
+            "retry": _retry_receipt(attempts=attempts, max_attempts=max_attempts, outcome="retry_exhausted_no_consensus"),
+            "retrieval_source": retrieval_source,
+            "excluded_candidate_types": dict(excluded_candidate_types),
+        }
+        final["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
+        final["execution"]["local_model_called"] = True
+        return final, fallback_reason
+
+    proposal = deterministic_no_op(
+        project=project,
+        query=query,
+        retrieved_records=records,
+        reason="local semantic editor retries exhausted; deterministic no-op emitted for review",
+    )
+    proposal["semantic_editor"] = {
+        "schema_version": "bhm.governed-semantic-editor.v1",
+        "retrieved_candidate_count": len(records),
+        "selected_basis_count": len(proposal.get("basis") or []),
+        "policy": {
+            "decision": "local_model_unavailable_deterministic_no_op",
+            "manual_approval_required": True,
+            "auto_apply": False,
+            "direct_mem0_writes": False,
+            "direct_qdrant_writes": False,
+        },
+        "shadow_safe": True,
+        "retry": _retry_receipt(attempts=attempts, max_attempts=max_attempts, outcome="fallback_exhausted"),
+        "retrieval_source": retrieval_source,
+        "excluded_candidate_types": dict(excluded_candidate_types),
+    }
+    proposal["execution"]["semantic_retrieval"] = retrieval_source == "federated_semantic_candidates"
+    proposal["execution"]["local_model_called"] = False
+    return proposal, fallback_reason
 
 
 def _governed_semantic_shadow_metrics(*, project: str, principal: Any) -> dict[str, Any]:
@@ -20241,9 +20419,12 @@ async def bhm_governed_consolidation_status() -> dict[str, Any]:
     result = governed_consolidation_status(_governed_consolidation_database_path())
     auto_review = governed_auto_review_policy_status()
     result["auto_review_apply"] = auto_review
-    if result.get("enabled") and auto_review["enabled"]:
+    if result.get("enabled") and auto_review["enabled"] and not governed_operator_consent_required():
         result["state"] = "policy-auto-reviewed"
         result["mode"] = "policy-auto-reviewed"
+    elif result.get("enabled") and governed_operator_consent_required():
+        result["state"] = "operator-consent"
+        result["mode"] = "operator-consent"
     config = SemanticEditorConfig.from_env()
     result["semantic_editor"] = {
         "schema_version": "bhm.governed-semantic-editor.v1",
@@ -20254,7 +20435,8 @@ async def bhm_governed_consolidation_status() -> dict[str, Any]:
         "model_id": config.model_id or None,
         "direct_mem0_writes": False,
         "direct_qdrant_writes": False,
-        "automatic_apply": auto_review["enabled"],
+        "automatic_apply": auto_review["enabled"] and not governed_operator_consent_required(),
+        "operator_consent_required": governed_operator_consent_required(),
     }
     return result
 

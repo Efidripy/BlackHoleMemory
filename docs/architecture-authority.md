@@ -21,7 +21,7 @@ The only permitted authority flow is:
 
 ```text
 Qdrant/Mem0 candidate IDs -> same-project SQLite revalidation -> typed proposal
--> manual review OR explicit deterministic policy auto-review
+-> queued launcher consent OR explicit deterministic policy auto-review
 -> exact revision/digest revalidation -> SQLite repository transaction
 -> memory_outbox -> existing Qdrant projector
 ```
@@ -41,9 +41,13 @@ rechecks every basis memory ID, project, current revision and content digest in
 the same transaction that creates a revision/lifecycle change and its outbox
 event. Drift marks the proposal stale and applies nothing. `link` writes a
 typed SQLite relation only; `archive` and `supersede` retain immutable revision
-provenance for recovery. The auto policy does not start a worker, poll or
-generate proposals from memory writes. There is no direct Mem0 write or direct
-Qdrant write.
+provenance for recovery. With `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1`, the
+launcher count/button is the explicit consent boundary: it backs up SQLite,
+approves and applies only eligible proposals, and leaves degraded items
+queued. Semantic degraded passes are bounded to three attempts and require
+2-of-3 candidate-digest agreement. The auto policy does not start a worker,
+poll or generate proposals from memory writes. There is no direct Mem0 write
+or direct Qdrant write.
 
 The controlled surface comprises REST/MCP inspection, local semantic preview,
 shadow metrics and a local operator CLI
