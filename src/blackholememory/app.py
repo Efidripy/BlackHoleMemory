@@ -253,6 +253,7 @@ from .utility_feedback_store import load_utility_events
 from .memory_search_service import MemorySearchDependencies
 from .memory_search_service import MemorySearchService
 from .memory_search_service import read_only_side_effects
+from .retrieval_scope import resolve_history_scope
 from .typed_memory_contract import TypedMemoryContractUnavailable
 from .typed_memory_contract import classify_new_memory
 from .typed_memory_contract import typed_memory_capability_available
@@ -2853,6 +2854,7 @@ class SearchRequest(BaseModel):
     include_historical: bool = False
     # Read-only freshness window based on the authoritative updated_at field.
     freshness_days: int | None = Field(default=None, ge=1, le=3650)
+    history_scope: Literal["current", "recent", "all"] | None = None
 
 
 class RememberRequest(BaseModel):
@@ -2933,6 +2935,7 @@ class MemoryAdvancedSearchRequest(BaseModel):
     include_historical: bool = False
     # Read-only freshness window based on the authoritative updated_at field.
     freshness_days: int | None = Field(default=None, ge=1, le=3650)
+    history_scope: Literal["current", "recent", "all"] | None = None
     domain: str | None = None
     semantic_type: str | None = None
     priority: str | None = None
@@ -6708,6 +6711,11 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
         memory_class=request.memory_class,
         event_role=request.event_role,
     )
+    history = resolve_history_scope(
+        request.history_scope,
+        include_historical=request.include_historical,
+        freshness_days=request.freshness_days,
+    )
     project = _effective_search_project(request.project)
     candidates = []
     query = (request.query or "").strip()
@@ -6722,7 +6730,7 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
             files=request.files,
             include_archived=request.include_archived,
             include_logs=request.include_logs,
-            include_historical=request.include_historical,
+            include_historical=history.include_historical,
             domain=request.domain,
             semantic_type=request.semantic_type,
             priority=request.priority,
@@ -6730,7 +6738,7 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
             valid_from=request.valid_from,
             valid_to=request.valid_to,
             include_temporal_unknown=request.include_temporal_unknown,
-            freshness_days=request.freshness_days,
+            freshness_days=history.freshness_days,
         ):
             continue
 
@@ -19122,6 +19130,11 @@ async def bhm_forget_apply(request: ForgetApplyRequest) -> dict:
 @app.post("/bhm/search/advanced")
 async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
     project_name = _effective_search_project(request.project)
+    history = resolve_history_scope(
+        request.history_scope,
+        include_historical=request.include_historical,
+        freshness_days=request.freshness_days,
+    )
     try:
         memories, total = await _run_bounded_read(
             "bhm.search.advanced",
@@ -19147,11 +19160,12 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 "files": request.files or [],
                 "include_archived": request.include_archived,
                 "include_logs": request.include_logs,
-                "include_historical": request.include_historical,
+                "include_historical": history.include_historical,
                 "domain": request.domain,
                 "semantic_type": request.semantic_type,
                 "priority": request.priority,
-                "freshness_days": request.freshness_days,
+                "freshness_days": history.freshness_days,
+                "history_scope": history.scope,
             },
             "side_effects": read_only_side_effects(),
         }
@@ -19172,11 +19186,11 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 files=request.files,
                 query=request.query,
                 include_logs=request.include_logs,
-                include_historical=request.include_historical,
+                include_historical=history.include_historical,
                 domain=request.domain,
                 semantic_type=request.semantic_type,
                 priority=request.priority,
-                freshness_days=request.freshness_days,
+                freshness_days=history.freshness_days,
                 include_archived=request.include_archived,
                 limit=request.limit,
                 offset=request.offset,

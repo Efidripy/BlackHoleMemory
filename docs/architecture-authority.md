@@ -86,11 +86,13 @@ retrieval explanations and MCP `bhm_search` exclude trace records so current
 facts and decisions are not displaced by session noise. Inspect history only
 with `include_historical=true` or the explicit `event_role=trace` filter.
 
-Searches may additionally pass `freshness_days` (bounded to 1–3650 days).
-This read-only `updated_at` cutoff is evaluated against authoritative SQLite
-before ranking and pagination; it never changes lifecycle or revision state.
-When present on the canonical search route, the request stays on the SQLite
-path so a stale or incomplete Qdrant projection cannot hide a fresh record.
+Searches expose an explicit `history_scope=current|recent|all`; the legacy
+`include_historical=true` remains an alias for `all`. `recent` defaults to a
+30-day window and may be narrowed or widened with `freshness_days` (bounded to
+1–3650 days). This read-only `updated_at` cutoff is evaluated against
+authoritative SQLite before ranking and pagination; it never changes lifecycle
+or revision state. A freshness-filtered request stays on the SQLite path so a
+stale or incomplete Qdrant projection cannot hide a fresh record.
 
 Existing legacy checkpoint/session rows require the separate
 `scripts/bhm-historical-record-backfill.py` flow: `plan` is read-only and
