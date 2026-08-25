@@ -124,7 +124,14 @@ def _rule_for(*, memory_type: str, title: str, upsert_key: str) -> dict[str, str
             "ssh authentication",
         )
         if any(marker in normalized_title for marker in sensitive_operational_titles):
-            return None
+            # These records remain historical evidence only.  Classifying them
+            # as episodic keeps them out of the procedural contract while
+            # making their non-semantic, time-bound nature explicit.
+            return {
+                "rule_id": "legacy-sensitive-operational-history",
+                "memory_class": MemoryClass.EPISODIC.value,
+                "event_role": MemoryEventRole.TRACE.value,
+            }
         # The remaining imported runbooks are historical preflight/UI/status
         # receipts rather than executable procedures.
         return {
