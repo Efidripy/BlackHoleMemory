@@ -46,8 +46,8 @@ That consent switch keeps proposals queued until the launcher operator presses
 verified backup, then approves and applies only policy-eligible items. It
 accepts only a confirmed local-model proposal with no conflicts and an
 operation-specific high-confidence threshold (`0.90` for `create`/`revise`/`link`,
-`0.97` for `supersede`/`archive`). It rejects no-op, fallback, malformed or
-low-confidence candidates and records only the policy version, actor digest and
+`0.97` for `supersede`/`archive`). It rejects no-op, fallback, incomplete
+receipts, malformed or low-confidence candidates and records only the policy version, actor digest and
 reason codes. Neither flag polls for work or generates a proposal from every
 memory write.
 
