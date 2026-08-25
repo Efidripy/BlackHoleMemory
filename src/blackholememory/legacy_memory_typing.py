@@ -102,6 +102,37 @@ def _rule_for(*, memory_type: str, title: str, upsert_key: str) -> dict[str, str
             "event_role": MemoryEventRole.TRACE.value,
         }
 
+    # Imported workflow records are historical receipts/checkpoints.  Their
+    # legacy label does not make them semantic knowledge, but their durable
+    # workflow provenance is enough to classify them as episodic traces.
+    if normalized_type == "workflow" and "ambiguous" not in normalized_title:
+        return {
+            "rule_id": "legacy-workflow-receipt",
+            "memory_class": MemoryClass.EPISODIC.value,
+            "event_role": MemoryEventRole.TRACE.value,
+        }
+
+    if normalized_type == "runbook":
+        # Keep operational SSH/deployment and key-recovery instructions out of
+        # automatic typing.  A procedural class requires a structured,
+        # digest-bound procedure_contract and these imported records also carry
+        # sensitive operational context.
+        sensitive_operational_titles = (
+            "deploy runbook",
+            "password decrypt",
+            "deployment blocker",
+            "ssh authentication",
+        )
+        if any(marker in normalized_title for marker in sensitive_operational_titles):
+            return None
+        # The remaining imported runbooks are historical preflight/UI/status
+        # receipts rather than executable procedures.
+        return {
+            "rule_id": "legacy-runbook-history",
+            "memory_class": MemoryClass.EPISODIC.value,
+            "event_role": MemoryEventRole.TRACE.value,
+        }
+
     # ``procedural`` memories require a structured procedure_contract.  A
     # free-form legacy runbook cannot be promoted safely without constructing
     # that contract, so leave it unclassified for the governed semantic pass.
