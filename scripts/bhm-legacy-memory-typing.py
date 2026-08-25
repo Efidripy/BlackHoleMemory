@@ -19,6 +19,15 @@ from blackholememory.legacy_memory_typing import apply_legacy_memory_typing
 from blackholememory.legacy_memory_typing import build_legacy_memory_typing_plan
 
 
+if hasattr(sys.stdout, "reconfigure"):
+    # Legacy titles can contain Cyrillic text. Windows console defaults are
+    # not guaranteed to encode it, but a successfully written plan must not
+    # be reported as a failed operator operation merely while rendering JSON.
+    sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 DEFAULT_DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 ARTIFACT_ROOT = ROOT / ".runtime" / "legacy-memory-typing"
 
