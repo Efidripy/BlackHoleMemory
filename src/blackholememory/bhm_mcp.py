@@ -323,7 +323,7 @@ def bhm_preflight(project: str = DEFAULT_PROJECT, query: str | None = None, limi
     }
 
 
-@mcp.tool(name="bhm_search", description="Native BHM search with default taxonomy routing: archived/log/error records are excluded unless explicitly requested.")
+@mcp.tool(name="bhm_search", description="Native BHM search. Historical checkpoint/session trace records are excluded by default; request include_historical or event_role=trace to inspect them.")
 def bhm_search(
     query: str = "",
     project: str | None = None,
@@ -343,6 +343,7 @@ def bhm_search(
     priority: str | None = None,
     include_archived: bool = False,
     include_logs: bool = False,
+    include_historical: bool = False,
 ) -> dict[str, Any]:
     body = {
         "query": query,
@@ -350,6 +351,7 @@ def bhm_search(
         "offset": offset,
         "include_archived": include_archived,
         "include_logs": include_logs,
+        "include_historical": include_historical,
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     if project:
@@ -401,11 +403,13 @@ def bhm_context_compile(
     priority: str | None = None,
     include_archived: bool = False,
     include_logs: bool = False,
+    include_historical: bool = False,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "query": query,
         "include_archived": include_archived,
         "include_logs": include_logs,
+        "include_historical": include_historical,
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
         **({"tiered_context": True} if tiered_context else {}),
     }
@@ -462,12 +466,14 @@ def bhm_explain_retrieval(
     priority: str | None = None,
     include_archived: bool = False,
     include_logs: bool = False,
+    include_historical: bool = False,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "query": query,
         "limit": limit,
         "include_archived": include_archived,
         "include_logs": include_logs,
+        "include_historical": include_historical,
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     if project:
@@ -2162,10 +2168,17 @@ def bhm_governed_semantic_proposal(
     query: Annotated[str, Field(min_length=1, max_length=480)],
     limit: Annotated[int, Field(ge=1, le=20)] = 12,
     store_proposal: bool = False,
+    include_historical: bool = False,
 ) -> dict[str, Any]:
     return _post(
         "/bhm/governed-consolidation/semantic-proposals",
-        {"project": project, "query": query, "limit": limit, "store_proposal": store_proposal},
+        {
+            "project": project,
+            "query": query,
+            "limit": limit,
+            "store_proposal": store_proposal,
+            "include_historical": include_historical,
+        },
     )
 
 

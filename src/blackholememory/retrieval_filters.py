@@ -20,6 +20,7 @@ def build_candidate_filters(
     priority: str | None = None,
     include_archived: bool = False,
     include_logs: bool = False,
+    include_historical: bool = False,
 ) -> dict[str, Any]:
     """Build Mem0/Qdrant-compatible candidate filters.
 
@@ -55,6 +56,11 @@ def build_candidate_filters(
         must_not.append({"lifecycle": {"in": ["archived", "deprecated"]}})
     if not include_logs:
         must_not.append({"semantic_type": {"in": ["log", "error"]}})
+    if not include_historical and str(event_role or "").strip().casefold() != "trace":
+        # Checkpoint/session records are durable provenance, but they are not
+        # current semantic state. Keep them out of normal candidate retrieval;
+        # callers must opt in with include_historical or event_role=trace.
+        must_not.append({"event_role": "trace"})
 
     if must:
         filters["AND"] = must

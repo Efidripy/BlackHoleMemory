@@ -30,6 +30,7 @@ def test_candidate_filters_push_project_and_taxonomy_predicates_downstream():
     assert {"priority": "high"} in filters["AND"]
     assert {"lifecycle": {"in": ["archived", "deprecated"]}} in filters["NOT"]
     assert {"semantic_type": {"in": ["log", "error"]}} in filters["NOT"]
+    assert {"event_role": "trace"} in filters["NOT"]
 
 
 def test_candidate_filters_keep_user_scope_when_optional_filters_are_empty():
@@ -38,8 +39,79 @@ def test_candidate_filters_keep_user_scope_when_optional_filters_are_empty():
         "NOT": [
             {"lifecycle": {"in": ["archived", "deprecated"]}},
             {"semantic_type": {"in": ["log", "error"]}},
+            {"event_role": "trace"},
         ],
     }
+
+
+def test_candidate_filters_allow_explicit_historical_or_trace_routes():
+    assert {"event_role": "trace"} not in build_candidate_filters(
+        user_id="user-1", include_historical=True
+    )["NOT"]
+    assert {"event_role": "trace"} not in build_candidate_filters(
+        user_id="user-1", event_role="trace"
+    )["NOT"]
+
+
+def test_authoritative_post_filter_excludes_trace_unless_history_is_explicit():
+    trace = {
+        "project": "blackholememory",
+        "memory_type": "workflow",
+        "event_role": "trace",
+        "metadata": {"event_role": "trace"},
+    }
+
+    assert bhm_app._memory_matches_filters(trace, project="blackholememory") is False
+    assert bhm_app._memory_matches_filters(
+        trace, project="blackholememory", include_historical=True
+    ) is True
+    assert bhm_app._memory_matches_filters(
+        trace, project="blackholememory", event_role="trace"
+    ) is True
+
+
+def test_memory_listing_and_fallback_keep_trace_history_opt_in(monkeypatch):
+    current = {
+        "source_id": "mem-current",
+        "project": "blackholememory",
+        "memory_type": "decision",
+        "event_role": "decision",
+        "metadata": {"event_role": "decision"},
+    }
+    trace = {
+        "source_id": "mem-trace",
+        "project": "blackholememory",
+        "memory_type": "workflow",
+        "event_role": "trace",
+        "metadata": {"event_role": "trace", "artifact_kind": "session-record"},
+    }
+    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: [current, trace])
+
+    current_window, current_total, _limit, _offset = bhm_app._list_live_memories(
+        project="blackholememory",
+        memory_type=None,
+        include_archived=False,
+        include_historical=False,
+        limit=20,
+        offset=0,
+    )
+    history_window, history_total, _limit, _offset = bhm_app._list_live_memories(
+        project="blackholememory",
+        memory_type=None,
+        include_archived=False,
+        include_historical=True,
+        limit=20,
+        offset=0,
+    )
+
+    assert current_total == 1
+    assert [item["source_id"] for item in current_window] == ["mem-current"]
+    assert history_total == 2
+    assert {item["source_id"] for item in history_window} == {"mem-current", "mem-trace"}
+    assert [item["source_id"] for item in bhm_app._fallback_memory_records(project="blackholememory")] == ["mem-current"]
+    assert {item["source_id"] for item in bhm_app._fallback_memory_records(
+        project="blackholememory", include_historical=True
+    )} == {"mem-current", "mem-trace"}
 
 
 def test_federated_search_pushes_the_same_project_boundary_to_both_contours(monkeypatch):

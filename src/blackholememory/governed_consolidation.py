@@ -22,6 +22,7 @@ from typing import Any, Mapping
 
 from .domain import Lifecycle, Memory, MemoryLink, MemoryRevision, Provenance, content_sha256
 from .filesystem_boundaries import assert_safe_path
+from .memory_contracts import MemoryClass, MemoryClassSource, MemoryEventRole
 from .memory_repository import MemoryRepositoryIntegrityError, MemoryRevisionConflict, SQLiteMemoryRepository
 
 
@@ -178,6 +179,13 @@ def _candidate_payload(candidate: Mapping[str, Any], *, project: str) -> dict[st
     relation = _bounded_text(candidate.get("relation"), limit=96, field="candidate.relation")
     if relation:
         normalized["relation"] = relation
+    retire_basis_memory_ids = _bounded_items(
+        candidate.get("retire_basis_memory_ids"),
+        limit=MAX_BASIS,
+        field="candidate.retire_basis_memory_ids",
+    )
+    if retire_basis_memory_ids:
+        normalized["retire_basis_memory_ids"] = retire_basis_memory_ids
     return normalized
 
 
@@ -610,6 +618,14 @@ def _proposal_mutations(proposal: Mapping[str, Any], repository: SQLiteMemoryRep
             id=memory_id,
             project=project,
             memory_type=str(candidate["memory_type"]),
+            memory_class=MemoryClass.SEMANTIC,
+            memory_class_source=MemoryClassSource.DETERMINISTIC_RULE,
+            memory_class_confidence=1.0,
+            event_role=(
+                MemoryEventRole.DECISION
+                if str(candidate["memory_type"]).strip().casefold() in {"decision", "architecture", "policy"}
+                else MemoryEventRole.FACT
+            ),
             current_revision=MemoryRevision(revision_id=revision_id, memory_id=memory_id, content=str(candidate["content"]), content_sha256=content_sha256(str(candidate["content"])), created_at=now, created_by="governed-consolidation", metadata={"proposal_id": proposal["proposal_id"], "basis": basis}),
             provenance=Provenance(source_system="bhm", source_id=memory_id, source_kind="governed-consolidation", session_refs=()),
             title=str(candidate.get("title") or "") or None,
@@ -621,7 +637,46 @@ def _proposal_mutations(proposal: Mapping[str, Any], repository: SQLiteMemoryRep
             updated_at=now,
             metadata={"governed_consolidation": {"proposal_id": proposal["proposal_id"], "basis": basis, "operation": operation}},
         )
-        return [memory], None, expected
+        retire_ids = tuple(dict.fromkeys(candidate.get("retire_basis_memory_ids") or ()))
+        if not retire_ids:
+            return [memory], None, expected
+        basis_ids = set(by_id)
+        if not set(retire_ids).issubset(basis_ids):
+            raise GovernedConsolidationError("retire_basis_memory_ids must be an exact proposal basis subset")
+        archived: list[Memory] = []
+        for legacy_id in retire_ids:
+            legacy = repository.get_memory(legacy_id, project=project)
+            if legacy is None:
+                raise GovernedConsolidationStale("legacy successor source is absent")
+            metadata = dict(legacy.metadata)
+            metadata.update(
+                {
+                    "archived_at": now,
+                    "archive_reason": f"governed_consolidation_successor:{proposal['proposal_id']}",
+                    "canonical_successor": {
+                        "memory_id": memory.id,
+                        "revision_id": memory.current_revision.revision_id,
+                        "proposal_id": proposal["proposal_id"],
+                    },
+                    "governed_consolidation": {
+                        "proposal_id": proposal["proposal_id"],
+                        "basis": basis,
+                        "operation": "create-and-retire-legacy",
+                    },
+                }
+            )
+            archived_payload = legacy.to_dict()
+            archived_payload.update(
+                {
+                    "lifecycle": Lifecycle.ARCHIVED.value,
+                    "updated_at": now,
+                    "metadata": metadata,
+                }
+            )
+            archived.append(Memory.from_dict(archived_payload))
+        # One SQLite transaction saves the successor, archives each exact
+        # source, and appends all projection events. No direct vector write.
+        return [memory, *archived], None, expected
     if target is None:
         raise GovernedConsolidationStale("target memory is absent")
     if operation in {"revise", "supersede"}:

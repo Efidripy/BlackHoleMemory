@@ -1119,6 +1119,7 @@ def _fallback_memory_records(
     files: list[str] | None = None,
     include_archived: bool = False,
     include_logs: bool = False,
+    include_historical: bool = False,
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
@@ -1139,6 +1140,7 @@ def _fallback_memory_records(
             files=files,
             include_archived=include_archived,
             include_logs=include_logs,
+            include_historical=include_historical,
             domain=domain,
             semantic_type=semantic_type,
             priority=priority,
@@ -1170,6 +1172,7 @@ def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> di
         event_role=request.event_role,
         include_archived=request.include_archived,
         include_logs=request.include_logs,
+        include_historical=request.include_historical,
         domain=request.domain,
         semantic_type=request.semantic_type,
         priority=request.priority,
@@ -1211,6 +1214,7 @@ def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> di
             "priority": request.priority,
             "include_archived": request.include_archived,
             "include_logs": request.include_logs,
+            "include_historical": request.include_historical,
         },
     }
 
@@ -1227,6 +1231,7 @@ def _fallback_grace_memories_response(
     files: list[str] | None = None,
     query: str = "",
     include_logs: bool = False,
+    include_historical: bool = False,
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
@@ -1247,6 +1252,7 @@ def _fallback_grace_memories_response(
         files=files,
         include_archived=include_archived,
         include_logs=include_logs,
+        include_historical=include_historical,
         domain=domain,
         semantic_type=semantic_type,
         priority=priority,
@@ -2820,6 +2826,7 @@ class SearchRequest(BaseModel):
     priority: str | None = None
     include_archived: bool = False
     include_logs: bool = False
+    include_historical: bool = False
 
 
 class RememberRequest(BaseModel):
@@ -2897,6 +2904,7 @@ class MemoryAdvancedSearchRequest(BaseModel):
     files: list[str] | None = None
     include_archived: bool = False
     include_logs: bool = False
+    include_historical: bool = False
     domain: str | None = None
     semantic_type: str | None = None
     priority: str | None = None
@@ -2920,6 +2928,7 @@ class ContextCompileRequest(BaseModel):
     files: list[str] | None = None
     include_archived: bool = False
     include_logs: bool = False
+    include_historical: bool = False
     domain: str | None = None
     semantic_type: str | None = None
     priority: str | None = None
@@ -2945,6 +2954,7 @@ class RetrievalExplainRequest(BaseModel):
     files: list[str] | None = None
     include_archived: bool = False
     include_logs: bool = False
+    include_historical: bool = False
     domain: str | None = None
     semantic_type: str | None = None
     priority: str | None = None
@@ -3015,7 +3025,7 @@ class GovernedConsolidationCreateRequest(BaseModel):
 
 
 class GovernedSemanticProposalRequest(BaseModel):
-    """Run one bounded local semantic pass; persistence remains explicit."""
+    """Run one bounded local semantic pass; history is explicit opt-in."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -3023,6 +3033,7 @@ class GovernedSemanticProposalRequest(BaseModel):
     query: str = Field(min_length=1, max_length=480)
     limit: int = Field(default=12, ge=1, le=20)
     store_proposal: StrictBool = False
+    include_historical: StrictBool = False
 
 
 class GovernedConsolidationDecisionRequest(BaseModel):
@@ -5105,7 +5116,13 @@ def _governed_consolidation_create(request: GovernedConsolidationCreateRequest, 
     }
 
 
-def _governed_semantic_lexical_fallback_records(*, project: str, query: str, limit: int) -> list[dict[str, Any]]:
+def _governed_semantic_lexical_fallback_records(
+    *,
+    project: str,
+    query: str,
+    limit: int,
+    include_historical: bool = False,
+) -> list[dict[str, Any]]:
     """Return a bounded same-project SQLite fallback when embeddings are busy.
 
     This is deliberately a degraded proposal-input path, not a replacement for
@@ -5114,7 +5131,10 @@ def _governed_semantic_lexical_fallback_records(*, project: str, query: str, lim
     unless the canonical SQLite text has a deterministic lexical match.
     """
 
-    pool, _excluded = select_consolidatable_records(_memory_service().list_records(project=project, limit=256))
+    pool, _excluded = select_consolidatable_records(
+        _memory_service().list_records(project=project, limit=256),
+        include_historical=include_historical,
+    )
     ranked: list[tuple[float, str, dict[str, Any]]] = []
     for record in pool:
         memory_id = str(record.get("source_id") or record.get("id") or "").strip()
@@ -5162,7 +5182,15 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
             # Fetch a bounded superset first. Projection ranking legitimately
             # contains workflow artifacts, but they are not model evidence for
             # a consolidation proposal. Filter after SQLite revalidation.
-            hits, _total = await federated_search(request.query, project, limit=MAX_RETRIEVAL_CANDIDATES)
+            search_kwargs: dict[str, Any] = {}
+            if request.include_historical:
+                search_kwargs["include_historical"] = True
+            hits, _total = await federated_search(
+                request.query,
+                project,
+                limit=MAX_RETRIEVAL_CANDIDATES,
+                **search_kwargs,
+            )
             candidate_ids = [_semantic_graph_node_id(hit) for hit in hits]
             candidate_ids = [item for item in candidate_ids if item]
             records = select_authoritative_records(
@@ -5170,7 +5198,10 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 candidate_ids=candidate_ids,
                 records=_memory_service().get_records(candidate_ids, project=project),
             )
-            records, excluded_candidate_types = select_consolidatable_records(records)
+            records, excluded_candidate_types = select_consolidatable_records(
+                records,
+                include_historical=request.include_historical,
+            )
             records = records[:requested_limit]
             if not records:
                 retrieval_source = "sqlite_lexical_fallback"
@@ -5179,6 +5210,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                     project=project,
                     query=request.query,
                     limit=requested_limit,
+                    include_historical=request.include_historical,
                 )
                 candidate_ids = [str(item.get("source_id") or item.get("id") or "") for item in records]
         except (EmbeddingPreparationTimeout, ResponseTimeout, StorageNotReady) as exc:
@@ -5193,6 +5225,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 project=project,
                 query=request.query,
                 limit=requested_limit,
+                include_historical=request.include_historical,
             )
             candidate_ids = [str(item.get("source_id") or item.get("id") or "") for item in records]
             if not records:
@@ -5219,6 +5252,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 completion=completion,
                 retrieval_source=retrieval_source,
                 excluded_candidate_types=excluded_candidate_types,
+                retire_historical_basis=request.include_historical,
             )
         finally:
             _llm_governor().release(job_id)
@@ -5248,6 +5282,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 "sqlite_revalidated_count": len(records),
                 "fallback_reason": fallback_reason,
                 "model_fallback_reason": model_fallback_reason,
+                "include_historical": request.include_historical,
             },
             "admission": admission.as_dict(),
             "side_effects": {
@@ -5364,6 +5399,7 @@ async def _run_governed_semantic_with_retries(
     completion: LocalGatewaySemanticCompletion,
     retrieval_source: str,
     excluded_candidate_types: Mapping[str, int],
+    retire_historical_basis: bool = False,
 ) -> tuple[dict[str, Any], str | None]:
     """Retry only degraded semantic outcomes and require 2-of-3 agreement.
 
@@ -5387,6 +5423,7 @@ async def _run_governed_semantic_with_retries(
                 query=query,
                 retrieved_records=records,
                 completion=completion,
+                retire_historical_basis=retire_historical_basis,
             )
             fallback_reason = None
             retryable, classification, operation = _classify_semantic_retry(proposal)
@@ -6558,6 +6595,7 @@ def _memory_matches_filters(
     files: list[str] | None = None,
     include_archived: bool = False,
     include_logs: bool = True,
+    include_historical: bool = False,
     domain: str | None = None,
     semantic_type: str | None = None,
     priority: str | None = None,
@@ -6605,6 +6643,12 @@ def _memory_matches_filters(
     )
     if requested_event_role and _effective_event_role(record) != requested_event_role:
         return False
+    if (
+        not include_historical
+        and requested_event_role != MemoryEventRole.TRACE.value
+        and _effective_event_role(record) == MemoryEventRole.TRACE.value
+    ):
+        return False
     if concepts and not set(concepts).issubset(record_concepts):
         return False
     if files and not set(files).issubset(record_files):
@@ -6631,6 +6675,7 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
             files=request.files,
             include_archived=request.include_archived,
             include_logs=request.include_logs,
+            include_historical=request.include_historical,
             domain=request.domain,
             semantic_type=request.semantic_type,
             priority=request.priority,
@@ -6780,6 +6825,7 @@ def _list_live_memories(
     valid_to: str | None = None,
     include_temporal_unknown: bool = False,
     include_archived: bool,
+    include_historical: bool = False,
     limit: int,
     offset: int,
 ) -> tuple[list[dict], int, int, int]:
@@ -6804,6 +6850,7 @@ def _list_live_memories(
             valid_to=valid_to,
             include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
+            include_historical=include_historical,
         )
     ]
     items.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
@@ -8936,9 +8983,12 @@ def _create_checkpoint(request: CheckpointCreateRequest) -> tuple[str, dict]:
             upsert_key=upsert_key,
             project=project,
             type=request.checkpoint_type,
+            memory_class=MemoryClass.EPISODIC,
+            event_role=MemoryEventRole.TRACE,
             content=content,
             concepts=concepts,
             files=files,
+            metadata={"artifact_kind": "checkpoint"},
         )
     )
 
@@ -9728,9 +9778,12 @@ def _create_session_record(request: SessionRecordCreateRequest) -> tuple[str, di
             upsert_key=upsert_key,
             project=project,
             type="workflow",
+            memory_class=MemoryClass.EPISODIC,
+            event_role=MemoryEventRole.TRACE,
             content=content,
             concepts=concepts,
             files=files_touched,
+            metadata={"artifact_kind": "session-record"},
         )
     )
     items = _load_session_records()
@@ -14041,6 +14094,7 @@ def _vector_hit_matches_filters(
     include_temporal_unknown: bool = False,
     include_archived: bool = False,
     include_logs: bool = False,
+    include_historical: bool = False,
 ) -> bool:
     metadata = hit.get("metadata") or {}
     accepted_projects = _project_aliases(project)
@@ -14057,6 +14111,12 @@ def _vector_hit_matches_filters(
         event_role.value if isinstance(event_role, MemoryEventRole) else str(event_role or "").strip().lower()
     )
     if requested_event_role and _effective_event_role(hit) != requested_event_role:
+        return False
+    if (
+        not include_historical
+        and requested_event_role != MemoryEventRole.TRACE.value
+        and _effective_event_role(hit) == MemoryEventRole.TRACE.value
+    ):
         return False
     if concepts and not set(concepts).issubset(set(metadata.get("tags") or [])):
         return False
@@ -14180,6 +14240,7 @@ def _strict_retrieval_hits(
     include_temporal_unknown: bool = False,
     include_archived: bool = False,
     include_logs: bool = False,
+    include_historical: bool = False,
     limit: int = 10,
 ) -> list[dict]:
     """Hydrate candidates from authoritative SQLite before exposing them.
@@ -14234,6 +14295,7 @@ def _strict_retrieval_hits(
             include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
             include_logs=include_logs,
+            include_historical=include_historical,
         ):
             continue
         enriched = dict(hit)
@@ -14488,6 +14550,7 @@ def _build_exact_identifier_hits(
     include_temporal_unknown: bool,
     include_archived: bool,
     include_logs: bool,
+    include_historical: bool,
 ) -> tuple[list[dict], str]:
     """Build and hydrate the opt-in exact lane from bounded SQLite candidates.
 
@@ -14523,6 +14586,7 @@ def _build_exact_identifier_hits(
             event_role=event_role,
             include_archived=include_archived,
             include_logs=include_logs,
+            include_historical=include_historical,
             domain=domain,
             semantic_type=semantic_type,
             priority=priority,
@@ -14564,6 +14628,7 @@ async def federated_search(
     include_temporal_unknown: bool = False,
     include_archived: bool = False,
     include_logs: bool = False,
+    include_historical: bool = False,
     include_graph_expansion: bool = True,
     include_global: bool = True,
 ) -> FederatedSearchOutcome:
@@ -14576,6 +14641,10 @@ async def federated_search(
         include_temporal_unknown=include_temporal_unknown,
     )
     project_name = _effective_search_project(project_name)
+    include_historical = include_historical or (
+        (event_role.value if isinstance(event_role, MemoryEventRole) else str(event_role or "").strip().casefold())
+        == MemoryEventRole.TRACE.value
+    )
     page_limit = max(min(limit, 200), 1)
     page_offset = max(offset, 0)
     typed_filter_requested = memory_class is not None or event_role is not None
@@ -14612,6 +14681,7 @@ async def federated_search(
         priority=priority,
         include_archived=include_archived,
         include_logs=include_logs,
+        include_historical=include_historical,
     )
     exact_task: asyncio.Task[_TimedRetrievalContour] | None = None
     if query.strip() and exact_identifier_enabled() and exact_identifier_tokens(query, query=True):
@@ -14634,6 +14704,7 @@ async def federated_search(
                 include_temporal_unknown=include_temporal_unknown,
                 include_archived=include_archived,
                 include_logs=include_logs,
+                include_historical=include_historical,
             )
     )
 
@@ -14726,6 +14797,7 @@ async def federated_search(
             include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
             include_logs=include_logs,
+            include_historical=include_historical,
             limit=candidate_count,
         )
     filtered = [
@@ -14748,6 +14820,7 @@ async def federated_search(
             include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
             include_logs=include_logs,
+            include_historical=include_historical,
         )
     ]
     if include_graph_expansion:
@@ -18789,6 +18862,7 @@ def mem0_search(request: SearchRequest) -> dict:
                 priority=request.priority,
                 include_archived=request.include_archived,
                 include_logs=request.include_logs,
+                include_historical=request.include_historical,
             )
         )
         result: dict = {"results": [_serialize_vector_hit(item) for item in hits], "total": total}
@@ -18805,6 +18879,7 @@ def mem0_search(request: SearchRequest) -> dict:
                 "priority": request.priority,
                 "include_archived": request.include_archived,
                 "include_logs": request.include_logs,
+                "include_historical": request.include_historical,
             },
             "retrieval": {
                 "mode": "federated",
@@ -18838,6 +18913,7 @@ async def bhm_memories_list(
     valid_to: str | None = None,
     include_temporal_unknown: bool = False,
     include_archived: bool = False,
+    include_historical: bool = False,
     limit: int = 20,
     offset: int = 0,
 ) -> dict:
@@ -18855,6 +18931,7 @@ async def bhm_memories_list(
             valid_to=valid_to,
             include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
+            include_historical=include_historical,
             limit=limit,
             offset=offset,
         )
@@ -18863,6 +18940,14 @@ async def bhm_memories_list(
             "total": total,
             "limit": effective_limit,
             "offset": effective_offset,
+            "filters": {
+                "project": project,
+                "memory_type": memory_type,
+                "memory_class": memory_class.value if memory_class else None,
+                "event_role": event_role.value if event_role else None,
+                "include_archived": include_archived,
+                "include_historical": include_historical,
+            },
         }
     except Exception as exc:
         if _is_fallback_grace_error(exc):
@@ -18878,6 +18963,7 @@ async def bhm_memories_list(
                 valid_to=valid_to,
                 include_temporal_unknown=include_temporal_unknown,
                 include_archived=include_archived,
+                include_historical=include_historical,
                 limit=limit,
                 offset=offset,
             )
@@ -18935,6 +19021,7 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 "files": request.files or [],
                 "include_archived": request.include_archived,
                 "include_logs": request.include_logs,
+                "include_historical": request.include_historical,
                 "domain": request.domain,
                 "semantic_type": request.semantic_type,
                 "priority": request.priority,
@@ -18958,6 +19045,7 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
                 files=request.files,
                 query=request.query,
                 include_logs=request.include_logs,
+                include_historical=request.include_historical,
                 domain=request.domain,
                 semantic_type=request.semantic_type,
                 priority=request.priority,
@@ -19026,6 +19114,7 @@ async def bhm_context_compile(
         priority=request.priority,
         include_archived=effective_include_archived,
         include_logs=effective_include_logs,
+        include_historical=request.include_historical,
     )
 
     # Federated retrieval already applies these filters, but the compiler fails
@@ -19048,6 +19137,7 @@ async def bhm_context_compile(
         priority=request.priority,
         include_archived=effective_include_archived,
         include_logs=effective_include_logs,
+        include_historical=request.include_historical,
         limit=effective_limit,
     )
     context_hits: Sequence[Mapping[str, Any]] = strict_hits
@@ -19129,6 +19219,7 @@ async def bhm_context_compile(
             "files": request.files or [],
             "include_archived": effective_include_archived,
             "include_logs": effective_include_logs,
+            "include_historical": request.include_historical,
             "domain": request.domain,
             "semantic_type": request.semantic_type,
             "priority": request.priority,
@@ -19181,6 +19272,7 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
         priority=request.priority,
         include_archived=request.include_archived,
         include_logs=request.include_logs,
+        include_historical=request.include_historical,
     )
     strict_hits = _strict_retrieval_hits(
         hits,
@@ -19199,6 +19291,7 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
         priority=request.priority,
         include_archived=request.include_archived,
         include_logs=request.include_logs,
+        include_historical=request.include_historical,
         limit=request.limit,
     )
     explanations = [explain_retrieval_hit(hit, rank=index) for index, hit in enumerate(strict_hits, start=1)]
@@ -19226,6 +19319,7 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
             "files": request.files or [],
             "include_archived": request.include_archived,
             "include_logs": request.include_logs,
+            "include_historical": request.include_historical,
             "domain": request.domain,
             "semantic_type": request.semantic_type,
             "priority": request.priority,

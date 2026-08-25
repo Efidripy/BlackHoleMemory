@@ -55,6 +55,19 @@ shadow metrics and a local operator CLI
 migration and runtime gates described in [configuration](configuration.md) are
 separately authorized. Ordinary MCP attach never exposes these operator tools.
 
+### Canonical successor rollover
+
+When a governed `create` proposal explicitly identifies one or more exact
+legacy basis records in `retire_basis_memory_ids`, the approved apply performs
+one atomic SQLite transition: it creates the successor, archives only those
+same-project basis records, appends an outbox event for every changed memory,
+and records `canonical_successor` (`memory_id`, `revision_id`, `proposal_id`)
+on each archived source. A missing, cross-project, or revision-drifted source
+fails the whole transaction. This is the only allowed path for gradually
+retiring a legacy fact after an improved canonical fact exists; no legacy
+content or immutable revision is deleted and no Mem0/Qdrant direct write is
+made.
+
 ## JSON sidecars
 
 JSON sidecars used by checkpoint, session, task, link, handoff and related
@@ -63,6 +76,30 @@ an independent source of truth or edited to change canonical lifecycle state.
 Canonical writes go through the SQLite repository/service transaction and its
 outbox boundary. A sidecar may be regenerated, compared, exported or retained
 for compatibility, but a sidecar-only update is not a valid BHM state change.
+
+## Current state and historical trace retrieval
+
+Checkpoint and session-record writes are canonical SQLite memories with
+`memory_class=episodic`, `event_role=trace` and an `artifact_kind` marker. They
+remain searchable provenance, but default `/bhm/search`, context compilation,
+retrieval explanations and MCP `bhm_search` exclude trace records so current
+facts and decisions are not displaced by session noise. Inspect history only
+with `include_historical=true` or the explicit `event_role=trace` filter.
+
+Existing legacy checkpoint/session rows require the separate
+`scripts/bhm-historical-record-backfill.py` flow: `plan` is read-only and
+digest-bound; `apply` requires the exact digest, an existing verified SQLite
+backup and an offline authority-writer proof. It changes only typed
+classification and the `artifact_kind` metadata, preserves content/revision/
+lifecycle, and emits ordinary outbox events for the existing projector.
+
+For an intentional semantic upgrade pass, the governed semantic proposal
+surface accepts `include_historical=true`. That flag is required to let typed
+checkpoint/session traces become model evidence. If the result is a policy-safe
+high-confidence `create`, BHM attaches the exact SQLite-revalidated trace IDs
+as `retire_basis_memory_ids`; the normal successor transaction then archives
+those sources and links each one to the new canonical memory. Ordinary passes
+keep the flag false, so legacy history cannot be retired accidentally.
 
 ### Explicit task dependencies
 

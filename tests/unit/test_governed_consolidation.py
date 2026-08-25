@@ -261,6 +261,50 @@ def test_approved_apply_writes_authority_revision_outbox_without_vector_writer(t
     assert store.get(approved["proposal_id"], project="multiserversubgen")["status"] == "applied"
 
 
+def test_create_can_atomically_promote_successor_and_archive_exact_legacy_basis(tmp_path: Path) -> None:
+    repository, database = _migrated_repository(tmp_path)
+    store = GovernedConsolidationRepository(database)
+    legacy = repository.get_memory("mem_bhm_basis_a", project="multiserversubgen")
+    assert legacy is not None
+    stored, _ = store.create(
+        _proposal(
+            repository,
+            candidate={
+                "title": "Canonical uninstall safety",
+                "content": "Canonical successor preserves the reviewed uninstall safety rule.",
+                "memory_type": "decision",
+                "retire_basis_memory_ids": [legacy.id],
+            },
+        )
+    )
+    approved = store.decide(
+        proposal_id=stored["proposal_id"],
+        project="multiserversubgen",
+        decision="approve",
+        actor="operator-a",
+    )
+
+    result = apply_approved_proposal(
+        database_path=database,
+        proposal_id=approved["proposal_id"],
+        project="multiserversubgen",
+        apply=True,
+        confirmation=approved["proposal_id"],
+    )
+
+    assert len(result.memory_ids) == len(result.outbox_event_ids) == 2
+    successor_id = next(memory_id for memory_id in result.memory_ids if memory_id != legacy.id)
+    read_repository = SQLiteMemoryRepository(database)
+    successor = read_repository.get_memory(successor_id, project="multiserversubgen")
+    archived = read_repository.get_memory(legacy.id, project="multiserversubgen")
+    assert successor is not None and archived is not None
+    assert successor.lifecycle.value == "active"
+    assert archived.lifecycle.value == "archived"
+    assert archived.current_revision.revision_id == legacy.current_revision.revision_id
+    assert archived.metadata["canonical_successor"]["memory_id"] == successor.id
+    assert archived.metadata["canonical_successor"]["proposal_id"] == approved["proposal_id"]
+
+
 def test_accepted_apply_reaches_qdrant_only_through_existing_projector(tmp_path: Path) -> None:
     repository, database = _migrated_repository(tmp_path)
     store = GovernedConsolidationRepository(database)
