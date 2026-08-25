@@ -100,6 +100,13 @@ fail-closed `409` after a stale/manual database restore. Typed Qdrant-filter
 pushdown is a distinct gate and remains disabled until projection parity has
 been re-proven; SQLite remains the final filter in the meantime.
 
+The follow-up `scripts/bhm-legacy-memory-typing.py` is equally digest-bound
+but intentionally more conservative than an LLM editor. It may type only
+structural checkpoint/session markers and the exact legacy types
+`architecture`, `decision`, `fact`, and `pattern`; all other rows, especially
+ambiguous `workflow` records, remain unclassified for later reviewed semantic
+consolidation. It never invents a fact or rewrites content/revisions.
+
 For an intentional semantic upgrade pass, the governed semantic proposal
 surface accepts `include_historical=true`. That flag is required to let typed
 checkpoint/session traces become model evidence. If the result is a policy-safe
