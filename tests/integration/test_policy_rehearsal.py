@@ -252,7 +252,11 @@ def test_governed_read_requires_grant_then_returns_bounded_sqlite_record(monkeyp
             "memory_type": "fact",
             "agent_id": "agent-owner",
             "content": "approved bounded content",
-            "metadata": {"raw_title": "Approved memory"},
+            "metadata": {
+                "raw_title": "Approved memory",
+                "shared_visibility": "project",
+                "sensitivity": "internal",
+            },
             "created_at": "2026-08-23T10:00:00Z",
             "updated_at": "2026-08-23T10:00:00Z",
             "lifecycle": "active",
@@ -322,7 +326,11 @@ def test_identical_concurrent_governed_reads_use_sqlite_ledger_and_replay_one_au
             "memory_type": "fact",
             "agent_id": "agent-owner",
             "content": "disposable approved content",
-            "metadata": {"raw_title": "Disposable memory"},
+            "metadata": {
+                "raw_title": "Disposable memory",
+                "shared_visibility": "project",
+                "sensitivity": "internal",
+            },
             "created_at": "2026-08-23T10:00:00Z",
             "updated_at": "2026-08-23T10:00:00Z",
             "lifecycle": "active",
@@ -376,7 +384,7 @@ def test_governed_read_audits_policy_deny_without_disclosing_memory(monkeypatch)
         return event.to_artifact().to_record(), True
 
     monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "agent-owner", "content": "private content", "lifecycle": "active"})
+    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "agent-owner", "content": "private content", "metadata": {"shared_visibility": "project", "sensitivity": "internal"}, "lifecycle": "active"})
     monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
 
     with pytest.raises(bhm_app.HTTPException) as error:
@@ -407,7 +415,7 @@ def test_governed_read_rejects_client_supplied_owner_that_disagrees_with_sqlite(
             return []
 
     monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "actual-owner", "lifecycle": "active"})
+    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "actual-owner", "metadata": {"shared_visibility": "project", "sensitivity": "internal"}, "lifecycle": "active"})
 
     with pytest.raises(bhm_app.HTTPException) as error:
         bhm_app._shared_memory_read(
@@ -425,3 +433,69 @@ def test_governed_read_rejects_client_supplied_owner_that_disagrees_with_sqlite(
 
     assert error.value.status_code == 403
     assert error.value.detail["code"] == "shared_memory_owner_mismatch"
+
+
+def test_governed_read_uses_canonical_visibility_sensitivity_and_server_time(monkeypatch) -> None:
+    """Client fields cannot downgrade a restricted record or backdate a grant."""
+
+    monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "true")
+    monkeypatch.setattr(bhm_app, "_utc_now_iso", lambda: "2026-08-23T12:00:00Z")
+    expired = _grant(expires_at="2026-08-23T11:59:59Z")
+
+    class FakeService:
+        def list_artifact_records(self, *, artifact_type: str, **_kwargs):
+            if artifact_type == "shared_memory_grant":
+                return [{"project": "blackholememory", "grant": expired.model_dump(mode="json")}]
+            return []
+
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(
+        bhm_app,
+        "append_shared_memory_audit",
+        lambda _service, event: (event.to_artifact().to_record(), True),
+    )
+    monkeypatch.setattr(
+        bhm_app,
+        "_find_live_memory",
+        lambda *_args: {
+            "source_id": "memory-fixture",
+            "project": "blackholememory",
+            "agent_id": "agent-owner",
+            "content": "restricted content",
+            "metadata": {"shared_visibility": "project", "sensitivity": "restricted"},
+            "lifecycle": "active",
+        },
+    )
+
+    with pytest.raises(bhm_app.HTTPException) as mismatch:
+        bhm_app._shared_memory_read(
+            bhm_app.SharedMemoryReadRequest(
+                project="blackholememory",
+                request_id="downgrade-attempt",
+                visibility="project",
+                owner_id="agent-owner",
+                memory_id="memory-fixture",
+                at="2026-08-23T10:00:00Z",
+                sensitivity="internal",
+            ),
+            principal=_principal(),
+            auth_kind="caller_bearer",
+        )
+    assert mismatch.value.detail["code"] == "shared_memory_sensitivity_mismatch"
+
+    with pytest.raises(bhm_app.HTTPException) as expired_error:
+        bhm_app._shared_memory_read(
+            bhm_app.SharedMemoryReadRequest(
+                project="blackholememory",
+                request_id="backdate-attempt",
+                visibility="project",
+                owner_id="agent-owner",
+                memory_id="memory-fixture",
+                at="2026-08-23T10:00:00Z",
+                sensitivity="restricted",
+            ),
+            principal=_principal(),
+            auth_kind="caller_bearer",
+        )
+    assert expired_error.value.detail["code"] == "shared_memory_policy_denied"
+    assert expired_error.value.detail["reason_code"] == "shared_grant_expired"

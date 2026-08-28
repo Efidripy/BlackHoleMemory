@@ -4774,6 +4774,30 @@ def _serialize_governed_shared_memory(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _canonical_shared_memory_attributes(record: dict[str, Any]) -> tuple[str, SharedVisibility, str]:
+    """Return the declared sharing classification from SQLite or fail closed.
+
+    A caller must never be able to downgrade a record from ``restricted`` to
+    ``internal`` or present a private record as ``project`` visible.  Existing
+    memories stay private until their owner explicitly records these metadata
+    fields; there is intentionally no compatibility default for a shared read.
+    """
+
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    owner_id = str(record.get("agent_id") or metadata.get("owner_id") or "").strip()
+    visibility_value = str(metadata.get("shared_visibility") or "").strip()
+    sensitivity = str(metadata.get("sensitivity") or "").strip().casefold()
+    if not owner_id:
+        raise HTTPException(status_code=409, detail={"code": "shared_memory_owner_unresolved"})
+    try:
+        visibility = SharedVisibility(visibility_value)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={"code": "shared_memory_visibility_unresolved"}) from exc
+    if sensitivity not in {"public", "internal", "restricted"}:
+        raise HTTPException(status_code=409, detail={"code": "shared_memory_sensitivity_unresolved"})
+    return owner_id, visibility, sensitivity
+
+
 def _shared_memory_read(
     request: SharedMemoryReadRequest,
     *,
@@ -4795,11 +4819,13 @@ def _shared_memory_read(
         record = _find_live_memory(request.memory_id, project)
         if record is None or _memory_lifecycle(record) != "active":
             raise HTTPException(status_code=404, detail={"code": "memory_not_found_in_project"})
-        record_owner = str(record.get("agent_id") or (record.get("metadata") or {}).get("owner_id") or "").strip()
-        if not record_owner:
-            raise HTTPException(status_code=409, detail={"code": "shared_memory_owner_unresolved"})
+        record_owner, record_visibility, record_sensitivity = _canonical_shared_memory_attributes(record)
         if request.owner_id != record_owner:
             raise HTTPException(status_code=403, detail={"code": "shared_memory_owner_mismatch"})
+        if request.visibility is not record_visibility:
+            raise HTTPException(status_code=403, detail={"code": "shared_memory_visibility_mismatch"})
+        if request.sensitivity != record_sensitivity:
+            raise HTTPException(status_code=403, detail={"code": "shared_memory_sensitivity_mismatch"})
         identity = caller_identity_from_principal(principal, project=project)
         policy_request = SharedMemoryRequest(
             request_id=request.request_id,
@@ -4808,8 +4834,10 @@ def _shared_memory_read(
             identity=identity,
             owner_id=request.owner_id,
             memory_id=request.memory_id,
-            at=request.at,
-            sensitivity=request.sensitivity,
+            # Authorization time is server-controlled so a caller cannot use
+            # a historical timestamp to bypass an expiry or revocation.
+            at=_utc_now_iso(),
+            sensitivity=record_sensitivity,
             expected_revision=request.expected_revision,
         )
         grants = resolve_effective_grants(
@@ -4822,8 +4850,12 @@ def _shared_memory_read(
             project=project,
         )
         receipt = decide_shared_memory(policy_request, grants)
+        # Keep the receipt idempotent on the caller request identity. The
+        # supplied timestamp is correlation-only in the audit payload; it has
+        # already been excluded from authorization, which uses server time.
+        audit_request = policy_request.model_copy(update={"at": request.at})
         event = build_shared_memory_audit_event(
-            request=policy_request,
+            request=audit_request,
             receipt=receipt,
             principal=principal,
             auth_kind=auth_kind,
