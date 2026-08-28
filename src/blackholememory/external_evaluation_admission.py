@@ -20,7 +20,10 @@ from .filesystem_boundaries import read_bytes_safely
 
 SCHEMA_VERSION = "bhm.evaluation.external-dataset-admission.v1"
 _MAX_MANIFEST_BYTES = 64 * 1024
-_MAX_DATASET_BYTES = 32 * 1024 * 1024
+# LongMemEval-S at the pinned official release is about 277 MiB. Keep a
+# concrete ceiling above that known local-only smoke input instead of silently
+# rejecting the very benchmark this admission contract supports.
+MAX_EXTERNAL_EVALUATION_DATASET_BYTES = 384 * 1024 * 1024
 _MAX_LICENSE_BYTES = 1024 * 1024
 _MAX_REPORT_BYTES = 64 * 1024
 _ALLOWED_SUITES = frozenset({"locomo", "longmemeval"})
@@ -226,7 +229,7 @@ def validate_external_evaluation_dataset_admission(
     if len(source_revision) < 12 or any(character not in "0123456789abcdef" for character in source_revision):
         raise ExternalEvaluationAdmissionError("dataset.source_revision must be a pinned hexadecimal revision")
     data_path = _relative_file(root, dataset.get("path"), "dataset.path")
-    if _sha256(read_bytes_safely(data_path, max_bytes=_MAX_DATASET_BYTES)) != _require_digest(dataset.get("sha256"), "dataset.sha256"):
+    if _sha256(read_bytes_safely(data_path, max_bytes=MAX_EXTERNAL_EVALUATION_DATASET_BYTES)) != _require_digest(dataset.get("sha256"), "dataset.sha256"):
         raise ExternalEvaluationAdmissionError("dataset.sha256 does not match local dataset")
     license_data = dataset.get("license")
     if not isinstance(license_data, dict) or set(license_data) != {"spdx", "evidence_path", "evidence_sha256"}:
