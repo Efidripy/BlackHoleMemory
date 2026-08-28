@@ -237,7 +237,9 @@ local smoke fixture must first pass
 license-evidence file, pinned credential-free HTTPS source revision and
 explicit local-evaluation-only review to SHA-256 digests. Its content-free
 receipt does not load data into BHM or enable a ranker; model runs remain a
-separate bounded and approved operation.
+separate bounded and approved operation. The admission ceiling is 384 MiB,
+which is intentionally sufficient for the pinned LongMemEval-S cleaned smoke
+input (about 277 MiB) but remains a hard local file boundary.
 
 The BHM-owned recorded-receipt fixture separately reports category, session,
 turn and route retrieval metrics plus temporal accuracy, update consistency,
