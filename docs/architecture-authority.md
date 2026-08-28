@@ -213,11 +213,16 @@ memory mutation.
 
 `scripts/bhm-memory-doctor.py` runs the bounded SQLite-authoritative doctor in
 strict read-only mode with respect to BHM state. Its standard output is
-redacted and snapshot-bound; it neither opens Qdrant nor offers backup,
-repair, migration, delete or apply switches. An explicit `--report` option
-may write that same JSON to the caller-selected local file, but never changes
-SQLite, Qdrant, Mem0 or any BHM runtime state. Projection parity and every
-maintenance action remain separate, explicitly gated operations.
+redacted and snapshot-bound; it offers neither backup, repair, migration,
+delete nor apply switches. An explicit `--report` option may write that same
+JSON to the caller-selected local file, but never changes SQLite, Qdrant, Mem0
+or any BHM runtime state. By default it inspects SQLite only. The optional
+`--projection` requires an explicit project and adds one bounded `scroll` over
+that project’s declared local Qdrant collection with vectors disabled, then
+reports content-free identity parity against the same SQLite snapshot. It never discovers collections,
+creates a client-side artifact, writes Qdrant or enables a maintenance action.
+Any repair still requires its own typed, snapshot-bound and operator-approved
+operation.
 
 ## External evaluation datasets
 

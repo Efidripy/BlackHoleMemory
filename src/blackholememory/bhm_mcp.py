@@ -353,11 +353,12 @@ def bhm_search(
         "offset": offset,
         "include_archived": include_archived,
         "include_logs": include_logs,
-        "include_historical": include_historical,
         **({"freshness_days": freshness_days} if freshness_days is not None else {}),
         **({"history_scope": history_scope} if history_scope is not None else {}),
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
+    if include_historical:
+        body["include_historical"] = True
     if project:
         body["project"] = project
     if memory_type:
@@ -484,9 +485,10 @@ def bhm_explain_retrieval(
         "limit": limit,
         "include_archived": include_archived,
         "include_logs": include_logs,
-        "include_historical": include_historical,
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
+    if include_historical:
+        body["include_historical"] = True
     if project:
         body["project"] = project
     if memory_type:
