@@ -59,7 +59,11 @@ def caller_identity_from_principal(principal: CallerPrincipal, *, project: str) 
 
 
 class SharedMemoryAuditEvent(BaseModel):
-    """Immutable, content-free proof of one policy pre-dispatch decision."""
+    """Immutable, content-free proof of one policy pre-dispatch decision.
+
+    ``evaluated_at`` is request-correlation evidence. Authorization code must
+    use its own trusted clock and never consume this client-provided value.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -119,7 +123,6 @@ def build_shared_memory_audit_event(
         "request_id_digest": _digest(request.request_id),
         "owner_id_digest": _digest(request.owner_id),
         "memory_id_digest": _digest(request.memory_id) if request.memory_id else None,
-        "evaluated_at": request.at,
         "operation": request.operation.value,
         "visibility": request.visibility.value,
         "sensitivity": request.sensitivity,
@@ -127,7 +130,14 @@ def build_shared_memory_audit_event(
         "reason_code": receipt.reason_code,
         "policy_digest": receipt.policy_digest,
     }
-    return SharedMemoryAuditEvent(event_id=_canonical_digest(core), **core)
+    # Evaluation time remains evidence on the stored receipt but is not part
+    # of its idempotency identity. The policy decision/reason *are* included,
+    # so expiry/revocation transitions receive a distinct audit event.
+    return SharedMemoryAuditEvent(
+        event_id=_canonical_digest(core),
+        evaluated_at=request.at,
+        **core,
+    )
 
 
 def append_shared_memory_audit(service: Any, event: SharedMemoryAuditEvent) -> tuple[dict[str, Any], bool]:

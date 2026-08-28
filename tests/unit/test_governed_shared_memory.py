@@ -61,6 +61,13 @@ def test_expired_and_ambiguous_grants_fail_closed() -> None:
     assert decide_shared_memory(request, (_grant(), other)).reason_code == "shared_policy_ambiguous_grants"
 
 
+def test_grant_is_not_active_before_its_issued_at() -> None:
+    request = _request(at="2026-08-20T23:59:59Z")
+    receipt = decide_shared_memory(request, (_grant(),))
+    assert receipt.decision is PolicyDecision.DENY
+    assert receipt.reason_code == "shared_policy_default_deny"
+
+
 def test_private_owner_and_delete_policy() -> None:
     private = _request(
         visibility=SharedVisibility.PRIVATE_AGENT,

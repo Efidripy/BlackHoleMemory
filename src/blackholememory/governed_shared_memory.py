@@ -182,9 +182,15 @@ class PolicyReceipt(BaseModel):
 
 
 def _policy_digest(request: SharedMemoryRequest, grants: tuple[SharedMemoryGrant, ...]) -> str:
+    request_payload = request.model_dump(mode="json")
+    # ``at`` is an evaluation input, not policy configuration. The receipt
+    # separately records the resulting decision/reason, so concurrent retries
+    # of an otherwise identical request remain replay-safe while an expiry or
+    # revocation still changes the audited decision.
+    request_payload.pop("at", None)
     data = {
         "schema_version": SCHEMA_VERSION,
-        "request": request.model_dump(mode="json"),
+        "request": request_payload,
         "grants": [item.model_dump(mode="json") for item in sorted(grants, key=lambda item: item.grant_id)],
     }
     encoded = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -223,6 +229,7 @@ def decide_shared_memory(request: SharedMemoryRequest, grants: tuple[SharedMemor
                 grant
                 for grant in matching
                 if request.operation in grant.operations
+                and grant.issued_at <= request.at
                 and (grant.expires_at is None or grant.expires_at > request.at)
                 and (grant.revoked_at is None or grant.revoked_at > request.at)
             ]
