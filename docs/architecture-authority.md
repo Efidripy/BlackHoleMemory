@@ -204,9 +204,21 @@ fixture to check this contract. It does not read live memories or mutate
 SQLite, Qdrant, Mem0, a promotion lock or a session record. Lifecycle receipts
 also derive a content-free deterministic *lock preview* from the event and
 source-reference digests, but it is always `not_acquired`, cannot reserve work
-and cannot select a candidate. Any future session-to-durable promotion remains
-an independently approved, typed operation that must bind a candidate digest,
-SQLite snapshot, policy decision and transactional lease.
+and cannot select a candidate. The separately migrated
+`bhm.context-tier-promotion.v1` contour now supplies the next bounded step:
+one active, explicitly session-bound canonical aggregate can be planned,
+revalidated and promoted to canonical `context_tier=project` in one SQLite
+transaction. It preserves the aggregate's immutable revision and session
+provenance, writes one ordinary outbox event, uses a project-scoped digest lock
+and suppresses an exact-content duplicate without archiving or deleting any
+source. The capability is default-deny: it needs a verified additive-schema
+migration plus the caller's explicit policy and exact candidate confirmation.
+It is not invoked from hooks, starts no worker, and never calls Mem0 or Qdrant
+directly. Disabling the policy stops future apply; recovery of an already
+promoted canonical aggregate remains an explicit, revision-checked operation.
+`scripts/manage-bhm-context-tier-promotion.py` exposes local `plan`,
+`dry-run`, `apply` and `rollback` operations; the latter two consume the
+default-off `BHM_CONTEXT_TIER_PROMOTION_ENABLED` policy and exact confirmation.
 
 The compatibility MCP `bhm_observe` wrapper accepts the same optional
 `parentEventId` used by the REST observation contract. Clients should provide

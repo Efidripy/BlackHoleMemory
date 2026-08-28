@@ -14599,6 +14599,13 @@ def _tier_for_context_hit(hit: Mapping[str, Any]) -> ContextTier:
     """Classify a retrieved hit without changing its authority or lifecycle."""
 
     metadata = hit.get("metadata") if isinstance(hit.get("metadata"), Mapping) else {}
+    # A durable tier is a canonical SQLite metadata decision made by the
+    # explicit promotion contour.  It must precede the legacy session_refs
+    # heuristic, otherwise a promoted aggregate would remain invisible as a
+    # project-tier record merely because its provenance preserves its session.
+    explicit_tier = str(metadata.get("context_tier") or "").strip().casefold()
+    if explicit_tier in {tier.value for tier in ContextTier}:
+        return ContextTier(explicit_tier)
     if _memory_lifecycle(hit) == "archived":
         return ContextTier.ARCHIVAL
     if _effective_memory_class(dict(hit)) == MemoryClass.WORKING.value:
