@@ -194,6 +194,11 @@
       "release": true
     },
     {
+      "path": "scripts/bhm-historical-record-backfill.py",
+      "role": "operator-maintenance",
+      "release": true
+    },
+    {
       "path": "scripts/bhm-governed-consolidation.py",
       "role": "operator-maintenance",
       "release": true
@@ -206,6 +211,11 @@
     {
       "path": "scripts/bhm-local-artifact-cleanup.py",
       "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm-legacy-memory-typing.py",
+      "role": "operator-maintenance",
       "release": true
     },
     {
