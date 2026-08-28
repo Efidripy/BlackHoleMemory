@@ -9,6 +9,7 @@ from blackholememory.context_tier_lifecycle import build_context_tier_lifecycle_
 from blackholememory.context_tiers import TierBudget
 from blackholememory.context_tiers import TieredContextItem
 from blackholememory.context_tiers import compile_tiered_context
+from blackholememory.app import _tier_for_context_hit
 
 
 def _item(memory_id: str, tier: str, text: str, priority: int = 0) -> TieredContextItem:
@@ -109,6 +110,12 @@ def test_resume_lifecycle_requires_an_explicit_parent_link() -> None:
     assert receipt["anchor"]["kind"] == "resume_link"
     assert receipt["anchor"]["parent_event_link_present"] is False
     assert receipt["promotion"]["state"] == "policy_gate_disabled"
+
+
+def test_explicit_canonical_project_tier_overrides_preserved_session_provenance() -> None:
+    assert _tier_for_context_hit(
+        {"metadata": {"context_tier": "project", "session_refs": ["session-a"]}}
+    ).value == "project"
 
 
 @pytest.mark.parametrize(
