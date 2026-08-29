@@ -265,11 +265,16 @@ semantic comparison route. It requires `--allow-disposable-qdrant`, creates
 one UUID-named `bhm_eval_lme_*` collection and a temporary SQLite authority
 snapshot, and deletes the collection in `finally`. Qdrant payloads contain
 only source IDs and digests; every returned candidate must be read again from
-that temporary SQLite snapshot with matching project, case, lifecycle and
-content/source digests. It never opens a Mem0 collection, writes live SQLite
-or a live BHM Qdrant projection, or enables a ranker. Its reported query
-latency deliberately excludes local embedding preparation, so it is not a
-production end-to-end latency claim.
+that temporary SQLite snapshot with matching project, lifecycle and
+content/source digests. The historical `case-local` control additionally
+binds case identity; the separately named `global` route deliberately omits
+case identity from the Qdrant payload and uses only the project filter. Global
+mode requires an explicit `--minimum-score`, rejects unscored/below-threshold
+candidates after SQLite revalidation, and reports a content-free diagnostic
+threshold sweep without choosing a live policy. Its latency receipt separates
+document embedding, disposable indexing, batch-amortized query embedding and
+Qdrant-plus-SQLite query/revalidation p95. It never opens a Mem0 collection,
+writes live SQLite or a live BHM Qdrant projection, or enables a ranker.
 
 ## Projection safety
 

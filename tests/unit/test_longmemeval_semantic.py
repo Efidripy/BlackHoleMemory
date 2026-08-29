@@ -8,6 +8,7 @@ import pytest
 
 from blackholememory.longmemeval_semantic import LongMemEvalSemanticError
 from blackholememory.longmemeval_semantic import _build_authority_records
+from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_global_semantic_smoke
 from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_semantic_smoke
 
 
@@ -74,12 +75,14 @@ class _FakeEmbedder:
 
 
 class _FakeQdrant:
-    def __init__(self, *, mismatch_payload: bool = False, raise_on_query: bool = False) -> None:
+    def __init__(self, *, mismatch_payload: bool = False, raise_on_query: bool = False, score: float = 0.75) -> None:
         self.collections: dict[str, list[object]] = {}
         self.created: list[str] = []
         self.deleted: list[str] = []
         self.mismatch_payload = mismatch_payload
         self.raise_on_query = raise_on_query
+        self.score = score
+        self.query_filters: list[tuple[str, ...]] = []
 
     def collection_exists(self, collection_name: str) -> bool:
         return collection_name in self.collections
@@ -94,15 +97,17 @@ class _FakeQdrant:
     def query_points(self, *, collection_name: str, query_filter: object, **_kwargs: object) -> object:
         if self.raise_on_query:
             raise RuntimeError("query failed")
-        case_id = query_filter.must[1].match.value
+        keys = tuple(condition.key for condition in query_filter.must)
+        self.query_filters.append(keys)
+        case_id = next((condition.match.value for condition in query_filter.must if condition.key == "case_id"), None)
         points: list[object] = []
         for point in self.collections[collection_name]:
             payload = dict(point.payload)
-            if payload["case_id"] != case_id:
+            if case_id is not None and payload["case_id"] != case_id:
                 continue
             if self.mismatch_payload:
                 payload["content_digest"] = "mismatch"
-            points.append(SimpleNamespace(payload=payload))
+            points.append(SimpleNamespace(payload=payload, score=self.score))
         return SimpleNamespace(points=points)
 
     def delete_collection(self, collection_name: str) -> None:
@@ -125,6 +130,21 @@ def test_semantic_evaluation_requires_explicit_disposable_qdrant_consent(tmp_pat
             dataset_path,
             dataset_version="fixture-v1",
             admission_report=admission,
+            embedder=_FakeEmbedder(),
+        )
+
+
+def test_global_semantic_evaluation_requires_an_explicit_abstention_threshold(tmp_path) -> None:
+    dataset_path, admission = _inputs(tmp_path)
+
+    with pytest.raises(LongMemEvalSemanticError, match="explicit abstention minimum_score"):
+        run_longmemeval_qdrant_semantic_smoke(
+            dataset_path,
+            dataset_version="fixture-v1",
+            admission_report=admission,
+            allow_disposable_qdrant=True,
+            candidate_scope="global",
+            qdrant_client=_FakeQdrant(),
             embedder=_FakeEmbedder(),
         )
 
@@ -206,4 +226,71 @@ def test_semantic_evaluation_cleans_up_after_qdrant_query_failure(tmp_path, monk
         )
 
     assert client.deleted == ["bhm_eval_lme_failure"]
+    assert client.collections == {}
+
+
+def test_global_semantic_route_has_no_case_local_qdrant_filter_or_payload(tmp_path, monkeypatch) -> None:
+    dataset_path, admission = _inputs(tmp_path)
+    client = _FakeQdrant()
+    monkeypatch.setattr("blackholememory.longmemeval_semantic._collection_name", lambda: "bhm_eval_lme_global")
+
+    result = run_longmemeval_qdrant_global_semantic_smoke(
+        dataset_path,
+        dataset_version="fixture-v1",
+        admission_report=admission,
+        allow_disposable_qdrant=True,
+        qdrant_client=client,
+        embedder=_FakeEmbedder(),
+        max_cases=2,
+        minimum_score=0.40,
+    )
+
+    assert client.query_filters == [("project",), ("project",)]
+    selection = result["report"]["candidate_selection"]
+    assert selection["scope"] == "global"
+    assert selection["case_local_filter_used"] is False
+    assert selection["project_filter_used"] is True
+    assert selection["case_identity_in_qdrant_payload"] is False
+    assert selection["minimum_score"] == 0.4
+    assert selection["score_required_for_acceptance"] is True
+    assert selection["threshold_rejected_candidate_count"] == 0
+    assert selection["abstention_policy"] == "no accepted SQLite-revalidated candidate at or above minimum_score"
+    assert selection["top_candidate_score_distribution"] == {"count": 2, "min": 0.75, "p50": 0.75, "p95": 0.75, "max": 0.75}
+    assert selection["threshold_diagnostics"][-1] == {
+        "minimum_score": 0.85,
+        "expected_abstention_count": 1,
+        "predicted_abstention_count": 2,
+        "correct_abstention_count": 1,
+        "precision": 0.5,
+        "recall": 1.0,
+    }
+    assert result["report"]["latency_evidence"]["query_embedding_allocation"] == "batch-amortized"
+    assert client.collections == {}
+
+
+def test_global_semantic_route_abstains_when_all_scores_are_below_policy_threshold(tmp_path, monkeypatch) -> None:
+    dataset_path, admission = _inputs(tmp_path)
+    client = _FakeQdrant(score=0.10)
+    monkeypatch.setattr("blackholememory.longmemeval_semantic._collection_name", lambda: "bhm_eval_lme_threshold")
+
+    result = run_longmemeval_qdrant_global_semantic_smoke(
+        dataset_path,
+        dataset_version="fixture-v1",
+        admission_report=admission,
+        allow_disposable_qdrant=True,
+        qdrant_client=client,
+        embedder=_FakeEmbedder(),
+        max_cases=2,
+        minimum_score=0.40,
+    )
+
+    assert all(receipt["abstained"] is True for receipt in result["receipts"])
+    assert result["report"]["candidate_selection"]["threshold_rejected_candidate_count"] == 6
+    assert result["report"]["capability_metrics"]["abstention"] == {
+        "expected_count": 1,
+        "predicted_count": 2,
+        "correct_count": 1,
+        "precision": 0.5,
+        "recall": 1.0,
+    }
     assert client.collections == {}
