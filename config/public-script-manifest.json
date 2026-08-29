@@ -449,6 +449,11 @@
       "release": true
     },
     {
+      "path": "scripts/manage-bhm-context-tier-promotion.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/manage-bhm-ontology-registry.py",
       "role": "operator",
       "release": true
@@ -525,6 +530,16 @@
     },
     {
       "path": "scripts/run-bhm-integration-gate.py",
+      "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/run-bhm-longmemeval-semantic.py",
+      "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/run-bhm-longmemeval-smoke.py",
       "role": "operator",
       "release": true
     },

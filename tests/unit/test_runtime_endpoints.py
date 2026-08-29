@@ -59,3 +59,4 @@ def test_cleanup_audit_is_read_only_and_utf8_clean():
     assert report["encoding"]["bom_utf8"] == []
     assert report["mojibake"] == []
     assert ".src" in report["policy"]["excluded_parts"]
+    assert ".local" in report["policy"]["excluded_parts"]
