@@ -260,6 +260,17 @@ Absent receipt scope or provenance is explicitly `unproven`; a mismatch is a
 visible isolation failure, never a silently accepted score. These offline
 metrics remain evaluation evidence and cannot enable a runtime retrieval path.
 
+The opt-in `scripts/run-bhm-longmemeval-semantic.py` runner is the separate
+semantic comparison route. It requires `--allow-disposable-qdrant`, creates
+one UUID-named `bhm_eval_lme_*` collection and a temporary SQLite authority
+snapshot, and deletes the collection in `finally`. Qdrant payloads contain
+only source IDs and digests; every returned candidate must be read again from
+that temporary SQLite snapshot with matching project, case, lifecycle and
+content/source digests. It never opens a Mem0 collection, writes live SQLite
+or a live BHM Qdrant projection, or enables a ranker. Its reported query
+latency deliberately excludes local embedding preparation, so it is not a
+production end-to-end latency claim.
+
 ## Projection safety
 
 - Read/search routes (`/bhm/search`, `/bhm/search/advanced`,
