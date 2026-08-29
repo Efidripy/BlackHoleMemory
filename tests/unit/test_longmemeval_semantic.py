@@ -9,6 +9,7 @@ import pytest
 from blackholememory.longmemeval_semantic import LongMemEvalSemanticError
 from blackholememory.longmemeval_semantic import _build_authority_records
 from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_global_semantic_smoke
+from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_global_hybrid_smoke
 from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_semantic_smoke
 
 
@@ -293,4 +294,33 @@ def test_global_semantic_route_abstains_when_all_scores_are_below_policy_thresho
         "precision": 0.5,
         "recall": 1.0,
     }
+    assert client.collections == {}
+
+
+def test_global_hybrid_route_fuses_bounded_signals_without_case_local_filter(tmp_path, monkeypatch) -> None:
+    dataset_path, admission = _inputs(tmp_path)
+    client = _FakeQdrant()
+    monkeypatch.setattr("blackholememory.longmemeval_semantic._collection_name", lambda: "bhm_eval_lme_hybrid")
+
+    result = run_longmemeval_qdrant_global_hybrid_smoke(
+        dataset_path,
+        dataset_version="fixture-v1",
+        admission_report=admission,
+        allow_disposable_qdrant=True,
+        qdrant_client=client,
+        embedder=_FakeEmbedder(),
+        max_cases=2,
+        k=2,
+        candidate_limit=3,
+        minimum_score=0.40,
+    )
+
+    assert client.query_filters == [("project",), ("project",)]
+    selection = result["report"]["candidate_selection"]
+    assert selection["scope"] == "global"
+    assert selection["strategy"] == "hybrid-rrf"
+    assert selection["candidate_limit"] == 3
+    assert selection["case_identity_in_qdrant_payload"] is False
+    assert result["report"]["execution"]["route"] == "bhm-qdrant-disposable-semantic-global-hybrid.v1"
+    assert all(len(receipt["retrieved_ids"]) <= 2 for receipt in result["receipts"])
     assert client.collections == {}

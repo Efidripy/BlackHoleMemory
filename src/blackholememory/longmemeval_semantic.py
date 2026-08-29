@@ -39,6 +39,7 @@ from .longmemeval_smoke import _case_records
 from .longmemeval_smoke import _category
 from .longmemeval_smoke import _digest
 from .longmemeval_smoke import _load_dataset
+from .longmemeval_smoke import _rank
 from .longmemeval_smoke import _select_cases
 from .longmemeval_smoke import _text
 from .memory_evaluation import EvaluationCase
@@ -52,6 +53,7 @@ from .qdrant_runtime import QDRANT_DEFAULT_URL
 
 ROUTE = "bhm-qdrant-disposable-semantic.v1"
 GLOBAL_ROUTE = "bhm-qdrant-disposable-semantic-global.v1"
+GLOBAL_HYBRID_ROUTE = "bhm-qdrant-disposable-semantic-global-hybrid.v1"
 _COLLECTION_PREFIX = "bhm_eval_lme_"
 _MAX_RECORDS = 5_000
 _BATCH_SIZE = 16
@@ -351,6 +353,16 @@ def _abstention_threshold_diagnostics(score_outcomes: Iterable[tuple[float | Non
     return rows
 
 
+def _rrf_fuse(*ranked_lists: Iterable[str], limit: int) -> tuple[str, ...]:
+    """Fuse bounded candidate lists without inspecting labels or case identity."""
+
+    scores: dict[str, float] = {}
+    for ranked in ranked_lists:
+        for rank, source_id in enumerate(ranked, start=1):
+            scores[source_id] = scores.get(source_id, 0.0) + 1.0 / (60.0 + rank)
+    return tuple(source_id for source_id, _score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit])
+
+
 def run_longmemeval_qdrant_semantic_smoke(
     dataset_path: str | Path,
     *,
@@ -363,6 +375,8 @@ def run_longmemeval_qdrant_semantic_smoke(
     embedder: Any | None = None,
     candidate_scope: str = "case-local",
     minimum_score: float | None = None,
+    candidate_strategy: str = "semantic",
+    candidate_limit: int | None = None,
 ) -> dict[str, Any]:
     """Run an explicit disposable semantic retrieval comparison.
 
@@ -377,6 +391,10 @@ def run_longmemeval_qdrant_semantic_smoke(
         raise LongMemEvalSemanticError("k must be between 1 and 50")
     if candidate_scope not in {"case-local", "global"}:
         raise LongMemEvalSemanticError("candidate_scope must be case-local or global")
+    if candidate_strategy not in {"semantic", "hybrid-rrf"}:
+        raise LongMemEvalSemanticError("candidate_strategy must be semantic or hybrid-rrf")
+    if candidate_scope == "case-local" and candidate_strategy != "semantic":
+        raise LongMemEvalSemanticError("case-local route supports only semantic candidate_strategy")
     if candidate_scope == "global" and minimum_score is None:
         raise LongMemEvalSemanticError("global semantic evaluation requires an explicit abstention minimum_score")
     if candidate_scope == "case-local" and minimum_score is None:
@@ -385,6 +403,9 @@ def run_longmemeval_qdrant_semantic_smoke(
         raise LongMemEvalSemanticError("minimum_score must be a finite cosine similarity between -1.0 and 1.0")
     if candidate_scope == "case-local" and minimum_score != 0.0:
         raise LongMemEvalSemanticError("case-local route does not accept an abstention threshold")
+    resolved_candidate_limit = k if candidate_limit is None else candidate_limit
+    if not isinstance(resolved_candidate_limit, int) or resolved_candidate_limit < k or resolved_candidate_limit > 100:
+        raise LongMemEvalSemanticError("candidate_limit must be an integer between k and 100")
     try:
         admission = verify_external_evaluation_admission_report(dict(admission_report))
     except ExternalEvaluationAdmissionError as exc:
@@ -397,6 +418,14 @@ def run_longmemeval_qdrant_semantic_smoke(
 
     records_by_case, cases = _build_authority_records(items, max_cases=max_cases)
     all_records = tuple(record for records in records_by_case.values() for record in records)
+    lexical_records = tuple(
+        {
+            "source_id": record.source_id,
+            "memory": record.content,
+            "metadata": {"memory_type": "session"},
+        }
+        for record in all_records
+    )
     client = qdrant_client or QdrantClient(url=settings.qdrant_url or QDRANT_DEFAULT_URL, timeout=15)
     # Do not obtain this through get_project_mem0_memory(): that helper is
     # allowed to ensure a persistent BHM collection. The caller supplies an
@@ -458,7 +487,7 @@ def run_longmemeval_qdrant_semantic_smoke(
             top_candidate_scores: list[float] = []
             abstention_score_outcomes: list[tuple[float | None, bool]] = []
             by_case = {case.case_id: case for case in cases}
-            for case, query_vector in zip(cases, query_vectors, strict=True):
+            for case, query_text, query_vector in zip(cases, query_texts, query_vectors, strict=True):
                 started = time.perf_counter()
                 conditions = [
                     qdrant_models.FieldCondition(key="project", match=qdrant_models.MatchValue(value=PROJECT)),
@@ -471,7 +500,7 @@ def run_longmemeval_qdrant_semantic_smoke(
                     collection_name=collection_name,
                     query=query_vector,
                     query_filter=qdrant_models.Filter(must=conditions),
-                    limit=k,
+                    limit=resolved_candidate_limit,
                     with_payload=True,
                     with_vectors=False,
                 )
@@ -482,7 +511,7 @@ def run_longmemeval_qdrant_semantic_smoke(
                     if scores:
                         top_candidate_scores.append(top_score)
                     abstention_score_outcomes.append((top_score, case.expected_abstention))
-                retrieved_ids, checked, rejected, threshold_filtered = _revalidate_hits(
+                semantic_ids, checked, rejected, threshold_filtered = _revalidate_hits(
                     repository,
                     hits,
                     case_id=case.case_id if candidate_scope == "case-local" else None,
@@ -492,13 +521,21 @@ def run_longmemeval_qdrant_semantic_smoke(
                 revalidation_checked += checked
                 revalidation_rejected += rejected
                 threshold_rejected += threshold_filtered
+                retrieved_ids = semantic_ids
+                if candidate_strategy == "hybrid-rrf":
+                    lexical_ids = _rank(query_text, lexical_records, k=resolved_candidate_limit)
+                    retrieved_ids = _rrf_fuse(semantic_ids, lexical_ids, limit=k)
                 receipts.append(
                     RetrievalReceipt(
                         case_id=case.case_id,
                         retrieved_ids=retrieved_ids,
                         abstained=not retrieved_ids,
                         latency_seconds=time.perf_counter() - started,
-                        route=ROUTE if candidate_scope == "case-local" else GLOBAL_ROUTE,
+                        route=(
+                            ROUTE
+                            if candidate_scope == "case-local"
+                            else GLOBAL_HYBRID_ROUTE if candidate_strategy == "hybrid-rrf" else GLOBAL_ROUTE
+                        ),
                         project=PROJECT,
                         provenance_digest=by_case[case.case_id].source_digest,
                     )
@@ -531,7 +568,11 @@ def run_longmemeval_qdrant_semantic_smoke(
         "live_sqlite_mutation": False,
         "live_qdrant_mutation": False,
         "mem0_mutation": False,
-        "route": ROUTE if candidate_scope == "case-local" else GLOBAL_ROUTE,
+        "route": (
+            ROUTE
+            if candidate_scope == "case-local"
+            else GLOBAL_HYBRID_ROUTE if candidate_strategy == "hybrid-rrf" else GLOBAL_ROUTE
+        ),
         "runtime_feature_enabled": False,
         "temporary_collection_cleanup_verified": True,
     }
@@ -543,6 +584,8 @@ def run_longmemeval_qdrant_semantic_smoke(
     query_amortized_embedding_seconds = query_embedding_seconds / max(len(cases), 1)
     report["candidate_selection"] = {
         "scope": candidate_scope,
+        "strategy": candidate_strategy,
+        "candidate_limit": resolved_candidate_limit,
         "case_local_filter_used": candidate_scope == "case-local",
         "project_filter_used": True,
         "case_identity_in_qdrant_payload": candidate_scope == "case-local",
@@ -626,10 +669,43 @@ def run_longmemeval_qdrant_global_semantic_smoke(
     )
 
 
+def run_longmemeval_qdrant_global_hybrid_smoke(
+    dataset_path: str | Path,
+    *,
+    dataset_version: str,
+    admission_report: dict[str, Any],
+    allow_disposable_qdrant: bool = False,
+    max_cases: int = MAX_SMOKE_CASES,
+    k: int = 5,
+    candidate_limit: int = 50,
+    minimum_score: float | None = None,
+    qdrant_client: QdrantClient | Any | None = None,
+    embedder: Any | None = None,
+) -> dict[str, Any]:
+    """Evaluate global semantic-plus-lexical RRF without case-local leakage."""
+
+    return run_longmemeval_qdrant_semantic_smoke(
+        dataset_path,
+        dataset_version=dataset_version,
+        admission_report=admission_report,
+        allow_disposable_qdrant=allow_disposable_qdrant,
+        max_cases=max_cases,
+        k=k,
+        qdrant_client=qdrant_client,
+        embedder=embedder,
+        candidate_scope="global",
+        minimum_score=minimum_score,
+        candidate_strategy="hybrid-rrf",
+        candidate_limit=candidate_limit,
+    )
+
+
 __all__ = [
     "GLOBAL_ROUTE",
+    "GLOBAL_HYBRID_ROUTE",
     "LongMemEvalSemanticError",
     "ROUTE",
     "run_longmemeval_qdrant_global_semantic_smoke",
+    "run_longmemeval_qdrant_global_hybrid_smoke",
     "run_longmemeval_qdrant_semantic_smoke",
 ]

@@ -276,6 +276,14 @@ document embedding, disposable indexing, batch-amortized query embedding and
 Qdrant-plus-SQLite query/revalidation p95. It never opens a Mem0 collection,
 writes live SQLite or a live BHM Qdrant projection, or enables a ranker.
 
+The same disposable global route can evaluate `hybrid-rrf`: bounded semantic
+candidates and a separate deterministic lexical candidate list are fused by
+fixed reciprocal-rank fusion before final top-K. Both lists are project-scoped;
+case identity, answer labels and live BHM state are not inputs. This is an
+evaluation comparison only. It must not be mistaken for the live ranker,
+particularly because its temporary Python lexical scan is not a production
+SQLite FTS latency measurement.
+
 ## Projection safety
 
 - Read/search routes (`/bhm/search`, `/bhm/search/advanced`,

@@ -86,6 +86,18 @@ def main() -> int:
         help="required global cosine-score threshold for a returned candidate; it is evidence-only and never activates runtime policy",
     )
     parser.add_argument(
+        "--candidate-strategy",
+        choices=("semantic", "hybrid-rrf"),
+        default="semantic",
+        help="semantic is the vector control; hybrid-rrf fuses bounded global semantic and lexical candidates without enabling BHM runtime policy",
+    )
+    parser.add_argument(
+        "--candidate-limit",
+        type=int,
+        default=None,
+        help="bounded per-signal candidate pool before final top-K; required to be at least --k when provided",
+    )
+    parser.add_argument(
         "--embedding-endpoint",
         default=endpoint_url("lm_studio"),
         help="local OpenAI-compatible embedding endpoint; defaults to the launcher-aligned LM Studio loopback endpoint",
@@ -113,6 +125,8 @@ def main() -> int:
             embedder=adapter,
             candidate_scope=args.candidate_scope,
             minimum_score=args.minimum_score,
+            candidate_strategy=args.candidate_strategy,
+            candidate_limit=args.candidate_limit,
         )
         output_dir = args.output_dir.expanduser().resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
