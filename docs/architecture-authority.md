@@ -277,12 +277,13 @@ Qdrant-plus-SQLite query/revalidation p95. It never opens a Mem0 collection,
 writes live SQLite or a live BHM Qdrant projection, or enables a ranker.
 
 The same disposable global route can evaluate `hybrid-rrf`: bounded semantic
-candidates and a separate deterministic lexical candidate list are fused by
-fixed reciprocal-rank fusion before final top-K. Both lists are project-scoped;
-case identity, answer labels and live BHM state are not inputs. This is an
-evaluation comparison only. It must not be mistaken for the live ranker,
-particularly because its temporary Python lexical scan is not a production
-SQLite FTS latency measurement.
+candidates and a separate deterministic temporary SQLite FTS5 candidate list
+are fused by fixed reciprocal-rank fusion before final top-K. Both lists are
+project-scoped; case identity, answer labels and live BHM state are not inputs.
+With `--temporal-as-of-filter`, both candidate lanes additionally enforce the
+admitted `observed_at <= question_date` boundary and revalidate the result from
+SQLite authority. The route remains evaluation-only: it must not be mistaken
+for the live ranker or a runtime FTS migration.
 
 ## Projection safety
 
