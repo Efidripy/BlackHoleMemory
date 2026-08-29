@@ -51,10 +51,12 @@ from .qdrant_runtime import QDRANT_DEFAULT_URL
 
 
 ROUTE = "bhm-qdrant-disposable-semantic.v1"
+GLOBAL_ROUTE = "bhm-qdrant-disposable-semantic-global.v1"
 _COLLECTION_PREFIX = "bhm_eval_lme_"
 _MAX_RECORDS = 5_000
 _BATCH_SIZE = 16
 _EVALUATION_TIMESTAMP = "2026-01-01T00:00:00Z"
+_ABSTENTION_DIAGNOSTIC_THRESHOLDS = (0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85)
 
 
 class LongMemEvalSemanticError(RuntimeError):
@@ -251,18 +253,34 @@ def _query_points(response: Any) -> list[Any]:
     raise LongMemEvalSemanticError("Qdrant semantic query returned an unsupported response")
 
 
-def _revalidate_hits(repository: SQLiteMemoryRepository, hits: Iterable[Any], *, case_id: str) -> tuple[tuple[str, ...], int, int]:
-    payloads: list[dict[str, Any]] = []
-    for hit in hits:
+def _finite_score(hit: Any) -> float | None:
+    score = getattr(hit, "score", None)
+    if not isinstance(score, (int, float)) or not math.isfinite(float(score)):
+        return None
+    return float(score)
+
+
+def _revalidate_hits(
+    repository: SQLiteMemoryRepository,
+    hits: Iterable[Any],
+    *,
+    case_id: str | None,
+    minimum_score: float = 0.0,
+    require_score: bool = False,
+) -> tuple[tuple[str, ...], int, int, int]:
+    raw_hits = tuple(hits)
+    hit_payloads: list[tuple[Any, dict[str, Any]]] = []
+    for hit in raw_hits:
         payload = getattr(hit, "payload", None)
         if not isinstance(payload, dict):
             continue
-        payloads.append(payload)
-    candidate_ids = tuple(dict.fromkeys(str(payload.get("memory_id") or "") for payload in payloads if str(payload.get("memory_id") or "")))
+        hit_payloads.append((hit, payload))
+    candidate_ids = tuple(dict.fromkeys(str(payload.get("memory_id") or "") for _, payload in hit_payloads if str(payload.get("memory_id") or "")))
     authorities = {memory.id: memory for memory in repository.get_memories(candidate_ids, project=PROJECT)}
     accepted: list[str] = []
     rejected = 0
-    for payload in payloads:
+    threshold_rejected = 0
+    for hit, payload in hit_payloads:
         memory_id = str(payload.get("memory_id") or "")
         memory = authorities.get(memory_id)
         if memory is None or memory.lifecycle is not Lifecycle.ACTIVE:
@@ -271,19 +289,66 @@ def _revalidate_hits(repository: SQLiteMemoryRepository, hits: Iterable[Any], *,
         metadata = dict(memory.metadata)
         if (
             str(payload.get("project") or "") != PROJECT
-            or str(payload.get("case_id") or "") != case_id
             or str(payload.get("content_digest") or "") != memory.current_revision.content_sha256
             or str(payload.get("source_digest") or "") != str(metadata.get("evaluation_source_digest") or "")
+        ):
+            rejected += 1
+            continue
+        if case_id is not None and (
+            str(payload.get("case_id") or "") != case_id
             or str(metadata.get("evaluation_case_id") or "") != case_id
         ):
             rejected += 1
             continue
+        score = _finite_score(hit)
+        if require_score:
+            if score is None:
+                rejected += 1
+                threshold_rejected += 1
+                continue
+            if score < minimum_score:
+                rejected += 1
+                threshold_rejected += 1
+                continue
         source_id = str(metadata.get("evaluation_source_id") or "")
         if not source_id or source_id in accepted:
             rejected += 1
             continue
         accepted.append(source_id)
-    return tuple(accepted), len(candidate_ids), rejected
+    return tuple(accepted), len(candidate_ids), rejected, threshold_rejected
+
+
+def _percentile(values: Iterable[float], *, percentile: float) -> float:
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return 0.0
+    index = max(0, min(len(ordered) - 1, math.ceil(percentile * len(ordered)) - 1))
+    return round(ordered[index], 6)
+
+
+def _abstention_threshold_diagnostics(score_outcomes: Iterable[tuple[float | None, bool]]) -> list[dict[str, float | int | None]]:
+    """Report bounded threshold diagnostics without selecting a live policy."""
+
+    outcomes = tuple(score_outcomes)
+    rows: list[dict[str, float | int | None]] = []
+    for threshold in _ABSTENTION_DIAGNOSTIC_THRESHOLDS:
+        expected = predicted = correct = 0
+        for top_score, expected_abstention in outcomes:
+            expected += int(expected_abstention)
+            abstained = top_score is None or top_score < threshold
+            predicted += int(abstained)
+            correct += int(abstained and expected_abstention)
+        rows.append(
+            {
+                "minimum_score": threshold,
+                "expected_abstention_count": expected,
+                "predicted_abstention_count": predicted,
+                "correct_abstention_count": correct,
+                "precision": round(correct / predicted, 6) if predicted else None,
+                "recall": round(correct / expected, 6) if expected else None,
+            }
+        )
+    return rows
 
 
 def run_longmemeval_qdrant_semantic_smoke(
@@ -296,6 +361,8 @@ def run_longmemeval_qdrant_semantic_smoke(
     k: int = 5,
     qdrant_client: QdrantClient | Any | None = None,
     embedder: Any | None = None,
+    candidate_scope: str = "case-local",
+    minimum_score: float | None = None,
 ) -> dict[str, Any]:
     """Run an explicit disposable semantic retrieval comparison.
 
@@ -308,6 +375,16 @@ def run_longmemeval_qdrant_semantic_smoke(
         raise LongMemEvalSemanticError("semantic evaluation requires explicit disposable Qdrant consent")
     if k < 1 or k > 50:
         raise LongMemEvalSemanticError("k must be between 1 and 50")
+    if candidate_scope not in {"case-local", "global"}:
+        raise LongMemEvalSemanticError("candidate_scope must be case-local or global")
+    if candidate_scope == "global" and minimum_score is None:
+        raise LongMemEvalSemanticError("global semantic evaluation requires an explicit abstention minimum_score")
+    if candidate_scope == "case-local" and minimum_score is None:
+        minimum_score = 0.0
+    if not isinstance(minimum_score, (int, float)) or not math.isfinite(float(minimum_score)) or not -1.0 <= float(minimum_score) <= 1.0:
+        raise LongMemEvalSemanticError("minimum_score must be a finite cosine similarity between -1.0 and 1.0")
+    if candidate_scope == "case-local" and minimum_score != 0.0:
+        raise LongMemEvalSemanticError("case-local route does not accept an abstention threshold")
     try:
         admission = verify_external_evaluation_admission_report(dict(admission_report))
     except ExternalEvaluationAdmissionError as exc:
@@ -329,7 +406,10 @@ def run_longmemeval_qdrant_semantic_smoke(
     collection_name = _collection_name()
     collection_created = False
     cleanup_ok = False
+    evaluation_started = time.perf_counter()
+    document_embedding_started = time.perf_counter()
     document_vectors, document_calls = _embed_batches(embedder, (record.content for record in all_records), memory_action="add")
+    document_embedding_seconds = time.perf_counter() - document_embedding_started
     if len({_point_id(record.memory_id) for record in all_records}) != len(all_records):
         raise LongMemEvalSemanticError("temporary Qdrant point identity collision")
 
@@ -355,47 +435,70 @@ def run_longmemeval_qdrant_semantic_smoke(
                     payload={
                         "memory_id": record.memory_id,
                         "project": PROJECT,
-                        "case_id": record.case_id,
                         "content_digest": record.content_digest,
                         "source_digest": record.source_digest,
+                        **({"case_id": record.case_id} if candidate_scope == "case-local" else {}),
                     },
                 )
                 for record, vector in zip(all_records, document_vectors, strict=True)
             ]
+            index_started = time.perf_counter()
             for offset in range(0, len(points), _BATCH_SIZE):
                 client.upsert(collection_name=collection_name, points=points[offset : offset + _BATCH_SIZE], wait=True)
+            index_seconds = time.perf_counter() - index_started
 
             query_texts = tuple(_text(item.get("question"), "question", limit=20_000) for item in _select_cases(items, max_cases=max_cases))
+            query_embedding_started = time.perf_counter()
             query_vectors, query_calls = _embed_batches(embedder, query_texts, memory_action="search")
+            query_embedding_seconds = time.perf_counter() - query_embedding_started
             receipts: list[RetrievalReceipt] = []
             revalidation_checked = 0
             revalidation_rejected = 0
+            threshold_rejected = 0
+            top_candidate_scores: list[float] = []
+            abstention_score_outcomes: list[tuple[float | None, bool]] = []
             by_case = {case.case_id: case for case in cases}
             for case, query_vector in zip(cases, query_vectors, strict=True):
                 started = time.perf_counter()
+                conditions = [
+                    qdrant_models.FieldCondition(key="project", match=qdrant_models.MatchValue(value=PROJECT)),
+                ]
+                if candidate_scope == "case-local":
+                    conditions.append(
+                        qdrant_models.FieldCondition(key="case_id", match=qdrant_models.MatchValue(value=case.case_id))
+                    )
                 response = client.query_points(
                     collection_name=collection_name,
                     query=query_vector,
-                    query_filter=qdrant_models.Filter(
-                        must=[
-                            qdrant_models.FieldCondition(key="project", match=qdrant_models.MatchValue(value=PROJECT)),
-                            qdrant_models.FieldCondition(key="case_id", match=qdrant_models.MatchValue(value=case.case_id)),
-                        ]
-                    ),
+                    query_filter=qdrant_models.Filter(must=conditions),
                     limit=k,
                     with_payload=True,
                     with_vectors=False,
                 )
-                retrieved_ids, checked, rejected = _revalidate_hits(repository, _query_points(response), case_id=case.case_id)
+                hits = _query_points(response)
+                if candidate_scope == "global":
+                    scores = tuple(score for hit in hits if (score := _finite_score(hit)) is not None)
+                    top_score = max(scores) if scores else None
+                    if scores:
+                        top_candidate_scores.append(top_score)
+                    abstention_score_outcomes.append((top_score, case.expected_abstention))
+                retrieved_ids, checked, rejected, threshold_filtered = _revalidate_hits(
+                    repository,
+                    hits,
+                    case_id=case.case_id if candidate_scope == "case-local" else None,
+                    minimum_score=float(minimum_score),
+                    require_score=candidate_scope == "global",
+                )
                 revalidation_checked += checked
                 revalidation_rejected += rejected
+                threshold_rejected += threshold_filtered
                 receipts.append(
                     RetrievalReceipt(
                         case_id=case.case_id,
                         retrieved_ids=retrieved_ids,
                         abstained=not retrieved_ids,
                         latency_seconds=time.perf_counter() - started,
-                        route=ROUTE,
+                        route=ROUTE if candidate_scope == "case-local" else GLOBAL_ROUTE,
                         project=PROJECT,
                         provenance_digest=by_case[case.case_id].source_digest,
                     )
@@ -428,7 +531,7 @@ def run_longmemeval_qdrant_semantic_smoke(
         "live_sqlite_mutation": False,
         "live_qdrant_mutation": False,
         "mem0_mutation": False,
-        "route": ROUTE,
+        "route": ROUTE if candidate_scope == "case-local" else GLOBAL_ROUTE,
         "runtime_feature_enabled": False,
         "temporary_collection_cleanup_verified": True,
     }
@@ -436,6 +539,51 @@ def run_longmemeval_qdrant_semantic_smoke(
         "checked_candidate_count": revalidation_checked,
         "rejected_candidate_count": revalidation_rejected,
         "passed": True,
+    }
+    query_amortized_embedding_seconds = query_embedding_seconds / max(len(cases), 1)
+    report["candidate_selection"] = {
+        "scope": candidate_scope,
+        "case_local_filter_used": candidate_scope == "case-local",
+        "project_filter_used": True,
+        "case_identity_in_qdrant_payload": candidate_scope == "case-local",
+        "minimum_score": float(minimum_score) if candidate_scope == "global" else None,
+        "score_required_for_acceptance": candidate_scope == "global",
+        "threshold_rejected_candidate_count": threshold_rejected,
+        "abstention_policy": "no accepted SQLite-revalidated candidate at or above minimum_score" if candidate_scope == "global" else "empty accepted candidate set",
+        "top_candidate_score_distribution": (
+            {
+                "count": len(top_candidate_scores),
+                "min": round(min(top_candidate_scores), 6),
+                "p50": _percentile(top_candidate_scores, percentile=0.50),
+                "p95": _percentile(top_candidate_scores, percentile=0.95),
+                "max": round(max(top_candidate_scores), 6),
+            }
+            if top_candidate_scores
+            else None
+        ),
+        "threshold_diagnostics": (
+            _abstention_threshold_diagnostics(abstention_score_outcomes)
+            if candidate_scope == "global"
+            else None
+        ),
+        "threshold_diagnostics_note": (
+            "diagnostic score sweep only; it does not select or enable a live threshold"
+            if candidate_scope == "global"
+            else None
+        ),
+    }
+    report["latency_evidence"] = {
+        "document_embedding_prepare_seconds": round(document_embedding_seconds, 6),
+        "disposable_index_seconds": round(index_seconds, 6),
+        "query_embedding_batch_seconds": round(query_embedding_seconds, 6),
+        "query_embedding_amortized_seconds": round(query_amortized_embedding_seconds, 6),
+        "candidate_query_and_sqlite_revalidation_p95_seconds": report["latency_p95_seconds"],
+        "query_end_to_end_amortized_p95_seconds": _percentile(
+            (receipt.latency_seconds + query_amortized_embedding_seconds for receipt in receipts),
+            percentile=0.95,
+        ),
+        "query_embedding_allocation": "batch-amortized",
+        "evaluation_total_seconds": round(time.perf_counter() - evaluation_started, 6),
     }
     report["report_digest"] = _digest({key: value for key, value in report.items() if key != "report_digest"})
     return {
@@ -445,4 +593,43 @@ def run_longmemeval_qdrant_semantic_smoke(
     }
 
 
-__all__ = ["LongMemEvalSemanticError", "ROUTE", "run_longmemeval_qdrant_semantic_smoke"]
+def run_longmemeval_qdrant_global_semantic_smoke(
+    dataset_path: str | Path,
+    *,
+    dataset_version: str,
+    admission_report: dict[str, Any],
+    allow_disposable_qdrant: bool = False,
+    max_cases: int = MAX_SMOKE_CASES,
+    k: int = 5,
+    minimum_score: float | None = None,
+    qdrant_client: QdrantClient | Any | None = None,
+    embedder: Any | None = None,
+) -> dict[str, Any]:
+    """Evaluate global project-scoped candidate selection with abstention.
+
+    This deliberately keeps only the project filter in Qdrant and removes case
+    identity from its payload.  Candidate payloads are still hydrated from the
+    temporary SQLite authority before scoring.  It remains evaluation-only.
+    """
+
+    return run_longmemeval_qdrant_semantic_smoke(
+        dataset_path,
+        dataset_version=dataset_version,
+        admission_report=admission_report,
+        allow_disposable_qdrant=allow_disposable_qdrant,
+        max_cases=max_cases,
+        k=k,
+        qdrant_client=qdrant_client,
+        embedder=embedder,
+        candidate_scope="global",
+        minimum_score=minimum_score,
+    )
+
+
+__all__ = [
+    "GLOBAL_ROUTE",
+    "LongMemEvalSemanticError",
+    "ROUTE",
+    "run_longmemeval_qdrant_global_semantic_smoke",
+    "run_longmemeval_qdrant_semantic_smoke",
+]

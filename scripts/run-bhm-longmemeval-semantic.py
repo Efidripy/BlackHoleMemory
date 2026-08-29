@@ -74,6 +74,18 @@ def main() -> int:
     parser.add_argument("--max-cases", type=int, default=50)
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument(
+        "--candidate-scope",
+        choices=("case-local", "global"),
+        default="case-local",
+        help="case-local is the historical control; global uses only the project Qdrant filter and records abstentions",
+    )
+    parser.add_argument(
+        "--minimum-score",
+        type=float,
+        default=None,
+        help="required global cosine-score threshold for a returned candidate; it is evidence-only and never activates runtime policy",
+    )
+    parser.add_argument(
         "--embedding-endpoint",
         default=endpoint_url("lm_studio"),
         help="local OpenAI-compatible embedding endpoint; defaults to the launcher-aligned LM Studio loopback endpoint",
@@ -86,6 +98,10 @@ def main() -> int:
     parser.add_argument("--allow-disposable-qdrant", action="store_true", help="create then delete one isolated evaluation collection")
     args = parser.parse_args()
     try:
+        if args.candidate_scope == "case-local" and args.minimum_score is not None:
+            raise LongMemEvalSemanticError("--minimum-score is available only with --candidate-scope global")
+        if args.candidate_scope == "global" and args.minimum_score is None:
+            raise LongMemEvalSemanticError("--candidate-scope global requires an explicit --minimum-score")
         adapter = LocalEmbeddingAdapter(args.embedding_endpoint, args.embedding_model)
         result = run_longmemeval_qdrant_semantic_smoke(
             args.dataset,
@@ -95,6 +111,8 @@ def main() -> int:
             max_cases=args.max_cases,
             k=args.k,
             embedder=adapter,
+            candidate_scope=args.candidate_scope,
+            minimum_score=args.minimum_score,
         )
         output_dir = args.output_dir.expanduser().resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
