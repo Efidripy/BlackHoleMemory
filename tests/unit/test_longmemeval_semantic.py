@@ -8,6 +8,7 @@ import pytest
 
 from blackholememory.longmemeval_semantic import LongMemEvalSemanticError
 from blackholememory.longmemeval_semantic import _build_authority_records
+from blackholememory.longmemeval_semantic import _parse_longmemeval_timestamp
 from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_global_semantic_smoke
 from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_global_hybrid_smoke
 from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_semantic_smoke
@@ -51,6 +52,8 @@ def _dataset() -> list[dict[str, object]]:
             "question_id": "case-temporal",
             "question_type": "temporal-reasoning",
             "question": "Which deployment happened after the rollback?",
+            "question_date": "2023/05/03 (Wed) 12:00",
+            "haystack_dates": ["2023/05/01 (Mon) 09:00", "2023/05/02 (Tue) 09:00"],
             "haystack_session_ids": ["s1", "s2"],
             "haystack_sessions": [
                 [{"role": "user", "content": "The rollback happened on Monday."}],
@@ -62,6 +65,8 @@ def _dataset() -> list[dict[str, object]]:
             "question_id": "case-abs_abs",
             "question_type": "single-session-user",
             "question": "What secret preference was never stated?",
+            "question_date": "2023/05/03 (Wed) 12:00",
+            "haystack_dates": ["2023/05/02 (Tue) 10:00"],
             "haystack_session_ids": ["s3"],
             "haystack_sessions": [[{"role": "user", "content": "Only public preferences are recorded."}]],
             "answer_session_ids": [],
@@ -154,12 +159,30 @@ def test_semantic_authority_snapshot_deduplicates_identical_repeated_session() -
     item = _dataset()[0]
     item["haystack_session_ids"] = ["s1", "s1"]
     item["haystack_sessions"] = [item["haystack_sessions"][0], item["haystack_sessions"][0]]
+    item["haystack_dates"] = [item["haystack_dates"][0], item["haystack_dates"][0]]
     item["answer_session_ids"] = ["s1"]
 
     records, cases = _build_authority_records((item,), max_cases=1)
 
     assert len(cases) == 1
     assert len(records["case-temporal"]) == 1
+
+
+def test_temporal_metadata_uses_earliest_duplicate_and_rejects_malformed_dates() -> None:
+    item = _dataset()[0]
+    item["haystack_session_ids"] = ["s1", "s1"]
+    item["haystack_sessions"] = [item["haystack_sessions"][0], item["haystack_sessions"][0]]
+    item["haystack_dates"] = ["2023/05/02 (Tue) 09:00", "2023/05/01 (Mon) 09:00"]
+    item["answer_session_ids"] = ["s1"]
+    records, _cases = _build_authority_records((item,), max_cases=1)
+
+    record = records["case-temporal"][0]
+    assert record.observed_at == "2023-05-01T09:00:00Z"
+    assert record.observed_at_minute == _parse_longmemeval_timestamp("2023/05/01 (Mon) 09:00", field="date")[1]
+
+    item["haystack_dates"][0] = "not-a-date"
+    with pytest.raises(LongMemEvalSemanticError, match="YYYY/MM/DD"):
+        _build_authority_records((item,), max_cases=1)
 
 
 def test_semantic_evaluation_revalidates_sqlite_and_removes_disposable_collection(tmp_path, monkeypatch) -> None:
@@ -323,4 +346,28 @@ def test_global_hybrid_route_fuses_bounded_signals_without_case_local_filter(tmp
     assert selection["case_identity_in_qdrant_payload"] is False
     assert result["report"]["execution"]["route"] == "bhm-qdrant-disposable-semantic-global-hybrid.v1"
     assert all(len(receipt["retrieved_ids"]) <= 2 for receipt in result["receipts"])
+    assert client.collections == {}
+
+
+def test_global_temporal_route_records_as_of_contract(tmp_path, monkeypatch) -> None:
+    dataset_path, admission = _inputs(tmp_path)
+    client = _FakeQdrant()
+    monkeypatch.setattr("blackholememory.longmemeval_semantic._collection_name", lambda: "bhm_eval_lme_temporal")
+
+    result = run_longmemeval_qdrant_global_semantic_smoke(
+        dataset_path,
+        dataset_version="fixture-v1",
+        admission_report=admission,
+        allow_disposable_qdrant=True,
+        qdrant_client=client,
+        embedder=_FakeEmbedder(),
+        max_cases=2,
+        minimum_score=0.40,
+        temporal_as_of_filter=True,
+    )
+
+    selection = result["report"]["candidate_selection"]
+    assert selection["temporal_as_of_filter"] is True
+    assert selection["temporal_filter_contract"].startswith("project-scoped observed_at <=")
+    assert result["report"]["authority_revalidation"]["passed"] is True
     assert client.collections == {}

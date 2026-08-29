@@ -98,6 +98,11 @@ def main() -> int:
         help="bounded per-signal candidate pool before final top-K; required to be at least --k when provided",
     )
     parser.add_argument(
+        "--temporal-as-of-filter",
+        action="store_true",
+        help="global-only evaluation: filter disposable candidates to observed_at <= each question date; never changes live retrieval",
+    )
+    parser.add_argument(
         "--embedding-endpoint",
         default=endpoint_url("lm_studio"),
         help="local OpenAI-compatible embedding endpoint; defaults to the launcher-aligned LM Studio loopback endpoint",
@@ -127,6 +132,7 @@ def main() -> int:
             minimum_score=args.minimum_score,
             candidate_strategy=args.candidate_strategy,
             candidate_limit=args.candidate_limit,
+            temporal_as_of_filter=args.temporal_as_of_filter,
         )
         output_dir = args.output_dir.expanduser().resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
