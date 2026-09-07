@@ -42,7 +42,7 @@ class EvaluationCase(BaseModel):
     suite: Literal["locomo", "longmemeval", "bhm-fixture"]
     category: Literal[
         "single_hop", "multi_hop", "temporal", "knowledge_update", "abstention",
-        "assistant_fact", "preference", "changing_fact", "implicit_connection", "adversarial",
+        "assistant_fact", "preference", "changing_fact", "implicit_connection", "open_domain", "adversarial",
     ]
     expected_ids: tuple[str, ...] = ()
     expected_abstention: bool = False

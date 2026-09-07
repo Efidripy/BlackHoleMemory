@@ -554,6 +554,11 @@
       "release": true
     },
     {
+      "path": "scripts/run-bhm-locomo-smoke.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/run-bhm-memory-evaluation.py",
       "role": "operator",
       "release": true
