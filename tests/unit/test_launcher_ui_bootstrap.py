@@ -762,8 +762,10 @@ def test_launcher_hides_project_control_but_preserves_internal_scope() -> None:
     assert "def on_project_changed" not in source
     assert "self._project = resolve_launcher_project(self.settings)" in source
     assert "self.monitor.set_project(self._project)" in source
-    assert '("link_count", "Galaxy Links", COLOR_CYAN)' in source
-    assert '("node_count", "Galaxy Nodes", COLOR_GREEN)' in source
+    assert '("link_count", "Knowledge Links", COLOR_CYAN' in source
+    assert '("node_count", "Knowledge Nodes", COLOR_GREEN' in source
+    assert "Trace/session records and observations are intentionally excluded." in source
+    assert "observations do not automatically become knowledge-graph nodes." in source
 
 
 def test_service_status_requires_three_consecutive_probe_failures() -> None:
