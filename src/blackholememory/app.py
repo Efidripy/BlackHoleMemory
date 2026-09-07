@@ -19185,9 +19185,33 @@ def bhm_ui_session_status(request: Request) -> dict:
 
 
 @app.get("/bhm/galaxy", response_class=FileResponse)
-def bhm_galaxy_view() -> FileResponse:
+def bhm_galaxy_view_selector() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "galaxy-selector.html",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+@app.get("/bhm/galaxy/classic", response_class=FileResponse)
+def bhm_galaxy_classic_view() -> FileResponse:
     return FileResponse(
         STATIC_DIR / "galaxy.html",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
+@app.get("/bhm/atlas", response_class=FileResponse)
+def bhm_atlas_view() -> FileResponse:
+    return FileResponse(
+        STATIC_DIR / "atlas.html",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",

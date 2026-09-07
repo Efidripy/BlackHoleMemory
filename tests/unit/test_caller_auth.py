@@ -48,6 +48,9 @@ def test_readiness_and_openapi_are_anonymous_but_diagnostics_are_protected() -> 
     assert caller_auth.caller_route_requires_auth("/bhm/health", "GET") is True
     assert caller_auth.caller_route_policy("/bhm/ui/boot-report", "GET") is caller_auth.CallerRoutePolicy.AUTH_ONLY
     assert caller_auth.caller_route_requires_auth("/openapi.json", "GET") is False
+    assert caller_auth.caller_route_requires_auth("/bhm/galaxy", "GET") is False
+    assert caller_auth.caller_route_requires_auth("/bhm/galaxy/classic", "GET") is False
+    assert caller_auth.caller_route_requires_auth("/bhm/atlas", "GET") is False
     assert caller_auth.caller_route_requires_auth("/bhm/memory", "GET") is True
     assert caller_auth.caller_route_requires_auth("/bhm/search", "POST") is True
     assert caller_auth.caller_route_requires_auth("/api/future-surface", "GET") is True

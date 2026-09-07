@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BHM Knowledge Views</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #eef5ff;
+      --muted: #9aabc2;
+      --night: #040713;
+      --panel: rgba(11, 18, 38, 0.78);
+      --line: rgba(138, 174, 255, 0.2);
+      --classic: #5ce1e6;
+      --atlas: #b99cff;
+      --danger: #ffabbf;
+      --mono: "Consolas", "SFMono-Regular", "Liberation Mono", monospace;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 16% 18%, rgba(92, 225, 230, 0.15), transparent 30%),
+        radial-gradient(circle at 83% 22%, rgba(185, 156, 255, 0.16), transparent 29%),
+        radial-gradient(circle at 52% 93%, rgba(66, 93, 194, 0.14), transparent 34%),
+        var(--night);
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      width: min(72vw, 850px);
+      aspect-ratio: 1;
+      border: 1px solid rgba(173, 198, 255, 0.1);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    body::before { transform: translate(-41vw, -40vh); }
+    body::after { transform: translate(45vw, 39vh); }
+    main { width: min(1040px, calc(100vw - 38px)); position: relative; z-index: 1; }
+    .eyebrow {
+      display: block;
+      margin-bottom: 17px;
+      color: #b6c7df;
+      font: 700 11px/1.1 var(--mono);
+      letter-spacing: .23em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    h1 {
+      max-width: 680px;
+      margin: 0 auto 14px;
+      font-size: clamp(35px, 5vw, 62px);
+      letter-spacing: -.055em;
+      line-height: .98;
+      text-align: center;
+    }
+    .lede {
+      max-width: 620px;
+      margin: 0 auto;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.55;
+      text-align: center;
+    }
+    .scope {
+      min-height: 20px;
+      margin: 15px 0 30px;
+      color: #c8d7e9;
+      font: 600 11px/1.3 var(--mono);
+      letter-spacing: .08em;
+      text-align: center;
+      text-transform: uppercase;
+    }
+    .choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+    .view-card {
+      position: relative;
+      min-height: 332px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 30px;
+      border: 1px solid var(--line);
+      border-radius: 25px;
+      color: inherit;
+      text-decoration: none;
+      background: linear-gradient(145deg, rgba(21, 31, 59, 0.92), var(--panel));
+      box-shadow: 0 24px 75px rgba(0, 0, 0, 0.32);
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+    .view-card::before,
+    .view-card::after { content: ""; position: absolute; pointer-events: none; }
+    .view-card::before {
+      inset: 20px;
+      border: 1px solid rgba(220, 232, 255, 0.09);
+      border-radius: 18px;
+    }
+    .view-card::after {
+      top: -70px;
+      right: -35px;
+      width: 270px;
+      aspect-ratio: 1;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      opacity: .26;
+    }
+    .view-card:hover { transform: translateY(-5px); box-shadow: 0 32px 84px rgba(0, 0, 0, 0.46); }
+    .view-card:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
+    .view-card[aria-disabled="true"] { cursor: wait; opacity: .65; pointer-events: none; }
+    .classic { color: var(--classic); }
+    .classic:hover { border-color: rgba(92, 225, 230, .64); }
+    .atlas { color: var(--atlas); }
+    .atlas:hover { border-color: rgba(185, 156, 255, .68); }
+    .badge {
+      position: absolute;
+      top: 31px;
+      left: 31px;
+      padding: 7px 10px;
+      border: 1px solid currentColor;
+      border-radius: 999px;
+      background: rgba(4, 7, 19, .55);
+      font: 700 10px/1 var(--mono);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .glyph { position: absolute; top: 74px; left: 32px; font-size: 72px; line-height: 1; opacity: .85; }
+    .title { position: relative; margin: 0 0 10px; color: #f7fbff; font-size: 31px; letter-spacing: -.035em; }
+    .copy { position: relative; max-width: 360px; margin: 0; color: #bdc9d9; font-size: 14px; line-height: 1.5; }
+    .go { position: relative; margin-top: 22px; font: 700 11px/1 var(--mono); letter-spacing: .15em; text-transform: uppercase; }
+    .status {
+      margin: 25px auto 0;
+      min-height: 20px;
+      color: var(--muted);
+      font: 12px/1.4 var(--mono);
+      text-align: center;
+    }
+    .status.error { color: var(--danger); }
+    @media (max-width: 700px) {
+      body { overflow: auto; padding: 30px 0; }
+      .choices { grid-template-columns: 1fr; }
+      .view-card { min-height: 255px; }
+      .glyph { top: 60px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="eyebrow">BlackHoleMemory · local knowledge map</span>
+    <h1>Choose a BHM knowledge view</h1>
+    <p class="lede">Both views read the same SQLite-authoritative memory. Select a familiar night sky or the new Atlas workbench.</p>
+    <p id="scope" class="scope" aria-live="polite">Project scope: all allowed projects</p>
+
+    <section class="choices" aria-label="Knowledge viewers">
+      <a id="classicViewer" class="view-card classic" href="/bhm/galaxy/classic" aria-disabled="true">
+        <span class="badge">Current viewer</span>
+        <span class="glyph" aria-hidden="true">✦</span>
+        <h2 class="title">Galaxy<br>Night Sky</h2>
+        <p class="copy">The established 3D exploration surface with project scope, topology and focused relationships.</p>
+        <span class="go">Open Night Sky →</span>
+      </a>
+      <a id="atlasViewer" class="view-card atlas" href="/bhm/atlas" aria-disabled="true">
+        <span class="badge">New local preview</span>
+        <span class="glyph" aria-hidden="true">⌁</span>
+        <h2 class="title">Atlas<br>Workbench</h2>
+        <p class="copy">The forthcoming 2D territory view: local, read-only, and designed for clear clusters instead of raw event volume.</p>
+        <span class="go">Open Atlas →</span>
+      </a>
+    </section>
+    <p id="sessionStatus" class="status" role="status">Establishing trusted local UI session…</p>
+  </main>
+
+  <script>
+    (() => {
+      const bootstrapKey = "bhm-ui-bootstrap";
+      const status = document.getElementById("sessionStatus");
+      const links = [document.getElementById("classicViewer"), document.getElementById("atlasViewer")];
+      const query = new URLSearchParams(window.location.search);
+      const project = query.get("project") || "";
+
+      function setStatus(message, error = false) {
+        status.textContent = message;
+        status.classList.toggle("error", error);
+      }
+
+      function viewerUrl(path) {
+        const target = new URL(path, window.location.origin);
+        if (project) target.searchParams.set("project", project);
+        return `${target.pathname}${target.search}`;
+      }
+
+      function setLinksReady() {
+        document.getElementById("scope").textContent = project
+          ? `Project scope: ${project}`
+          : "Project scope: all allowed projects";
+        links[0].href = viewerUrl("/bhm/galaxy/classic");
+        links[1].href = viewerUrl("/bhm/atlas");
+        for (const link of links) link.removeAttribute("aria-disabled");
+        setStatus("Trusted local session ready. Your project scope stays with either view.");
+      }
+
+      function setSessionUnavailable() {
+        setStatus("Local BHM UI session unavailable. Start the trusted BHM launcher, then open Galaxy Viewer again.", true);
+      }
+
+      async function establishUiSession() {
+        const fragment = new URLSearchParams(window.location.hash.slice(1));
+        let bootstrapToken = fragment.get(bootstrapKey) || "";
+        if (fragment.has(bootstrapKey)) {
+          window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        } else {
+          const response = await window.fetch("/bhm/ui/session/bootstrap", {
+            cache: "no-store",
+            credentials: "same-origin",
+            headers: { "accept": "application/json" }
+          });
+          if (!response.ok) throw new Error("direct bootstrap unavailable");
+          const payload = await response.json();
+          if (payload.session === true) return;
+          bootstrapToken = payload.bootstrap_token || "";
+        }
+        if (!bootstrapToken || bootstrapToken.length > 512) throw new Error("bootstrap token unavailable");
+        const exchanged = await window.fetch("/bhm/ui/session/exchange", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "same-origin",
+          redirect: "error",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ bootstrap_token: bootstrapToken })
+        });
+        if (!exchanged.ok) throw new Error(`bootstrap exchange ${exchanged.status}`);
+      }
+
+      void establishUiSession().then(setLinksReady).catch(setSessionUnavailable);
+    })();
+  </script>
+</body>
+</html>

@@ -245,6 +245,16 @@ untrusted reverse proxy, and do not treat `X-Forwarded-*` headers as an
 authentication signal. A proxy deployment must preserve the loopback boundary
 and explicitly authenticate before forwarding requests.
 
+The launcher **Galaxy Viewer** link opens a local selector. It offers the
+current 3D **Galaxy / Night Sky** at `/bhm/galaxy/classic` and the separate
+read-only **Atlas** preview at `/bhm/atlas`. The selector exchanges the
+one-time fragment bootstrap for the same-origin HttpOnly UI session before
+navigation, then forwards only the non-secret `project` query value. It never
+places the bootstrap token in a destination URL, persists it, or writes memory
+data. The Atlas preview currently makes no BHM data request and loads no
+third-party renderer; a locally bundled renderer and an explicitly derived
+read-model contract are required before it becomes an interactive map.
+
 ### Launcher operator tools
 
 Откройте `TOOLS` справа в trusted launcher. Левая навигация остаётся только

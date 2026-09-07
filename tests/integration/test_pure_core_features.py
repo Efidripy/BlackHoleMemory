@@ -4039,12 +4039,18 @@ def test_galaxy_static_html_availability():
     client = TestClient(bhm_app.app)
 
     response = client.get("/bhm/galaxy")
+    classic = client.get("/bhm/galaxy/classic")
+    atlas = client.get("/bhm/atlas")
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "BHM Galaxy Viewer" in response.text
-    assert "cbmCodeSearchPanel" in response.text
-    assert "sqlite-fts5-metadata" not in response.text
+    assert "Choose a BHM knowledge view" in response.text
+    assert classic.status_code == 200
+    assert "BHM Galaxy Viewer" in classic.text
+    assert "cbmCodeSearchPanel" in classic.text
+    assert "sqlite-fts5-metadata" not in classic.text
+    assert atlas.status_code == 200
+    assert "BHM Atlas Preview" in atlas.text
 
 
 def test_speculative_rag_trigger(monkeypatch):
