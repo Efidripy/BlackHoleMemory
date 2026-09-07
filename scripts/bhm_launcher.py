@@ -29,7 +29,7 @@ from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import quote, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 
 from bhm_launcher_readiness import MAX_HTTP_BYTES
 from bhm_launcher_readiness import LocalEndpointError
@@ -333,7 +333,8 @@ OPERATOR_ACTIONS: tuple[OperatorActionSpec, ...] = (
 OPERATOR_MUTATION_KEYS = frozenset(item.key for item in OPERATOR_ACTIONS if item.mutation)
 
 BHM_UI_BOOTSTRAP_FRAGMENT_KEY = "bhm-ui-bootstrap"
-BHM_HUMAN_UI_PATHS = frozenset({"/", "/bhm", "/bhm/galaxy"})
+BHM_HUMAN_UI_PATHS = frozenset({"/", "/bhm", "/bhm/galaxy", "/bhm/galaxy/classic", "/bhm/atlas"})
+BHM_GALAXY_VIEWER_PATHS = frozenset({"/bhm/galaxy", "/bhm/galaxy/classic", "/bhm/atlas"})
 
 MCP_SERVER_NAME = "bhm"
 CODEX_PLUGIN_ID = "bhm-codex-connector"
@@ -904,10 +905,16 @@ def browser_target_for_url(
         return url
     bootstrap_token = (mint or mint_bhm_ui_bootstrap_token)()
     parsed = urlsplit(url)
-    if parsed.path.rstrip("/") == "/bhm/galaxy":
+    normalized_path = parsed.path.rstrip("/") or "/"
+    if normalized_path in BHM_GALAXY_VIEWER_PATHS:
         scoped_projects = _read_process_or_user_env_value("BHM_CALLER_PROJECTS") or ""
         default_project = _read_process_or_user_env_value("BHM_CALLER_DEFAULT_PROJECT") or ""
-        if scoped_projects and scoped_projects != "*" and default_project and "project=" not in parsed.query:
+        if (
+            scoped_projects
+            and scoped_projects != "*"
+            and default_project
+            and "project" not in parse_qs(parsed.query, keep_blank_values=True)
+        ):
             query = f"{parsed.query}&project={quote(default_project, safe='')}" if parsed.query else f"project={quote(default_project, safe='')}"
             parsed = parsed._replace(query=query)
     bootstrap_fragment = f"{BHM_UI_BOOTSTRAP_FRAGMENT_KEY}={quote(bootstrap_token, safe='')}"

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BHM Atlas Preview</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    :root { color-scheme: dark; --ink: #f2f4ff; --muted: #a7b0ca; --line: rgba(197, 180, 255, .24); --violet: #c8b2ff; --cyan: #7fe7ec; --danger: #ffabbf; }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; color: var(--ink); background: radial-gradient(circle at 73% 16%, rgba(200,178,255,.18), transparent 27%), radial-gradient(circle at 16% 81%, rgba(127,231,236,.11), transparent 28%), #050713; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    main { width: min(1040px, calc(100vw - 38px)); margin: 0 auto; padding: 28px 0 58px; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 18px; border-bottom: 1px solid var(--line); padding-bottom: 20px; }
+    .back { color: #d7dfff; font-size: 14px; text-underline-offset: 4px; }
+    .state { color: var(--muted); font: 11px/1.2 "Consolas", monospace; letter-spacing: .08em; text-transform: uppercase; }
+    .state.error { color: var(--danger); }
+    .hero { padding: clamp(60px, 11vh, 120px) 0 50px; text-align: center; }
+    .eyebrow { color: var(--violet); font: 700 11px/1.2 "Consolas", monospace; letter-spacing: .22em; text-transform: uppercase; }
+    h1 { max-width: 760px; margin: 17px auto; font-size: clamp(42px, 7vw, 82px); line-height: .92; letter-spacing: -.065em; }
+    .lead { max-width: 630px; margin: 0 auto; color: var(--muted); font-size: 17px; line-height: 1.58; }
+    .scope { margin: 21px 0 0; color: #d7dfff; font: 11px/1.3 "Consolas", monospace; letter-spacing: .09em; text-transform: uppercase; }
+    .field { position: relative; min-height: 315px; overflow: hidden; display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; padding: 26px; border: 1px solid var(--line); border-radius: 28px; background: linear-gradient(135deg, rgba(19, 19, 48, .9), rgba(9, 13, 30, .76)); }
+    .territory { position: relative; min-height: 180px; border: 1px solid rgba(226, 222, 255, .12); border-radius: 22px; background: radial-gradient(circle at 38% 40%, var(--glow), transparent 33%), rgba(255,255,255,.018); }
+    .territory::before { content: ""; position: absolute; inset: 20% 13%; border: 1px solid var(--ring); border-radius: 49% 51% 43% 57%; transform: rotate(-12deg); }
+    .territory::after { content: attr(data-label); position: absolute; left: 18px; bottom: 17px; color: #e9eaff; font: 700 10px/1 "Consolas", monospace; letter-spacing: .14em; text-transform: uppercase; }
+    .note { max-width: 720px; margin: 22px auto 0; color: var(--muted); font-size: 14px; line-height: 1.55; text-align: center; }
+    .note strong { color: var(--ink); }
+    @media (max-width: 700px) { main { width: min(100% - 28px, 1040px); } .top { align-items: flex-start; flex-direction: column; } .field { grid-template-columns: 1fr; } .territory { min-height: 124px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header class="top">
+      <a id="backToSelector" class="back" href="/bhm/galaxy">← Change knowledge view</a>
+      <span id="sessionState" class="state" role="status">Checking local UI session…</span>
+    </header>
+    <section class="hero">
+      <span class="eyebrow">BHM Atlas · local preview</span>
+      <h1>Spatial clarity for durable knowledge.</h1>
+      <p class="lead">Atlas is the new 2D workbench being prepared alongside the existing Night Sky. It will make project and topic territories easier to read without turning observations into graph nodes.</p>
+      <p id="scope" class="scope">Project scope: all allowed projects</p>
+    </section>
+    <section class="field" aria-label="Atlas territory preview">
+      <div class="territory" data-label="Project territory" style="--glow: rgba(127,231,236,.34); --ring: rgba(127,231,236,.42)"></div>
+      <div class="territory" data-label="Topic territory" style="--glow: rgba(200,178,255,.34); --ring: rgba(200,178,255,.42)"></div>
+      <div class="territory" data-label="Focused evidence" style="--glow: rgba(255,204,129,.28); --ring: rgba(255,204,129,.38)"></div>
+    </section>
+    <p class="note"><strong>Read-only local preview.</strong> The renderer will be bundled locally before it reads BHM data; this page uses no third-party CDN and sends no project data outside loopback.</p>
+  </main>
+  <script>
+    (() => {
+      const bootstrapKey = "bhm-ui-bootstrap";
+      const state = document.getElementById("sessionState");
+      const project = new URLSearchParams(window.location.search).get("project") || "";
+      const back = document.getElementById("backToSelector");
+      if (project) {
+        document.getElementById("scope").textContent = `Project scope: ${project}`;
+        back.href = `/bhm/galaxy?project=${encodeURIComponent(project)}`;
+      }
+
+      function setState(message, error = false) {
+        state.textContent = message;
+        state.classList.toggle("error", error);
+      }
+
+      async function establishUiSession() {
+        const fragment = new URLSearchParams(window.location.hash.slice(1));
+        let bootstrapToken = fragment.get(bootstrapKey) || "";
+        if (fragment.has(bootstrapKey)) {
+          window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+        } else {
+          const response = await window.fetch("/bhm/ui/session/bootstrap", {
+            cache: "no-store",
+            credentials: "same-origin",
+            headers: { "accept": "application/json" }
+          });
+          if (!response.ok) throw new Error("direct bootstrap unavailable");
+          const payload = await response.json();
+          if (payload.session === true) return;
+          bootstrapToken = payload.bootstrap_token || "";
+        }
+        if (!bootstrapToken || bootstrapToken.length > 512) throw new Error("bootstrap token unavailable");
+        const exchanged = await window.fetch("/bhm/ui/session/exchange", {
+          method: "POST",
+          cache: "no-store",
+          credentials: "same-origin",
+          redirect: "error",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ bootstrap_token: bootstrapToken })
+        });
+        if (!exchanged.ok) throw new Error(`bootstrap exchange ${exchanged.status}`);
+      }
+
+      void establishUiSession().then(
+        () => setState("Trusted local session · read-only preview"),
+        () => setState("UI session unavailable — reopen through the trusted BHM launcher", true)
+      );
+    })();
+  </script>
+</body>
+</html>
