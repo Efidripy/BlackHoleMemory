@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from typing import Iterable
 
 
 SCHEMA_VERSION = "bhm.context-tier-lifecycle.v1"
 PROMOTION_LOCK_PREVIEW_SCHEMA_VERSION = "bhm.context-tier-promotion-lock-preview.v1"
+ACTIVATION_PROPOSAL_SCHEMA_VERSION = "bhm.context-tier-activation-proposal.v1"
+LIFECYCLE_PROPOSAL_POLICY_ENV = "BHM_CONTEXT_TIER_LIFECYCLE_PROPOSALS_ENABLED"
+_ACTIVATION_PHASES = frozenset({"pre_compact", "session_end"})
 
 
 def _normalized(value: object) -> str:
@@ -52,6 +56,64 @@ def _effect_class(phase: str) -> str:
 def _sha256(value: object) -> str:
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def lifecycle_proposals_enabled() -> bool:
+    """Return the default-off policy for lifecycle proposal emission.
+
+    A proposal is metadata-only evidence; it is not a durable promotion and
+    cannot invoke the promotion apply function.
+    """
+
+    return str(os.getenv(LIFECYCLE_PROPOSAL_POLICY_ENV) or "").strip().casefold() in {"1", "true", "yes", "on"}
+
+
+def _activation_proposal(
+    *,
+    policy_enabled: bool,
+    phase: str,
+    identity_digest: str,
+    source_refs_digest: str,
+    source_ids: tuple[str, ...],
+) -> dict[str, object]:
+    """Describe one operator-reviewable lifecycle candidate without raw IDs.
+
+    The proposal can only represent one source aggregate.  It deliberately
+    does not carry candidate content or call SQLite, so an operator must still
+    build and revalidate the normal same-snapshot promotion plan.
+    """
+
+    base = {
+        "schema_version": ACTIVATION_PROPOSAL_SCHEMA_VERSION,
+        "phase": phase,
+        "source_count": len(source_ids),
+        "source_refs_digest": source_refs_digest,
+        "durable_apply": "admin_confirmed_only",
+        "candidate_content": "not_in_lifecycle_receipt",
+        "direct_mem0_qdrant_write": False,
+    }
+    if not policy_enabled:
+        return {**base, "action": "none", "state": "policy_disabled", "reason": "explicit_lifecycle_proposal_policy_required"}
+    if phase not in _ACTIVATION_PHASES:
+        return {**base, "action": "none", "state": "not_eligible", "reason": "phase_not_eligible"}
+    if len(source_ids) != 1:
+        return {**base, "action": "none", "state": "not_eligible", "reason": "exactly_one_source_required"}
+    proposal_id = f"tier_activation_{_sha256({'identity': identity_digest, 'source_refs': source_refs_digest, 'phase': phase})[:24]}"
+    return {
+        **base,
+        "action": "proposal",
+        "state": "operator_review_required",
+        "proposal_id": proposal_id,
+        "source_ref_digest": _sha256(source_ids[0]),
+        "requires": {
+            "source_session_binding_revalidation": True,
+            "source_current_revision_revalidation": True,
+            "exact_candidate_content": "operator_supplied",
+            "promotion_policy_enabled": True,
+            "apply": True,
+            "exact_candidate_confirmation": True,
+        },
+    }
 
 
 def _promotion_lock_preview(
@@ -94,6 +156,7 @@ def build_context_tier_lifecycle_receipt(
     hook_type: str,
     parent_event_id: str | None = None,
     source_ids: Iterable[str] = (),
+    lifecycle_proposals_policy_enabled: bool | None = None,
 ) -> dict[str, object]:
     """Return a deterministic, content-free lifecycle receipt.
 
@@ -121,6 +184,7 @@ def build_context_tier_lifecycle_receipt(
     }
     identity_digest = _sha256(identity)
     source_refs_digest = _sha256(normalized_sources)
+    proposal_enabled = lifecycle_proposals_enabled() if lifecycle_proposals_policy_enabled is None else lifecycle_proposals_policy_enabled
     receipt_id = f"tier_lifecycle_{identity_digest[:24]}"
     anchor: dict[str, object] | None = None
     if phase == "pre_compact":
@@ -161,6 +225,13 @@ def build_context_tier_lifecycle_receipt(
             ),
             "reason": "explicit_operator_policy_required",
         },
+        "activation_proposal": _activation_proposal(
+            policy_enabled=proposal_enabled,
+            phase=phase,
+            identity_digest=identity_digest,
+            source_refs_digest=source_refs_digest,
+            source_ids=normalized_sources,
+        ),
         "execution": {
             "context_tier_mutation": False,
             "sqlite_memory_mutation": False,
@@ -170,7 +241,10 @@ def build_context_tier_lifecycle_receipt(
 
 
 __all__ = [
+    "ACTIVATION_PROPOSAL_SCHEMA_VERSION",
+    "LIFECYCLE_PROPOSAL_POLICY_ENV",
     "PROMOTION_LOCK_PREVIEW_SCHEMA_VERSION",
     "SCHEMA_VERSION",
     "build_context_tier_lifecycle_receipt",
+    "lifecycle_proposals_enabled",
 ]

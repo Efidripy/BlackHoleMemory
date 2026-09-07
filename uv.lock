@@ -101,7 +101,7 @@ wheels = [
 
 [[package]]
 name = "blackholememory"
-version = "1.8.2"
+version = "1.8.4"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

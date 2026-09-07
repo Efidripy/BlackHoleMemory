@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "v1.8.2",
+  [string]$Version = "v1.8.4",
   [string]$PythonPath = "",
   [string]$OutputRoot = "",
   [switch]$RefreshCanonicalLauncher,
@@ -369,6 +369,34 @@ foreach ($script in $publicScriptPayload) {
 }
 
 Write-Step "Compiling launcher with PyInstaller"
+# PyInstaller resolves native dependencies from PATH.  Do not let an arbitrary
+# third-party ICU shadow Windows' system ICU while freezing Qt: Qt6Core imports
+# the unsuffixed ICU ABI and a foreign suffixed build makes the launcher fail
+# before its UI can start.  System32 is deliberately retained as the trusted
+# operating-system provider of that ABI.
+$originalBuildPath = $env:PATH
+$systemDirectory = [IO.Path]::GetFullPath([Environment]::SystemDirectory)
+$removedIcuPathEntries = @()
+$safeBuildPathEntries = @()
+foreach ($entry in @($originalBuildPath -split [IO.Path]::PathSeparator)) {
+    if ([string]::IsNullOrWhiteSpace($entry)) {
+        continue
+    }
+    $fullEntry = [IO.Path]::GetFullPath($entry)
+    $isSystemDirectory = [string]::Equals($fullEntry, $systemDirectory, [System.StringComparison]::OrdinalIgnoreCase)
+    if (-not $isSystemDirectory -and (Test-Path -LiteralPath (Join-Path $fullEntry "icuuc.dll") -PathType Leaf)) {
+        $removedIcuPathEntries += $fullEntry
+        continue
+    }
+    $safeBuildPathEntries += $entry
+}
+if ($safeBuildPathEntries.Count -eq 0) {
+    throw "Release build PATH became empty after quarantining external ICU directories."
+}
+$env:PATH = $safeBuildPathEntries -join [IO.Path]::PathSeparator
+if ($removedIcuPathEntries.Count -gt 0) {
+    Write-Host ("Quarantined external ICU PATH entries: " + ($removedIcuPathEntries -join "; ")) -ForegroundColor DarkYellow
+}
 $pyInstallerArgs = @(
     "-m", "PyInstaller",
     "--onefile",
@@ -410,9 +438,14 @@ if (Test-Path -LiteralPath $iconPath) {
     )
 }
 
-& $venvPython @pyInstallerArgs
-if ($LASTEXITCODE -ne 0) {
-    throw "PyInstaller build failed."
+try {
+    & $venvPython @pyInstallerArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "PyInstaller build failed."
+    }
+}
+finally {
+    $env:PATH = $originalBuildPath
 }
 Assert-Path -Path $compiledExe -Message "PyInstaller did not produce expected executable: $compiledExe"
 

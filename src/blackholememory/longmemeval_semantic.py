@@ -201,10 +201,12 @@ def _authority_memory(record: _AuthorityRecord) -> Memory:
     )
 
 
-def _build_authority_records(items: tuple[dict[str, Any], ...], *, max_cases: int) -> tuple[dict[str, tuple[_AuthorityRecord, ...]], tuple[EvaluationCase, ...]]:
+def _build_authority_records(
+    items: tuple[dict[str, Any], ...], *, max_cases: int, split_index: int = 0,
+) -> tuple[dict[str, tuple[_AuthorityRecord, ...]], tuple[EvaluationCase, ...]]:
     records_by_case: dict[str, tuple[_AuthorityRecord, ...]] = {}
     cases: list[EvaluationCase] = []
-    for item in _select_cases(items, max_cases=max_cases):
+    for item in _select_cases(items, max_cases=max_cases, split_index=split_index):
         case_id = _text(item.get("question_id"), "question_id")
         category = _category(item)
         source_records, source_ids = _case_records(item)
@@ -534,6 +536,7 @@ def run_longmemeval_qdrant_semantic_smoke(
     candidate_strategy: str = "semantic",
     candidate_limit: int | None = None,
     temporal_as_of_filter: bool = False,
+    split_index: int = 0,
 ) -> dict[str, Any]:
     """Run an explicit disposable semantic retrieval comparison.
 
@@ -575,7 +578,7 @@ def run_longmemeval_qdrant_semantic_smoke(
     if admission["dataset"]["dataset_digest"] != dataset_digest:
         raise LongMemEvalSemanticError("admission report digest does not match local dataset")
 
-    records_by_case, cases = _build_authority_records(items, max_cases=max_cases)
+    records_by_case, cases = _build_authority_records(items, max_cases=max_cases, split_index=split_index)
     all_records = tuple(record for records in records_by_case.values() for record in records)
     client = qdrant_client or QdrantClient(url=settings.qdrant_url or QDRANT_DEFAULT_URL, timeout=15)
     # Do not obtain this through get_project_mem0_memory(): that helper is
@@ -630,7 +633,7 @@ def run_longmemeval_qdrant_semantic_smoke(
                 client.upsert(collection_name=collection_name, points=points[offset : offset + _BATCH_SIZE], wait=True)
             index_seconds = time.perf_counter() - index_started
 
-            selected_items = _select_cases(items, max_cases=max_cases)
+            selected_items = _select_cases(items, max_cases=max_cases, split_index=split_index)
             query_texts = tuple(_text(item.get("question"), "question", limit=20_000) for item in selected_items)
             query_as_of = tuple(_parse_longmemeval_timestamp(item.get("question_date"), field="question_date") for item in selected_items)
             query_embedding_started = time.perf_counter()
@@ -772,6 +775,7 @@ def run_longmemeval_qdrant_semantic_smoke(
         "candidate_limit": resolved_candidate_limit,
         "lexical_candidate_source": "temporary-sqlite-fts5" if candidate_strategy == "hybrid-rrf" else None,
         "temporal_as_of_filter": temporal_as_of_filter,
+        "case_split_index": split_index,
         "temporal_filter_contract": (
             "project-scoped observed_at <= question_as_of; no case identity or answer metadata in candidate selection"
             if temporal_as_of_filter
@@ -839,6 +843,7 @@ def run_longmemeval_qdrant_global_semantic_smoke(
     qdrant_client: QdrantClient | Any | None = None,
     embedder: Any | None = None,
     temporal_as_of_filter: bool = False,
+    split_index: int = 0,
 ) -> dict[str, Any]:
     """Evaluate global project-scoped candidate selection with abstention.
 
@@ -859,6 +864,7 @@ def run_longmemeval_qdrant_global_semantic_smoke(
         candidate_scope="global",
         minimum_score=minimum_score,
         temporal_as_of_filter=temporal_as_of_filter,
+        split_index=split_index,
     )
 
 
@@ -875,6 +881,7 @@ def run_longmemeval_qdrant_global_hybrid_smoke(
     qdrant_client: QdrantClient | Any | None = None,
     embedder: Any | None = None,
     temporal_as_of_filter: bool = False,
+    split_index: int = 0,
 ) -> dict[str, Any]:
     """Evaluate global semantic-plus-lexical RRF without case-local leakage."""
 
@@ -892,6 +899,7 @@ def run_longmemeval_qdrant_global_hybrid_smoke(
         candidate_strategy="hybrid-rrf",
         candidate_limit=candidate_limit,
         temporal_as_of_filter=temporal_as_of_filter,
+        split_index=split_index,
     )
 
 

@@ -39,7 +39,7 @@ def test_wi11_validator_tracks_current_mcp_catalog() -> None:
     module = _load()
     from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 
-    assert len(CORE_TOOL_NAMES) == module.WI11_EXPECTED_CORE_TOOL_COUNT == 35
+    assert len(CORE_TOOL_NAMES) == module.WI11_EXPECTED_CORE_TOOL_COUNT == 36
 
 
 def test_wi11_historical_catalog_flag_is_not_an_active_cli_gate() -> None:

@@ -189,6 +189,8 @@ class MemoryRepository(Protocol):
 
     def append_artifact(self, artifact: Artifact) -> tuple[Artifact, bool]: ...
 
+    def get_artifact(self, *, artifact_type: str, artifact_id: str) -> Artifact | None: ...
+
     def list_artifacts(
         self,
         *,
@@ -1762,6 +1764,30 @@ class SQLiteMemoryRepository:
             if existing != artifact:
                 raise MemoryRepositoryIntegrityError("immutable artifact id collision")
             return existing, False
+
+    def get_artifact(self, *, artifact_type: str, artifact_id: str) -> Artifact | None:
+        """Return one exact immutable artifact without widening a replay lookup."""
+
+        connection = self._read_connection()
+        try:
+            row = connection.execute(
+                "SELECT * FROM memory_artifacts WHERE artifact_type = ? AND artifact_id = ?",
+                (artifact_type, artifact_id),
+            ).fetchone()
+            if row is None:
+                return None
+            return Artifact(
+                id=str(row["artifact_id"]),
+                artifact_type=str(row["artifact_type"]),
+                project=str(row["project"]),
+                memory_id=row["memory_id"],
+                lifecycle=Lifecycle(str(row["lifecycle"])),
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                payload=_json_loads(str(row["payload_json"]), "artifact.payload"),
+            )
+        finally:
+            connection.close()
 
     def list_artifacts(
         self,

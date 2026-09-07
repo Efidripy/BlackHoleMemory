@@ -18,6 +18,7 @@ from .domain import Artifact
 from .governed_shared_memory import CallerIdentity
 from .governed_shared_memory import PolicyReceipt
 from .governed_shared_memory import SharedMemoryRequest
+from .memory_repository import MemoryRepositoryIntegrityError
 
 
 SCHEMA_VERSION = "bhm.governed-shared-memory.audit.v1"
@@ -140,10 +141,39 @@ def build_shared_memory_audit_event(
     )
 
 
-def append_shared_memory_audit(service: Any, event: SharedMemoryAuditEvent) -> tuple[dict[str, Any], bool]:
-    """Persist through the generic immutable SQLite artifact primitive only."""
+def _same_replay_event(record: dict[str, Any], event: SharedMemoryAuditEvent) -> bool:
+    """Allow only the first correlation timestamp to survive a retry.
 
-    return service.append_artifact(event.to_artifact())
+    ``evaluated_at`` is request-correlation evidence, deliberately excluded
+    from the event identity.  A network retry can therefore carry a later
+    correlation timestamp while still referring to the same policy decision.
+    The immutable first receipt stays authoritative; every other field must
+    match exactly.
+    """
+
+    try:
+        stored = SharedMemoryAuditEvent.model_validate(
+            {field: record[field] for field in SharedMemoryAuditEvent.model_fields}
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+    return stored.model_dump(exclude={"evaluated_at"}) == event.model_dump(exclude={"evaluated_at"})
+
+
+def append_shared_memory_audit(service: Any, event: SharedMemoryAuditEvent) -> tuple[dict[str, Any], bool]:
+    """Persist a policy decision once while preserving a first audit receipt on replay."""
+
+    artifact = event.to_artifact()
+    try:
+        return service.append_artifact(artifact)
+    except MemoryRepositoryIntegrityError:
+        stored = service.get_artifact_record(
+            artifact_type=artifact.artifact_type,
+            artifact_id=artifact.id,
+        )
+        if stored is None or not _same_replay_event(stored, event):
+            raise
+        return stored, False
 
 
 __all__ = [

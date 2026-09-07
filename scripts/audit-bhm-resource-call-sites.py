@@ -208,6 +208,10 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
 
 
 MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
+    ("scripts/validate-bhm-context-tier-promotion-rollback.py", "run", "shutil.copy2"): BoundaryExpectation(
+        disposition="temporary-sqlite-migration-backup",
+        scope_signals=("tempfile.TemporaryDirectory", "backup = root / \"backup.sqlite3\"", "shutil.copy2(database, backup)"),
+    ),
     ("scripts/validate-bhm-memory-class.py", "_fixture", "shutil.copy2"): BoundaryExpectation(
         disposition="disposable-sqlite-fixture-copy",
         scope_signals=("root / \"memory-v1.sqlite3\"", "root / \"memory-v2.sqlite3\""),

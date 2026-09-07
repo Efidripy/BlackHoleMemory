@@ -459,6 +459,19 @@ def bhm_context_compile(
     return _post("/bhm/context/compile", body)
 
 
+@mcp.tool(
+    name="bhm_agent_context",
+    description="Get bounded read-only task context.",
+)
+def bhm_agent_context(project: str) -> dict[str, Any]:
+    """Compose only the bounded project-scoped read contract; it never writes state."""
+
+    body: dict[str, Any] = {
+        "project": project,
+    }
+    return _post("/bhm/agent-context", body)
+
+
 @mcp.tool(name="bhm_explain_retrieval", description="Explain bounded BHM ranking, fusion, diversity, decay, and routing signals.")
 def bhm_explain_retrieval(
     query: str,
@@ -2256,6 +2269,19 @@ def bhm_governed_consolidation_apply(
     apply: bool = False,
 ) -> dict[str, Any]:
     return _post("/bhm/governed-consolidation/proposals/apply", {"project": project, "proposal_id": proposal_id, "confirmation": confirmation, "apply": apply})
+
+
+@mcp.tool(name="bhm_context_tier_promotion_rollback", description="Admin-only: roll back one durable tier-promotion receipt after exact project-scoped confirmation and revision-CAS. Uses the existing outbox and never writes Mem0/Qdrant directly.")
+def bhm_context_tier_promotion_rollback(
+    project: Annotated[str, Field(min_length=1, max_length=160)],
+    candidate_id: Annotated[str, Field(min_length=8, max_length=160)],
+    confirmation: Annotated[str, Field(min_length=8, max_length=160)],
+    apply: bool = False,
+) -> dict[str, Any]:
+    return _post(
+        "/bhm/context-tier-promotion/rollback",
+        {"project": project, "candidate_id": candidate_id, "confirmation": confirmation, "apply": apply},
+    )
 
 
 @mcp.tool(name="bhm_remember", description=f"Save a durable memory entry into BHM. {TAXONOMY_METADATA_HINT}")

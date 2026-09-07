@@ -152,6 +152,29 @@ authoritative `updated_at` before sorting and pagination on SQLite, so noisy
 trace history can be reduced without changing memory content. The legacy
 `include_historical=true` remains equivalent to `history_scope=all`.
 
+## Agent task context
+
+`POST /bhm/agent-context` assembles one bounded, project-scoped read package
+for an active coding agent. It combines optional current task context, latest
+checkpoint, risk register, active tasks, an existing project summary, and
+cited retrieval context. The route requires an explicit `project` even for an
+all-project caller; an absent artifact is returned as `null`, not treated as a
+failure.
+
+The route reads the SQLite authority with `history_scope=current`; it does not
+warm up or query Mem0/Qdrant and it does not start a model. Its `execution`
+receipt explicitly declares no SQLite, Qdrant, Mem0, or task-state writes.
+The optional REST `query`, budgets, and limits are bounded; an empty query is
+replaced by the fixed current-task query rather than becoming an all-history
+scan. Core MCP exposes the simple `bhm_agent_context(project)` form with those
+safe defaults.
+
+`mcp_transport` deliberately reports only aggregate server-side Streamable
+HTTP state. `server_observation=attached` means the BHM server has observed an
+attached transport session; it cannot prove that a particular Codex desktop
+window has injected the native tool into its visible tool surface. Raw MCP
+session IDs are not returned.
+
 `audit-bhm-freshness-review.py` is a bounded, read-only baseline for review
 planning. It opens the SQLite authority using `mode=ro` plus `PRAGMA
 query_only=ON`; it does not write SQLite, Qdrant, Mem0, lifecycle state, or
@@ -257,6 +280,35 @@ http://127.0.0.1:8000/mcp
 
 REST/MCP clients should use the shared [BHM error taxonomy](error-taxonomy.md)
 instead of parsing free-form error messages.
+
+### Controlled context-tier rollback
+
+Durable tier promotion stays disabled by default. An operator can reverse one
+previously applied promotion through `POST /bhm/context-tier-promotion/rollback`
+or the admin-only `bhm_context_tier_promotion_rollback` MCP tool. Both require
+the candidate's `project`, `candidate_id`, `apply=true`, and an exact matching
+`confirmation`, plus the caller credential and `BHM_ADMIN_CAPABILITY`. The
+rollback compares the receipt-bound promotion revision and a content-free
+aggregate-state digest before writing; a newer revision or same-content owner
+metadata change returns stale rather than overwriting it. It writes only the
+normal SQLite outbox event for the existing projector—never Mem0/Qdrant
+directly. The local CLI has the same project requirement:
+
+```powershell
+python scripts/manage-bhm-context-tier-promotion.py rollback `
+  --database <disposable-or-authorized-db> --project <project> `
+  --candidate-id <candidate-id> --confirmation <candidate-id>
+```
+
+### Lifecycle promotion proposals
+
+`BHM_CONTEXT_TIER_LIFECYCLE_PROPOSALS_ENABLED` is off by default. If explicitly
+enabled, only `PreCompact` and `SessionEnd` observations that carry exactly one
+structured `source_ids`/`memory_ids` reference receive a content-free proposal
+receipt. This is not a promotion: it cannot select content, create durable
+memory or call Mem0/Qdrant. All other lifecycle phases and missing/ambiguous
+sources are ineligible. An operator must still create and revalidate the
+ordinary promotion plan, then use the separate capability-gated apply flow.
 
 ### Bounded repository indexing
 

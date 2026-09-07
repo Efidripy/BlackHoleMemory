@@ -98,6 +98,71 @@ def test_promotion_lock_preview_is_scoped_and_does_not_reserve_a_lock() -> None:
     assert "memory-a" not in json.dumps(preview)
 
 
+def test_lifecycle_policy_emits_only_one_source_precompact_proposal() -> None:
+    receipt = build_context_tier_lifecycle_receipt(
+        project="blackholememory",
+        session_id="session-1",
+        event_id="event-1",
+        hook_type="codex_pre_compact",
+        source_ids=("memory-a",),
+        lifecycle_proposals_policy_enabled=True,
+    )
+
+    proposal = receipt["activation_proposal"]
+    assert proposal["action"] == "proposal"
+    assert proposal["state"] == "operator_review_required"
+    assert proposal["durable_apply"] == "admin_confirmed_only"
+    assert proposal["candidate_content"] == "not_in_lifecycle_receipt"
+    assert proposal["requires"]["source_current_revision_revalidation"] is True
+    assert receipt["promotion"]["action"] == "none"
+    assert receipt["execution"] == {
+        "context_tier_mutation": False,
+        "sqlite_memory_mutation": False,
+        "qdrant_mutation": False,
+    }
+    assert "memory-a" not in json.dumps(receipt)
+
+
+@pytest.mark.parametrize(
+    ("hook_type", "source_ids", "reason"),
+    (
+        ("codex_session_end", ("memory-a",), None),
+        ("codex_pre_compact", ("memory-a", "memory-b"), "exactly_one_source_required"),
+        ("codex_post_tool_use", ("memory-a",), "phase_not_eligible"),
+    ),
+)
+def test_lifecycle_proposal_policy_fails_closed_outside_exact_eligible_scope(
+    hook_type: str,
+    source_ids: tuple[str, ...],
+    reason: str | None,
+) -> None:
+    receipt = build_context_tier_lifecycle_receipt(
+        project="blackholememory",
+        session_id="session-1",
+        event_id="event-1",
+        hook_type=hook_type,
+        source_ids=source_ids,
+        lifecycle_proposals_policy_enabled=True,
+    )
+
+    proposal = receipt["activation_proposal"]
+    if reason is None:
+        assert proposal["action"] == "proposal"
+    else:
+        assert proposal == {
+            "schema_version": "bhm.context-tier-activation-proposal.v1",
+            "phase": receipt["phase"],
+            "source_count": len(source_ids),
+            "source_refs_digest": proposal["source_refs_digest"],
+            "durable_apply": "admin_confirmed_only",
+            "candidate_content": "not_in_lifecycle_receipt",
+            "direct_mem0_qdrant_write": False,
+            "action": "none",
+            "state": "not_eligible",
+            "reason": reason,
+        }
+
+
 def test_resume_lifecycle_requires_an_explicit_parent_link() -> None:
     receipt = build_context_tier_lifecycle_receipt(
         project="blackholememory",

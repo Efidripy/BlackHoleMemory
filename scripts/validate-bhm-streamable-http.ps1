@@ -5,6 +5,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Net.Http
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
 . (Join-Path $repoRoot 'scripts\bhm-caller-credential.ps1')
@@ -80,9 +81,9 @@ function Get-Json([string]$Path, [hashtable]$RequestHeaders = @{}) {
   Invoke-StreamableValidatorJson -Uri "$($BaseUrl.TrimEnd('/'))$Path" -RequestHeaders $RequestHeaders
 }
 
-$health = Get-Json '/bhm/health'
-$cutover = Get-Json '/health/cutover'
-$slo = Get-Json '/bhm/health/slo'
+$health = Get-Json '/bhm/health' $headers
+$cutover = Get-Json '/health/cutover' $headers
+$slo = Get-Json '/bhm/health/slo' $headers
 $http = Get-Json '/bhm/mcp/http/status' $headers
 $openapi = Get-Json '/openapi.json'
 $legacyPaths = @($openapi.paths.PSObject.Properties.Name | Where-Object { $_ -match '/bhm/mcp/(attach|connection|telemetry/mcp-attach)' })

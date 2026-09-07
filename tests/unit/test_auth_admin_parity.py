@@ -26,7 +26,7 @@ def test_generated_auth_admin_parity_covers_all_static_interface_rows() -> None:
     assert report["surface_counts"] == {"MCP_STATIC": 194, "REST/WS": 260}
     # Governed consolidation and semantic proposal tools are intentionally
     # admin-only and excluded from the static public MCP contract.
-    assert report["mcp_registration_groups"] == {"admin": 85, "core": 35, "domain": 84}
+    assert report["mcp_registration_groups"] == {"admin": 86, "core": 36, "domain": 84}
     assert report["missing_live_interfaces"] == []
     assert report["unknown_mcp_tools"] == []
     assert report["implicit_route_policies"] == []

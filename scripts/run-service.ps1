@@ -37,6 +37,9 @@ function Import-ExplicitOperatorFeatureConfiguration {
       'BHM_GOVERNED_SEMANTIC_EDITOR_TIMEOUT_SECONDS',
       'BHM_GOVERNED_SEMANTIC_EDITOR_MAX_TOKENS',
       'BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS',
+      # A shared read is an explicit temporary operator capability.  Shared
+      # write is never imported from User scope and is forced off below.
+      'BHM_SHARED_MEMORY_READ_ENABLED',
       'BHM_LLM_GOVERNOR_MAX_VRAM_RATIO',
       'BHM_LLM_GOVERNOR_PAUSE_ON_USER_ACTIVITY'
     )) {
@@ -137,6 +140,9 @@ if ($Authoritative) {
   # Historical Qdrant payload compatibility remains the default until the
   # typed-field projection parity gate is deliberately enabled.
   $env:BHM_TYPED_MEMORY_PROJECTION_READY = "false"
+  # WL-300.4 is read-only by contract. A stale inherited write flag must not
+  # survive into the authoritative child process.
+  $env:BHM_SHARED_MEMORY_WRITE_ENABLED = "0"
   Resolve-AuthoritativeProviderEndpoint
 }
 

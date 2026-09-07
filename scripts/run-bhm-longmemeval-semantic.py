@@ -72,6 +72,12 @@ def main() -> int:
     parser.add_argument("--admission-report", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--max-cases", type=int, default=50)
+    parser.add_argument(
+        "--case-split-index",
+        type=int,
+        default=0,
+        help="zero-based deterministic non-overlapping stratified cohort; 0 preserves the historical control split",
+    )
     parser.add_argument("--k", type=int, default=5)
     parser.add_argument(
         "--candidate-scope",
@@ -133,6 +139,7 @@ def main() -> int:
             candidate_strategy=args.candidate_strategy,
             candidate_limit=args.candidate_limit,
             temporal_as_of_filter=args.temporal_as_of_filter,
+            split_index=args.case_split_index,
         )
         output_dir = args.output_dir.expanduser().resolve()
         output_dir.mkdir(parents=True, exist_ok=True)

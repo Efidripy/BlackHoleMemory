@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-unified-context.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-unified-context.py"
 WI08_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-WI08_EXPECTED_CORE_TOOL_COUNT = 35
+WI08_EXPECTED_CORE_TOOL_COUNT = 36
 
 
 def _digest(path: Path) -> str:

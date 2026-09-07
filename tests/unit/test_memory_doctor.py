@@ -56,6 +56,7 @@ def _authoritative_fixture(path) -> None:
                 project TEXT NOT NULL,
                 lifecycle TEXT NOT NULL,
                 metadata_json TEXT NOT NULL,
+                provenance_json TEXT,
                 current_revision_id TEXT NOT NULL,
                 authority_seq INTEGER,
                 projection_seq INTEGER
@@ -75,11 +76,11 @@ def _authoritative_fixture(path) -> None:
         )
         connection.executemany(
             """INSERT INTO memories(
-                memory_id, project, lifecycle, metadata_json, current_revision_id, authority_seq, projection_seq
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                memory_id, project, lifecycle, metadata_json, provenance_json, current_revision_id, authority_seq, projection_seq
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             [
-                ("m1", "project-a", "active", '{"source_digest":"source-1"}', "r1", 2, 1),
-                ("m2", "project-a", "active", '{}', "r2", 1, 1),
+                ("m1", "project-a", "active", '{"source_digest":"source-1","shared_visibility":"project","sensitivity":"internal"}', '{"agent_id":"owner-a"}', "r1", 2, 1),
+                ("m2", "project-a", "active", '{}', '{}', "r2", 1, 1),
             ],
         )
 
@@ -106,6 +107,7 @@ def test_authoritative_sqlite_snapshot_is_bounded_content_free_and_read_only(tmp
     }
     assert "memory_identity_missing" not in {item["reason_code"] for item in report["findings"]}
     assert "memory_id_duplicate" not in {item["reason_code"] for item in report["findings"]}
+    assert "shared_owner_missing" not in {item["reason_code"] for item in report["findings"]}
     assert "secret one" not in str(report)
 
 

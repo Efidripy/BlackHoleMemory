@@ -405,7 +405,7 @@ def test_operator_drawer_live_geometry_is_scrollable_and_non_overlapping(
             for button in drawer.findChildren(launcher.QPushButton)
             if button.objectName() in {"OperatorActionButton", "OperatorDangerButton"}
         ]
-        assert len(buttons) == 15
+        assert len(buttons) == sum(2 if spec.key == "exchange" else 1 for spec in launcher.OPERATOR_ACTIONS)
         assert {button.height() for button in buttons} == {30}
         assert [
             label.text() for label in drawer.findChildren(launcher.QLabel, "OperatorGroupTitle")
@@ -718,7 +718,7 @@ def test_fetch_telemetry_exposes_runtime_quality_without_silent_placeholders(mon
     assert telemetry["provider_state"] == "READY"
     assert telemetry["sqlite_state"] == "READY"
     assert telemetry["qdrant_state"] == "READY"
-    assert telemetry["mcp_state"] == "HEALTHY · 1"
+    assert telemetry["mcp_state"] == "ATTACHED · 1"
     assert telemetry["projection_queue"] == "0 / 0"
     assert telemetry["slo_state"] == "HEALTHY"
     assert all(call[3] == "blackholememory" for call in calls)
@@ -726,6 +726,32 @@ def test_fetch_telemetry_exposes_runtime_quality_without_silent_placeholders(mon
     assert launcher_calls == [(f"{launcher.BHM_BASE_URL}/bhm/telemetry/launcher", "GET", None, "blackholememory")]
     graph_calls = [call for call in calls if "galaxy/stats" in call[0]]
     assert graph_calls == [(f"{launcher.BHM_BASE_URL}/bhm/galaxy/stats", "GET", None, "blackholememory")]
+
+
+def test_fetch_telemetry_keeps_idle_mcp_endpoint_independent_from_slo(monkeypatch) -> None:
+    def fake_safe(url: str, *, method: str, payload: dict | None, project: str | None, timeout: float = 0):
+        if "/profile" in url:
+            data = {"readiness": {"provider_warmup": {"ready": True, "phase": "ready"}}}
+        elif "/health/cutover" in url:
+            data = {"memory_store": {"ready": True}, "storage": {"ready": True}}
+        elif "/health/slo" in url:
+            data = {"status": "breached", "observed": {"projection_pending": 0, "projection_failed": 0}}
+        elif "mcp-panel" in url:
+            data = {
+                "connected": {"attached_count": 0},
+                "overall": {"state": "degraded"},
+                "rest_degraded": {"transport_ready": True},
+            }
+        else:
+            data = {"counts": {"observations": 0}}
+        return launcher.JsonRequestResult(ok=True, data=data, status_code=200)
+
+    monkeypatch.setattr(launcher, "safe_json_request", fake_safe)
+
+    telemetry = launcher.fetch_telemetry("blackholememory")
+
+    assert telemetry["mcp_state"] == "IDLE · ENDPOINT READY"
+    assert telemetry["slo_state"] == "BREACHED"
 
 
 def test_launcher_hides_project_control_but_preserves_internal_scope() -> None:

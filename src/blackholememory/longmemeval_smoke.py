@@ -85,19 +85,28 @@ def _category(item: Mapping[str, Any]) -> str:
     return category
 
 
-def _select_cases(items: tuple[dict[str, Any], ...], *, max_cases: int) -> tuple[dict[str, Any], ...]:
+def _select_cases(
+    items: tuple[dict[str, Any], ...], *, max_cases: int, split_index: int = 0,
+) -> tuple[dict[str, Any], ...]:
     if max_cases < 1 or max_cases > MAX_SMOKE_CASES:
         raise LongMemEvalSmokeError(f"max_cases must be between 1 and {MAX_SMOKE_CASES}")
+    if not isinstance(split_index, int) or split_index < 0 or split_index > 9:
+        raise LongMemEvalSmokeError("split_index must be an integer between 0 and 9")
     buckets: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
     for item in sorted(items, key=lambda value: _text(value.get("question_id"), "question_id")):
         buckets[_category(item)].append(item)
     selected: list[dict[str, Any]] = []
     categories = tuple(sorted(buckets))
-    while len(selected) < max_cases and any(buckets.values()):
+    required = max_cases * (split_index + 1)
+    while len(selected) < required and any(buckets.values()):
         for category in categories:
-            if buckets[category] and len(selected) < max_cases:
+            if buckets[category] and len(selected) < required:
                 selected.append(buckets[category].popleft())
-    return tuple(selected)
+    start = max_cases * split_index
+    result = tuple(selected[start:required])
+    if len(result) != max_cases:
+        raise LongMemEvalSmokeError("LongMemEval dataset does not contain a complete requested stratified split")
+    return result
 
 
 def _session_text(session: object) -> str:
@@ -164,6 +173,7 @@ def run_longmemeval_lexical_smoke(
     admission_report: Mapping[str, Any],
     max_cases: int = MAX_SMOKE_CASES,
     k: int = 5,
+    split_index: int = 0,
 ) -> dict[str, Any]:
     """Create one digest-bound LongMemEval-S lexical receipt without mutation."""
 
@@ -183,7 +193,7 @@ def run_longmemeval_lexical_smoke(
 
     cases: list[EvaluationCase] = []
     receipts: list[RetrievalReceipt] = []
-    for item in _select_cases(items, max_cases=max_cases):
+    for item in _select_cases(items, max_cases=max_cases, split_index=split_index):
         question_id = _text(item.get("question_id"), "question_id")
         question = _text(item.get("question"), "question", limit=20_000)
         category = _category(item)
@@ -247,6 +257,7 @@ def run_longmemeval_lexical_smoke(
         "qdrant_mutation": False,
         "mem0_mutation": False,
         "route": ROUTE,
+        "case_split_index": split_index,
         "runtime_feature_enabled": False,
     }
     report["report_digest"] = _digest({key: value for key, value in report.items() if key != "report_digest"})

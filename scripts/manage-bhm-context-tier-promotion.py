@@ -54,6 +54,7 @@ def main() -> int:
         command.add_argument("--plan", type=Path, required=True)
     apply.add_argument("--confirmation", required=True)
     rollback.add_argument("--database", type=Path, required=True)
+    rollback.add_argument("--project", required=True)
     rollback.add_argument("--candidate-id", required=True)
     rollback.add_argument("--confirmation", required=True)
     args = parser.parse_args()
@@ -73,7 +74,7 @@ def main() -> int:
         if args.command == "apply":
             result = apply_tier_promotion(database_path=args.database, plan=_read_json(args.plan), apply=True, confirmation=args.confirmation)
         else:
-            result = rollback_tier_promotion(database_path=args.database, candidate_id=args.candidate_id, apply=True, confirmation=args.confirmation)
+            result = rollback_tier_promotion(database_path=args.database, project=args.project, candidate_id=args.candidate_id, apply=True, confirmation=args.confirmation)
         _write_json(None, result.__dict__)
         return 0
     except (OSError, ValueError, RuntimeError) as exc:

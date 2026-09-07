@@ -16,7 +16,7 @@ def test_surface_report_exposes_current_inventory_without_deletion():
     # Governed policy-preflight, shared-read, the original eight operator-only
     # consolidation tools, and the semantic proposal/shadow-metrics tools are
     # intentional additions to the historical CBM-parity surface.
-    assert payload["inventory"]["mcp_registered"] == 204
+    assert payload["inventory"]["mcp_registered"] == 206
     assert payload["inventory"]["openapi_operations"] >= 130
     assert payload["inventory"]["openapi_admin_only"] > 0
     assert any(item["name"] == "bhm_batch_upsert_memories" for item in payload["deprecate_candidates"])

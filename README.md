@@ -86,7 +86,7 @@ The canonical server id is `bhm` and the transport is local Streamable HTTP. Kee
 ```toml
 [mcp_servers.bhm]
 url = "http://127.0.0.1:8000/mcp"
-env.BHM_CALLER_TOKEN = "${BHM_CALLER_TOKEN}"
+bearer_token_env_var = "BHM_CALLER_TOKEN"
 ```
 
 See [`docs/mcp-caller-token-runbook.md`](docs/mcp-caller-token-runbook.md) for token handling and [`docs/architecture-authority.md`](docs/architecture-authority.md) for the authority model. Configured MCP inventory is informational until the current client has verified an attached native session.

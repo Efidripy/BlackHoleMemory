@@ -73,7 +73,7 @@ def _http_sessions(*, attached: bool = False) -> dict:
                 "state": "catalog_ready",
                 "client_version": "0.1.0",
                 "catalog_hash": "http-hash-a",
-                "tool_count": 35,
+                "tool_count": 36,
             }
         )
     return {
@@ -127,7 +127,7 @@ def test_live_catalog_and_runtime_can_reach_healthy():
 
     assert snapshot["connected"]["state"] == "attached"
     assert snapshot["catalog"]["state"] == "ready"
-    assert snapshot["catalog"]["observed_tool_count"] == 35
+    assert snapshot["catalog"]["observed_tool_count"] == 36
     assert snapshot["catalog_coverage"]["state"] == "pass"
     assert snapshot["catalog_coverage"]["missing"] == 0
     assert snapshot["catalog_coverage"]["extra"] == 0
@@ -189,7 +189,7 @@ def test_catalog_coverage_fails_closed_when_streamable_catalog_count_drifts():
 
     assert snapshot["catalog"]["observed_tool_count"] == 34
     assert snapshot["catalog_coverage"]["state"] == "mismatch"
-    assert snapshot["catalog_coverage"]["missing"] == 1
+    assert snapshot["catalog_coverage"]["missing"] == 2
     assert snapshot["catalog_coverage"]["extra"] == 0
     assert snapshot["overall"]["gates"]["catalog_coverage"] is False
 
@@ -246,7 +246,7 @@ def test_homogeneous_multiple_live_sessions_prove_catalog_coverage():
                     "catalog_hash": "hash-a",
                     "contract_digest": "contract-a",
                     "contract_state": "aligned",
-                    "tool_count": 35,
+                    "tool_count": 36,
                 },
                 {
                     "state": "healthy",
@@ -254,7 +254,7 @@ def test_homogeneous_multiple_live_sessions_prove_catalog_coverage():
                     "catalog_hash": "hash-a",
                     "contract_digest": "contract-a",
                     "contract_state": "aligned",
-                    "tool_count": 35,
+                    "tool_count": 36,
                 },
                 {
                     "state": "catalog_ready",
@@ -262,7 +262,7 @@ def test_homogeneous_multiple_live_sessions_prove_catalog_coverage():
                     "catalog_hash": "hash-a",
                     "contract_digest": "contract-a",
                     "contract_state": "aligned",
-                    "tool_count": 35,
+                    "tool_count": 36,
                 },
             ],
         },
@@ -272,7 +272,7 @@ def test_homogeneous_multiple_live_sessions_prove_catalog_coverage():
     )
 
     assert snapshot["connected"]["attached_count"] == 3
-    assert snapshot["catalog"]["observed_tool_count"] == 35
+    assert snapshot["catalog"]["observed_tool_count"] == 36
     assert snapshot["catalog_coverage"]["state"] == "pass"
     assert snapshot["catalog_coverage"]["missing"] == 0
     assert snapshot["catalog_coverage"]["extra"] == 0
@@ -297,7 +297,7 @@ def test_heterogeneous_multiple_live_sessions_fail_closed_on_contract_drift():
                     "catalog_hash": "hash-a",
                     "contract_digest": "contract-a",
                     "contract_state": "aligned",
-                    "tool_count": 35,
+                    "tool_count": 36,
                 },
                 {
                     "state": "healthy",
@@ -305,7 +305,7 @@ def test_heterogeneous_multiple_live_sessions_fail_closed_on_contract_drift():
                     "catalog_hash": "hash-a",
                     "contract_digest": "contract-b",
                     "contract_state": "aligned",
-                    "tool_count": 35,
+                    "tool_count": 36,
                 },
             ],
         },

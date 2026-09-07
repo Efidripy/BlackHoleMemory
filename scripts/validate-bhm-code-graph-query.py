@@ -35,7 +35,7 @@ REGISTRY_PATH = REPO_ROOT / "config" / "source-registry.json"
 CLI_PATH = REPO_ROOT / "scripts" / "bhm-code-graph-query.py"
 BENCHMARK_PATH = REPO_ROOT / "scripts" / "benchmark-bhm-code-graph-query.py"
 WI03_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-WI03_EXPECTED_CORE_TOOL_COUNT = 35
+WI03_EXPECTED_CORE_TOOL_COUNT = 36
 WI03_OPERATION_QUERIES = {
     "symbol": "get_items",
     "resolve": "Service",

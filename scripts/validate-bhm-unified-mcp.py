@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-unified-mcp.py"
 BENCHMARK = ROOT / "scripts" / "benchmark-bhm-unified-mcp.py"
 WI11_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-WI11_EXPECTED_CORE_TOOL_COUNT = 35
+WI11_EXPECTED_CORE_TOOL_COUNT = 36
 
 
 def _hidden_api() -> bool:

@@ -65,9 +65,12 @@ def _connect_read_only(path: Path) -> sqlite3.Connection:
 def _state(path: Path | str) -> dict[str, Any]:
     target = assert_safe_path(Path(path).expanduser()).resolve()
     fingerprint = _database_fingerprint(target)
-    with _connect_read_only(target) as connection:
+    connection = _connect_read_only(target)
+    try:
         tables = {str(row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
         marker = connection.execute("SELECT value FROM memory_store_meta WHERE key=?", (CAPABILITY_KEY,)).fetchone() if "memory_store_meta" in tables else None
+    finally:
+        connection.close()
     return {**fingerprint, "context_tier_promotion_ready": bool(marker and str(marker[0]) == CAPABILITY_VERSION and TABLES.issubset(tables))}
 
 
