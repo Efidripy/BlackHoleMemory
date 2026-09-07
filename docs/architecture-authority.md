@@ -280,6 +280,20 @@ Absent receipt scope or provenance is explicitly `unproven`; a mismatch is a
 visible isolation failure, never a silently accepted score. These offline
 metrics remain evaluation evidence and cannot enable a runtime retrieval path.
 
+`scripts/run-bhm-locomo-smoke.py` is the separate LoCoMo retrieval-only
+operator route. It requires the admitted dataset root, a matching content-free
+admission report, and an explicit local output directory. It accepts at most
+50 cases, uses an in-memory lexical route only, never fetches the corpus or
+image URLs, and produces only IDs, digests and aggregate metrics. Its upstream
+category mapping is explicit: `1=multi_hop`, `2=temporal`, `3=open_domain`,
+`4=single_hop`, `5=adversarial`. Category 5 produces a separately labelled
+deterministic abstention receipt; it does not invoke a model or judge. The
+runner may exclude a non-adversarial QA row when an upstream evidence reference
+cannot be resolved to a local dialogue ID or when it lacks retrieval evidence
+entirely. It reports only aggregate exclusion counts by those two reasons.
+LoCoMo results do not activate a ranker, change a memory policy or modify live
+SQLite, Qdrant or Mem0 state.
+
 The opt-in `scripts/run-bhm-longmemeval-semantic.py` runner is the separate
 semantic comparison route. It requires `--allow-disposable-qdrant`, creates
 one UUID-named `bhm_eval_lme_*` collection and a temporary SQLite authority
