@@ -5,7 +5,7 @@
 **Local, verifiable long-term memory and code intelligence for AI agents.**
 
 [![BHM CI](https://github.com/Efidripy/BlackHoleMemory/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Efidripy/BlackHoleMemory/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/Efidripy/BlackHoleMemory/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/Efidripy/BlackHoleMemory/actions/workflows/codeql.yml)
+[![CodeQL](https://github.com/Efidripy/BlackHoleMemory/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/Efidripy/BlackHoleMemory/actions/workflows/github-code-scanning/codeql)
 [![Release](https://img.shields.io/github/v/release/Efidripy/BlackHoleMemory?display_name=tag&sort=semver)](https://github.com/Efidripy/BlackHoleMemory/releases)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Streamable_HTTP-6f42c1)](https://modelcontextprotocol.io/)
@@ -44,6 +44,8 @@ The authority boundary is deliberate:
 - **Qdrant is a rebuildable projection**, never a second source of truth.
 - In the default SQLite-authoritative launcher, a Docker/Qdrant outage degrades
   semantic projection and SLO without taking the core API or MCP offline.
+- API and MCP readiness validate the required embedding capability, not an
+  arbitrary chat model currently loaded by the local provider.
 - **LangGraph** orchestrates stateful agent workflows.
 - Destructive or proposal-only operations stay behind explicit operator controls; BHM does not silently edit code or data.
 
@@ -97,6 +99,8 @@ The checked-in [BHM Value Benchmark](docs/benchmarks/bhm-value-benchmark.md) is 
 
 The separate local-model replay uses 111 cases × 3 repetitions for `file-only` and `bhm-full` (666 calls) with frozen prompts and `temperature=0`. Its receipt is local operational evidence, not a hosted-service benchmark.
 
+An operator may run the offline LoCoMo retrieval smoke only against a separately admitted local corpus. It caps a run at 50 cases and uses disposable in-memory lexical retrieval; it neither fetches data nor calls a model or judge, and it does not mutate SQLite, Qdrant, Mem0, or the runtime. Its receipt contains only IDs, digests, and aggregate metrics, so it is retrieval-boundary evidence rather than a production-quality claim.
+
 ### Security and data boundaries
 
 BHM is designed for an authorized local development environment. Keep `.runtime`, `.docs`, `.src`, credentials, databases, logs, and release signing keys local. SQLite remains the recovery anchor; Qdrant may be rebuilt from it. Review the [security policy](SECURITY.md), [error taxonomy](docs/error-taxonomy.md), and [troubleshooting guide](docs/troubleshooting.md) before enabling operator workflows.
@@ -114,7 +118,7 @@ BHM-authored code and documentation are released under the [0BSD license](LICENS
 
 BlackHoleMemory (BHM) — локальная self-hosted память и контур code intelligence для AI-агентов. Он сохраняет факты, решения, задачи, ошибки, файлы и зависимости с областью проекта и provenance, а затем возвращает проверяемый контекст через REST и локальный MCP Streamable HTTP.
 
-Архитектурное правило неизменно: **SQLite — единственный authoritative store**, Mem0 — семантический слой, Qdrant — восстанавливаемая projection, LangGraph — оркестрация. В штатном SQLite-authoritative launcher сбой Docker/Qdrant ухудшает semantic projection и SLO, но не отключает core API/MCP. Разрушительные и proposal-only действия требуют явного operator control. Galaxy/workbench — локальная launcher-bound UI-поверхность; прямой anonymous URL намеренно требует доверенный bootstrap.
+Архитектурное правило неизменно: **SQLite — единственный authoritative store**, Mem0 — семантический слой, Qdrant — восстанавливаемая projection, LangGraph — оркестрация. В штатном SQLite-authoritative launcher сбой Docker/Qdrant ухудшает semantic projection и SLO, но не отключает core API/MCP; readiness API/MCP проверяет требуемую embedding capability, а не произвольно загруженную chat model локального provider. Разрушительные и proposal-only действия требуют явного operator control. Galaxy/workbench — локальная launcher-bound UI-поверхность; прямой anonymous URL намеренно требует доверенный bootstrap.
 
 Быстрый запуск:
 
@@ -127,5 +131,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health/ready
 Точки доступа: API — `http://127.0.0.1:8000/bhm/`, MCP — `http://127.0.0.1:8000/mcp`, Galaxy — `http://127.0.0.1:8000/bhm/galaxy` через доверенный launcher. Подробности: [`docs/getting-started.md`](docs/getting-started.md), [`docs/usage.md`](docs/usage.md), [`docs/mcp-caller-token-runbook.md`](docs/mcp-caller-token-runbook.md).
 
 Benchmark в репозитории — frozen-fixture evidence, а не telemetry реальных пользователей. Основной прогон: 1,000 кейсов × 10 повторов; отдельный local-model replay: 111 × 3 для двух режимов, всего 666 вызовов. Секреты, базы, `.runtime`, `.docs`, `.src` и ключи подписи не публикуются.
+
+Операторский LoCoMo smoke запускается только по отдельно принятому локальному корпусу: максимум 50 кейсов, disposable in-memory lexical retrieval. Он не скачивает данные, не вызывает модель или judge и не меняет SQLite, Qdrant, Mem0 либо runtime. В receipt сохраняются только IDs, digests и агрегированные метрики: это evidence границы retrieval, а не заявление о production-качестве.
 
 Лицензия материалов BHM — [0BSD](LICENSE); зависимости сохраняют собственные лицензии.
