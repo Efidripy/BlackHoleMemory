@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -371,3 +374,67 @@ def test_global_temporal_route_records_as_of_contract(tmp_path, monkeypatch) -> 
     assert selection["temporal_filter_contract"].startswith("project-scoped observed_at <=")
     assert result["report"]["authority_revalidation"]["passed"] is True
     assert client.collections == {}
+
+
+def test_semantic_split_index_is_bound_into_candidate_selection(tmp_path, monkeypatch) -> None:
+    dataset_path, admission = _inputs(tmp_path)
+    client = _FakeQdrant()
+    monkeypatch.setattr("blackholememory.longmemeval_semantic._collection_name", lambda: "bhm_eval_lme_split_one")
+
+    result = run_longmemeval_qdrant_global_semantic_smoke(
+        dataset_path,
+        dataset_version="fixture-v1",
+        admission_report=admission,
+        allow_disposable_qdrant=True,
+        qdrant_client=client,
+        embedder=_FakeEmbedder(),
+        max_cases=1,
+        minimum_score=0.40,
+        split_index=1,
+    )
+
+    assert result["report"]["candidate_selection"]["case_split_index"] == 1
+    assert client.collections == {}
+
+
+def test_semantic_cli_forwards_case_split_index(tmp_path, monkeypatch) -> None:
+    script_path = Path(__file__).resolve().parents[2] / "scripts" / "run-bhm-longmemeval-semantic.py"
+    spec = importlib.util.spec_from_file_location("test_longmemeval_semantic_cli", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(module, "LocalEmbeddingAdapter", lambda *_args: object())
+    monkeypatch.setattr(module, "load_external_evaluation_admission_report", lambda _path: {"admitted": True})
+
+    def _run(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"report": {"ok": True}}
+
+    monkeypatch.setattr(module, "run_longmemeval_qdrant_semantic_smoke", _run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            script_path.name,
+            "--dataset",
+            str(tmp_path / "dataset.json"),
+            "--dataset-version",
+            "fixture-v1",
+            "--admission-report",
+            str(tmp_path / "admission.json"),
+            "--output-dir",
+            str(tmp_path / "output"),
+            "--candidate-scope",
+            "global",
+            "--minimum-score",
+            "0.40",
+            "--case-split-index",
+            "1",
+            "--allow-disposable-qdrant",
+        ],
+    )
+
+    assert module.main() == 0
+    assert captured["split_index"] == 1

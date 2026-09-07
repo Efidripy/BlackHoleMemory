@@ -20,6 +20,21 @@ SQLite API/MCP продолжают работать при сбое Docker/Qdra
 SLO показывают деградацию. Переменная не включает embedded fallback и не меняет
 SQLite authority boundary.
 
+## Provider warm-up и пользовательская chat-модель
+
+Обязательный `provider_ready` проверяет только BHM embedding endpoint с
+`BHM_MEM0_EMBEDDING_MODEL` (по умолчанию
+`text-embedding-nomic-embed-text-v1.5`). Это ровно тот provider, который нужен
+semantic retrieval. Probe не сохраняет вектор и не вызывает chat completion.
+
+`OPENAI_MODEL` — пользовательская или operator chat-модель — не влияет на
+`provider_ready` и BHM SLO. Поэтому можно работать с другой, занятой или
+тяжёлой chat-моделью без ложной деградации контура памяти. Если отдельно нужно
+диагностировать chat endpoint, включите `BHM_PROVIDER_CHAT_WARMUP=true`.
+Его результат публикуется как `chat_*` в `provider_warmup`, но не меняет
+memory-ready/SLO gate. Для embedding probe можно явно задать локальный URL через
+`BHM_PROVIDER_EMBEDDING_WARMUP_URL`; URL проходит тот же local-only policy.
+
 ## Governed consolidation (default off)
 
 `BHM_GOVERNED_CONSOLIDATION_ENABLED` defaults to unset/`false`. It enables only

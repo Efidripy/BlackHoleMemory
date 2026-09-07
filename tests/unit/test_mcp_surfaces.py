@@ -40,7 +40,7 @@ def test_registered_catalog_has_no_missing_or_duplicate_core_tools():
     assert report["duplicates"] == []
     # Keep the full registered administrative surface pinned. The value includes
     # the governed semantic proposal and shadow-metrics operator tools.
-    assert report["admin_count"] == 169
+    assert report["admin_count"] == 170
 
 
 def test_surface_resolution_fails_closed_and_supports_operator_aliases(monkeypatch):
@@ -77,6 +77,14 @@ def test_governed_consolidation_is_operator_only_not_an_attach_default():
     """Proposal review is never exposed through the ordinary MCP catalog."""
 
     tool = "bhm_governed_consolidation_apply"
+    assert tool not in CORE_TOOL_NAMES
+    assert not is_tool_allowed(tool, McpSurface.CORE)
+    assert is_tool_allowed(tool, McpSurface.ADMIN)
+    assert requires_admin_capability(tool, McpSurface.ADMIN)
+
+
+def test_context_tier_promotion_rollback_is_operator_only_not_an_attach_default():
+    tool = "bhm_context_tier_promotion_rollback"
     assert tool not in CORE_TOOL_NAMES
     assert not is_tool_allowed(tool, McpSurface.CORE)
     assert is_tool_allowed(tool, McpSurface.ADMIN)

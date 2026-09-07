@@ -33,7 +33,7 @@ REGISTRY_PATH = ROOT / "config" / "source-registry.json"
 CLI_PATH = ROOT / "scripts" / "bhm-conventions.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-conventions.py"
 WI04_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-WI04_EXPECTED_CORE_TOOL_COUNT = 35
+WI04_EXPECTED_CORE_TOOL_COUNT = 36
 
 
 def _digest(path: Path) -> str:

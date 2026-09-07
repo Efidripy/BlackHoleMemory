@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-llm-code-fabric.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-llm-code-fabric.py"
 WI09_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-WI09_EXPECTED_CORE_TOOL_COUNT = 35
+WI09_EXPECTED_CORE_TOOL_COUNT = 36
 
 
 def _api_hidden() -> bool:

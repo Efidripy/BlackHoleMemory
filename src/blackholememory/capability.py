@@ -66,6 +66,7 @@ _ADMIN_ROUTE_PREFIXES = (
     # A consolidation review statement is immutable evidence and not an
     # apply path, but it still carries an operator decision over live state.
     "/bhm/consolidation/change-set/review",
+    "/bhm/context-tier-promotion/",
     # Governed consolidation is a lifecycle-adjacent operator surface.  Even
     # proposal approval is privileged; apply additionally requires an exact
     # proposal confirmation and same-transaction authority revalidation.

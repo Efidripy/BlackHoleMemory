@@ -60,10 +60,16 @@ def test_audit_event_is_content_free_deterministic_and_append_only(tmp_path) -> 
 
     first, inserted = append_shared_memory_audit(service, event)
     replay, replay_inserted = append_shared_memory_audit(service, event)
+    later_replay, later_replay_inserted = append_shared_memory_audit(
+        service,
+        event.model_copy(update={"evaluated_at": "2026-08-23T12:01:00Z"}),
+    )
 
     assert inserted is True
     assert replay_inserted is False
+    assert later_replay_inserted is False
     assert first == replay
+    assert first == later_replay
     assert event.request_id_digest != request.request_id
     assert event.owner_id_digest != request.owner_id
     assert event.memory_id_digest != request.memory_id

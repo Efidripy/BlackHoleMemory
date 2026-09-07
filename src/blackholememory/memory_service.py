@@ -307,6 +307,13 @@ class SQLiteMemoryService:
         stored, inserted = self.repository.append_artifact(artifact)
         return stored.to_record(), inserted
 
+    def get_artifact_record(self, *, artifact_type: str, artifact_id: str) -> dict[str, Any] | None:
+        """Read one exact immutable artifact for a bounded replay reconciliation."""
+
+        self._ensure_ready(verify_integrity=False)
+        artifact = self.repository.get_artifact(artifact_type=artifact_type, artifact_id=artifact_id)
+        return None if artifact is None else artifact.to_record()
+
     def list_artifact_records(
         self,
         *,

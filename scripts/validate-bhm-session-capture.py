@@ -27,7 +27,7 @@ CLI_PATH = ROOT / "scripts" / "bhm-session-capture.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-session-capture.py"
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 WI05_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-WI05_EXPECTED_CORE_TOOL_COUNT = 35
+WI05_EXPECTED_CORE_TOOL_COUNT = 36
 
 
 def _fixture() -> dict[str, list[dict]]:

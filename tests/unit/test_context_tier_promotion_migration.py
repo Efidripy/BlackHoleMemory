@@ -47,3 +47,5 @@ def test_promotion_schema_requires_sealed_plan_backup_and_offline_gate(tmp_path)
     assert result["action"] == "applied"
     assert context_tier_promotion_migration_status(database)["ready"] is True
     assert repository.get_memory("mem_bhm_seed", project="migration-project") is not None
+    # A status probe must close its read-only SQLite handle on Windows.
+    backup.unlink()

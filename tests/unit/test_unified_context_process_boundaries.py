@@ -39,4 +39,4 @@ def test_wi08_validator_tracks_current_mcp_catalog() -> None:
     module = _load()
     from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 
-    assert len(CORE_TOOL_NAMES) == module.WI08_EXPECTED_CORE_TOOL_COUNT == 35
+    assert len(CORE_TOOL_NAMES) == module.WI08_EXPECTED_CORE_TOOL_COUNT == 36

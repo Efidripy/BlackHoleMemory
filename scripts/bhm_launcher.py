@@ -451,7 +451,7 @@ def load_ui_version() -> str:
                 return value
         except (OSError, json.JSONDecodeError, AttributeError):
             continue
-    return "Runtime v1.8.2-PURE"
+    return "Runtime v1.8.4-PURE"
 
 
 UI_VERSION = load_ui_version()
@@ -1500,6 +1500,7 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     observed = slo.get("observed") if isinstance(slo.get("observed"), dict) else {}
     connected = mcp.get("connected") if isinstance(mcp.get("connected"), dict) else {}
     mcp_overall = mcp.get("overall") if isinstance(mcp.get("overall"), dict) else {}
+    mcp_rest = mcp.get("rest_degraded") if isinstance(mcp.get("rest_degraded"), dict) else {}
     error_label = _result_error_label(list(results.values()))
 
     def value_or_error(result_key: str, value: Any) -> str:
@@ -1509,7 +1510,15 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     sqlite_state = "READY" if memory_store.get("ready") else str(memory_store.get("readiness") or results["cutover"].error or error_label).upper()
     qdrant_state = "READY" if storage.get("ready") else str(storage.get("readiness") or results["cutover"].error or error_label).upper()
     attached_count = int(connected.get("attached_count") or 0)
-    mcp_state = str(mcp_overall.get("state") or results["mcp"].error or error_label).upper()
+    if attached_count:
+        mcp_state = "ATTACHED"
+    elif mcp_rest.get("transport_ready") is True:
+        # An idle Streamable HTTP endpoint is ready for a client but cannot
+        # prove a native session for this launcher. Keep it distinct from a
+        # real transport outage and from the independent BHM SLO state.
+        mcp_state = "IDLE · ENDPOINT READY"
+    else:
+        mcp_state = str(mcp_overall.get("state") or results["mcp"].error or error_label).upper()
     if attached_count:
         mcp_state = f"{mcp_state} · {attached_count}"
     projection_pending = int(observed.get("projection_pending") or 0)
@@ -4342,14 +4351,16 @@ def main() -> int:
             print("PyQt6: available")
             return 0
         print(
-            "PyQt6: missing; install it with: python -m pip install PyQt6",
+            "PyQt6: missing; install it with: python -m pip install PyQt6"
+            f" (import detail: {_PYQT6_IMPORT_ERROR or 'unavailable'})",
             file=sys.stderr,
         )
         return 1
     if not _PYQT6_AVAILABLE:
         print(
             "PyQt6 is required to run the BHM Control Deck GUI; "
-            "install it with: python -m pip install PyQt6",
+            "install it with: python -m pip install PyQt6"
+            f" (import detail: {_PYQT6_IMPORT_ERROR or 'unavailable'})",
             file=sys.stderr,
         )
         return 1

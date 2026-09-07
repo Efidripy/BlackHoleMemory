@@ -25,7 +25,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Iterable, Literal, Mapping, Sequence
+from typing import Any, Callable, Iterable, Literal, Mapping, Sequence
 
 from fastapi import FastAPI
 from fastapi import HTTPException
@@ -169,6 +169,7 @@ from .semantic_readiness import project_warmup_state
 from .semantic_code_search import SemanticCodeSearchError
 from .semantic_code_search import semantic_search_metadata
 from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
+from .context_compiler import MAX_CONTEXT_ITEM_CHARS
 from .context_compiler import compile_context
 from .context_profiles import resolve_context_profile
 from .context_profiles import load_context_profiles
@@ -177,6 +178,12 @@ from .context_tiers import TierBudget
 from .context_tiers import TieredContextItem
 from .context_tiers import compile_tiered_context
 from .context_tier_lifecycle import build_context_tier_lifecycle_receipt
+from .context_tier_promotion import ContextTierPromotionDisabled
+from .context_tier_promotion import ContextTierPromotionError
+from .context_tier_promotion import ContextTierPromotionMigrationRequired
+from .context_tier_promotion import ContextTierPromotionStale
+from .context_tier_promotion import rollback_tier_promotion
+from .context_tier_promotion import runtime_enabled as context_tier_promotion_enabled
 from .adaptive_profile import recommend_context_profile
 from .adaptive_profile import summarize_explicit_usefulness
 from .context_confidence import assess_context_confidence
@@ -683,7 +690,7 @@ _PROVIDER_WARMUP_MAX_RESPONSE_BYTES = min(
     _env_int("BHM_PROVIDER_WARMUP_MAX_RESPONSE_BYTES", 16 * 1024, 512),
     256 * 1024,
 )
-_PROVIDER_EMBEDDING_WARMUP_ENABLED = os.getenv("BHM_PROVIDER_EMBEDDING_WARMUP", "").lower() in {
+_PROVIDER_CHAT_WARMUP_ENABLED = os.getenv("BHM_PROVIDER_CHAT_WARMUP", "").lower() in {
     "1",
     "true",
     "yes",
@@ -693,12 +700,6 @@ _PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS = _env_float(
     _PROVIDER_WARMUP_TIMEOUT_SECONDS,
     0.1,
     LLM_HTTP_TIMEOUT_SECONDS,
-)
-_PROVIDER_EMBEDDING_WARMUP_ATTEMPTS = _env_int("BHM_PROVIDER_EMBEDDING_WARMUP_ATTEMPTS", 2, 1)
-_PROVIDER_EMBEDDING_WARMUP_RETRY_DELAY_SECONDS = _env_float(
-    "BHM_PROVIDER_EMBEDDING_WARMUP_RETRY_DELAY_SECONDS",
-    0.25,
-    0.0,
 )
 _PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES = min(
     _env_int("BHM_PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES", 256 * 1024, 1024),
@@ -742,11 +743,21 @@ _PROVIDER_WARMUP_STATUS: dict[str, Any] = {
     "attempts": 0,
     "last_error": "",
     "updated_at": "",
-    "embedding_warmup_enabled": _PROVIDER_EMBEDDING_WARMUP_ENABLED,
-    "embedding_ready": not _PROVIDER_EMBEDDING_WARMUP_ENABLED,
+    # Semantic retrieval depends on the embedding endpoint, never on the
+    # operator's currently selected chat model. Keep that distinction in the
+    # status contract so a busy/changed coding model cannot falsely breach the
+    # memory SLO.
+    "probe_kind": "embedding",
+    "embedding_warmup_enabled": _PROVIDER_WARMUP_REQUIRED,
+    "embedding_ready": not _PROVIDER_WARMUP_REQUIRED,
     "embedding_attempts": 0,
     "embedding_last_error": "",
-    "embedding_phase": "disabled" if not _PROVIDER_EMBEDDING_WARMUP_ENABLED else "pending",
+    "embedding_phase": "disabled" if not _PROVIDER_WARMUP_REQUIRED else "pending",
+    "chat_warmup_enabled": _PROVIDER_CHAT_WARMUP_ENABLED,
+    "chat_ready": not _PROVIDER_CHAT_WARMUP_ENABLED,
+    "chat_attempts": 0,
+    "chat_last_error": "",
+    "chat_phase": "disabled" if not _PROVIDER_CHAT_WARMUP_ENABLED else "pending",
     "memory_warmup_enabled": _PROVIDER_MEMORY_WARMUP_ENABLED,
     "memory_ready": not _PROVIDER_MEMORY_WARMUP_ENABLED,
     "memory_projects": [],
@@ -824,28 +835,22 @@ def _get_provider_warmup_status() -> dict[str, Any]:
 
 
 def _provider_warmup_url() -> str:
-    explicit = os.getenv("BHM_PROVIDER_WARMUP_URL", "").strip()
+    """Return the embedding endpoint used by the required memory probe."""
+
+    explicit = os.getenv("BHM_PROVIDER_EMBEDDING_WARMUP_URL", "").strip()
     if explicit:
         return explicit
-    endpoint = os.getenv("BHM_PROVIDER_WARMUP_ENDPOINT", "chat/completions").strip().lstrip("/")
-    return f"{settings.mem0_openai_base_url.rstrip('/')}/{endpoint}"
+    return f"{settings.mem0_openai_base_url.rstrip('/')}/embeddings"
 
 
 def _post_provider_warmup_probe() -> None:
+    """Verify the provider BHM retrieval actually needs, without retaining a vector."""
+
     payload = {
-        "model": settings.mem0_llm_model,
-        "messages": [{"role": "user", "content": "ping"}],
-        "max_tokens": 1,
-        "temperature": 0,
+        "model": settings.mem0_embedding_model,
+        "input": ["bhm provider readiness"],
+        "encoding_format": "float",
     }
-    # Qwen models served by LM Studio may spend the warmup budget in their
-    # reasoning phase unless thinking is explicitly disabled.  Keep this
-    # provider-specific compatibility hint bounded to Qwen (or an explicit
-    # operator override) so generic OpenAI-compatible endpoints retain their
-    # normal request shape.
-    disable_thinking = os.getenv("BHM_PROVIDER_DISABLE_THINKING", "").strip().lower()
-    if disable_thinking in {"1", "true", "yes", "on"} or "qwen" in settings.mem0_llm_model.lower():
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
     headers = {"Content-Type": "application/json"}
     if settings.mem0_api_key:
         headers["Authorization"] = f"Bearer {settings.mem0_api_key}"
@@ -855,15 +860,15 @@ def _post_provider_warmup_probe() -> None:
         headers=headers,
         method="POST",
     )
-    with open_local_url(request, timeout=_PROVIDER_WARMUP_TIMEOUT_SECONDS) as response:
-        raw = read_bounded_response(response, limit=_PROVIDER_WARMUP_MAX_RESPONSE_BYTES)
+    with open_local_url(request, timeout=_PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS) as response:
+        raw = read_bounded_response(response, limit=_PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES)
     try:
         response_payload = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise OSError("provider warmup response is not valid JSON") from exc
-    choices = response_payload.get("choices") if isinstance(response_payload, dict) else None
-    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
-        raise OSError("provider warmup response does not contain a completion choice")
+    data = response_payload.get("data") if isinstance(response_payload, dict) else None
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        raise OSError("provider warmup response does not contain embedding data")
 
 
 def _post_provider_embedding_warmup_probe() -> None:
@@ -897,6 +902,38 @@ def _post_provider_embedding_warmup_probe() -> None:
     data = response_payload.get("data") if isinstance(response_payload, dict) else None
     if not isinstance(data, list) or not data or not isinstance(data[0], dict):
         raise OSError("provider embedding warmup response does not contain embedding data")
+
+
+def _post_provider_chat_warmup_probe() -> None:
+    """Optionally verify a chat model without making it a memory health gate."""
+
+    payload = {
+        "model": settings.mem0_llm_model,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+        "temperature": 0,
+    }
+    disable_thinking = os.getenv("BHM_PROVIDER_DISABLE_THINKING", "").strip().lower()
+    if disable_thinking in {"1", "true", "yes", "on"} or "qwen" in settings.mem0_llm_model.lower():
+        payload["chat_template_kwargs"] = {"enable_thinking": False}
+    headers = {"Content-Type": "application/json"}
+    if settings.mem0_api_key:
+        headers["Authorization"] = f"Bearer {settings.mem0_api_key}"
+    request = urllib.request.Request(
+        f"{settings.mem0_openai_base_url.rstrip('/')}/chat/completions",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with open_local_url(request, timeout=_PROVIDER_WARMUP_TIMEOUT_SECONDS) as response:
+        raw = read_bounded_response(response, limit=_PROVIDER_WARMUP_MAX_RESPONSE_BYTES)
+    try:
+        response_payload = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise OSError("provider chat warmup response is not valid JSON") from exc
+    choices = response_payload.get("choices") if isinstance(response_payload, dict) else None
+    if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+        raise OSError("provider chat warmup response does not contain a completion choice")
 
 
 def _provider_memory_warmup_projects() -> list[str]:
@@ -942,40 +979,22 @@ async def warmup_provider_probe() -> None:
     attempts = 0
     while True:
         attempts += 1
-        _set_provider_warmup_status(attempts=attempts, last_error="", phase="probing")
+        _set_provider_warmup_status(
+            attempts=attempts,
+            last_error="",
+            phase="probing",
+            probe_kind="embedding",
+            embedding_warmup_enabled=True,
+            chat_warmup_enabled=_PROVIDER_CHAT_WARMUP_ENABLED,
+        )
         try:
             await run_in_threadpool(_post_provider_warmup_probe)
-            if _PROVIDER_EMBEDDING_WARMUP_ENABLED:
-                embedding_succeeded = False
-                embedding_error = ""
-                for embedding_attempt in range(1, _PROVIDER_EMBEDDING_WARMUP_ATTEMPTS + 1):
-                    _set_provider_warmup_status(
-                        embedding_attempts=embedding_attempt,
-                        embedding_last_error="",
-                        embedding_phase="probing",
-                    )
-                    try:
-                        await run_in_threadpool(_post_provider_embedding_warmup_probe)
-                        embedding_succeeded = True
-                        break
-                    except asyncio.CancelledError:
-                        raise
-                    except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
-                        embedding_error = _safe_exception_text(exc)
-                        _set_provider_warmup_status(
-                            embedding_ready=False,
-                            embedding_last_error=embedding_error,
-                            embedding_phase="retrying"
-                            if embedding_attempt < _PROVIDER_EMBEDDING_WARMUP_ATTEMPTS
-                            else "degraded",
-                        )
-                        if embedding_attempt < _PROVIDER_EMBEDDING_WARMUP_ATTEMPTS:
-                            await asyncio.sleep(_PROVIDER_EMBEDDING_WARMUP_RETRY_DELAY_SECONDS)
-                _set_provider_warmup_status(
-                    embedding_ready=embedding_succeeded,
-                    embedding_last_error="" if embedding_succeeded else embedding_error,
-                    embedding_phase="ready" if embedding_succeeded else "degraded",
-                )
+            _set_provider_warmup_status(
+                embedding_ready=True,
+                embedding_attempts=attempts,
+                embedding_last_error="",
+                embedding_phase="ready",
+            )
             if _PROVIDER_MEMORY_WARMUP_ENABLED:
                 _set_provider_warmup_status(memory_phase="probing", memory_last_error="")
                 try:
@@ -996,6 +1015,19 @@ async def warmup_provider_probe() -> None:
                     )
             _PROVIDER_WARMUP_READY.set()
             _set_provider_warmup_status(ready=True, phase="ready", last_error="")
+            if _PROVIDER_CHAT_WARMUP_ENABLED:
+                _set_provider_warmup_status(chat_attempts=1, chat_last_error="", chat_phase="probing")
+                try:
+                    await run_in_threadpool(_post_provider_chat_warmup_probe)
+                    _set_provider_warmup_status(chat_ready=True, chat_last_error="", chat_phase="ready")
+                except asyncio.CancelledError:
+                    raise
+                except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+                    _set_provider_warmup_status(
+                        chat_ready=False,
+                        chat_last_error=_safe_exception_text(exc),
+                        chat_phase="degraded",
+                    )
             return
         except asyncio.CancelledError:
             raise
@@ -2971,6 +3003,27 @@ class ContextCompileRequest(BaseModel):
     tiered_context: bool = False
     limit: int | None = Field(default=None, ge=1, le=50)
     token_budget: int | None = Field(default=None, ge=64, le=MAX_CONTEXT_TOKEN_BUDGET)
+
+
+class AgentContextRequest(BaseModel):
+    """One bounded, SQLite-authoritative read package for an active agent."""
+
+    project: str
+    query: str | None = Field(default=None, max_length=500)
+    retrieval_limit: int = Field(default=8, ge=1, le=12)
+    token_budget: int = Field(default=800, ge=64, le=2_000)
+    active_task_limit: int = Field(default=10, ge=1, le=10)
+
+
+class ContextTierPromotionRollbackRequest(BaseModel):
+    """Admin-only reversal of one exact project-scoped promotion receipt."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project: str = Field(min_length=1, max_length=160)
+    candidate_id: str = Field(min_length=8, max_length=160)
+    apply: StrictBool = False
+    confirmation: str = Field(min_length=8, max_length=160)
 
 
 def _authoritative_context_compile_request(
@@ -5177,6 +5230,73 @@ def _governed_consolidation_error(exc: Exception) -> HTTPException:
     if isinstance(exc, GovernedConsolidationError):
         return HTTPException(status_code=422, detail={"code": "governed_consolidation_invalid", "reason": _safe_exception_text(exc)})
     return HTTPException(status_code=503, detail={"code": "governed_consolidation_unavailable"})
+
+
+def _require_context_tier_promotion_enabled() -> None:
+    if not context_tier_promotion_enabled():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "context_tier_promotion_disabled", "reason": "BHM_CONTEXT_TIER_PROMOTION_ENABLED is not set"},
+        )
+
+
+def _context_tier_promotion_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ContextTierPromotionMigrationRequired):
+        return HTTPException(status_code=409, detail={"code": "context_tier_promotion_migration_required"})
+    if isinstance(exc, ContextTierPromotionDisabled):
+        return HTTPException(status_code=409, detail={"code": "context_tier_promotion_disabled"})
+    if isinstance(exc, ContextTierPromotionStale):
+        return HTTPException(status_code=409, detail={"code": "context_tier_promotion_stale"})
+    if isinstance(exc, ContextTierPromotionError):
+        return HTTPException(status_code=422, detail={"code": "context_tier_promotion_invalid", "reason": _safe_exception_text(exc)})
+    return HTTPException(status_code=503, detail={"code": "context_tier_promotion_unavailable"})
+
+
+def _context_tier_promotion_project(principal: Any, project: str) -> str:
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+    canonical_project = _canonical_project(project)
+    if error := authorize_projects(principal, (canonical_project,), require_explicit=True):
+        raise HTTPException(status_code=403, detail={"code": error})
+    return canonical_project
+
+
+def _context_tier_promotion_rollback(
+    request: ContextTierPromotionRollbackRequest,
+    *,
+    principal: Any,
+) -> dict[str, Any]:
+    """Run one revision-CAS rollback; the existing outbox owns projection."""
+
+    _require_context_tier_promotion_enabled()
+    project = _context_tier_promotion_project(principal, request.project)
+    try:
+        result = rollback_tier_promotion(
+            database_path=_governed_consolidation_database_path(),
+            project=project,
+            candidate_id=request.candidate_id,
+            apply=request.apply,
+            confirmation=request.confirmation,
+        )
+    except (ContextTierPromotionError, OSError, ValueError) as exc:
+        raise _context_tier_promotion_error(exc) from exc
+    return {
+        "project": project,
+        "candidate_id": result.candidate_id,
+        "status": result.status,
+        "memory_id": result.memory_id,
+        "outbox_event_id": result.outbox_event_id,
+        "idempotent": result.idempotent,
+        "deduplicated": result.deduplicated,
+        "side_effects": {
+            "sqlite_mutation": not result.idempotent,
+            "memory_lifecycle_mutation": not result.idempotent,
+            "memory_outbox_mutation": bool(result.outbox_event_id),
+            "qdrant_mutation": False,
+            "mem0_mutation": False,
+            "projection": "existing_outbox_projector",
+        },
+    }
 
 
 def _governed_consolidation_project(principal: Any, project: str) -> str:
@@ -8757,6 +8877,25 @@ def _extract_hook_source_ids(request: BhmHookCompactRequest, transit_items: list
     return _dedupe_text(source_ids)
 
 
+def _lifecycle_source_ids(request: BhmHookRequest | ObservationIngressV1) -> list[str]:
+    """Read only explicit source references for a content-free proposal.
+
+    Lifecycle policy never infers source IDs from transcript text.  A compact
+    hook may use its established typed fields; every other ingress must supply
+    one of the explicit ID fields in structured data.
+    """
+
+    if isinstance(request, BhmHookCompactRequest):
+        return _extract_hook_source_ids(request, _hook_transit_items(request))
+    data = request.data
+    if not isinstance(data, Mapping):
+        return []
+    source_ids: list[str] = []
+    for key in ("source_ids", "sourceIds", "memory_ids", "memoryIds"):
+        source_ids.extend(_coerce_hook_text_list(data.get(key)))
+    return _dedupe_text(source_ids)
+
+
 def _with_context_tier_lifecycle_receipt(request: BhmHookRequest) -> tuple[BhmHookRequest, dict[str, Any]]:
     """Bind a content-free tier lifecycle receipt to the sanitized observation.
 
@@ -8765,9 +8904,7 @@ def _with_context_tier_lifecycle_receipt(request: BhmHookRequest) -> tuple[BhmHo
     auditable lifecycle anchor with the existing observation event.
     """
 
-    source_ids: list[str] = []
-    if isinstance(request, BhmHookCompactRequest):
-        source_ids = _extract_hook_source_ids(request, _hook_transit_items(request))
+    source_ids = _lifecycle_source_ids(request)
     receipt = build_context_tier_lifecycle_receipt(
         project=request.project,
         session_id=request.sessionId,
@@ -8794,6 +8931,7 @@ def _with_observation_tier_lifecycle_receipt(
         event_id=event_id,
         hook_type=request.hookType,
         parent_event_id=request.parentEventId,
+        source_ids=_lifecycle_source_ids(request),
     )
     metadata = dict(request.metadata or {})
     metadata["context_tier_lifecycle"] = receipt
@@ -19643,6 +19781,216 @@ async def bhm_context_compile(
     }
 
 
+_AGENT_CONTEXT_DEFAULT_QUERY = "current task checkpoint risks next validation"
+_AGENT_CONTEXT_ARTIFACT_TEXT_LIMIT = 1_600
+
+
+def _agent_context_text(value: Any, *, limit: int = _AGENT_CONTEXT_ARTIFACT_TEXT_LIMIT) -> str:
+    """Return a bounded redacted string for the agent-only read package."""
+
+    text = redact_secret_text(str(value or "")).value.strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(limit - 3, 1)].rstrip() + "..."
+
+
+def _agent_context_record(record: Mapping[str, Any], fields: Sequence[str]) -> dict[str, Any]:
+    """Keep artifact output small and avoid opaque metadata/session internals."""
+
+    result: dict[str, Any] = {}
+    for field in fields:
+        value = record.get(field)
+        if isinstance(value, str):
+            result[field] = _agent_context_text(value)
+        elif isinstance(value, list):
+            result[field] = [
+                _agent_context_text(item, limit=320) if isinstance(item, str) else item
+                for item in value[:12]
+            ]
+        else:
+            result[field] = value
+    return result
+
+
+def _optional_agent_context_artifact(
+    loader: Callable[[str], dict],
+    serializer: Callable[[dict], dict],
+    project: str,
+    fields: Sequence[str],
+) -> dict[str, Any] | None:
+    """Missing optional task artifacts are absence, never a package failure."""
+
+    try:
+        record = loader(project)
+        if not _project_matches(record.get("project"), project):
+            return None
+        return _agent_context_record(serializer(record), fields)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return None
+        raise
+
+
+def _agent_context_transport_snapshot() -> dict[str, Any]:
+    """Expose only server-observable aggregate MCP state, never session IDs."""
+
+    sessions = _MCP_STREAMABLE_HTTP.contract_snapshot().get("sessions") or {}
+    drift_count = max(int(sessions.get("contract_drift_count") or 0), 0)
+    return {
+        "server_observation": str(sessions.get("status") or "detached"),
+        "attached_count": max(int(sessions.get("attached_count") or 0), 0),
+        "pending_count": max(int(sessions.get("pending_count") or 0), 0),
+        "active_count": max(int(sessions.get("active_count") or 0), 0),
+        "contract_state": "aligned" if drift_count == 0 else "drift_detected",
+        "client_tool_surface": "unverifiable_by_server",
+        "configured_is_not_attach_proof": True,
+    }
+
+
+def _agent_context_compiler_items(records: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """Reuse the canonical context packer with redacted SQLite-only candidates."""
+
+    items: list[dict[str, Any]] = []
+    for record in records:
+        item = _context_item_from_vector_hit(_context_hit_from_authoritative_record(record))
+        item["content"] = _agent_context_text(item.get("content"))
+        item["title"] = _agent_context_text(item.get("title"), limit=240)
+        items.append(item)
+    return items
+
+
+@app.post("/bhm/agent-context")
+async def bhm_agent_context(request: AgentContextRequest, http_request: Request) -> dict[str, Any]:
+    """Assemble task-aware agent context without provider warmup or state writes."""
+
+    project = _canonical_project(request.project)
+    query = _agent_context_text(request.query, limit=500) or _AGENT_CONTEXT_DEFAULT_QUERY
+    query_source = "caller" if request.query and str(request.query).strip() else "default-current-task"
+    retrieval_request = MemoryAdvancedSearchRequest(
+        query=query,
+        project=project,
+        include_archived=False,
+        include_logs=False,
+        include_historical=False,
+        history_scope="current",
+        limit=request.retrieval_limit,
+        offset=0,
+    )
+    records, total = await _run_bounded_read(
+        "bhm.agent-context.sqlite-retrieval",
+        _advanced_search_live_memories,
+        retrieval_request,
+    )
+    # The authoritative search already applies these filters. Repeat them at
+    # the assembly boundary so a future adapter or a test double cannot turn
+    # this single-project package into a cross-project/history leak.
+    records = [
+        record
+        for record in records
+        if _memory_matches_filters(
+            record,
+            project=project,
+            include_archived=False,
+            include_logs=False,
+            include_historical=False,
+        )
+    ]
+    compiled = compile_context(
+        _agent_context_compiler_items(records),
+        token_budget=request.token_budget,
+        max_item_chars=MAX_CONTEXT_ITEM_CHARS,
+    )
+    all_tasks, _ = _list_tasks(project, status=None, limit=50, offset=0)
+    active_tasks = [
+        item
+        for item in all_tasks
+        if _project_matches(item.get("project"), project)
+        and str(item.get("status") or "open").strip().casefold() not in {"closed", "done", "archived"}
+    ]
+    principal = getattr(http_request.state, "bhm_caller_principal", None)
+    if principal is None:
+        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
+
+    return {
+        "project": project,
+        "request_authorized": True,
+        "authorization": {
+            "caller_id": str(principal.caller_id),
+            "project": project,
+            "caller_scope": "all_projects" if principal.all_projects else "scoped",
+            "shared_read_feature_enabled": _shared_memory_read_enabled(),
+            "shared_write": False,
+            "shared_write_enabled": False,
+        },
+        "mcp_transport": _agent_context_transport_snapshot(),
+        "task_state": {
+            "task_context": _optional_agent_context_artifact(
+                _get_task_context,
+                _serialize_task_context_record,
+                project,
+                ("id", "project", "title", "current_task", "status", "pending_items", "guidance", "next_step", "files_touched", "created_at", "updated_at"),
+            ),
+            "latest_checkpoint": _optional_agent_context_artifact(
+                _get_latest_checkpoint,
+                _serialize_checkpoint_record,
+                project,
+                ("id", "project", "checkpoint_type", "title", "content", "done", "next", "checks", "risks", "concepts", "files", "created_at", "updated_at"),
+            ),
+            "risk_register": _optional_agent_context_artifact(
+                _get_risk_register,
+                _serialize_risk_register_record,
+                project,
+                ("id", "project", "title", "summary", "top_risks", "mitigations", "owner", "created_at", "updated_at"),
+            ),
+            "active_tasks": {
+                "items": [
+                    _agent_context_record(
+                        _serialize_task_record(item),
+                        ("task_id", "project", "title", "intent", "scope_in", "scope_out", "repo", "owner", "status", "files_touched", "done", "next", "checks", "risks", "decisions", "validation", "opened_at", "updated_at"),
+                    )
+                    for item in active_tasks[: request.active_task_limit]
+                ],
+                "total": len(active_tasks),
+                "limit": request.active_task_limit,
+                "excluded_statuses": ["closed", "done", "archived"],
+            },
+            "project_summary": _optional_agent_context_artifact(
+                _project_summary_get,
+                lambda record: record,
+                project,
+                ("id", "title", "project", "type", "content", "concepts", "files", "source_system", "source_digest", "created_at", "updated_at", "lifecycle"),
+            ),
+        },
+        "retrieval": {
+            "source": "sqlite-authoritative",
+            "mode": "authoritative-current",
+            "query": query,
+            "query_source": query_source,
+            "history_scope": "current",
+            "total": total,
+            "candidate_count": len(records),
+            "included_count": compiled["included_count"],
+            "context": compiled["text"],
+            "citations": compiled["citations"],
+            "provenance": compiled["provenance"],
+            "omissions": compiled["omissions"],
+            "freshness": {"ordered_by": "lexical_score_then_updated_at", "as_of": None},
+            "budget": {
+                "token_budget": compiled["token_budget"],
+                "estimated_tokens": compiled["estimated_tokens"],
+                "truncated": compiled["truncated"],
+            },
+        },
+        "execution": {
+            "writes_sqlite_state": False,
+            "writes_qdrant": False,
+            "writes_mem0": False,
+            "writes_task_state": False,
+            "model_started": False,
+        },
+    }
+
+
 @app.post("/bhm/retrieval/explain")
 async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, Any]:
     """Explain bounded ranking signals without returning raw retrieval metadata."""
@@ -21034,6 +21382,21 @@ async def bhm_governed_consolidation_apply(
     http_request: Request,
 ) -> dict[str, Any]:
     return await _run_bounded_write("bhm.governed_consolidation.apply", _governed_consolidation_apply, request, principal=getattr(http_request.state, "bhm_caller_principal", None))
+
+
+@app.post("/bhm/context-tier-promotion/rollback")
+async def bhm_context_tier_promotion_rollback(
+    request: ContextTierPromotionRollbackRequest,
+    http_request: Request,
+) -> dict[str, Any]:
+    """Admin-only exact-revision rollback for a durable tier promotion."""
+
+    return await _run_bounded_write(
+        "bhm.context_tier_promotion.rollback",
+        _context_tier_promotion_rollback,
+        request,
+        principal=getattr(http_request.state, "bhm_caller_principal", None),
+    )
 
 
 @app.get("/bhm/profile")

@@ -167,6 +167,8 @@ _EXPLICIT_PROJECT_SCOPE_PATHS = frozenset(
         "/bhm/memory/normalize-metadata",
         "/bhm/shared-memory/policy/evaluate",
         "/bhm/shared-memory/read",
+        "/bhm/agent-context",
+        "/bhm/context-tier-promotion/rollback",
     }
 )
 _PROJECT_KEYS = frozenset(

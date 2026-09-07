@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-memory-graph.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-memory-graph.py"
 WI06_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-WI06_EXPECTED_CORE_TOOL_COUNT = 35
+WI06_EXPECTED_CORE_TOOL_COUNT = 36
 
 
 def _fixture() -> dict[str, list[dict]]:

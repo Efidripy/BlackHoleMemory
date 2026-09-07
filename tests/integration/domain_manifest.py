@@ -36,6 +36,8 @@ FILE_DOMAINS = {
     "test_qdrant_lifecycle.py": "storage",
     "test_qdrant_retention.py": "storage",
     "test_search_bounds.py": "retrieval",
+    "test_agent_context.py": "retrieval",
+    "test_context_tier_promotion_surface.py": "storage",
     "test_repository_index.py": "storage",
     "test_code_graph.py": "storage",
     "test_code_graph_query.py": "storage",

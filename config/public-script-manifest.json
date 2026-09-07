@@ -454,6 +454,11 @@
       "release": true
     },
     {
+      "path": "scripts/manage-bhm-shared-visibility.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/manage-bhm-ontology-registry.py",
       "role": "operator",
       "release": true
@@ -539,6 +544,11 @@
       "release": true
     },
     {
+      "path": "scripts/run-bhm-longmemeval-answer-quality.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/run-bhm-longmemeval-smoke.py",
       "role": "operator",
       "release": true
@@ -620,6 +630,11 @@
     },
     {
       "path": "scripts/validate-bhm-auth-admin-parity.py",
+      "role": "quality-gate",
+      "release": true
+    },
+    {
+      "path": "scripts/validate-bhm-context-tier-promotion-rollback.py",
       "role": "quality-gate",
       "release": true
     },

@@ -189,9 +189,11 @@ revocation are evaluated against server time, never the caller timestamp. One
 unambiguous active immutable grant must allow the same project, owner,
 visibility and `read` operation; a denied attempt keeps a content-free audit
 record but returns no memory data. The supplied timestamp is retained only as
-idempotent request-correlation evidence in that audit record. The response is
-a bounded canonical SQLite subset. Shared writes remain disabled, and this
-route never reads/writes Qdrant or Mem0 or changes a memory lifecycle.
+idempotent request-correlation evidence in that audit record: a replay with a
+later correlation timestamp retains the first immutable receipt rather than
+creating an artifact collision or overwriting it. The response is a bounded
+canonical SQLite subset. Shared writes remain disabled, and this route never
+reads/writes Qdrant or Mem0 or changes a memory lifecycle.
 
 ## Hierarchical context tiers
 
@@ -216,9 +218,27 @@ migration plus the caller's explicit policy and exact candidate confirmation.
 It is not invoked from hooks, starts no worker, and never calls Mem0 or Qdrant
 directly. Disabling the policy stops future apply; recovery of an already
 promoted canonical aggregate remains an explicit, revision-checked operation.
+Lifecycle events have a separate default-off proposal policy:
+`BHM_CONTEXT_TIER_LIFECYCLE_PROPOSALS_ENABLED=1` permits only `PreCompact` or
+`SessionEnd` carrying exactly one explicit source reference to attach a
+content-free `bhm.context-tier-activation-proposal.v1` to the existing
+sanitized observation. It neither chooses candidate content nor creates a
+durable memory. SessionStart, prompt/recall, PostToolUse, resume, idle,
+unmapped phases and zero/multiple source references are explicitly ineligible.
+An eligible proposal still requires the normal canonical source/revision
+revalidation, promotion policy and admin-confirmed apply path.
 `scripts/manage-bhm-context-tier-promotion.py` exposes local `plan`,
 `dry-run`, `apply` and `rollback` operations; the latter two consume the
 default-off `BHM_CONTEXT_TIER_PROMOTION_ENABLED` policy and exact confirmation.
+Rollback requires the candidate's explicit project as well as the exact
+confirmation. An applied receipt binds the rollback to the promoted immutable
+revision and a content-free digest of the complete rollback-relevant aggregate
+state. Any later content revision or same-content metadata/title change is
+therefore stale instead of being overwritten. The REST
+`POST /bhm/context-tier-promotion/rollback` and its admin-only MCP wrapper
+require caller project authorization, `BHM_ADMIN_CAPABILITY`, the default-off
+policy and the same exact confirmation; they enqueue only the ordinary SQLite
+outbox event and never write Mem0 or Qdrant directly.
 
 The compatibility MCP `bhm_observe` wrapper accepts the same optional
 `parentEventId` used by the REST observation contract. Clients should provide
@@ -291,6 +311,11 @@ for the live ranker or a runtime FTS migration.
   `/bhm/context/compile` and `/bhm/retrieval/explain`) return a `side_effects`
   object with `read_only=true`, `sqlite_mutation=false`,
   `qdrant_mutation=false` and `projection_mutation=false`.
+- `POST /bhm/agent-context` is the additive agent-facing read package. It
+  packs existing project artifacts with current-scope authoritative SQLite
+  retrieval and reports its no-write/no-model boundary in `execution`. It does
+  not warm up Mem0/Qdrant, rebuild a project summary, write a checkpoint, or
+  prove a desktop client's native tool visibility from server transport state.
 - Canonical `POST /bhm/search` additionally returns a content-free
   `bhm.retrieval-contour-trace.v1` query-plan stage for the completed
   embedding/local/global/exact contour timings. Query-embedding preparation

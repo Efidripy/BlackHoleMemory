@@ -25,7 +25,10 @@ from blackholememory.memory_service import SQLiteMemoryService
 from blackholememory.shared_memory_audit import append_shared_memory_audit
 from blackholememory.shared_memory_audit import build_shared_memory_audit_event
 from blackholememory.shared_memory_audit import ARTIFACT_TYPE as SHARED_MEMORY_AUDIT_ARTIFACT_TYPE
+from blackholememory.shared_memory_grants import SharedGrantRevocation
 from blackholememory.shared_memory_grants import build_grant_artifact
+from blackholememory.shared_memory_grants import build_revocation_artifact
+from blackholememory.shared_memory_grants import grant_digest
 
 
 def _principal(*, caller_id: str = "agent-a", project: str = "blackholememory") -> CallerPrincipal:
@@ -369,6 +372,80 @@ def test_identical_concurrent_governed_reads_use_sqlite_ledger_and_replay_one_au
     )
     assert len(audit_records) == 1
     assert "disposable approved content" not in str(audit_records[0])
+
+
+@pytest.mark.parametrize(
+    ("grant_overrides", "revoked_at", "expected_reason"),
+    (
+        ({"expires_at": "2026-08-23T11:59:59Z"}, None, "shared_grant_expired"),
+        ({}, "2026-08-23T11:30:00Z", "shared_grant_revoked"),
+    ),
+)
+def test_expired_or_revoked_governed_read_retry_keeps_one_content_free_audit(
+    monkeypatch,
+    tmp_path,
+    grant_overrides,
+    revoked_at,
+    expected_reason,
+) -> None:
+    """Expiry and immutable revoke deny the bounded read and replay safely."""
+
+    database = tmp_path / f"governed-read-{expected_reason}.sqlite3"
+    service = SQLiteMemoryService(database, allow_create=True)
+    service.repository.initialize()
+    grant = _grant(**grant_overrides)
+    service.append_artifact(build_grant_artifact(grant))
+    if revoked_at is not None:
+        service.append_artifact(build_revocation_artifact(SharedGrantRevocation(
+            grant_id=grant.grant_id,
+            project=grant.project,
+            grant_digest=grant_digest(grant),
+            revoked_at=revoked_at,
+            revocation_receipt_digest="f" * 64,
+        )))
+    monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "1")
+    monkeypatch.setattr(bhm_app, "_memory_service", lambda: SQLiteMemoryService(database, allow_create=True))
+    monkeypatch.setattr(bhm_app, "_utc_now_iso", lambda: "2026-08-23T12:00:00Z")
+    monkeypatch.setattr(
+        bhm_app,
+        "_find_live_memory",
+        lambda *_args: {
+            "source_id": "memory-fixture",
+            "project": "blackholememory",
+            "memory_type": "fact",
+            "agent_id": "agent-owner",
+            "content": "private fixture content",
+            "metadata": {"shared_visibility": "project", "sensitivity": "internal"},
+            "lifecycle": "active",
+        },
+    )
+    first = bhm_app.SharedMemoryReadRequest(
+        project="blackholememory",
+        request_id="expired-governed-read-retry",
+        visibility="project",
+        owner_id="agent-owner",
+        memory_id="memory-fixture",
+        at="2026-08-23T12:00:00Z",
+    )
+    retry = first.model_copy(update={"at": "2026-08-23T12:01:00Z"})
+
+    for request in (first, retry):
+        with pytest.raises(bhm_app.HTTPException) as error:
+            bhm_app._shared_memory_read(request, principal=_principal(), auth_kind="caller_bearer")
+        assert error.value.status_code == 403
+        assert error.value.detail["code"] == "shared_memory_policy_denied"
+        assert error.value.detail["reason_code"] == expected_reason
+        assert "private fixture content" not in str(error.value.detail)
+
+    audits = SQLiteMemoryService(database, allow_create=True).list_artifact_records(
+        artifact_type=SHARED_MEMORY_AUDIT_ARTIFACT_TYPE,
+        project="blackholememory",
+        limit=None,
+    )
+    assert len(audits) == 1
+    assert audits[0]["decision"] == "deny"
+    assert audits[0]["reason_code"] == expected_reason
+    assert "private fixture content" not in str(audits[0])
 
 
 def test_governed_read_audits_policy_deny_without_disclosing_memory(monkeypatch) -> None:

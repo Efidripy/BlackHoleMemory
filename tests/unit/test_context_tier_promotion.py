@@ -149,8 +149,8 @@ def test_explicit_rollback_preserves_revision_and_restores_heuristic_tier(tmp_pa
     before = repository.get_memory("mem_bhm_session", project=PROJECT)
     assert before is not None
 
-    result = rollback_tier_promotion(database_path=database, candidate_id=applied.candidate_id, apply=True, confirmation=applied.candidate_id, policy_enabled=True)
-    replay = rollback_tier_promotion(database_path=database, candidate_id=applied.candidate_id, apply=True, confirmation=applied.candidate_id, policy_enabled=True)
+    result = rollback_tier_promotion(database_path=database, project=PROJECT, candidate_id=applied.candidate_id, apply=True, confirmation=applied.candidate_id, policy_enabled=True)
+    replay = rollback_tier_promotion(database_path=database, project=PROJECT, candidate_id=applied.candidate_id, apply=True, confirmation=applied.candidate_id, policy_enabled=True)
 
     restored = repository.get_memory("mem_bhm_session", project=PROJECT)
     assert result.status == "rolled_back" and result.outbox_event_id
@@ -159,3 +159,49 @@ def test_explicit_rollback_preserves_revision_and_restores_heuristic_tier(tmp_pa
     assert restored.current_revision.revision_id == before.current_revision.revision_id
     assert restored.metadata.get("context_tier") is None
     assert restored.metadata.get("context_tier_promotion") is None
+
+
+def test_rollback_fails_closed_on_project_or_revision_drift(tmp_path) -> None:
+    repository, database = _ready_repository(tmp_path)
+    plan = _plan(repository)
+    applied = apply_tier_promotion(database_path=database, plan=plan, apply=True, confirmation=plan["candidate_id"], policy_enabled=True)
+
+    with pytest.raises(ContextTierPromotionStale):
+        rollback_tier_promotion(database_path=database, project="foreign-project", candidate_id=applied.candidate_id, apply=True, confirmation=applied.candidate_id, policy_enabled=True)
+
+    promoted = repository.get_memory("mem_bhm_session", project=PROJECT)
+    assert promoted is not None
+    changed = "Owner revision after durable promotion."
+    repository.save_memory(
+        promoted.model_copy(
+            update={
+                "updated_at": "2026-08-28T12:00:00Z",
+                "current_revision": MemoryRevision(
+                    revision_id="rev_bhm_owner_after_promotion",
+                    memory_id=promoted.id,
+                    content=changed,
+                    content_sha256=content_sha256(changed),
+                    created_at="2026-08-28T12:00:00Z",
+                ),
+            }
+        ),
+        expected_revision_id=promoted.current_revision.revision_id,
+    )
+    with pytest.raises(ContextTierPromotionStale):
+        rollback_tier_promotion(database_path=database, project=PROJECT, candidate_id=applied.candidate_id, apply=True, confirmation=applied.candidate_id, policy_enabled=True)
+
+
+def test_rollback_fails_closed_on_same_content_metadata_drift(tmp_path) -> None:
+    repository, database = _ready_repository(tmp_path)
+    plan = _plan(repository)
+    applied = apply_tier_promotion(database_path=database, plan=plan, apply=True, confirmation=plan["candidate_id"], policy_enabled=True)
+    promoted = repository.get_memory("mem_bhm_session", project=PROJECT)
+    assert promoted is not None
+    metadata = {**promoted.metadata, "owner_note": "same-content state change"}
+    repository.save_memory(
+        promoted.model_copy(update={"updated_at": "2026-08-28T12:00:00Z", "metadata": metadata}),
+        expected_revision_id=promoted.current_revision.revision_id,
+    )
+
+    with pytest.raises(ContextTierPromotionStale):
+        rollback_tier_promotion(database_path=database, project=PROJECT, candidate_id=applied.candidate_id, apply=True, confirmation=applied.candidate_id, policy_enabled=True)

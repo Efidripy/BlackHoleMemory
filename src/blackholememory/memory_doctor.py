@@ -75,7 +75,23 @@ def _dedupe_payload_digest(
 def _safe_record(record: Mapping[str, Any]) -> dict[str, Any]:
     metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
     provenance = record.get("provenance") if isinstance(record.get("provenance"), Mapping) else {}
-    owner_id = str(record.get("owner_id") or metadata.get("owner_id") or "").strip()
+    owner_id = str(
+        record.get("owner_id")
+        or record.get("agent_id")
+        or metadata.get("owner_id")
+        or provenance.get("agent_id")
+        or ""
+    ).strip()
+    supplied_owner_digest = str(record.get("shared_owner_digest") or "").strip().casefold()
+    shared_owner_digest = (
+        supplied_owner_digest
+        if record.get("shared_owner_digest_trusted") is True
+        and len(supplied_owner_digest) == 64
+        and all(character in "0123456789abcdef" for character in supplied_owner_digest)
+        else hashlib.sha256(owner_id.encode("utf-8")).hexdigest()
+        if owner_id
+        else ""
+    )
     supplied_dedupe_digest = str(record.get("dedupe_payload_digest") or "").strip().casefold()
     dedupe_payload_digest = (
         supplied_dedupe_digest
@@ -116,7 +132,7 @@ def _safe_record(record: Mapping[str, Any]) -> dict[str, Any]:
         "shared_visibility": str(
             record.get("shared_visibility") or metadata.get("shared_visibility") or ""
         ).casefold(),
-        "shared_owner_digest": hashlib.sha256(owner_id.encode("utf-8")).hexdigest() if owner_id else "",
+        "shared_owner_digest": shared_owner_digest,
         "sensitivity": str(record.get("sensitivity") or metadata.get("sensitivity") or "").casefold(),
         "dedupe_payload_digest": dedupe_payload_digest,
     }
@@ -283,10 +299,13 @@ def load_authoritative_sqlite_snapshot(
                 "ontology_schema_digest": str(metadata.get("ontology_schema_digest") or "").casefold(),
                 "shared_visibility": str(metadata.get("shared_visibility") or "").casefold(),
                 "shared_owner_digest": (
-                    hashlib.sha256(str(metadata.get("owner_id") or "").strip().encode("utf-8")).hexdigest()
-                    if str(metadata.get("owner_id") or "").strip()
+                    hashlib.sha256(
+                        str(metadata.get("owner_id") or provenance.get("agent_id") or "").strip().encode("utf-8")
+                    ).hexdigest()
+                    if str(metadata.get("owner_id") or provenance.get("agent_id") or "").strip()
                     else ""
                 ),
+                "shared_owner_digest_trusted": True,
                 "sensitivity": str(metadata.get("sensitivity") or "").casefold(),
                 "dedupe_payload_digest": _dedupe_payload_digest(
                     memory_type=memory_type,

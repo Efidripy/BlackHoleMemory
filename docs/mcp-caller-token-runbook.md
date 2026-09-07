@@ -24,6 +24,28 @@ token.
 3. Зарегистрируйте MCP server `bhm` с endpoint из этого документа и bearer
    auth. Не добавляйте новый сервер, если уже существует canonical `bhm`.
 
+## Codex Desktop без process environment
+
+Некоторые Windows Desktop/MSIX hosts не передают user-scoped environment в
+дочерний Codex process. Симптом: BHM API и REST bridge healthy, но native MCP
+не выдаёт tools, а `bearer_token_env_var = "BHM_CALLER_TOKEN"` обрывает
+инициализацию до HTTP connect.
+
+В этом случае используйте versioned plugin helper, который читает уже
+существующий token из Windows user environment и печатает для Codex только
+JSON HTTP headers. Token не записывается в `config.toml`:
+
+```toml
+[mcp_servers.bhm]
+url = "http://127.0.0.1:8000/mcp"
+http_headers_helper = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\<user>\\.codex\\plugins\\local\\bhm-codex-connector\\scripts\\emit-bhm-mcp-headers.ps1"
+```
+
+Для helper-варианта удалите `bearer_token_env_var`: Codex требует эту
+переменную до запуска helper. Сохраните backup user-level `config.toml`,
+перезапустите только Codex Desktop и подтвердите attach native `bhm_health`.
+BHM API перезапускать не требуется, если `/health/ready` уже возвращает `200`.
+
 ## Проверка
 
 - `401` означает отсутствующий, просроченный или неверно переданный token.

@@ -18,7 +18,7 @@ from typing import Any, Mapping, Sequence
 
 from .domain import Memory, content_sha256
 from .memory_contracts import MemoryClass, MemoryClassSource, MemoryEventRole
-from .memory_repository import SQLiteMemoryRepository
+from .memory_repository import MemoryRevisionConflict, SQLiteMemoryRepository
 
 
 SCHEMA_VERSION = "bhm.context-tier-promotion.v1"
@@ -249,6 +249,34 @@ def _current_basis(connection: sqlite3.Connection, *, project: str, session_id: 
             raise ContextTierPromotionStale("promotion source snapshot drifted")
 
 
+def _promotion_state_digest(memory: Memory) -> str:
+    """Hash the complete rollback-relevant aggregate state without raw text.
+
+    A content revision CAS detects ordinary owner edits.  The extra digest also
+    rejects same-content metadata/title edits, which may legitimately reuse an
+    immutable content revision in SQLite.
+    """
+
+    return _sha256(
+        {
+            "memory_id": memory.id,
+            "project": memory.project,
+            "memory_type": memory.memory_type,
+            "lifecycle": memory.lifecycle.value,
+            "title_sha256": hashlib.sha256(memory.title.encode("utf-8")).hexdigest(),
+            "summary_sha256": hashlib.sha256(memory.summary.encode("utf-8")).hexdigest(),
+            "tags_sha256": _sha256(list(memory.tags)),
+            "files_sha256": _sha256(list(memory.files)),
+            "session_refs_sha256": _sha256(list(memory.session_refs)),
+            "metadata_sha256": _sha256(memory.metadata),
+            "provenance_sha256": _sha256(memory.provenance.to_dict()),
+            "extra_sha256": _sha256(memory.extra),
+            "current_revision_id": memory.current_revision.revision_id,
+            "content_sha256": memory.current_revision.content_sha256,
+        }
+    )
+
+
 @dataclass(frozen=True)
 class TierPromotionApplyResult:
     candidate_id: str
@@ -344,9 +372,20 @@ def apply_tier_promotion(
             (candidate_id, checked["candidate_digest"], checked["project"], checked["session_id"], checked["lock"]["lock_key_digest"], _canonical_json(checked["basis"]), _canonical_json(checked["candidate"]), status, target_memory_id, outbox_event_id, now, now),
         )
         receipt_id = f"tier_receipt_{_sha256({'candidate_id': candidate_id, 'status': status})[:24]}"
+        receipt_details = {
+            "outbox_event_id": outbox_event_id,
+            "source_refs_digest": checked["source_refs_digest"],
+            "target_memory_id": target_memory_id,
+        }
+        # The promoted aggregate's current immutable revision is the rollback
+        # compare-and-swap anchor.  Keep it in the existing immutable receipt
+        # rather than adding a second lifecycle mutation or schema migration.
+        if duplicate is None:
+            receipt_details["promotion_revision_id"] = saved.memory.current_revision.revision_id
+            receipt_details["promotion_state_digest"] = _promotion_state_digest(saved.memory)
         connection.execute(
             "INSERT INTO context_tier_promotion_receipts(receipt_id, candidate_id, action, details_json, created_at) VALUES (?, ?, ?, ?, ?)",
-            (receipt_id, candidate_id, status, _canonical_json({"outbox_event_id": outbox_event_id, "source_refs_digest": checked["source_refs_digest"]}), now),
+            (receipt_id, candidate_id, status, _canonical_json(receipt_details), now),
         )
         return TierPromotionApplyResult(candidate_id, status, target_memory_id, outbox_event_id, False, duplicate is not None)
 
@@ -354,6 +393,7 @@ def apply_tier_promotion(
 def rollback_tier_promotion(
     *,
     database_path: Path | str,
+    project: str,
     candidate_id: str,
     apply: bool,
     confirmation: str,
@@ -366,6 +406,7 @@ def rollback_tier_promotion(
     silently overwriting an intervening canonical change.
     """
 
+    normalized_project = _text(project, "project", limit=160)
     normalized_id = _text(candidate_id, "candidate_id", limit=160)
     if not apply or confirmation != normalized_id:
         raise ContextTierPromotionError("apply=true and exact candidate confirmation are required")
@@ -382,18 +423,42 @@ def rollback_tier_promotion(
         ).fetchone()
         if candidate is None:
             raise ContextTierPromotionError("promotion candidate is absent")
+        if str(candidate["project"]) != normalized_project:
+            raise ContextTierPromotionStale("promotion candidate is cross-project")
         if str(candidate["status"]) == "rolled_back":
             return TierPromotionApplyResult(normalized_id, "rolled_back", candidate["target_memory_id"], None, True, False)
         if str(candidate["status"]) != "applied" or not candidate["target_memory_id"]:
             raise ContextTierPromotionError("only an applied non-deduplicated candidate can be rolled back")
-        memory = repository.get_memory(str(candidate["target_memory_id"]), project=str(candidate["project"]))
+        receipt = connection.execute(
+            "SELECT details_json FROM context_tier_promotion_receipts WHERE candidate_id=? AND action='applied' ORDER BY created_at DESC, receipt_id DESC LIMIT 1",
+            (normalized_id,),
+        ).fetchone()
+        if receipt is None:
+            raise ContextTierPromotionStale("promotion revision receipt is absent")
+        try:
+            receipt_details = json.loads(str(receipt["details_json"]))
+        except json.JSONDecodeError as exc:
+            raise ContextTierPromotionStale("promotion revision receipt is invalid") from exc
+        expected_revision_id = str(receipt_details.get("promotion_revision_id") or "")
+        expected_state_digest = str(receipt_details.get("promotion_state_digest") or "")
+        expected_memory_id = str(receipt_details.get("target_memory_id") or "")
+        if not expected_revision_id or not expected_state_digest or expected_memory_id != str(candidate["target_memory_id"]):
+            raise ContextTierPromotionStale("promotion revision receipt is incomplete")
+        memory = repository.get_memory(str(candidate["target_memory_id"]), project=normalized_project)
         if memory is None or not isinstance(memory.metadata.get("context_tier_promotion"), Mapping) or str(memory.metadata["context_tier_promotion"].get("candidate_id") or "") != normalized_id:
             raise ContextTierPromotionStale("promoted aggregate changed after apply")
+        if memory.current_revision.revision_id != expected_revision_id:
+            raise ContextTierPromotionStale("promoted aggregate revision changed after apply")
+        if _promotion_state_digest(memory) != expected_state_digest:
+            raise ContextTierPromotionStale("promoted aggregate state changed after apply")
         metadata = dict(memory.metadata)
         metadata.pop("context_tier", None)
         metadata.pop("context_tier_promotion", None)
         reverted = memory.model_copy(update={"updated_at": now, "metadata": metadata})
-        saved = repository._save_memory_in_transaction(connection, reverted, expected_revision_id=memory.current_revision.revision_id)  # noqa: SLF001
+        try:
+            saved = repository._save_memory_in_transaction(connection, reverted, expected_revision_id=expected_revision_id)  # noqa: SLF001
+        except MemoryRevisionConflict as exc:
+            raise ContextTierPromotionStale("promoted aggregate revision changed during rollback") from exc
         connection.execute("UPDATE context_tier_promotion_candidates SET status='rolled_back', updated_at=? WHERE candidate_id=?", (now, normalized_id))
         receipt_id = f"tier_receipt_{_sha256({'candidate_id': normalized_id, 'status': 'rolled_back'})[:24]}"
         connection.execute("INSERT INTO context_tier_promotion_receipts(receipt_id, candidate_id, action, details_json, created_at) VALUES (?, ?, 'rolled_back', ?, ?)", (receipt_id, normalized_id, _canonical_json({"outbox_event_id": saved.outbox_event_id}), now))
