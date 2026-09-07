@@ -32,9 +32,18 @@ AI agent / IDE
                     FastAPI + LangGraph
                            │
              SQLite (authoritative lifecycle store)
-                 │                       │
-       Mem0 semantic/logical       Qdrant rebuildable
-             layer                 vector projection
+                           │
+                 transactional memory_outbox
+                    ┌──────┴──────┐
+                    │             │
+          Mem0 semantic/      Qdrant rebuildable
+          logical layer       vector projection
+                    │             │
+                    └──────┬──────┘
+                           │
+          candidate IDs / ranking hints only
+                           │
+         SQLite revalidation → canonical context
 ```
 
 The authority boundary is deliberate:
