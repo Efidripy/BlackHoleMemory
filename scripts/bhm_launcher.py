@@ -2777,17 +2777,20 @@ class StatusBadge(QWidget):
 
 
 class MetricCard(QFrame):
-    def __init__(self, title: str, accent: str = COLOR_CYAN) -> None:
+    def __init__(self, title: str, accent: str = COLOR_CYAN, tooltip: str = "") -> None:
         super().__init__()
         self.setObjectName("MetricCard")
         self.setMinimumHeight(76)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.accent = accent
+        self.setToolTip(tooltip)
         self.value = QLabel("--")
         self.value.setObjectName("MetricValue")
         self.value.setStyleSheet(f"color: {accent};")
+        self.value.setToolTip(tooltip)
         label = QLabel(title.upper())
         label.setObjectName("MetricTitle")
+        label.setToolTip(tooltip)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 14, 18, 14)
         layout.setSpacing(5)
@@ -3631,22 +3634,22 @@ class DashboardScreen(QWidget):
         grid = QGridLayout()
         grid.setSpacing(14)
         metrics = [
-            ("memory_count", "Memory Crystals", COLOR_PINK),
-            ("link_count", "Galaxy Links", COLOR_CYAN),
-            ("node_count", "Galaxy Nodes", COLOR_GREEN),
-            ("sessions", "Sessions", COLOR_CYAN),
-            ("observations", "Observations", COLOR_PINK),
-            ("sqlite_state", "SQLite Authority", COLOR_GREEN),
-            ("qdrant_state", "Qdrant Projection", COLOR_CYAN),
-            ("provider_state", "Provider Warm-up", COLOR_YELLOW),
-            ("mcp_state", "MCP Transport", COLOR_CYAN),
-            ("projection_queue", "Projection P/F", COLOR_PINK),
-            ("consolidation_queue", "Memory Review Queue", COLOR_YELLOW),
-            ("slo_state", "BHM SLO", COLOR_GREEN),
-            ("last_sys", "Last Refresh", COLOR_GREEN),
+            ("memory_count", "Memory Crystals", COLOR_PINK, "Durable BHM records, including archived history."),
+            ("link_count", "Knowledge Links", COLOR_CYAN, "Current navigable knowledge-graph topology. Structural project links and visible persisted relations only; links to excluded trace records are not counted."),
+            ("node_count", "Knowledge Nodes", COLOR_GREEN, "Current non-trace knowledge graph: durable knowledge records plus project hubs and the BHM root. Trace/session records and observations are intentionally excluded."),
+            ("sessions", "Sessions", COLOR_CYAN, "Recorded BHM sessions in the current project scope."),
+            ("observations", "Observations", COLOR_PINK, "Append-only activity journal entries; observations do not automatically become knowledge-graph nodes."),
+            ("sqlite_state", "SQLite Authority", COLOR_GREEN, "SQLite is the authoritative lifecycle and recovery store."),
+            ("qdrant_state", "Qdrant Projection", COLOR_CYAN, "Rebuildable semantic-search projection; never the authoritative source."),
+            ("provider_state", "Provider Warm-up", COLOR_YELLOW, "Embedding-provider readiness, independent of whichever chat model is currently loaded."),
+            ("mcp_state", "MCP Transport", COLOR_CYAN, "Current local Streamable HTTP MCP transport status."),
+            ("projection_queue", "Projection P/F", COLOR_PINK, "Pending and failed rebuildable projection events."),
+            ("consolidation_queue", "Memory Review Queue", COLOR_YELLOW, "Memory candidates awaiting governed consolidation review."),
+            ("slo_state", "BHM SLO", COLOR_GREEN, "Current BHM service-level health signal."),
+            ("last_sys", "Last Refresh", COLOR_GREEN, "Time of the most recent launcher telemetry refresh."),
         ]
-        for index, (key, title, accent) in enumerate(metrics):
-            card = MetricCard(title, accent)
+        for index, (key, title, accent, tooltip) in enumerate(metrics):
+            card = MetricCard(title, accent, tooltip)
             self.metric_cards[key] = card
             grid.addWidget(card, index // 4, index % 4)
             grid.setColumnStretch(index % 4, 1)

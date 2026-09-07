@@ -2766,10 +2766,11 @@
         return base;
       })
       .linkDirectionalParticles(link => {
-        if (semanticDirectionalEdgeTypes.has(edgeType(link))) {
-          return state.highlightLinkIds.has(linkKey(link)) ? 6 : 3;
-        }
-        return state.highlightLinkIds.has(linkKey(link)) ? 2 : 0;
+        // Moving particles are useful as an interaction cue, but animating
+        // every semantic relation permanently costs a renderer pass per link.
+        // Keep them for the relation currently under focus instead.
+        if (!state.highlightLinkIds.has(linkKey(link))) return 0;
+        return semanticDirectionalEdgeTypes.has(edgeType(link)) ? 4 : 2;
       })
       .linkDirectionalParticleWidth(link => {
         const semantic = semanticDirectionalEdgeTypes.has(edgeType(link));
@@ -2817,7 +2818,7 @@
       })
       .onNodeHover(node => {
         state.hoveredNodeId = state.selectedNodeId ? null : (node ? node.id : null);
-        syncHighlightState();
+        scheduleHighlightState();
       })
       .onNodeClick(node => {
         selectGraphNode(node);
@@ -2840,6 +2841,12 @@
         node.fy = node.y;
         node.fz = node.z;
       });
+
+    function setGalaxyRendererPixelRatio() {
+      Graph.renderer().setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
+    }
+
+    setGalaxyRendererPixelRatio();
 
     document.getElementById("reloadBtn").addEventListener("click", () => {
       loadGalaxy(true);
@@ -3295,6 +3302,11 @@
     }
 
     const radialGlowTexture = createRadialGlowTexture();
+    // Geometry is shared across every node. Per-node materials still preserve
+    // domain colour and selection feedback without multiplying GPU buffers.
+    const sharedCoreGeometry = new THREE.SphereGeometry(1, 12, 12);
+    const sharedShellGeometry = new THREE.SphereGeometry(1, 12, 12);
+    const sharedGlowGeometry = new THREE.PlaneGeometry(1, 1);
 
     function createGlowSprite(color, size, opacity) {
       const material = new THREE.MeshBasicMaterial({
@@ -3305,7 +3317,8 @@
         depthWrite: false,
         blending: THREE.AdditiveBlending
       });
-      const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
+      const glow = new THREE.Mesh(sharedGlowGeometry, material);
+      glow.userData.baseScale = size;
       glow.scale.set(size, size, 1);
       return glow;
     }
@@ -3320,43 +3333,57 @@
       const radius = nodeVal(node) * priorityVisuals.radiusMultiplier;
       const glowRadiusMultiplier = Math.max(0.72, Math.min(priorityVisuals.glowScale, 1.42));
       const group = new THREE.Group();
+      const priority = String(nodePriority(node) || "").toLowerCase();
+      const primaryNode = isProjectHubLike(node) || node.type === "lesson" || node.type === "slot";
+      const prominentNode = primaryNode
+        || nodeVisualClass(node) === "super-crystal"
+        || priority === "critical"
+        || priority === "high";
 
-      const glow = createGlowSprite(
-        domainColor,
-        radius * 8.8 * glowRadiusMultiplier,
-        Math.min(0.3, 0.09 * priorityVisuals.glowIntensity)
-      );
-      const halo = createGlowSprite(
-        domainColor,
-        radius * 5.15 * glowRadiusMultiplier,
-        Math.min(0.36, 0.145 * priorityVisuals.glowIntensity)
-      );
-      const ring = new THREE.Mesh(
-        new THREE.SphereGeometry(radius * 1.12, 24, 24),
-        new THREE.MeshPhongMaterial({
-          color: blendHex(domainColor, "#ffffff", 0.18),
-          emissive: domainColor,
-          emissiveIntensity: 0.22 * priorityVisuals.glowIntensity,
-          transparent: true,
-          opacity: 0.14,
-          shininess: 24,
-          side: THREE.BackSide,
-          depthWrite: false
-        })
-      );
-      const rim = new THREE.Mesh(
-        new THREE.SphereGeometry(radius * 1.045, 28, 28),
-        new THREE.MeshBasicMaterial({
-          color: blendHex(color, "#ffffff", 0.22),
-          transparent: true,
-          opacity: 0.12,
-          side: THREE.BackSide,
-          depthWrite: false,
-          blending: THREE.AdditiveBlending
-        })
-      );
+      let halo = null;
+      let glow = null;
+      let ring = null;
+      let rim = null;
+      if (prominentNode) {
+        halo = createGlowSprite(
+          domainColor,
+          radius * 5.15 * glowRadiusMultiplier,
+          Math.min(0.36, 0.145 * priorityVisuals.glowIntensity)
+        );
+        glow = createGlowSprite(
+          domainColor,
+          radius * 8.8 * glowRadiusMultiplier,
+          Math.min(0.3, 0.09 * priorityVisuals.glowIntensity)
+        );
+        ring = new THREE.Mesh(
+          sharedShellGeometry,
+          new THREE.MeshPhongMaterial({
+            color: blendHex(domainColor, "#ffffff", 0.18),
+            emissive: domainColor,
+            emissiveIntensity: 0.22 * priorityVisuals.glowIntensity,
+            transparent: true,
+            opacity: 0.14,
+            shininess: 24,
+            side: THREE.BackSide,
+            depthWrite: false
+          })
+        );
+        ring.scale.setScalar(radius * 1.12);
+        rim = new THREE.Mesh(
+          sharedShellGeometry,
+          new THREE.MeshBasicMaterial({
+            color: blendHex(color, "#ffffff", 0.22),
+            transparent: true,
+            opacity: 0.12,
+            side: THREE.BackSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+          })
+        );
+        rim.scale.setScalar(radius * 1.045);
+      }
       const core = new THREE.Mesh(
-        new THREE.SphereGeometry(radius, 24, 24),
+        sharedCoreGeometry,
         new THREE.MeshStandardMaterial({
           color,
           emissive: color,
@@ -3367,15 +3394,19 @@
           opacity: 0.98
         })
       );
-      const label = createLabelSprite(node.label || node.id, color);
-      label.position.set(0, radius * 2.5, 0);
+      core.scale.setScalar(radius);
+      let label = null;
+      if (primaryNode) {
+        label = createLabelSprite(node.label || node.id, color);
+        label.position.set(0, radius * 2.5, 0);
+      }
 
-      group.add(glow);
-      group.add(halo);
-      group.add(ring);
-      group.add(rim);
+      if (halo) group.add(halo);
+      if (glow) group.add(glow);
+      if (ring) group.add(ring);
+      if (rim) group.add(rim);
       group.add(core);
-      group.add(label);
+      if (label) group.add(label);
       group.userData = { color, kindColor, domainColor, radius, priorityVisuals, glow, halo, ring, rim, core, label };
       node.__bhmObject = group;
       updateNodeVisual(node);
@@ -3841,6 +3872,17 @@
         updateNodeVisual(node);
       }
       Graph.refresh();
+    }
+
+    let highlightSyncScheduled = false;
+
+    function scheduleHighlightState() {
+      if (highlightSyncScheduled) return;
+      highlightSyncScheduled = true;
+      window.requestAnimationFrame(() => {
+        highlightSyncScheduled = false;
+        syncHighlightState();
+      });
     }
 
     function buildUrl(updateHistory) {
@@ -5344,25 +5386,41 @@
     function applyNodeVisualState(node, visualState) {
       const object = node.__bhmObject;
       if (!object || !visualState) return;
-      const { glow, halo, ring, rim, core, label } = object.userData;
+      const { glow, halo, ring, rim, core } = object.userData;
 
-      core.scale.setScalar(visualState.coreScale);
-      halo.scale.setScalar(visualState.haloScale);
-      glow.scale.setScalar(visualState.glowScale);
-      rim.scale.setScalar(visualState.rimScale);
+      core.scale.setScalar(object.userData.radius * visualState.coreScale);
+      if (halo) halo.scale.setScalar(halo.userData.baseScale * visualState.haloScale);
+      if (glow) glow.scale.setScalar(glow.userData.baseScale * visualState.glowScale);
+      if (rim) rim.scale.setScalar(object.userData.radius * 1.045 * visualState.rimScale);
 
       core.material.opacity = visualState.coreOpacity;
       core.material.emissive.set(visualState.coreEmissive);
       core.material.emissiveIntensity = visualState.coreEmissiveIntensity;
-      halo.material.opacity = visualState.haloOpacity;
-      halo.material.color.set(visualState.haloColor);
-      ring.material.opacity = visualState.ringOpacity;
-      ring.material.color.set(visualState.haloColor);
-      rim.material.opacity = visualState.rimOpacity;
-      rim.material.color.set(visualState.rimColor);
-      glow.material.opacity = visualState.glowOpacity;
-      glow.material.color.set(visualState.glowColor);
+      if (halo) {
+        halo.material.opacity = visualState.haloOpacity;
+        halo.material.color.set(visualState.haloColor);
+      }
+      if (ring) {
+        ring.material.opacity = visualState.ringOpacity;
+        ring.material.color.set(visualState.haloColor);
+      }
+      if (rim) {
+        rim.material.opacity = visualState.rimOpacity;
+        rim.material.color.set(visualState.rimColor);
+      }
+      if (glow) {
+        glow.material.opacity = visualState.glowOpacity;
+        glow.material.color.set(visualState.glowColor);
+      }
 
+      let label = object.userData.label;
+      if (visualState.labelVisible && !label) {
+        label = createLabelSprite(node.label || node.id, object.userData.color);
+        label.position.set(0, object.userData.radius * 2.5, 0);
+        object.add(label);
+        object.userData.label = label;
+      }
+      if (!label) return;
       label.visible = visualState.labelVisible;
       label.material.opacity = visualState.labelOpacity;
     }
@@ -5375,10 +5433,10 @@
       if (!base) return;
       const glowIntensity = priorityVisuals.glowIntensity;
       core.material.emissiveIntensity = base.coreEmissiveIntensity + ((2.5 * glowIntensity) - base.coreEmissiveIntensity) * weight;
-      halo.material.opacity = base.haloOpacity + (0.45 - base.haloOpacity) * weight;
-      ring.material.opacity = base.ringOpacity + (0.34 - base.ringOpacity) * weight;
-      rim.material.opacity = base.rimOpacity + (0.3 - base.rimOpacity) * weight;
-      glow.material.opacity = base.glowOpacity + (0.45 - base.glowOpacity) * weight;
+      if (halo) halo.material.opacity = base.haloOpacity + (0.45 - base.haloOpacity) * weight;
+      if (ring) ring.material.opacity = base.ringOpacity + (0.34 - base.ringOpacity) * weight;
+      if (rim) rim.material.opacity = base.rimOpacity + (0.3 - base.rimOpacity) * weight;
+      if (glow) glow.material.opacity = base.glowOpacity + (0.45 - base.glowOpacity) * weight;
     }
 
     function updateNodeVisual(node) {
@@ -5737,6 +5795,7 @@
     void startGalaxyUi();
     window.addEventListener("resize", () => {
       syncMobileViewport();
+      setGalaxyRendererPixelRatio();
       Graph.width(graphEl.clientWidth).height(graphEl.clientHeight);
     });
   </script>

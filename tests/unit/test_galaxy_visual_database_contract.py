@@ -87,3 +87,19 @@ def test_galaxy_refreshes_when_live_pulse_targets_a_new_node() -> None:
     assert "const visible = triggerMemoryPulse(payload.node_id);" in html
     assert "if (!visible && !state.pulseReloadTimer)" in html
     assert "void loadGalaxy(false);" in html
+
+
+def test_galaxy_renderer_uses_shared_geometry_and_defers_nonessential_work() -> None:
+    html = _html()
+
+    assert "const sharedCoreGeometry = new THREE.SphereGeometry(1, 12, 12);" in html
+    assert "const sharedShellGeometry = new THREE.SphereGeometry(1, 12, 12);" in html
+    assert "const sharedGlowGeometry = new THREE.PlaneGeometry(1, 1);" in html
+    assert "const primaryNode = isProjectHubLike(node)" in html
+    assert "if (prominentNode) {\n        halo = createGlowSprite(" in html
+    assert "if (visualState.labelVisible && !label)" in html
+    assert "function scheduleHighlightState()" in html
+    assert ".onNodeHover(node => {\n        state.hoveredNodeId" in html
+    assert "scheduleHighlightState();" in html
+    assert "Math.min(window.devicePixelRatio || 1, 1.25)" in html
+    assert "if (!state.highlightLinkIds.has(linkKey(link))) return 0;" in html
