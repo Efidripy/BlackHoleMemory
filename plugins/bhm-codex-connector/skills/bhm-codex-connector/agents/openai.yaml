@@ -1,5 +1,5 @@
 interface:
-  display_name: Agent Memory Codex Connector
+  display_name: BlackHoleMemory Codex Connector
   short_description: Start and close non-trivial workspace tasks with the local BHM ritual.
   default_prompt: "Use the local BHM ritual automatically for non-trivial E:\\GitHub workspace tasks: start with task-open ritual, keep runtime-aware, close with checkpoint or session record, and after each ritual action report a short plain-text confirmation like 'ok: preflight done'."
 policy:

@@ -26,6 +26,7 @@ $preflightScript = Join-Path $PSScriptRoot "bhm-memory-preflight.ps1"
 $checkpointScript = Join-Path $PSScriptRoot "bhm-memory-checkpoint.ps1"
 $sessionRecordScript = Join-Path $PSScriptRoot "bhm-session-hybrid-record.ps1"
 $showMcpScript = Join-Path $PSScriptRoot "bhm-show-mcp-sources.ps1"
+$pluginDuplicateGuardScript = Join-Path $PSScriptRoot "bhm-plugin-duplicate-guard.ps1"
 $pluginManifestPath = Join-Path $pluginRoot ".codex-plugin\plugin.json"
 
 function Expand-EnvPath {
@@ -225,6 +226,17 @@ if (Test-Path -LiteralPath $pluginManifestPath) {
     }
 } else {
     Set-RegistryEntry -Name "plugin_installed" -Attempted $true -Ok $false -Reason "plugin manifest missing" -Data $null
+}
+
+if (Test-Path -LiteralPath $pluginDuplicateGuardScript) {
+    try {
+        $pluginDuplicateGuard = Invoke-JsonScript -ScriptPath $pluginDuplicateGuardScript
+        Set-RegistryEntry -Name "plugin_singleton_guard" -Attempted $true -Ok ($pluginDuplicateGuard.ok -eq $true) -Reason $pluginDuplicateGuard.recommendation -Data $pluginDuplicateGuard
+    } catch {
+        Set-RegistryEntry -Name "plugin_singleton_guard" -Attempted $true -Ok $false -Reason "plugin duplicate guard failed" -Data @{ error = $_.Exception.Message }
+    }
+} else {
+    Set-RegistryEntry -Name "plugin_singleton_guard" -Attempted $true -Ok $false -Reason "plugin duplicate guard missing" -Data $null
 }
 
 # Plugin-local `.mcp.json` is intentionally retired.  Host clients own the

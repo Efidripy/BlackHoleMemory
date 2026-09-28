@@ -1,100 +1,115 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>BHM Atlas Preview</title>
+  <title>BHM Atlas · G6 3D Knowledge Map</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <style>
-    :root { color-scheme: dark; --ink: #f2f4ff; --muted: #a7b0ca; --line: rgba(197, 180, 255, .24); --violet: #c8b2ff; --cyan: #7fe7ec; --danger: #ffabbf; }
-    * { box-sizing: border-box; }
-    body { min-height: 100vh; margin: 0; color: var(--ink); background: radial-gradient(circle at 73% 16%, rgba(200,178,255,.18), transparent 27%), radial-gradient(circle at 16% 81%, rgba(127,231,236,.11), transparent 28%), #050713; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
-    main { width: min(1040px, calc(100vw - 38px)); margin: 0 auto; padding: 28px 0 58px; }
-    .top { display: flex; justify-content: space-between; align-items: center; gap: 18px; border-bottom: 1px solid var(--line); padding-bottom: 20px; }
-    .back { color: #d7dfff; font-size: 14px; text-underline-offset: 4px; }
-    .state { color: var(--muted); font: 11px/1.2 "Consolas", monospace; letter-spacing: .08em; text-transform: uppercase; }
-    .state.error { color: var(--danger); }
-    .hero { padding: clamp(60px, 11vh, 120px) 0 50px; text-align: center; }
-    .eyebrow { color: var(--violet); font: 700 11px/1.2 "Consolas", monospace; letter-spacing: .22em; text-transform: uppercase; }
-    h1 { max-width: 760px; margin: 17px auto; font-size: clamp(42px, 7vw, 82px); line-height: .92; letter-spacing: -.065em; }
-    .lead { max-width: 630px; margin: 0 auto; color: var(--muted); font-size: 17px; line-height: 1.58; }
-    .scope { margin: 21px 0 0; color: #d7dfff; font: 11px/1.3 "Consolas", monospace; letter-spacing: .09em; text-transform: uppercase; }
-    .field { position: relative; min-height: 315px; overflow: hidden; display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; padding: 26px; border: 1px solid var(--line); border-radius: 28px; background: linear-gradient(135deg, rgba(19, 19, 48, .9), rgba(9, 13, 30, .76)); }
-    .territory { position: relative; min-height: 180px; border: 1px solid rgba(226, 222, 255, .12); border-radius: 22px; background: radial-gradient(circle at 38% 40%, var(--glow), transparent 33%), rgba(255,255,255,.018); }
-    .territory::before { content: ""; position: absolute; inset: 20% 13%; border: 1px solid var(--ring); border-radius: 49% 51% 43% 57%; transform: rotate(-12deg); }
-    .territory::after { content: attr(data-label); position: absolute; left: 18px; bottom: 17px; color: #e9eaff; font: 700 10px/1 "Consolas", monospace; letter-spacing: .14em; text-transform: uppercase; }
-    .note { max-width: 720px; margin: 22px auto 0; color: var(--muted); font-size: 14px; line-height: 1.55; text-align: center; }
-    .note strong { color: var(--ink); }
-    @media (max-width: 700px) { main { width: min(100% - 28px, 1040px); } .top { align-items: flex-start; flex-direction: column; } .field { grid-template-columns: 1fr; } .territory { min-height: 124px; } }
+    :root{color-scheme:dark;--ink:#f2f6ff;--muted:#9eacc5;--panel:rgba(7,12,28,.8);--line:rgba(172,194,255,.17);--cyan:#6de5e9;--violet:#b8a1ff;--gold:#ffcb78;--danger:#ffadbf;--mono:"Consolas","SFMono-Regular","Liberation Mono",monospace}
+    *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;color:var(--ink);background:#03050d;font-family:Inter,ui-sans-serif,system-ui,sans-serif}[hidden]{display:none!important}
+    #atlasViewport{position:fixed;inset:0;overflow:hidden;background:radial-gradient(ellipse at 52% 44%,#17234a 0,#0a1028 35%,#03050d 76%)}#atlas{position:absolute;inset:0;width:auto!important;height:auto!important;min-height:0!important}#atlas canvas{display:block;outline:none}.grain{position:fixed;z-index:1;inset:0;pointer-events:none;opacity:.09;background-image:radial-gradient(rgba(255,255,255,.42) .5px,transparent .65px);background-size:5px 5px;mix-blend-mode:soft-light}
+    .topbar{position:fixed;z-index:3;top:0;left:0;right:0;min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:18px;padding:13px 20px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(3,5,13,.95),rgba(3,5,13,.48));backdrop-filter:blur(16px)}
+    .brand{display:flex;align-items:center;gap:12px;min-width:0}.mark{display:grid;place-items:center;width:31px;height:31px;border:1px solid rgba(109,229,233,.58);border-radius:9px;color:var(--cyan);box-shadow:0 0 25px rgba(109,229,233,.2);font-size:18px}.eyebrow{display:block;color:#c2cce0;font:700 10px/1.2 var(--mono);letter-spacing:.18em;text-transform:uppercase}.brand h1{margin:3px 0 0;font-size:16px;letter-spacing:-.02em;white-space:nowrap}.actions{display:flex;gap:9px;align-items:center}
+    button,.back{border:1px solid rgba(208,216,255,.2);border-radius:10px;padding:9px 11px;color:#e8eeff;background:rgba(19,28,60,.74);font:700 11px/1 var(--mono);letter-spacing:.06em;text-decoration:none;cursor:pointer;transition:transform 130ms ease,background 130ms ease,border-color 130ms ease}button:hover,.back:hover{transform:translateY(-1px);border-color:rgba(109,229,233,.65);background:rgba(24,47,76,.76)}button:focus-visible,.back:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--cyan);outline-offset:3px}.back{color:#d7dcff}
+    .panel{position:fixed;z-index:3;width:min(282px,calc(100vw - 32px));border:1px solid var(--line);border-radius:17px;background:var(--panel);box-shadow:0 20px 72px rgba(0,0,0,.4);backdrop-filter:blur(18px)}.controls{top:86px;left:18px;padding:16px}.details{top:86px;right:18px;padding:17px}.panel-title{margin:0 0 12px;color:#d0dcf0;font:700 10px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase}
+    .field{display:grid;gap:6px;margin-top:11px}.field label,.toggle label{color:#aab8d2;font:700 10px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase}select,input[type="text"]{width:100%;min-width:0;padding:10px 11px;border:1px solid rgba(208,216,255,.16);border-radius:10px;color:var(--ink);background:rgba(4,7,19,.9);font:13px/1.2 var(--mono)}.toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:15px;padding-top:13px;border-top:1px solid rgba(208,216,255,.1)}.toggle input{width:18px;height:18px;accent-color:var(--cyan)}
+    .legend{display:grid;gap:8px;margin-top:16px;padding-top:13px;border-top:1px solid rgba(208,216,255,.1)}.legend-row{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}.legend-dot{width:9px;height:9px;border-radius:50%;box-shadow:0 0 13px currentColor}.legend-ring{width:11px;height:11px;border:1px solid currentColor;border-radius:50%}.stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}.stat{padding:10px;border:1px solid rgba(208,216,255,.1);border-radius:11px;background:rgba(255,255,255,.025)}.stat strong{display:block;color:#f6f8ff;font:700 17px/1 var(--mono)}.stat span{display:block;margin-top:5px;color:var(--muted);font:9px/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase}
+    .selection{min-height:120px;margin-top:15px;padding-top:14px;border-top:1px solid rgba(208,216,255,.1)}.selection .empty{color:var(--muted);font-size:13px;line-height:1.5}.selection .kind{color:var(--cyan);font:700 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase}.selection h2{margin:7px 0;font-size:17px;line-height:1.15;overflow-wrap:anywhere}.selection p{margin:0;color:#bdc8dc;font-size:12px;line-height:1.5}.selection .meta{margin-top:10px;color:#98a7c0;font:10px/1.45 var(--mono);overflow-wrap:anywhere}
+    .hint{position:fixed;z-index:2;bottom:63px;left:50%;transform:translateX(-50%);color:rgba(205,218,244,.74);font:10px/1.3 var(--mono);text-align:center;pointer-events:none}.status{position:fixed;z-index:3;bottom:18px;left:50%;transform:translateX(-50%);max-width:min(740px,calc(100vw - 34px));padding:10px 15px;border:1px solid rgba(208,216,255,.14);border-radius:999px;color:#c3cfea;background:rgba(5,8,21,.76);box-shadow:0 12px 35px rgba(0,0,0,.28);font:11px/1.35 var(--mono);text-align:center;backdrop-filter:blur(12px)}.status.error{color:var(--danger);border-color:rgba(255,173,191,.36)}
+    .session-gate{position:fixed;z-index:5;inset:0;display:grid;place-items:center;padding:24px;background:rgba(2,3,10,.7);backdrop-filter:blur(9px)}.session-gate-card{width:min(510px,100%);padding:28px;border:1px solid rgba(255,173,191,.34);border-radius:22px;background:linear-gradient(145deg,rgba(23,18,45,.94),rgba(7,10,25,.94));box-shadow:0 28px 90px rgba(0,0,0,.56);text-align:center}.session-gate-card .eyebrow{color:#ffc1cf}.session-gate-card h2{margin:11px 0;color:#f7f4ff;font-size:27px;letter-spacing:-.035em}.session-gate-card p{margin:0;color:#bdc6da;font-size:14px;line-height:1.55}.session-gate-card code{color:#e3d9ff;font:12px/1.4 var(--mono)}
+    @media(max-width:950px){.details{top:auto;right:16px;bottom:72px;max-height:230px;overflow:auto}.controls{width:270px}.hint{display:none}}@media(max-width:650px){.topbar{min-height:56px;padding:10px 12px}.mark{width:26px;height:26px}.brand h1{font-size:14px}.actions button{display:none}.controls{top:68px;left:10px;width:min(255px,calc(100vw - 20px));padding:12px}.details{display:none}.status{bottom:12px}}
   </style>
 </head>
 <body>
-  <main>
-    <header class="top">
-      <a id="backToSelector" class="back" href="/bhm/galaxy">← Change knowledge view</a>
-      <span id="sessionState" class="state" role="status">Checking local UI session…</span>
-    </header>
-    <section class="hero">
-      <span class="eyebrow">BHM Atlas · local preview</span>
-      <h1>Spatial clarity for durable knowledge.</h1>
-      <p class="lead">Atlas is the new 2D workbench being prepared alongside the existing Night Sky. It will make project and topic territories easier to read without turning observations into graph nodes.</p>
-      <p id="scope" class="scope">Project scope: all allowed projects</p>
-    </section>
-    <section class="field" aria-label="Atlas territory preview">
-      <div class="territory" data-label="Project territory" style="--glow: rgba(127,231,236,.34); --ring: rgba(127,231,236,.42)"></div>
-      <div class="territory" data-label="Topic territory" style="--glow: rgba(200,178,255,.34); --ring: rgba(200,178,255,.42)"></div>
-      <div class="territory" data-label="Focused evidence" style="--glow: rgba(255,204,129,.28); --ring: rgba(255,204,129,.38)"></div>
-    </section>
-    <p class="note"><strong>Read-only local preview.</strong> The renderer will be bundled locally before it reads BHM data; this page uses no third-party CDN and sends no project data outside loopback.</p>
-  </main>
+  <main id="atlasViewport" aria-label="BHM Atlas 3D knowledge map"><div id="atlas"></div></main><div class="grain" aria-hidden="true"></div>
+  <header class="topbar"><div class="brand"><div class="mark" aria-hidden="true">✦</div><div><span class="eyebrow">BlackHoleMemory · read-only</span><h1>Atlas · Knowledge Map</h1></div></div><div class="actions"><a id="backToSelector" class="back" href="/bhm/galaxy">Change view</a><button id="pulseBtn" type="button">Pulse</button><button id="fitBtn" type="button">Fit map</button><button id="fullscreenBtn" type="button" aria-pressed="false">Fullscreen</button><button id="reloadBtn" type="button">Reload</button></div></header>
+  <aside class="panel controls" aria-label="Atlas controls"><p class="panel-title">Map lens</p><div class="field"><label for="project">Project</label><input id="project" type="text" autocomplete="off" placeholder="All allowed projects"></div><div class="field"><label for="limit">Memory records</label><select id="limit"><option value="50">50 newest</option><option value="200" selected>200 newest</option><option value="500">500 newest</option><option value="1000">1,000 newest</option></select></div><div class="toggle"><label for="relationsOnly">Persisted relations only</label><input id="relationsOnly" type="checkbox"></div><div class="toggle"><label for="ambientMotion">Ambient motion</label><input id="ambientMotion" type="checkbox" checked></div><div class="legend" aria-label="Atlas legend"><div class="legend-row"><i class="legend-ring" style="color:var(--violet)"></i>Project territory</div><div class="legend-row"><i class="legend-dot" style="color:var(--cyan)"></i>Memory point</div><div class="legend-row"><i class="legend-dot" style="color:var(--gold)"></i>Priority / lesson focus</div></div></aside>
+  <aside class="panel details" aria-live="polite" aria-label="Atlas detail"><p class="panel-title">Atlas snapshot</p><div class="stat-grid"><div class="stat"><strong id="nodeCount">—</strong><span>Visible nodes</span></div><div class="stat"><strong id="linkCount">—</strong><span>Visible links</span></div><div class="stat"><strong id="territoryCount">—</strong><span>Territories</span></div><div class="stat"><strong id="recordCount">—</strong><span>Memory records</span></div></div><section id="selection" class="selection"><p class="empty">Click a memory point to inspect its local, SQLite-authoritative metadata.</p></section></aside>
+  <p class="hint">Drag a sphere to tug it · drag empty space to pan · Alt-drag to orbit · wheel to zoom · click a sphere to focus it</p><p id="status" class="status" role="status">Establishing trusted local UI session…</p><section id="sessionGate" class="session-gate" role="alert" hidden><div class="session-gate-card"><span class="eyebrow">Trusted local session required</span><h2>Open Atlas through BHM Launcher</h2><p>The direct Atlas URL cannot read local knowledge without a fresh, one-time launcher session. After an API restart, open <code>Galaxy Viewer → Atlas</code> in the BHM Launcher again.</p></div></section>
+  <script src="/static/g6.min.js?v=5.1.1-bhm-atlas"></script>
+  <script src="/static/g6-extension-3d.min.js?v=0.1.23-bhm-atlas"></script>
   <script>
     (() => {
-      const bootstrapKey = "bhm-ui-bootstrap";
-      const state = document.getElementById("sessionState");
-      const project = new URLSearchParams(window.location.search).get("project") || "";
-      const back = document.getElementById("backToSelector");
-      if (project) {
-        document.getElementById("scope").textContent = `Project scope: ${project}`;
-        back.href = `/bhm/galaxy?project=${encodeURIComponent(project)}`;
+      const G6=window.G6,Atlas3D=window.G6Extension3D;if(!G6||!G6.Graph||!Atlas3D)throw new Error("local AntV G6 3D renderer is unavailable");
+      const palette=["#64dce5","#a996ff","#ffc978","#57d6a2","#f68ab9","#7ea9ff","#ef9ce7","#b9e873"];
+      const atlasViewport=document.getElementById("atlasViewport"),atlasEl=document.getElementById("atlas"),statusEl=document.getElementById("status"),selectionEl=document.getElementById("selection"),sessionGateEl=document.getElementById("sessionGate");
+      const controls={project:document.getElementById("project"),limit:document.getElementById("limit"),relationsOnly:document.getElementById("relationsOnly"),ambientMotion:document.getElementById("ambientMotion")};
+      const nodeCountEl=document.getElementById("nodeCount"),linkCountEl=document.getElementById("linkCount"),territoryCountEl=document.getElementById("territoryCount"),recordCountEl=document.getElementById("recordCount"),bootstrapKey="bhm-ui-bootstrap";
+      const state={data:{nodes:[],links:[],summary:{}},rawPayload:null,selectedId:null,graph:null,uiSessionReady:null,groups:[],positions:new Map(),rendererRegistered:false,pulseTimer:0,ambientTimer:0,resizeTimer:0,lastSize:{width:0,height:0}};
+      const setStatus=(message,error=false)=>{statusEl.textContent=message;statusEl.classList.toggle("error",error)};
+      const escapeHtml=value=>{const element=document.createElement("span");element.textContent=String(value||"");return element.innerHTML};
+      const hash=value=>{let result=2166136261;for(const char of String(value||"")){result^=char.charCodeAt(0);result=Math.imul(result,16777619)}return result>>>0};
+      const nodeMeta=node=>{const meta=node&&typeof node.meta==="object"&&node.meta?node.meta:{},metadata=node&&typeof node.metadata==="object"&&node.metadata?node.metadata:{};return {...meta,...metadata,...(metadata.metadata&&typeof metadata.metadata==="object"?metadata.metadata:{})}};
+      const projectFor=node=>String(nodeMeta(node).project||node?.project||(String(node?.type||"").toLowerCase()==="project"?node.label:"")||"Unscoped").trim()||"Unscoped";
+      const kindFor=node=>String(nodeMeta(node).memory_type||nodeMeta(node).event_role||node?.type||"memory").replaceAll("_"," ");
+      const priorityFor=node=>String(node?.priority||nodeMeta(node).priority||nodeMeta(node).event_role||"").toLowerCase();
+      const isAnchor=node=>["root","project","domain"].includes(String(node?.type||"").toLowerCase());
+      const isBright=node=>isAnchor(node)||/critical|high|lesson/.test(priorityFor(node))||String(node?.type||"").toLowerCase()==="lesson";
+      const depthFor=node=>hash(node.id||node.label||"")%3;
+      const projectColor=project=>palette[hash(project)%palette.length],nodeColor=node=>isBright(node)?"#ffd38a":projectColor(projectFor(node)),nodeSize=node=>isAnchor(node)?20:(isBright(node)?13:7+depthFor(node)*1.4);
+      const linkEndpoints=link=>[typeof link.source==="object"?link.source.id:link.source,typeof link.target==="object"?link.target.id:link.target],linkKind=link=>String(link?.type||"").toLowerCase();
+      const isStructural=link=>new Set(["belongs_to_project","root_branch","cluster_member","tagged","observed_in","holds_slot"]).has(linkKind(link));
+      const alpha=(hex,opacity)=>{const value=hex.replace("#","");const red=parseInt(value.slice(0,2),16),green=parseInt(value.slice(2,4),16),blue=parseInt(value.slice(4,6),16);return "rgba("+red+","+green+","+blue+","+opacity+")"};
+      const selectedNode=()=>state.data.nodes.find(node=>node.id===state.selectedId)||null;
+      const dataUrl=()=>{const query=new URLSearchParams({limit:controls.limit.value||"200",domain:"memory",history_scope:"current"});if(controls.project.value.trim())query.set("project",controls.project.value.trim());return "/bhm/galaxy/data?"+query.toString()};
+      function visibleData(payload){const graph=payload.graph||{nodes:payload.nodes||[],links:payload.links||[]},nodes=(graph.nodes||[]).map(node=>({...node})),ids=new Set(nodes.map(node=>node.id)),links=(graph.links||[]).filter(link=>{const endpoints=linkEndpoints(link);return ids.has(endpoints[0])&&ids.has(endpoints[1])&&(!controls.relationsOnly.checked||!isStructural(link))}).map(link=>({...link}));return{nodes,links,summary:payload.summary||{}}}
+      function groupData(nodes){const buckets=new Map();for(const node of nodes){const name=projectFor(node);if(!buckets.has(name))buckets.set(name,[]);buckets.get(name).push(node)}return Array.from(buckets.entries()).sort((left,right)=>left[0].localeCompare(right[0])).map((entry,index)=>({id:"territory-"+index,name:entry[0],color:projectColor(entry[0]),nodes:entry[1].slice().sort((left,right)=>Number(isAnchor(right))-Number(isAnchor(left))||String(left.id).localeCompare(String(right.id)))}))}
+      function renderSelection(){const node=selectedNode();if(!node){selectionEl.innerHTML='<p class="empty">Click a memory point to inspect its local, SQLite-authoritative metadata.</p>';return}const meta=nodeMeta(node),insight=node.core_insight||meta.content_preview||"No content preview available.";selectionEl.innerHTML='<div class="kind">'+escapeHtml(kindFor(node))+'</div><h2>'+escapeHtml(node.label||node.id)+'</h2><p>'+escapeHtml(String(insight).slice(0,250))+'</p><div class="meta">project: '+escapeHtml(projectFor(node))+'<br>priority: '+escapeHtml(priorityFor(node)||"default")+'</div>'}
+      const renderedNodeSize=node=>nodeSize(node)*(isAnchor(node)?1.5:1);
+      function stopAmbientMotion(){if(state.ambientTimer){window.clearTimeout(state.ambientTimer);state.ambientTimer=0}}
+      function destroyGraph(){if(state.pulseTimer){window.clearTimeout(state.pulseTimer);state.pulseTimer=0}stopAmbientMotion();if(state.graph){state.graph.destroy();state.graph=null}atlasEl.replaceChildren()}
+      function focusNode(node){if(state.graph&&node)void state.graph.focusElement?.(node.id,{duration:460})}
+      function mapBounds(){return{width:Math.max(1,atlasViewport.clientWidth),height:Math.max(1,atlasViewport.clientHeight)}}
+      function fitMap(){if(state.graph)void state.graph.fitView?.({padding:[98,328,92,328]},{duration:460})}
+      function drawNodeUpdates(updates){if(!state.graph||!updates.length)return;state.graph.updateNodeData(updates);void state.graph.draw()}
+      function bounceNode(nodeId){const node=state.data.nodes.find(item=>item.id===nodeId),position=state.positions.get(nodeId);if(!node||!position||!state.graph)return;const normalSize=renderedNodeSize(node);drawNodeUpdates([{id:nodeId,style:{...position,size:normalSize*1.72,fillOpacity:1}}]);window.setTimeout(()=>drawNodeUpdates([{id:nodeId,style:{...position,size:normalSize,fillOpacity:.92}}]),300)}
+      function pulseAtlas(){if(!state.graph)return;const nodes=state.data.nodes.filter(node=>isAnchor(node)||isBright(node)).slice(0,28),updates=nodes.map(node=>{const position=state.positions.get(node.id)||{},size=renderedNodeSize(node);return{id:node.id,style:{...position,z:Number(position.z||0)+38,size:size*1.28}}});drawNodeUpdates(updates);if(state.pulseTimer)window.clearTimeout(state.pulseTimer);state.pulseTimer=window.setTimeout(()=>drawNodeUpdates(nodes.map(node=>({id:node.id,style:{...(state.positions.get(node.id)||{}),size:renderedNodeSize(node)}}))),340)}
+      function selectNode(nodeId){const node=state.data.nodes.find(item=>item.id===nodeId);if(!node)return;state.selectedId=nodeId;renderSelection();focusNode(node);bounceNode(nodeId)}
+      function startAmbientMotion(){stopAmbientMotion();if(!state.graph||!controls.ambientMotion.checked)return;const nodes=state.data.nodes.filter(node=>isAnchor(node)||isBright(node)).slice(0,18);let phase=0;const tick=()=>{if(!state.graph||!controls.ambientMotion.checked)return;phase++;const amplitude=phase%2?1.13:1,opacity=phase%2?1:.82;drawNodeUpdates(nodes.map(node=>{const position=state.positions.get(node.id)||{},size=renderedNodeSize(node);return{id:node.id,style:{...position,size:size*amplitude,fillOpacity:opacity}}}));state.ambientTimer=window.setTimeout(tick,760)};state.ambientTimer=window.setTimeout(tick,520)}
+      function scheduleGraphResize(){window.clearTimeout(state.resizeTimer);state.resizeTimer=window.setTimeout(()=>{if(!state.graph)return;const bounds=mapBounds();if(bounds.width<2||bounds.height<2)return;if(bounds.width===state.lastSize.width&&bounds.height===state.lastSize.height)return;state.graph.resize(bounds.width,bounds.height);state.lastSize=bounds;void state.graph.draw()},90)}
+      async function toggleFullscreen(){try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()}catch(error){setStatus("Fullscreen unavailable: "+error.message,true)}finally{scheduleGraphResize()}}
+      function registerAtlas3d(){if(state.rendererRegistered)return;const {ExtensionCategory,register}=G6;if(!ExtensionCategory||!register)throw new Error("G6 extension registry is unavailable");register(ExtensionCategory.NODE,"bhm-atlas-sphere",Atlas3D.Sphere);register(ExtensionCategory.EDGE,"bhm-atlas-line3d",Atlas3D.Line3D);register(ExtensionCategory.BEHAVIOR,"bhm-atlas-pan-3d",Atlas3D.DragCanvas3D);register(ExtensionCategory.BEHAVIOR,"bhm-atlas-observe-3d",Atlas3D.ObserveCanvas3D);register(ExtensionCategory.BEHAVIOR,"bhm-atlas-zoom-3d",Atlas3D.ZoomCanvas3D);register(ExtensionCategory.PLUGIN,"bhm-atlas-light",Atlas3D.Light);register(ExtensionCategory.PLUGIN,"bhm-atlas-camera",G6.CameraSetting);state.rendererRegistered=true}
+      function territoryCenters(groups,bounds){const count=Math.max(1,groups.length),availableWidth=Math.max(640,bounds.width-110),availableHeight=Math.max(460,bounds.height-170),columns=Math.min(count,Math.max(2,Math.ceil(Math.sqrt(count*availableWidth/availableHeight)))),rows=Math.ceil(count/columns),cellWidth=availableWidth/columns,cellHeight=availableHeight/rows,left=(bounds.width-availableWidth)/2,top=(bounds.height-availableHeight)/2;return new Map(groups.map((group,index)=>{const column=index%columns,row=Math.floor(index/columns),jitterX=((hash(group.name+"x")%1000)/1000-.5)*Math.min(36,cellWidth*.1),jitterY=((hash(group.name+"y")%1000)/1000-.5)*Math.min(32,cellHeight*.1);return[group.id,{x:left+cellWidth*(column+.5)+jitterX,y:top+cellHeight*(row+.5)+jitterY,z:(index%4-1.5)*180,cell:Math.min(cellWidth,cellHeight)}]}))}
+      function territoryCoordinates(groups,bounds){const centers=territoryCenters(groups,bounds),coordinates=new Map();for(const group of groups){const center=centers.get(group.id),count=Math.max(1,group.nodes.length);group.nodes.forEach((node,index)=>{const angle=index*2.399963229728653+((hash(node.id)%360)*Math.PI/720),radius=index===0?0:18+Math.sqrt(index)*Math.min(18,Math.max(10,center.cell/(Math.sqrt(count)*3.2))),depth=((hash(node.id+"depth")%1000)/1000-.5)*Math.min(220,center.cell*.46);coordinates.set(node.id,{x:center.x+Math.cos(angle)*radius,y:center.y+Math.sin(angle)*radius*.72,z:center.z+depth})})}return coordinates}
+      async function renderGraph(){
+        destroyGraph();
+        registerAtlas3d();
+        const positions=territoryCoordinates(state.groups,mapBounds());
+        const graphData={
+          nodes:state.data.nodes.map(node=>{
+            const color=nodeColor(node),position=positions.get(node.id)||{x:0,y:0,z:0};
+            const depth=depthFor(node);
+            return {id:node.id,type:"bhm-atlas-sphere",style:{...position,size:renderedNodeSize(node),fill:color,fillOpacity:.66+depth*.1,stroke:isBright(node)?"#fff2cf":alpha(color,.95),lineWidth:isBright(node)?1.4:.75,materialType:"phong",materialShininess:58,labelText:isAnchor(node)?projectFor(node):"",labelFill:color,labelFontSize:10,labelFontWeight:600,labelOffset:10}};
+          }),
+          edges:state.data.links.map(link=>{
+            const endpoints=linkEndpoints(link),source=state.data.nodes.find(node=>node.id===endpoints[0]);
+            return {id:String(endpoints[0])+"-"+String(endpoints[1])+"-"+String(link.type||"link"),type:"bhm-atlas-line3d",source:endpoints[0],target:endpoints[1],style:{stroke:alpha(source?nodeColor(source):"#adbad7",isStructural(link)?.07:.23),lineWidth:isStructural(link)?.45:.9}};
+          })
+        };
+        const bounds=mapBounds();
+        const graph=new G6.Graph({container:atlasEl,width:bounds.width,height:bounds.height,autoResize:true,renderer:Atlas3D.renderer,data:graphData,node:{state:{active:{fillOpacity:1,lineWidth:1.8,shadowColor:"#ffffff",shadowBlur:16},selected:{fillOpacity:1,lineWidth:2.5,shadowColor:"#ffffff",shadowBlur:25},related:{fillOpacity:1,lineWidth:1.55},muted:{fillOpacity:.13,strokeOpacity:.16}}},edge:{state:{related:{lineWidth:1.55,strokeOpacity:1},muted:{strokeOpacity:.06}}},behaviors:[{type:"bhm-atlas-pan-3d"},{type:"bhm-atlas-observe-3d",mode:"orbiting",trigger:["Alt"],sensitivity:1.25},{type:"bhm-atlas-zoom-3d",sensitivity:.85},{type:"click-select",enable:event=>event.targetType==="node",degree:1,state:"selected",neighborState:"related",unselectedState:"muted",animation:{duration:180}},{type:"hover-activate",degree:1,state:"active",animation:{duration:150}},{type:"drag-element",trigger:[],dropEffect:"none",animation:true,shadow:true,shadowFill:"#6de5e9",shadowFillOpacity:.24,shadowStroke:"#d7faff",shadowStrokeOpacity:.9,shadowLineDash:[3,5],hideEdge:"none",onFinish:ids=>ids.forEach(bounceNode)}],plugins:[{type:"bhm-atlas-camera",projectionMode:"perspective",cameraType:"orbiting",distance:1020,near:.1,far:4000,elevation:28,azimuth:-22,fov:42},{type:"bhm-atlas-light",ambient:{fill:"#b8d5ff",intensity:Math.PI*1.7},directional:{fill:"#ffe6b8",direction:[-1,.35,1],intensity:Math.PI*.9}}],animation:{duration:240}});
+        state.graph=graph;
+        state.positions=positions;
+        state.lastSize=bounds;
+        graph.on("node:click",event=>selectNode(event.target.id));
+        let fallbackDrag=null,ignoreFallbackClick=false;
+        const nearestPointerNode=event=>{if(typeof graph.getCanvasByClient!=="function"||typeof graph.getClientByCanvas!=="function"||typeof graph.getElementRenderBounds!=="function")return null;const canvasPoint=graph.getCanvasByClient([event.clientX,event.clientY]),x=Number(canvasPoint?.[0]),y=Number(canvasPoint?.[1]);if(!Number.isFinite(x)||!Number.isFinite(y))return null;let nearest=null,best=Infinity;for(const node of state.data.nodes){const bounds=graph.getElementRenderBounds(node.id),minimum=bounds?.min,maximum=bounds?.max;if(!minimum||!maximum)continue;const projected=graph.getClientByCanvas([(Number(minimum[0])+Number(maximum[0]))/2,(Number(minimum[1])+Number(maximum[1]))/2,(Number(minimum[2]||0)+Number(maximum[2]||0))/2]),distance=Math.hypot(event.clientX-Number(projected?.[0]),event.clientY-Number(projected?.[1]));if(Number.isFinite(distance)&&distance<best){best=distance;nearest=node}}return nearest&&best<=Math.max(18,renderedNodeSize(nearest)*1.9)?{node:nearest,point:{x,y}}:null};
+        const canvases=Array.from(atlasEl.querySelectorAll("canvas")),interactionCanvas=canvases.find(candidate=>getComputedStyle(candidate).pointerEvents!=="none")||null;
+        if(interactionCanvas){interactionCanvas.addEventListener("pointerdown",event=>{if(event.altKey||event.button!==0)return;const hit=nearestPointerNode(event);if(!hit)return;fallbackDrag={...hit,startX:event.clientX,startY:event.clientY,moved:false};ignoreFallbackClick=true;interactionCanvas.setPointerCapture?.(event.pointerId);interactionCanvas.style.cursor="grabbing";event.preventDefault();event.stopPropagation()},{capture:true});interactionCanvas.addEventListener("pointermove",event=>{if(!fallbackDrag)return;const dx=event.clientX-fallbackDrag.startX,dy=event.clientY-fallbackDrag.startY;fallbackDrag.moved=fallbackDrag.moved||Math.hypot(dx,dy)>5;drawNodeUpdates([{id:fallbackDrag.node.id,style:{...state.positions.get(fallbackDrag.node.id),x:fallbackDrag.point.x+dx,y:fallbackDrag.point.y+dy,size:renderedNodeSize(fallbackDrag.node)*1.16,fillOpacity:1}}]);event.preventDefault();event.stopPropagation()},{capture:true});const finishFallbackDrag=event=>{if(!fallbackDrag)return;const active=fallbackDrag;fallbackDrag=null;interactionCanvas.style.cursor="";interactionCanvas.releasePointerCapture?.(event.pointerId);if(active.moved)bounceNode(active.node.id);else selectNode(active.node.id);window.setTimeout(()=>{ignoreFallbackClick=false},0);event.preventDefault();event.stopPropagation()};interactionCanvas.addEventListener("pointerup",finishFallbackDrag,{capture:true});interactionCanvas.addEventListener("pointercancel",finishFallbackDrag,{capture:true});interactionCanvas.addEventListener("click",event=>{if(ignoreFallbackClick){event.preventDefault();event.stopPropagation();return}const hit=nearestPointerNode(event);if(hit){selectNode(hit.node.id);event.preventDefault();event.stopPropagation()}},{capture:true})}
+        await graph.render();
+        fitMap();
+        startAmbientMotion();
+        for(const canvas of canvases)canvas.addEventListener("webglcontextlost",event=>{event.preventDefault();setStatus("WebGL context paused; waiting for browser restore…",true)});for(const canvas of canvases)canvas.addEventListener("webglcontextrestored",()=>{setStatus("WebGL restored; preserving current Atlas view.");scheduleGraphResize();void state.graph?.draw()});
       }
-
-      function setState(message, error = false) {
-        state.textContent = message;
-        state.classList.toggle("error", error);
-      }
-
-      async function establishUiSession() {
-        const fragment = new URLSearchParams(window.location.hash.slice(1));
-        let bootstrapToken = fragment.get(bootstrapKey) || "";
-        if (fragment.has(bootstrapKey)) {
-          window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-        } else {
-          const response = await window.fetch("/bhm/ui/session/bootstrap", {
-            cache: "no-store",
-            credentials: "same-origin",
-            headers: { "accept": "application/json" }
-          });
-          if (!response.ok) throw new Error("direct bootstrap unavailable");
-          const payload = await response.json();
-          if (payload.session === true) return;
-          bootstrapToken = payload.bootstrap_token || "";
-        }
-        if (!bootstrapToken || bootstrapToken.length > 512) throw new Error("bootstrap token unavailable");
-        const exchanged = await window.fetch("/bhm/ui/session/exchange", {
-          method: "POST",
-          cache: "no-store",
-          credentials: "same-origin",
-          redirect: "error",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ bootstrap_token: bootstrapToken })
-        });
-        if (!exchanged.ok) throw new Error(`bootstrap exchange ${exchanged.status}`);
-      }
-
-      void establishUiSession().then(
-        () => setState("Trusted local session · read-only preview"),
-        () => setState("UI session unavailable — reopen through the trusted BHM launcher", true)
-      );
+      async function renderData(payload){state.rawPayload=payload;state.data=visibleData(payload);state.groups=groupData(state.data.nodes);if(!state.selectedId||!state.data.nodes.some(node=>node.id===state.selectedId))state.selectedId=null;nodeCountEl.textContent=state.data.nodes.length.toLocaleString();linkCountEl.textContent=state.data.links.length.toLocaleString();territoryCountEl.textContent=state.groups.length.toLocaleString();recordCountEl.textContent=Number(state.data.summary.returned_memory_count??state.data.summary.memory_records??0).toLocaleString();renderSelection();await renderGraph();const total=Number(state.data.summary.total_memory_count??state.data.summary.memory_records??0).toLocaleString();setStatus(state.data.nodes.length.toLocaleString()+" mapped nodes · "+state.data.links.length.toLocaleString()+" evidenced links · "+total+" available memories")}
+      async function loadAtlas(){setStatus("Mapping authoritative knowledge territories…");try{const response=await bhmFetch(dataUrl()),payload=await response.json();if(!response.ok||payload.ok===false)throw new Error(payload.detail||"Atlas data unavailable");await renderData(payload)}catch(error){setStatus("Atlas load failed: "+error.message,true)}}
+      async function bootstrapUiSession(){const fragment=new URLSearchParams(window.location.hash.slice(1));let token=fragment.get(bootstrapKey)||"";if(fragment.has(bootstrapKey))window.history.replaceState(null,"",window.location.pathname+window.location.search);else{const response=await window.fetch("/bhm/ui/session/bootstrap",{cache:"no-store",credentials:"same-origin",headers:{accept:"application/json"}});if(!response.ok)throw new Error("direct bootstrap unavailable");const payload=await response.json();if(payload.session===true)return;token=payload.bootstrap_token||""}if(!token||token.length>512)throw new Error("bootstrap token unavailable");const response=await window.fetch("/bhm/ui/session/exchange",{method:"POST",cache:"no-store",credentials:"same-origin",redirect:"error",headers:{"content-type":"application/json"},body:JSON.stringify({bootstrap_token:token})});if(!response.ok)throw new Error("bootstrap exchange "+response.status)}
+      async function renewUiSession(){const response=await window.fetch("/bhm/ui/session/renew",{method:"POST",cache:"no-store",credentials:"same-origin",headers:{accept:"application/json"}});if(!response.ok)throw new Error("UI session expired")}
+      async function bhmFetch(input,init={},retry=true){await state.uiSessionReady;const response=await window.fetch(input,{...init,credentials:"same-origin"});if(response.status===401&&retry){await renewUiSession();return bhmFetch(input,init,false)}return response}
+      function syncQuery(){const query=new URLSearchParams();if(controls.project.value.trim())query.set("project",controls.project.value.trim());const suffix=query.size?"?"+query.toString():"";window.history.replaceState(null,"",window.location.pathname+suffix);document.getElementById("backToSelector").href="/bhm/galaxy"+suffix}
+      const fullscreenBtn=document.getElementById("fullscreenBtn");document.getElementById("reloadBtn").addEventListener("click",()=>{syncQuery();void loadAtlas()});document.getElementById("fitBtn").addEventListener("click",fitMap);document.getElementById("pulseBtn").addEventListener("click",pulseAtlas);fullscreenBtn.addEventListener("click",()=>void toggleFullscreen());controls.project.addEventListener("change",()=>{syncQuery();void loadAtlas()});controls.limit.addEventListener("change",()=>void loadAtlas());controls.relationsOnly.addEventListener("change",()=>{if(state.rawPayload)void renderData(state.rawPayload)});controls.ambientMotion.addEventListener("change",()=>startAmbientMotion());document.addEventListener("fullscreenchange",()=>{const fullscreen=Boolean(document.fullscreenElement);fullscreenBtn.textContent=fullscreen?"Exit fullscreen":"Fullscreen";fullscreenBtn.setAttribute("aria-pressed",String(fullscreen));scheduleGraphResize()});window.addEventListener("resize",scheduleGraphResize);new ResizeObserver(scheduleGraphResize).observe(atlasViewport);
+      controls.project.value=new URLSearchParams(window.location.search).get("project")||"";state.uiSessionReady=bootstrapUiSession();state.uiSessionReady.then(()=>{syncQuery();return loadAtlas()}).catch(()=>{sessionGateEl.hidden=false;setStatus("Local BHM UI session unavailable. Start the trusted BHM launcher, then open Atlas again.",true)});window.setInterval(()=>void renewUiSession().catch(()=>{}),5*60*1000);
     })();
   </script>
 </body>

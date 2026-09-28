@@ -4041,6 +4041,10 @@ def test_galaxy_static_html_availability():
     response = client.get("/bhm/galaxy")
     classic = client.get("/bhm/galaxy/classic")
     atlas = client.get("/bhm/atlas")
+    g6_bundle = client.get("/static/g6.min.js")
+    g6_3d_bundle = client.get("/static/g6-extension-3d.min.js")
+    g6_license = client.get("/static/G6-LICENSE.txt")
+    g6_3d_license = client.get("/static/G6-EXTENSION-3D-LICENSE.txt")
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
@@ -4050,7 +4054,17 @@ def test_galaxy_static_html_availability():
     assert "cbmCodeSearchPanel" in classic.text
     assert "sqlite-fts5-metadata" not in classic.text
     assert atlas.status_code == 200
-    assert "BHM Atlas Preview" in atlas.text
+    assert "BHM Atlas · G6 3D Knowledge Map" in atlas.text
+    assert 'src="/static/g6.min.js' in atlas.text
+    assert 'src="/static/g6-extension-3d.min.js' in atlas.text
+    assert g6_bundle.status_code == 200
+    assert "application/javascript" in g6_bundle.headers["content-type"]
+    assert g6_3d_bundle.status_code == 200
+    assert "application/javascript" in g6_3d_bundle.headers["content-type"]
+    assert g6_license.status_code == 200
+    assert "MIT License" in g6_license.text
+    assert g6_3d_license.status_code == 200
+    assert "MIT License" in g6_3d_license.text
 
 
 def test_speculative_rag_trigger(monkeypatch):

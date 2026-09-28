@@ -247,13 +247,31 @@ and explicitly authenticate before forwarding requests.
 
 The launcher **Galaxy Viewer** link opens a local selector. It offers the
 current 3D **Galaxy / Night Sky** at `/bhm/galaxy/classic` and the separate
-read-only **Atlas** preview at `/bhm/atlas`. The selector exchanges the
+read-only **Atlas knowledge map** at `/bhm/atlas`. Atlas is a local AntV G6
+3D map: it renders the existing bounded SQLite graph as spheres and 3D lines
+with local light and a perspective camera. Its project territories are derived
+only to keep existing memory records visibly separated; they are not a factual
+relationship or vector-distance claim, and raw observations never become
+visual nodes. The selector exchanges the
 one-time fragment bootstrap for the same-origin HttpOnly UI session before
 navigation, then forwards only the non-secret `project` query value. It never
 places the bootstrap token in a destination URL, persists it, or writes memory
-data. The Atlas preview currently makes no BHM data request and loads no
-third-party renderer; a locally bundled renderer and an explicitly derived
-read-model contract are required before it becomes an interactive map.
+data. Atlas uses pinned local `@antv/g6` v`5.1.1` and
+`@antv/g6-extension-3d` v`0.1.23` bundles under the MIT license
+([G6 notice](../src/blackholememory/static/G6-LICENSE.txt),
+[3D extension notice](../src/blackholememory/static/G6-EXTENSION-3D-LICENSE.txt)),
+makes no third-party request, and reads the same launcher-bound Galaxy data
+contract.
+
+Atlas controls remain visual-only: drag a sphere directly to tug it, then watch
+it snap back to its derived territory; drag empty space to pan; use
+**Alt-drag** to orbit and the wheel to zoom. Clicking a sphere focuses its
+local persisted relations and metadata. The optional **Ambient motion** gives
+priority and territory-anchor spheres a restrained breathing cadence; **Pulse**
+briefly accents them on demand; **Fit map** restores the bounded overview.
+Browser-window resize and **Fullscreen** preserve the same WebGL scene by
+resizing its canvas without rebuilding or re-fitting the read model. These
+motions never write or infer memory relations.
 
 ### Launcher operator tools
 

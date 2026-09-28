@@ -15,6 +15,10 @@ Use this skill on non-trivial work when the session should rely on the local BHM
 powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-memory-preflight.ps1 -Project blackholememory
 ```
 
+If `plugin_guard.action_required` is `true`, tell the user that the canonical
+connector is already enabled and name the duplicate marketplace id. Do not
+enable, install, or silently remove another connector copy during the ritual.
+
 If runtime clarity is missing, run runtime discovery first through the workbench or:
 
 ```powershell
@@ -98,6 +102,7 @@ aggregate while preserving the two typed artifacts.
 - preferred runtime profile on this workstation is `low-context`
 - preferred operator flow is now:
   - `Connect`
+  - verify only one BHM connector is enabled
   - `Start task ritual`
   - do the work
   - `Close task ritual`

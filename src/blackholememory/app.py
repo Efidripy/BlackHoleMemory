@@ -15606,6 +15606,28 @@ def force_graph_bundle() -> FileResponse:
     return FileResponse(STATIC_DIR / "3d-force-graph.min.js", media_type="application/javascript")
 
 
+@app.get("/static/g6.min.js", response_class=FileResponse)
+def g6_bundle() -> FileResponse:
+    """Serve the locally vendored, pinned AntV G6 Atlas renderer."""
+    return FileResponse(STATIC_DIR / "g6.min.js", media_type="application/javascript")
+
+
+@app.get("/static/g6-extension-3d.min.js", response_class=FileResponse)
+def g6_extension_3d_bundle() -> FileResponse:
+    """Serve the local, pinned AntV G6 3D renderer extension for Atlas."""
+    return FileResponse(STATIC_DIR / "g6-extension-3d.min.js", media_type="application/javascript")
+
+
+@app.get("/static/G6-LICENSE.txt", response_class=FileResponse)
+def g6_license() -> FileResponse:
+    return FileResponse(STATIC_DIR / "G6-LICENSE.txt", media_type="text/plain; charset=utf-8")
+
+
+@app.get("/static/G6-EXTENSION-3D-LICENSE.txt", response_class=FileResponse)
+def g6_extension_3d_license() -> FileResponse:
+    return FileResponse(STATIC_DIR / "G6-EXTENSION-3D-LICENSE.txt", media_type="text/plain; charset=utf-8")
+
+
 @app.get("/static/three.module.min.js", response_class=FileResponse)
 def three_module_bundle() -> FileResponse:
     return FileResponse(STATIC_DIR / "three.module.min.js", media_type="application/javascript")
