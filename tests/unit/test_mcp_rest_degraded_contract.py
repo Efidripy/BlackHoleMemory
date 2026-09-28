@@ -127,6 +127,17 @@ def test_core_ritual_wrappers_publish_transport_truth():
         assert "transport" in text, name
 
 
+def test_preflight_tolerates_search_payloads_without_legacy_results_field():
+    text = (PLUGIN_SCRIPTS / "bhm-memory-preflight.ps1").read_text(encoding="utf-8")
+
+    assert "$search.PSObject.Properties['memories']" in text
+    assert "$search.PSObject.Properties['results']" in text
+    assert "$null -ne $memoriesProperty" in text
+    assert "$null -ne $resultsProperty" in text
+    assert "if ($search.memories)" not in text
+    assert "elseif ($search.results)" not in text
+
+
 def test_doctor_verdict_cannot_claim_plugin_connected_from_rest_health_only():
     text = (PLUGIN_SCRIPTS / "bhm-doctor-activate.ps1").read_text(encoding="utf-8")
     assert "New-ConnectorTransportTruth" in text

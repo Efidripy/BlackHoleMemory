@@ -67,4 +67,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-blackholememory = ["static/*.html", "static/*.js", "static/*.svg"]
+blackholememory = ["static/*.html", "static/*.js", "static/*.svg", "static/*.txt"]

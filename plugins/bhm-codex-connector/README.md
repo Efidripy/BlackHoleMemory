@@ -54,11 +54,21 @@ Repository-owned Codex plugin that packages the current BHM ritual for this Wind
 - `scripts/bhm-run-live-memory-check.ps1`
 - `scripts/bhm-show-mcp-sources.ps1`
 - `scripts/bhm-doctor-activate.ps1`
+- `scripts/bhm-plugin-duplicate-guard.ps1`
 
 Checkpoint/session closeouts use one deterministic `upsert_key` when they
 describe the same workflow. `bhm-memory-checkpoint.ps1` writes the first-class
 `/bhm/checkpoint` artifact; `bhm-session-hybrid-record.ps1` writes
 `/bhm/session-record` directly and never nests another checkpoint write.
+
+## One connector rule
+
+The canonical local connector is `bhm-codex-connector@bhm-local-marketplace`.
+The preflight and doctor run `bhm-plugin-duplicate-guard.ps1` and flag any
+other enabled `bhm-codex-connector@...` copy. The guard is read-only: Codex
+owns the Plugins Directory UI, so it cannot intercept its install button.
+When a duplicate is reported, remove the duplicate marketplace copy rather
+than enabling both connectors.
 
 ## Current scope
 

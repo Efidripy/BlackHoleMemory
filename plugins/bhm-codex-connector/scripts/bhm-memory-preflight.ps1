@@ -7,6 +7,18 @@ param(
 
 . (Join-Path $PSScriptRoot "bhm-memory-common.ps1")
 
+$pluginGuardScript = Join-Path $PSScriptRoot "bhm-plugin-duplicate-guard.ps1"
+$pluginGuard = if (Test-Path -LiteralPath $pluginGuardScript) {
+    & $pluginGuardScript -AsJson | ConvertFrom-Json
+} else {
+    [pscustomobject]@{
+        ok = $false
+        action = "bhm-plugin-duplicate-guard"
+        action_required = $true
+        recommendation = "BHM plugin duplicate guard is missing; do not install another connector copy until the plugin bundle is repaired."
+    }
+}
+
 if (-not $Query -or $Query.Count -eq 0) {
     $Query = @(
         "$Project checkpoint status known issues next",
@@ -39,7 +51,18 @@ foreach ($q in $Query) {
         limit = $Limit
         project = $Project
     } -BaseUrl $baseUrl
-    $searchResults = if ($search.memories) { $search.memories } elseif ($search.results) { $search.results } else { @() }
+    # FastMCP search responses may omit either property. StrictMode turns a
+    # missing optional field into a terminating error, so inspect the property
+    # bag rather than accessing the member speculatively.
+    $memoriesProperty = $search.PSObject.Properties['memories']
+    $resultsProperty = $search.PSObject.Properties['results']
+    $searchResults = if ($null -ne $memoriesProperty) {
+        $memoriesProperty.Value
+    } elseif ($null -ne $resultsProperty) {
+        $resultsProperty.Value
+    } else {
+        @()
+    }
 
     $searches += [pscustomobject]@{
         query = $q
@@ -62,6 +85,8 @@ $result = [pscustomobject]@{
     profile = $profile
     searches = $searches
     transport = $transport
+    plugin_guard = $pluginGuard
+    operator_alerts = @(if ($pluginGuard.action_required) { $pluginGuard.recommendation })
     required_closeout = "Run bhm-memory-checkpoint.ps1 before ending non-trivial work if you learned, changed, fixed, or deferred anything durable."
 }
 
