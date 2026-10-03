@@ -135,10 +135,7 @@ function Invoke-HttpProbe {
             reason = "ok"
         }
     } catch {
-        $status = $null
-        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-            $status = [int]$_.Exception.Response.StatusCode
-        }
+        $status = Get-ConnectorHttpStatusFromError -ErrorRecord $_
         return [ordered]@{
             ok = $false
             status = $status

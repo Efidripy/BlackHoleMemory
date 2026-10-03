@@ -4,7 +4,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$canonicalPlugin = "bhm-codex-connector@bhm-local-marketplace"
+$personalPlugin = "bhm-codex-connector@bhm-marketplace"
+$localMirrorPlugin = "bhm-codex-connector@bhm-local-marketplace"
+$knownConnectorIdentities = @($personalPlugin, $localMirrorPlugin)
 
 function Convert-PluginSectionName {
     param([string]$RawName)
@@ -30,25 +32,42 @@ if (Test-Path -LiteralPath $ConfigPath) {
 }
 
 $enabledBhmConnectors = @($enabledPlugins | Where-Object { $_ -match '^bhm-codex-connector@' } | Sort-Object -Unique)
-$canonicalEnabled = $enabledBhmConnectors -contains $canonicalPlugin
-$duplicates = @($enabledBhmConnectors | Where-Object { $_ -ne $canonicalPlugin })
-$duplicateActive = $duplicates.Count -gt 0
+$personalEnabled = $enabledBhmConnectors -contains $personalPlugin
+$localMirrorEnabled = $enabledBhmConnectors -contains $localMirrorPlugin
+$coexistingIdentities = @($enabledBhmConnectors | Where-Object { $_ -in $knownConnectorIdentities })
+$unrecognizedIdentities = @($enabledBhmConnectors | Where-Object { $_ -notin $knownConnectorIdentities })
+$knownCoexistence = $personalEnabled -and $localMirrorEnabled
 
 $result = [ordered]@{
-    ok = (-not $duplicateActive)
+    # The Personal marketplace identity can trigger Codex plugin/MCP discovery,
+    # while the local identity remains the editable workspace mirror.  They ship
+    # the same connector bundle and are allowed to coexist.  This guard is
+    # advisory only: it must never turn a healthy Personal plugin into a false
+    # duplicate or recommend an automatic removal.
+    ok = ($unrecognizedIdentities.Count -eq 0)
     action = "bhm-plugin-duplicate-guard"
     config_path = $ConfigPath
-    canonical_plugin = $canonicalPlugin
-    canonical_enabled = $canonicalEnabled
+    personal_plugin = $personalPlugin
+    personal_enabled = $personalEnabled
+    local_mirror_plugin = $localMirrorPlugin
+    local_mirror_enabled = $localMirrorEnabled
     enabled_bhm_connectors = $enabledBhmConnectors
-    duplicates = $duplicates
-    action_required = $duplicateActive
-    recommendation = if ($duplicateActive) {
-        "BHM connector is already enabled through $canonicalPlugin. Do not enable another marketplace copy; remove the duplicate with: codex plugin remove <plugin@marketplace>."
-    } elseif ($canonicalEnabled) {
-        "Canonical BHM connector is already enabled. Do not install another marketplace copy."
+    coexisting_identities = $coexistingIdentities
+    known_coexistence = $knownCoexistence
+    # Retained for callers that consume the old field.  Only unknown identities
+    # are reported here; the supported Personal + local pair is not a duplicate.
+    duplicates = $unrecognizedIdentities
+    action_required = ($unrecognizedIdentities.Count -gt 0)
+    recommendation = if ($unrecognizedIdentities.Count -gt 0) {
+        "An unrecognized BHM connector identity is enabled: $($unrecognizedIdentities -join ', '). Review it manually. Do not disable, install, or remove any BHM connector during a health check."
+    } elseif ($knownCoexistence) {
+        "Personal BHM plugin and the local workspace mirror are both enabled. This is a supported coexistence: leave both enabled. The host-owned mcp_servers.bhm registration remains the single MCP server."
+    } elseif ($personalEnabled) {
+        "Personal BHM plugin is enabled. Do not disable it automatically; it may be the path that refreshes Codex plugin and MCP discovery."
+    } elseif ($localMirrorEnabled) {
+        "Local workspace mirror is enabled. Do not auto-install or remove the Personal BHM plugin; test any identity cutover only in a separate fresh Codex session."
     } else {
-        "No enabled BHM connector was found. Enable only $canonicalPlugin."
+        "No BHM connector plugin is enabled. This guard is read-only and will not change plugin state."
     }
 }
 
