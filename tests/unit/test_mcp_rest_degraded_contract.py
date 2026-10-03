@@ -10,6 +10,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGIN_SCRIPTS = REPO_ROOT / "plugins" / "bhm-codex-connector" / "scripts"
 COMMON = (PLUGIN_SCRIPTS / "bhm-memory-common.ps1").read_text(encoding="utf-8")
+PLUGIN_GUARD = PLUGIN_SCRIPTS / "bhm-plugin-duplicate-guard.ps1"
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 WORKSPACE_HELPER = Path(r"E:\GitHub\workspace\control\scripts\shared\mcp-rest-degraded.ps1")
 
@@ -136,6 +137,83 @@ def test_preflight_tolerates_search_payloads_without_legacy_results_field():
     assert "$null -ne $resultsProperty" in text
     assert "if ($search.memories)" not in text
     assert "elseif ($search.results)" not in text
+
+
+def test_connector_http_probes_are_safe_under_strict_mode():
+    common = (PLUGIN_SCRIPTS / "bhm-memory-common.ps1").read_text(encoding="utf-8")
+    doctor = (PLUGIN_SCRIPTS / "bhm-doctor-activate.ps1").read_text(encoding="utf-8")
+
+    assert "function Get-ConnectorHttpStatusFromError" in common
+    assert "PSObject.Properties['Response']" in common
+    assert "$_.Exception.Response" not in common
+    assert "$_.Exception.Response" not in doctor
+    assert "Get-ConnectorHttpStatusFromError -ErrorRecord $_" in doctor
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
+def test_connector_probe_keeps_original_error_when_response_is_absent():
+    common_path = str(PLUGIN_SCRIPTS / "bhm-memory-common.ps1").replace("'", "''")
+    script = f"""
+. '{common_path}'
+function Invoke-WebRequest {{ throw [System.Exception]::new('synthetic network failure') }}
+Invoke-ConnectorProbe -Url 'http://127.0.0.1:1' | ConvertTo-Json -Compress
+"""
+    completed = subprocess.run(
+        [POWERSHELL, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    value = json.loads(completed.stdout.strip().lstrip("\ufeff"))
+    assert value["ok"] is False
+    assert value["status"] is None
+    assert value["reason"] == "synthetic network failure"
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is unavailable on this CI runner")
+def test_personal_and_local_connector_identities_can_coexist(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        """
+[plugins.'bhm-codex-connector@bhm-local-marketplace']
+enabled = true
+
+[plugins.'bhm-codex-connector@bhm-marketplace']
+enabled = true
+""".strip(),
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(PLUGIN_GUARD),
+            "-ConfigPath",
+            str(config_path),
+            "-AsJson",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    value = json.loads(completed.stdout.strip().lstrip("\ufeff"))
+
+    assert value["ok"] is True
+    assert value["action_required"] is False
+    assert value["known_coexistence"] is True
+    assert value["duplicates"] == []
+    assert value["personal_enabled"] is True
+    assert value["local_mirror_enabled"] is True
+    assert "leave both enabled" in value["recommendation"]
 
 
 def test_doctor_verdict_cannot_claim_plugin_connected_from_rest_health_only():

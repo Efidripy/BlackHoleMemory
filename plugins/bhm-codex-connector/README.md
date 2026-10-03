@@ -61,14 +61,25 @@ describe the same workflow. `bhm-memory-checkpoint.ps1` writes the first-class
 `/bhm/checkpoint` artifact; `bhm-session-hybrid-record.ps1` writes
 `/bhm/session-record` directly and never nests another checkpoint write.
 
-## One connector rule
+## Connector identities and MCP ownership
 
-The canonical local connector is `bhm-codex-connector@bhm-local-marketplace`.
-The preflight and doctor run `bhm-plugin-duplicate-guard.ps1` and flag any
-other enabled `bhm-codex-connector@...` copy. The guard is read-only: Codex
-owns the Plugins Directory UI, so it cannot intercept its install button.
-When a duplicate is reported, remove the duplicate marketplace copy rather
-than enabling both connectors.
+Codex may show two enabled identities for the same `1.8.4` connector bundle:
+
+- `bhm-codex-connector@bhm-marketplace` is the Personal plugin identity. It
+  may cause Codex to reload plugin/MCP discovery, so it must never be disabled
+  automatically during health checks or preflight.
+- `bhm-codex-connector@bhm-local-marketplace` is the workspace development
+  mirror used to build and synchronize the editable repository source.
+
+This known pair is a supported coexistence, not an actionable duplicate. The
+preflight and doctor run `bhm-plugin-duplicate-guard.ps1` only to report an
+*unknown third* connector identity. The guard is read-only and never enables,
+disables, installs, or removes a plugin. Test an identity cutover only in a
+separate fresh Codex session with an explicit operator decision.
+
+Neither plugin owns a second MCP server. The single native registration remains
+host-owned as `mcp_servers.bhm`; plugin state and current-session native tool
+availability are separate facts.
 
 ## Current scope
 

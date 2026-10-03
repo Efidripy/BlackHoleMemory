@@ -73,16 +73,36 @@ function Get-ConnectorCallerToken {
     return $token
 }
 
+function Get-ConnectorHttpStatusFromError {
+    param([System.Management.Automation.ErrorRecord]$ErrorRecord)
+
+    # Under StrictMode, not every web exception exposes Response.  Inspect the
+    # property bag first so a DNS/timeout error remains diagnosable instead of
+    # being replaced with a secondary missing-member exception.
+    $responseProperty = $ErrorRecord.Exception.PSObject.Properties['Response']
+    if ($null -eq $responseProperty -or $null -eq $responseProperty.Value) {
+        return $null
+    }
+
+    $statusProperty = $responseProperty.Value.PSObject.Properties['StatusCode']
+    if ($null -eq $statusProperty -or $null -eq $statusProperty.Value) {
+        return $null
+    }
+
+    try {
+        return [int]$statusProperty.Value
+    } catch {
+        return $null
+    }
+}
+
 function Invoke-ConnectorProbe {
     param([string]$Url)
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $Url -TimeoutSec 12
         return [ordered]@{ ok = $true; status = [int]$response.StatusCode; url = $Url; reason = "ok" }
     } catch {
-        $status = $null
-        if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-            $status = [int]$_.Exception.Response.StatusCode
-        }
+        $status = Get-ConnectorHttpStatusFromError -ErrorRecord $_
         return [ordered]@{ ok = $false; status = $status; url = $Url; reason = $_.Exception.Message }
     }
 }
