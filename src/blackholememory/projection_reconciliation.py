@@ -40,6 +40,17 @@ class ProjectionReviewDisposition(str, Enum):
     REPAIR_FIRST = "repair_projection_first"
 
 
+class ProjectionCompatibilityStatus(str, Enum):
+    """Whether a Qdrant collection can safely receive this plan's vectors."""
+
+    COMPATIBLE = "compatible"
+    MISSING = "missing"
+    UNKNOWN = "unknown"
+    DIMENSION_MISMATCH = "dimension_mismatch"
+    MODEL_MISMATCH = "model_mismatch"
+    MIXED_MODEL = "mixed_model"
+
+
 class ProjectionSurface(Protocol):
     def list_collections(self) -> list[str]: ...
 
@@ -48,6 +59,8 @@ class ProjectionSurface(Protocol):
     def list_points(self, collection_name: str) -> list[dict[str, Any]]: ...
 
     def delete_point(self, collection_name: str, point_id: str) -> None: ...
+
+    def collection_vector_dimensions(self, collection_name: str) -> int | None: ...
 
 
 @dataclass(frozen=True)
@@ -111,10 +124,47 @@ class ProjectionReviewClassification:
 
 
 @dataclass(frozen=True)
+class ProjectionCompatibility:
+    """Content-free vector-space receipt bound into an operator plan."""
+
+    collection_name: str
+    expected_dimensions: int | None
+    observed_dimensions: int | None
+    expected_embedding_model: str | None
+    observed_embedding_models: tuple[str, ...]
+    point_count: int
+    status: ProjectionCompatibilityStatus
+
+    @property
+    def blocking(self) -> bool:
+        return self.status in {
+            ProjectionCompatibilityStatus.UNKNOWN,
+            ProjectionCompatibilityStatus.DIMENSION_MISMATCH,
+            ProjectionCompatibilityStatus.MODEL_MISMATCH,
+            ProjectionCompatibilityStatus.MIXED_MODEL,
+        }
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "collection_name": self.collection_name,
+            "expected_dimensions": self.expected_dimensions,
+            "observed_dimensions": self.observed_dimensions,
+            "expected_embedding_model": self.expected_embedding_model,
+            "observed_embedding_models": list(self.observed_embedding_models),
+            "point_count": self.point_count,
+            "status": self.status.value,
+            "blocking": self.blocking,
+        }
+
+
+@dataclass(frozen=True)
 class ProjectionReconciliationPlan:
     as_of: str
     project: str | None
     entries: tuple[ReconciliationEntry, ...]
+    compatibility: tuple[ProjectionCompatibility, ...] = ()
+    source_basis_digest: str = ""
+    projection_generation: str = ""
     blocking_issues: tuple[str, ...] = ()
 
     @property
@@ -126,10 +176,13 @@ class ProjectionReconciliationPlan:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "as_of": self.as_of,
             "project": self.project,
             "entries": [entry.to_dict() for entry in self.entries],
+            "compatibility": [item.to_dict() for item in self.compatibility],
+            "source_basis_digest": self.source_basis_digest,
+            "projection_generation": self.projection_generation,
             "blocking_issues": list(self.blocking_issues),
             "counts": self.counts,
             "plan_digest": self.digest,
@@ -154,6 +207,9 @@ class ProjectionReconciliationPlan:
             "as_of": self.as_of,
             "project": self.project,
             "entries": digest_entries,
+            "compatibility": [item.to_dict() for item in self.compatibility],
+            "source_basis_digest": self.source_basis_digest,
+            "projection_generation": self.projection_generation,
             "blocking_issues": list(self.blocking_issues),
         }
         canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -187,15 +243,12 @@ class QdrantSurfaceAdapter:
         )
 
     def get_point(self, collection_name: str, point_id: str) -> dict[str, Any] | None:
-        try:
-            points = self.client.retrieve(
-                collection_name=collection_name,
-                ids=[point_id],
-                with_payload=True,
-                with_vectors=False,
-            )
-        except Exception:
-            return None
+        points = self.client.retrieve(
+            collection_name=collection_name,
+            ids=[point_id],
+            with_payload=True,
+            with_vectors=False,
+        )
         if not points:
             return None
         point = points[0]
@@ -208,16 +261,13 @@ class QdrantSurfaceAdapter:
         result: list[dict[str, Any]] = []
         offset: Any = None
         while True:
-            try:
-                points, offset = self.client.scroll(
-                    collection_name=collection_name,
-                    limit=256,
-                    offset=offset,
-                    with_payload=True,
-                    with_vectors=False,
-                )
-            except Exception:
-                return result
+            points, offset = self.client.scroll(
+                collection_name=collection_name,
+                limit=256,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
             result.extend(
                 {"id": str(point.id), "payload": dict(point.payload or {})}
                 for point in points
@@ -231,6 +281,28 @@ class QdrantSurfaceAdapter:
             points_selector=qdrant_models.PointIdsList(points=[point_id]),
             wait=True,
         )
+
+    def collection_vector_dimensions(self, collection_name: str) -> int | None:
+        exists = getattr(self.client, "collection_exists", None)
+        if callable(exists) and not exists(collection_name):
+            return None
+        if not callable(exists) and collection_name not in self.list_collections():
+            return None
+        get_collection = getattr(self.client, "get_collection", None)
+        if not callable(get_collection):
+            # Compatibility remains available to older read-only surfaces;
+            # callers that ask for an expected dimension receive an explicit
+            # mismatch rather than a guessed collection configuration.
+            return None
+        details = get_collection(collection_name=collection_name)
+        vectors = getattr(getattr(details, "config", None), "params", None)
+        vectors = getattr(vectors, "vectors", None)
+        if isinstance(vectors, Mapping):
+            # BHM writes one unnamed dense vector.  A named-vector collection
+            # is not silently guessed as compatible.
+            return None
+        size = getattr(vectors, "size", None)
+        return int(size) if isinstance(size, int) else None
 
 
 def _payload_digest(payload: Mapping[str, Any] | None) -> str:
@@ -370,12 +442,131 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _digest_payload(payload: Any) -> str:
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _source_basis_digest(memories: list[Any]) -> str:
+    """Return an ephemeral generation fence derived only from SQLite state.
+
+    The digest is deliberately not a second source of truth and is never
+    persisted.  It lets apply detect a changed authoritative revision between
+    dry-run and the first projection write.
+    """
+
+    basis = [
+        {
+            "memory_id": memory.id,
+            "project": memory.project,
+            "lifecycle": memory.lifecycle.value,
+            "revision_id": memory.current_revision.revision_id,
+            "collections": {
+                collection_name: projection_payload_digest(memory, collection_name)
+                for collection_name in QdrantProjector.collection_names(memory)
+            },
+        }
+        for memory in memories
+    ]
+    return _digest_payload(sorted(basis, key=lambda item: (item["memory_id"], item["project"])))
+
+
+def _projection_generation(
+    *,
+    source_basis_digest: str,
+    expected_dimensions: int | None,
+    expected_embedding_model: str | None,
+) -> str:
+    """Name the read-only vector-space generation without storing it in Qdrant."""
+
+    return _digest_payload(
+        {
+            "schema_version": "bhm.projection-generation.v1",
+            "source_basis_digest": source_basis_digest,
+            "expected_dimensions": expected_dimensions,
+            "expected_embedding_model": expected_embedding_model or "unknown",
+        }
+    )
+
+
+def _collection_compatibility(
+    *,
+    collection_name: str,
+    points: list[dict[str, Any]],
+    surface: ProjectionSurface,
+    expected_dimensions: int | None,
+    expected_embedding_model: str | None,
+) -> ProjectionCompatibility:
+    dimensions_reader = getattr(surface, "collection_vector_dimensions", None)
+    observed_dimensions = dimensions_reader(collection_name) if callable(dimensions_reader) else None
+    observed_models = tuple(
+        sorted(
+            {
+                str(payload.get("projection_embedding_model"))
+                for point in points
+                for payload in [point.get("payload")]
+                if isinstance(payload, Mapping)
+                and str(payload.get("projection_embedding_model") or "").strip()
+            }
+        )
+    )
+    if not points and observed_dimensions is None:
+        status = ProjectionCompatibilityStatus.MISSING
+    elif expected_dimensions is not None and observed_dimensions != expected_dimensions:
+        status = ProjectionCompatibilityStatus.DIMENSION_MISMATCH
+    elif expected_embedding_model is not None and len(observed_models) > 1:
+        status = ProjectionCompatibilityStatus.MIXED_MODEL
+    elif expected_embedding_model is not None and observed_models and observed_models != (
+        expected_embedding_model,
+    ):
+        status = ProjectionCompatibilityStatus.MODEL_MISMATCH
+    elif expected_embedding_model is not None and points and not observed_models:
+        # Pre-generation-marker payloads cannot safely be assumed to use the
+        # currently configured model.  A reviewed recovery path must label or
+        # replace them; this plan never guesses.
+        status = ProjectionCompatibilityStatus.UNKNOWN
+    else:
+        status = ProjectionCompatibilityStatus.COMPATIBLE
+    return ProjectionCompatibility(
+        collection_name=collection_name,
+        expected_dimensions=expected_dimensions,
+        observed_dimensions=observed_dimensions,
+        expected_embedding_model=expected_embedding_model,
+        observed_embedding_models=observed_models,
+        point_count=len(points),
+        status=status,
+    )
+
+
+def _compatibility_receipt(
+    *,
+    collections: set[str],
+    points_by_collection: Mapping[str, list[dict[str, Any]]],
+    surface: ProjectionSurface,
+    expected_dimensions: int | None,
+    expected_embedding_model: str | None,
+) -> tuple[ProjectionCompatibility, ...]:
+    return tuple(
+        _collection_compatibility(
+            collection_name=collection_name,
+            points=list(points_by_collection.get(collection_name, [])),
+            surface=surface,
+            expected_dimensions=expected_dimensions,
+            expected_embedding_model=expected_embedding_model,
+        )
+        for collection_name in sorted(collections)
+        if not collection_name.startswith(QDRANT_QUARANTINE_COLLECTION_PREFIX)
+    )
+
+
 def build_projection_reconciliation_plan(
     repository: MemoryRepository,
     surface: ProjectionSurface,
     *,
     project: str | None = None,
     as_of: str | None = None,
+    expected_dimensions: int | None = None,
+    expected_embedding_model: str | None = None,
 ) -> ProjectionReconciliationPlan:
     memories = repository.list_memories(
         project=project,
@@ -441,11 +632,22 @@ def build_projection_reconciliation_plan(
             )
 
     blocking: list[str] = []
-    collections = set(surface.list_collections()) | {entry.collection_name for entry in entries}
+    canonical_collections = {entry.collection_name for entry in entries}
+    collections = set(surface.list_collections()) | canonical_collections
+    compatibility_collections = set(canonical_collections)
+    points_by_collection: dict[str, list[dict[str, Any]]] = {}
     for collection_name in sorted(collections):
         if collection_name.startswith(QDRANT_QUARANTINE_COLLECTION_PREFIX):
             continue
-        for point in surface.list_points(collection_name):
+        points = surface.list_points(collection_name)
+        points_by_collection[collection_name] = points
+        if project is None or any(
+            isinstance(point.get("payload"), Mapping)
+            and str(point["payload"].get("project") or "") == project
+            for point in points
+        ):
+            compatibility_collections.add(collection_name)
+        for point in points:
             point_id = str(point.get("id") or "")
             if not point_id or (collection_name, point_id) in desired_keys:
                 continue
@@ -468,10 +670,30 @@ def build_projection_reconciliation_plan(
             blocking.append(f"orphan:{collection_name}:{point_id}")
 
     entries.sort(key=lambda entry: (entry.collection_name, entry.point_id, entry.action.value))
+    compatibility = _compatibility_receipt(
+        collections=compatibility_collections,
+        points_by_collection=points_by_collection,
+        surface=surface,
+        expected_dimensions=expected_dimensions,
+        expected_embedding_model=expected_embedding_model,
+    )
+    blocking.extend(
+        f"compatibility:{item.collection_name}:{item.status.value}"
+        for item in compatibility
+        if item.blocking
+    )
+    source_basis_digest = _source_basis_digest(memories)
     return ProjectionReconciliationPlan(
         as_of=as_of or _now_iso(),
         project=project,
         entries=tuple(entries),
+        compatibility=compatibility,
+        source_basis_digest=source_basis_digest,
+        projection_generation=_projection_generation(
+            source_basis_digest=source_basis_digest,
+            expected_dimensions=expected_dimensions,
+            expected_embedding_model=expected_embedding_model,
+        ),
         blocking_issues=tuple(sorted(blocking)),
     )
 
@@ -488,6 +710,70 @@ def apply_projection_reconciliation(
     deleted = 0
     reviewed = 0
     failures: list[str] = []
+    if any(item.blocking for item in plan.compatibility):
+        return ProjectionApplyResult(
+            plan_digest=plan.digest,
+            upserted=0,
+            deleted=0,
+            reviewed=0,
+            failed=("plan contains blocking projection compatibility mismatch; no mutation attempted",),
+        )
+    try:
+        if plan.source_basis_digest:
+            current_memories = repository.list_memories(
+                project=plan.project,
+                include_archived=True,
+                include_tombstoned=True,
+                limit=10_000,
+            )
+            if _source_basis_digest(current_memories) != plan.source_basis_digest:
+                return ProjectionApplyResult(
+                    plan_digest=plan.digest,
+                    upserted=0,
+                    deleted=0,
+                    reviewed=0,
+                    failed=("authoritative SQLite generation changed after reconciliation plan; no mutation attempted",),
+                )
+        if not plan.compatibility:
+            current_compatibility: tuple[ProjectionCompatibility, ...] = ()
+        else:
+            expected_dimensions = next(
+                (item.expected_dimensions for item in plan.compatibility if item.expected_dimensions is not None),
+                None,
+            )
+            expected_embedding_model = next(
+                (item.expected_embedding_model for item in plan.compatibility if item.expected_embedding_model),
+                None,
+            )
+            collections = {item.collection_name for item in plan.compatibility}
+            points_by_collection = {
+                collection_name: surface.list_points(collection_name) for collection_name in collections
+            }
+            current_compatibility = _compatibility_receipt(
+                collections=collections,
+                points_by_collection=points_by_collection,
+                surface=surface,
+                expected_dimensions=expected_dimensions,
+                expected_embedding_model=expected_embedding_model,
+            )
+    except Exception as exc:
+        return ProjectionApplyResult(
+            plan_digest=plan.digest,
+            upserted=0,
+            deleted=0,
+            reviewed=0,
+            failed=(f"projection preflight unavailable; no mutation attempted: {type(exc).__name__}",),
+        )
+    if plan.compatibility and [item.to_dict() for item in current_compatibility] != [
+        item.to_dict() for item in plan.compatibility
+    ]:
+        return ProjectionApplyResult(
+            plan_digest=plan.digest,
+            upserted=0,
+            deleted=0,
+            reviewed=0,
+            failed=("projection compatibility or generation changed after reconciliation plan; no mutation attempted",),
+        )
     for entry in plan.entries:
         try:
             if entry.action is ReconciliationAction.NOOP:

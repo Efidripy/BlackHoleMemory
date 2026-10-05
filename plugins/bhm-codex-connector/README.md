@@ -18,6 +18,12 @@ Repository-owned Codex plugin that packages the current BHM ritual for this Wind
   by the runtime discovery configuration
 - native MCP truth is owned only by the canonical Streamable HTTP SDK session;
   inspect `GET /bhm/mcp/http/status`
+- first native-probe policy: when the current chat exposes
+  `mcp__bhm__bhm_health`, the agent calls it exactly once before every other
+  BHM action. If the catalog is absent, the task continues without BHM; no
+  retry, runtime restart, configuration change, or REST-as-native claim is
+  permitted. A BHM server cannot create a tool catalog that Codex did not
+  attach to the chat
 - the Streamable HTTP registry publishes bounded session, catalog and idle
   lifecycle state; DELETE or idle expiry releases `attached` immediately
 - the supervisor publishes `bhm.mcp.timeout-contract.v1`; startup, protocol,
@@ -28,9 +34,12 @@ Repository-owned Codex plugin that packages the current BHM ritual for this Wind
   and orphan cleanup is dry-run-first and limited to proven BHM descendants
 - ritual wrappers publish `bhm.mcp.rest-degraded.v1`; they keep
   `current_session_verified=false` because a separate PowerShell process cannot
-  prove Codex session identity. A healthy but idle Streamable HTTP transport is
-  reported as `native MCP transport ready; session idle or detached` and asks
-  for a native tool probe first; exact `MCP unavailable` is reserved for a
+  prove Codex chat identity. `native_probe_required=true` and
+  `session_attribution=unverifiable_by_rest` make that boundary explicit. A
+  live lease is reported as `native MCP lease observed; REST bridge cannot
+  verify this chat identity`; a healthy idle transport is reported as
+  `native MCP transport ready; no live lease observed by REST bridge`. Both
+  require a native tool probe first; exact `MCP unavailable` is reserved for a
   transport probe failure/unavailable contour. Native retries remain zero
 - scoped repair preview follows the same boundary: healthy idle HTTP returns
   `native_probe_required`; reload is reserved for reviewed adapter mutation or
@@ -40,10 +49,11 @@ Repository-owned Codex plugin that packages the current BHM ritual for this Wind
 - default runtime profile: `low-context`
 - normal operator flow:
   1. connect
-  2. start task ritual
-  3. do the work
-  4. close task ritual
-  5. optionally run a live check
+  2. inspect native BHM catalog; call `bhm_health` if available
+  3. start task ritual
+  4. do the work
+  5. close task ritual
+  6. optionally run a live check
 
 ## Core scripts
 

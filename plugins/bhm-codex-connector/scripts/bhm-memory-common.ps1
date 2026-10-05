@@ -159,6 +159,14 @@ function Invoke-ConnectorJson {
             'Bearer',
             (Get-ConnectorCallerToken)
         )
+        # Authority-changing BHM routes require a second locally configured
+        # operator capability. Never emit its value; absent capability leaves
+        # the request on the non-authoritative REST contour.
+        $adminCapability = [string][Environment]::GetEnvironmentVariable('BHM_ADMIN_CAPABILITY', 'User')
+        if ([string]::IsNullOrWhiteSpace($adminCapability)) { $adminCapability = [string]$env:BHM_ADMIN_CAPABILITY }
+        if (-not [string]::IsNullOrWhiteSpace($adminCapability)) {
+            $client.DefaultRequestHeaders.Add('x-bhm-admin-capability', $adminCapability)
+        }
         $lastFailure = $null
         foreach ($pathVariant in (Get-ConnectorPathVariants -Path $Path)) {
             $uri = "$BaseUrl$pathVariant"
@@ -299,16 +307,16 @@ function New-ConnectorTransportTruth {
         "no_live_native_lease"
     }
     $status = if ($runtimeLeaseLive) {
-        "native MCP live; current session unverified"
+        "native MCP lease observed; REST bridge cannot verify this chat identity"
     } elseif ($streamableHttpReady) {
-        "native MCP transport ready; session idle or detached"
+        "native MCP transport ready; no live lease observed by REST bridge"
     } else {
         "MCP unavailable"
     }
     $recoveryAction = if ($runtimeLeaseLive) {
-        "verify this client with a native BHM tool call; the REST wrapper cannot prove session identity; reload only if the native probe fails"
+        "use a native BHM tool probe to verify this chat; the REST bridge cannot attribute the live lease to this chat; reload only if the native probe fails"
     } elseif ($streamableHttpReady) {
-        "invoke a native BHM tool to establish or recover the Streamable HTTP session; reload only if the native probe fails while runtime is healthy"
+        "use a native BHM tool probe to establish or recover the Streamable HTTP session; reload only if the native probe fails while runtime is healthy"
     } else {
         "start or repair the canonical BHM transport and re-probe; reload only after runtime/config repair; do not replay failed MCP tool calls"
     }
@@ -323,6 +331,8 @@ function New-ConnectorTransportTruth {
         native_mcp = [ordered]@{
             attached = $false
             current_session_verified = $false
+            native_probe_required = [bool]($attach.ok -and $transportReady)
+            session_attribution = if ($attach.ok -and $transportReady) { "unverifiable_by_rest" } else { "not_available" }
             runtime_lease_live = [bool]$runtimeLeaseLive
             transport_ready = [bool]$transportReady
             streamable_http_ready = [bool]$streamableHttpReady

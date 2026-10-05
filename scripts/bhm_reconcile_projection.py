@@ -99,6 +99,32 @@ def _serialize_plan(plan: Any, *, include_observed_payload: bool) -> dict[str, A
     return payload
 
 
+def _control_plane_summary(plan: dict[str, Any]) -> dict[str, Any]:
+    """Keep the launcher preview concise while the full report keeps receipts."""
+
+    compatibility = plan.get("compatibility") if isinstance(plan.get("compatibility"), list) else []
+    statuses: dict[str, int] = {}
+    blocking_collections: list[str] = []
+    for item in compatibility:
+        if not isinstance(item, dict):
+            continue
+        status = str(item.get("status") or "unknown")
+        statuses[status] = statuses.get(status, 0) + 1
+        if item.get("blocking"):
+            blocking_collections.append(str(item.get("collection_name") or "unknown"))
+    return {
+        "rebuildEligibility": "blocked" if blocking_collections else "eligible",
+        "compatibilityStatusCounts": dict(sorted(statuses.items())),
+        "blockingCollectionCount": len(blocking_collections),
+        "blockingCollections": sorted(blocking_collections),
+        "action": (
+            "review model/dimension receipt and prepare a separate backup-bound rebuild plan"
+            if blocking_collections
+            else "exact digest confirmation may proceed through the existing offline-writer gate"
+        ),
+    }
+
+
 def _summary(report: dict[str, Any]) -> dict[str, Any]:
     plan = report.get("plan") or {}
     return {
@@ -112,6 +138,9 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
         "writerBoundary": report.get("writerBoundary"),
         "metrics": report.get("metrics"),
         "counts": plan.get("counts"),
+        "controlPlane": _control_plane_summary(plan),
+        "sourceBasisDigest": plan.get("source_basis_digest"),
+        "projectionGeneration": plan.get("projection_generation"),
         "blockingIssues": len(plan.get("blocking_issues") or []),
         "planDigest": plan.get("plan_digest"),
         "apply": report.get("apply"),
@@ -256,6 +285,8 @@ def main() -> int:
                 surface,
                 project=args.project,
                 as_of=_utc_iso(as_of),
+                expected_dimensions=settings.mem0_embedding_dims,
+                expected_embedding_model=settings.mem0_embedding_model,
             )
             report: dict[str, Any] = {
                 "success": True,
@@ -268,6 +299,8 @@ def main() -> int:
                     "apiListenerOpen": listener_open,
                     "applyRequiresOfflineLiveWriter": True,
                     "nonAuthoritativeApplyExplicitlyAllowed": bool(args.allow_non_authoritative_target),
+                    "compatibilityMismatchRequiresConfirmedRebuild": True,
+                    "runtimeRebuildExecuted": False,
                 },
                 "readOnlyRehearsal": not args.apply,
                 "writes_live_state": bool(args.apply),

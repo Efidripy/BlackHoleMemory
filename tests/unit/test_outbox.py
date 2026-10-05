@@ -63,6 +63,71 @@ def test_outbox_claim_ack_enforces_lease_ownership(tmp_path):
     assert repository.claim_outbox() == []
 
 
+def test_fenced_lease_rejects_stale_or_missing_controller_generation(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    repository.save_memory(_memory())
+    generation_one = "controller_bhm_generation_one"
+    generation_two = "controller_bhm_generation_two"
+
+    first = repository.claim_outbox(lease_generation=generation_one)[0]
+    with pytest.raises(OutboxLeaseLost, match="generation"):
+        repository.ack_outbox(first.event_id, first.claim_token or "")
+    with pytest.raises(OutboxLeaseLost, match="generation"):
+        repository.ack_outbox(
+            first.event_id,
+            first.claim_token or "",
+            lease_generation=generation_two,
+        )
+
+    deferred = repository.defer_outbox(
+        first.event_id,
+        first.claim_token or "",
+        "restart before acknowledgement",
+        retry_after_seconds=0,
+        lease_generation=generation_one,
+    )
+    second = repository.claim_outbox(lease_generation=generation_two)[0]
+    with pytest.raises(OutboxLeaseLost):
+        repository.ack_outbox(
+            first.event_id,
+            first.claim_token or "",
+            lease_generation=generation_one,
+        )
+    completed = repository.ack_outbox(
+        second.event_id,
+        second.claim_token or "",
+        lease_generation=generation_two,
+    )
+
+    assert deferred.status is OutboxStatus.PENDING
+    assert completed.status is OutboxStatus.COMPLETED
+
+
+def test_dead_letter_requeue_preview_is_digest_only_and_does_not_mutate(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    repository.save_memory(_memory())
+    claim = repository.claim_outbox()[0]
+    repository.fail_outbox(
+        claim.event_id,
+        claim.claim_token or "",
+        "projection failure with potentially sensitive detail",
+        retry_after_seconds=0,
+        max_attempts=1,
+    )
+
+    before = repository.get_outbox_event(claim.event_id)
+    preview = repository.preview_dead_letter_requeue()
+    after = repository.get_outbox_event(claim.event_id)
+
+    assert preview["mode"] == "preview-only"
+    assert preview["writes_live_state"] is False
+    assert preview["requires_explicit_confirmation"] is True
+    assert preview["entries"][0]["event_id"] == claim.event_id
+    assert "last_error" not in preview["entries"][0]
+    assert len(preview["entries"][0]["last_error_sha256"]) == 64
+    assert before == after
+
+
 def test_outbox_failure_retries_then_dead_letters(tmp_path):
     repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
     repository.save_memory(_memory())

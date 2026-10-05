@@ -475,20 +475,20 @@ def build_mcp_panel_snapshot(
     transport_ready = streamable_http_ready or runtime_lease_live
     rest_degraded = not runtime_lease_live
     if runtime_lease_live:
-        rest_status = "native MCP live; current session unverified"
+        rest_status = "native MCP lease observed; REST bridge cannot verify this chat identity"
         rest_reason = "current_session_unverified"
-        recovery_action = "native MCP session is live; verify this client with a native BHM tool call"
+        recovery_action = "use a native BHM tool probe to verify this chat; the panel cannot attribute the live lease to this chat"
     elif streamable_http_ready:
-        rest_status = "native MCP transport ready; session idle or detached"
+        rest_status = "native MCP transport ready; no live lease observed by REST bridge"
         rest_reason = "streamable_http_idle_or_detached"
         if runtime_state["state"] == "healthy":
             recovery_action = (
-                "invoke a native BHM tool to establish or recover the Streamable HTTP session; "
+                "use a native BHM tool probe to establish or recover the Streamable HTTP session; "
                 "reload only if the native probe fails while runtime is healthy"
             )
         else:
             recovery_action = (
-                "repair runtime/SLO, then invoke a native BHM tool; reload only after a healthy native probe fails"
+                "repair runtime/SLO, then use a native BHM tool probe; reload only after a healthy native probe fails"
             )
     else:
         rest_status = "MCP unavailable"
@@ -502,6 +502,8 @@ def build_mcp_panel_snapshot(
         "mcp_available": runtime_lease_live,
         "attached": runtime_lease_live,
         "current_session_verified": False,
+        "native_probe_required": transport_ready,
+        "session_attribution": "aggregate_only" if transport_ready else "not_available",
         "runtime_lease_live": runtime_lease_live,
         "transport_ready": transport_ready,
         "streamable_http_ready": streamable_http_ready,

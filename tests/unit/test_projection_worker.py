@@ -33,6 +33,10 @@ def _config(**overrides) -> ProjectionWorkerConfig:
         "lease_seconds": 7.0,
         "retry_after_seconds": 0.0,
         "max_attempts": 2,
+        "max_batch_size": 5,
+        "high_watermark": 4,
+        "retry_jitter_seconds": 0.5,
+        "retry_budget_seconds": 20.0,
     }
     values.update(overrides)
     return ProjectionWorkerConfig(**values)
@@ -62,6 +66,9 @@ def test_run_once_forwards_bounded_claim_and_retry_settings():
             "lease_seconds": 7.0,
             "retry_after_seconds": 0.0,
             "max_attempts": 2,
+            "lease_generation": worker.controller_generation,
+            "retry_jitter_seconds": 0.5,
+            "retry_budget_seconds": 20.0,
         }
     ]
     assert worker.snapshot().as_dict() == {
@@ -74,6 +81,8 @@ def test_run_once_forwards_bounded_claim_and_retry_settings():
         "last_classification": None,
         "last_error": "one or more projection events failed",
         "last_duration_ms": worker.snapshot().last_duration_ms,
+        "last_backlog": None,
+        "last_claim_limit": 3,
     }
 
 
@@ -125,4 +134,54 @@ def test_infrastructure_deferral_is_observable_and_uses_bounded_backoff():
     assert worker._poll_delay(1) == 2
     assert worker._poll_delay(3) == 8
     assert worker._poll_delay(100) == 300
+
+
+class _QueueRepository:
+    def __init__(self, counts: dict[str, int]) -> None:
+        self.counts = counts
+
+    def outbox_counts(self) -> dict[str, int]:
+        return self.counts
+
+
+def test_high_watermark_uses_capped_drain_batch_without_unbounded_claims():
+    repository = _QueueRepository({"pending": 1_000, "failed": 3})
+    projector = _FakeProjector()
+    worker = ProjectionWorker(repository, projector, config=_config(max_batch_size=5, high_watermark=4))
+
+    worker.run_once()
+
+    assert projector.calls[0]["limit"] == 5
+    assert worker.snapshot().last_backlog == 1_003
+    assert worker.snapshot().last_claim_limit == 5
+
+
+def test_worker_serializes_same_controller_and_exposes_concurrency_cap():
+    projector = _FakeProjector()
+    worker = ProjectionWorker(object(), projector, config=_config())
+    assert worker._run_lock.acquire(blocking=False) is True
+    try:
+        result = worker.run_once()
+    finally:
+        worker._run_lock.release()
+
+    assert result.classification == "concurrency_capped"
+    assert projector.calls == []
+
+
+def test_sustained_outage_backoff_respects_retry_budget_and_is_forwarded():
+    deferred = ProjectorRunResult(1, 0, 0, (), deferred=1, classification="infrastructure_unavailable")
+    projector = _FakeProjector([deferred, deferred, deferred])
+    worker = ProjectionWorker(
+        object(),
+        projector,
+        config=_config(retry_after_seconds=3, retry_budget_seconds=10),
+        controller_generation="controller_bhm_testgeneration",
+    )
+
+    worker.run_once()
+    worker.run_once()
+    worker.run_once()
+
+    assert [call["retry_after_seconds"] for call in projector.calls] == [3, 6, 10]
 

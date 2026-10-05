@@ -1,0 +1,62 @@
+{
+  "schema_version": "bhm.causal-read-model-fixture.v1",
+  "fixture_id": "bhm-ng-016-v1",
+  "project": "fixture-project",
+  "source_snapshot_digest": "72c42265d1e6b0285a49d05fb42f9b7a6978612373f53b5ec37c41db397376a3",
+  "created_at": "2026-10-05T00:00:00Z",
+  "max_lag_seconds": 3600,
+  "decisions": [
+    {
+      "decision_id": "decision-alpha",
+      "project": "fixture-project",
+      "assertion_id": "assertion-alpha",
+      "assertion_digest": "ee2f14f01660b7d2c3b16dfeb5fe6d98b04a69743c6c8f2f58ec97cdd343b21a",
+      "source_kind": "sqlite_claim_assertion",
+      "occurred_at": "2026-10-05T00:00:00Z",
+      "correlation_digest": "846f8c874408a2ac62fda092a08d3b66d8350e16d0961130a67aed854a46b2c5"
+    },
+    {
+      "decision_id": "decision-beta",
+      "project": "fixture-project",
+      "assertion_id": "assertion-beta",
+      "assertion_digest": "e14648b194105af586adf3b7b1c34df6b33c0cfb9c0eb4c142e0f816ac577e79",
+      "source_kind": "sqlite_claim_assertion",
+      "occurred_at": "2026-10-05T00:10:00Z",
+      "correlation_digest": "9c72a8d165c1d78f66cbbdf65e1ddb536bbbf8d6293282551f03c5cc2130caab"
+    }
+  ],
+  "outcomes": [
+    {
+      "outcome_id": "outcome-alpha",
+      "project": "fixture-project",
+      "outcome_source_id": "receipt-alpha",
+      "outcome_source_digest": "5ce34c540e0971b2955202d96f1f1a5626f8c1bbd14a2ce2a4be2ec4faf41d37",
+      "source_kind": "sqlite_operator_outcome_receipt",
+      "occurred_at": "2026-10-05T00:20:00Z",
+      "correlation_digest": "846f8c874408a2ac62fda092a08d3b66d8350e16d0961130a67aed854a46b2c5"
+    },
+    {
+      "outcome_id": "outcome-beta",
+      "project": "fixture-project",
+      "outcome_source_id": "receipt-beta",
+      "outcome_source_digest": "ecf2ba2f607de39c6a278cc08eed45b033ec1d2fba52d5d918ba7f8d7d4a969d",
+      "source_kind": "sqlite_operator_outcome_receipt",
+      "occurred_at": "2026-10-05T00:30:00Z",
+      "correlation_digest": "9c72a8d165c1d78f66cbbdf65e1ddb536bbbf8d6293282551f03c5cc2130caab"
+    },
+    {
+      "outcome_id": "outcome-unlinked",
+      "project": "fixture-project",
+      "outcome_source_id": "receipt-unlinked",
+      "outcome_source_digest": "421c93d7359cc0661b6a6c4a9f7ae826d4b7f7fc4d980fa6f9d4e72c0c44d7b3",
+      "source_kind": "sqlite_operator_outcome_receipt",
+      "occurred_at": "2026-10-05T00:40:00Z",
+      "correlation_digest": "40b64b0007783f597d98b73e14da1c93812a213b71cf68cf83f8d59facaa3022"
+    }
+  ],
+  "expected_pairs": [
+    {"decision_id": "decision-alpha", "outcome_id": "outcome-alpha"},
+    {"decision_id": "decision-beta", "outcome_id": "outcome-beta"}
+  ],
+  "fixture_digest": "eba380e60ebb23fb175b78618a33163a4ec87023b6eabb2d5cb2dcc74a973daa"
+}

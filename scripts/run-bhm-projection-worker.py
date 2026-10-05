@@ -32,6 +32,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-dir", type=Path, default=None)
     parser.add_argument("--database", type=Path, default=None)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--preview-dead-letter-requeue",
+        action="store_true",
+        help="emit a digest-only review plan; requires --dry-run and never requeues rows",
+    )
     parser.add_argument("--once", action="store_true", help="run one bounded batch (default)")
     parser.add_argument("--loop", action="store_true", help="poll until interrupted")
     parser.add_argument("--max-cycles", type=int, default=None)
@@ -108,6 +113,14 @@ def _read_only_outbox_summary(path: Path) -> dict[str, Any]:
         return {"database_exists": True, "outbox": {}, "error": str(exc)[:500]}
     finally:
         connection.close()
+
+
+def _preview_dead_letter_requeue(path: Path) -> dict[str, Any]:
+    """Read an explicit review plan without opening a write transaction."""
+
+    from blackholememory.memory_repository import SQLiteMemoryRepository
+
+    return SQLiteMemoryRepository(path).preview_dead_letter_requeue()
 
 
 def _build_worker(config, *, openai_base_url: str | None = None):
@@ -210,6 +223,9 @@ def main() -> int:
     if args.once and args.loop:
         print("--once and --loop are mutually exclusive", file=sys.stderr)
         return 2
+    if args.preview_dead_letter_requeue and not args.dry_run:
+        print("--preview-dead-letter-requeue requires --dry-run; requeue apply is not implemented", file=sys.stderr)
+        return 2
     if args.max_cycles is not None and args.max_cycles < 1:
         print("--max-cycles must be positive", file=sys.stderr)
         return 2
@@ -236,6 +252,10 @@ def main() -> int:
             "state": state.as_dict(),
             "outbox": _read_only_outbox_summary(config.database_path),
         }
+        if args.preview_dead_letter_requeue:
+            report["dead_letter_requeue_preview"] = _preview_dead_letter_requeue(
+                config.database_path
+            )
         print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
         return 0
 

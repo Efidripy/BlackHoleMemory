@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from blackholememory.memory_evaluation import FrozenEvaluationFixtureError
@@ -20,6 +21,12 @@ from blackholememory.memory_evaluation import load_recorded_retrieval_receipts
 from blackholememory.memory_evaluation import run_frozen_evaluation_fixture
 from blackholememory.external_evaluation_admission import ExternalEvaluationAdmissionError
 from blackholememory.external_evaluation_admission import load_external_evaluation_admission_report
+
+
+def _emit(payload: dict[str, object]) -> None:
+    """Emit UTF-8 JSON so frozen CJK fixture identifiers survive Windows consoles."""
+
+    sys.stdout.buffer.write((json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"))
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -48,9 +55,9 @@ def main() -> int:
             admission = load_external_evaluation_admission_report(args.admission_report) if args.admission_report is not None else None
             report = evaluate_retrieval(manifest, receipts, k=args.k, admission_report=admission)
     except (EvaluationAdmissionBindingError, ExternalEvaluationAdmissionError, FrozenEvaluationFixtureError, OSError, ValueError) as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False, sort_keys=True))
+        _emit({"ok": False, "error": str(exc)})
         return 2
-    print(json.dumps({"ok": True, "report": report}, ensure_ascii=False, sort_keys=True))
+    _emit({"ok": True, "report": report})
     return 0
 
 

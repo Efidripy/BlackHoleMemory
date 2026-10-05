@@ -9,7 +9,22 @@ Use this skill on non-trivial work when the session should rely on the local BHM
 
 ## Required ritual
 
-1. Start with the task-open ritual:
+1. Before any BHM REST ritual, search, task call, checkpoint, or diagnosis,
+   inspect the actual tool catalog of the current chat.
+
+   - If `mcp__bhm__bhm_health` is available, call it exactly once as the first
+     BHM action. Report its compact native outcome before using any REST BHM
+     wrapper. This is the current-chat proof and also renews the native
+     Streamable HTTP session.
+   - If no `mcp__bhm__*` tool is available, do not retry, restart, alter
+     `config.toml`, or claim attachment. Continue the user task without BHM;
+     REST runtime checks may be used only as separately labelled transport
+     evidence.
+   - A configured server, a REST health response, or a live lease from another
+     client never substitutes for the native probe. The BHM server cannot make
+     a missing tool catalog appear by calling itself.
+
+2. Start the task-open ritual:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-memory-preflight.ps1 -Project blackholememory
@@ -27,7 +42,7 @@ If runtime clarity is missing, run runtime discovery first through the workbench
 powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-profile.ps1 -Action status
 ```
 
-2. For durable changes, close with either:
+3. For durable changes, close with either:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-memory-checkpoint.ps1 -Project blackholememory -Done "<done>" -Next "<next>" -Checks "<checks>" -Risks "<risks>"
@@ -39,7 +54,7 @@ or
 powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-session-hybrid-record.ps1 -Project blackholememory -Title "<title>" -Done "<done>" -Next "<next>" -Checks "<checks>" -Risks "<risks>" -Decisions "<decisions>" -FilesTouched "<files>" -ConversationNotes "<summary>"
 ```
 
-3. For a compact live verification bundle:
+4. For a compact live verification bundle:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connector\scripts\bhm-run-live-memory-check.ps1 -Title "<title>"

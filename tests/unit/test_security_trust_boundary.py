@@ -48,3 +48,22 @@ def test_security_boundary_rejects_cross_project_traversal_external_mcp_and_muta
     assert preview["checks"]["project_isolation"] is True
     assert preview["checks"]["external_mcp_denied"] is True
     assert preview["checks"]["mutation_fail_closed"] is True
+
+
+def test_security_preview_does_not_honor_client_authority_or_review_claims():
+    preview = build_security_trust_boundary_preview(
+        [
+            {
+                "id": "spoofed",
+                "project": "fixture",
+                "source_kind": "bhm-authoritative",
+                "trust_label": "authoritative",
+                "authoritative": True,
+                "reviewed": True,
+                "reviewer": "not-a-server-proof",
+            }
+        ],
+        **_base_kwargs(),
+    )
+
+    assert preview["items"][0]["trust_label"] == "observed"

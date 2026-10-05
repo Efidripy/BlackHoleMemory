@@ -13,6 +13,8 @@ COMMON = (PLUGIN_SCRIPTS / "bhm-memory-common.ps1").read_text(encoding="utf-8")
 PLUGIN_GUARD = PLUGIN_SCRIPTS / "bhm-plugin-duplicate-guard.ps1"
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 WORKSPACE_HELPER = Path(r"E:\GitHub\workspace\control\scripts\shared\mcp-rest-degraded.ps1")
+PLUGIN_SKILL = REPO_ROOT / "plugins" / "bhm-codex-connector" / "skills" / "bhm-codex-connector" / "SKILL.md"
+PLUGIN_MANIFEST = REPO_ROOT / "plugins" / "bhm-codex-connector" / ".codex-plugin" / "plugin.json"
 
 
 def _transport_for(attach: dict) -> dict:
@@ -113,8 +115,28 @@ def test_rest_degraded_contract_is_explicit_and_fail_closed():
     assert "current_session_verified = $false" in COMMON
     assert 'policy = "no-native-retry"' in COMMON
     assert "failed_tool_call_loop = $false" in COMMON
-    assert '"native MCP transport ready; session idle or detached"' in COMMON
+    assert '"native MCP lease observed; REST bridge cannot verify this chat identity"' in COMMON
+    assert '"native MCP transport ready; no live lease observed by REST bridge"' in COMMON
     assert '"streamable_http_idle_or_detached"' in COMMON
+    assert "native_probe_required" in COMMON
+    assert '"unverifiable_by_rest"' in COMMON
+
+
+def test_native_first_probe_policy_is_catalog_gated_and_never_retries_missing_tools():
+    skill = PLUGIN_SKILL.read_text(encoding="utf-8")
+    manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
+    readme = (REPO_ROOT / "plugins" / "bhm-codex-connector" / "README.md").read_text(encoding="utf-8")
+
+    assert "mcp__bhm__bhm_health" in skill
+    assert "call it exactly once as the first" in skill
+    assert "BHM action. Report its compact native outcome" in skill
+    assert "Before any BHM REST ritual, search, task call, checkpoint, or diagnosis" in skill
+    assert "Continue the user task without BHM" in skill
+    assert "do not retry, restart, alter" in skill
+    assert "cannot make" in skill
+    assert "a missing tool catalog appear by calling itself" in skill
+    assert "bhm_health before any other BHM action" in manifest["interface"]["defaultPrompt"][0]
+    assert "first native-probe policy" in readme
 
 
 def test_core_ritual_wrappers_publish_transport_truth():
@@ -220,7 +242,7 @@ def test_doctor_verdict_cannot_claim_plugin_connected_from_rest_health_only():
     text = (PLUGIN_SCRIPTS / "bhm-doctor-activate.ps1").read_text(encoding="utf-8")
     assert "New-ConnectorTransportTruth" in text
     assert '"REST bridge ready; MCP unavailable"' in text
-    assert '"REST bridge ready; native MCP session unverified"' in text
+    assert '"REST bridge ready; native chat probe required"' in text
     assert "$mcpTransport.status" in text
 
 
@@ -243,7 +265,7 @@ def test_workspace_bridge_has_the_same_contract_schema():
     assert 'schema_version = "bhm.mcp.rest-degraded.v1"' in text
     assert '"MCP unavailable"' in text
     assert "/bhm/mcp/http/status" in text
-    assert '"native MCP transport ready; session idle or detached"' in text
+    assert '"native MCP transport ready; no live lease observed by REST bridge"' in text
     assert 'policy = "no-native-retry"' in text
 
 
@@ -261,13 +283,15 @@ def test_idle_streamable_http_transport_does_not_require_blanket_reload():
             "transports": {"streamable_http": {"ready": True}, "stdio": {"attached_count": 0}},
         }
     )
-    assert value["status"] == "native MCP transport ready; session idle or detached"
+    assert value["status"] == "native MCP transport ready; no live lease observed by REST bridge"
     assert value["native_mcp"]["attached"] is False
     assert value["native_mcp"]["current_session_verified"] is False
+    assert value["native_mcp"]["native_probe_required"] is True
+    assert value["native_mcp"]["session_attribution"] == "unverifiable_by_rest"
     assert value["native_mcp"]["runtime_lease_live"] is False
     assert value["native_mcp"]["streamable_http_ready"] is True
     assert value["native_mcp"]["reason_code"] == "streamable_http_idle_or_detached"
-    assert value["recovery_action"].startswith("invoke a native BHM tool")
+    assert value["recovery_action"].startswith("use a native BHM tool probe")
     assert not value["recovery_action"].startswith("reload")
 
 
@@ -285,10 +309,12 @@ def test_live_runtime_session_stays_unverified_from_rest_wrapper():
             "transports": {"streamable_http": {"ready": True, "attached_count": 1}, "stdio": {}},
         }
     )
-    assert value["status"] == "native MCP live; current session unverified"
+    assert value["status"] == "native MCP lease observed; REST bridge cannot verify this chat identity"
     assert value["native_mcp"]["runtime_lease_live"] is True
     assert value["native_mcp"]["current_session_verified"] is False
-    assert value["recovery_action"].startswith("verify this client with a native BHM tool call")
+    assert value["native_mcp"]["native_probe_required"] is True
+    assert value["native_mcp"]["session_attribution"] == "unverifiable_by_rest"
+    assert value["recovery_action"].startswith("use a native BHM tool probe")
 
 
 @pytest.mark.skipif(
@@ -305,11 +331,12 @@ def test_plugin_and_workspace_transport_truth_are_exactly_equal_for_all_probe_mo
         values.append(plugin)
 
     http_live, http_idle, unavailable = values
-    assert http_live["status"] == "native MCP live; current session unverified"
+    assert http_live["status"] == "native MCP lease observed; REST bridge cannot verify this chat identity"
     assert http_live["native_mcp"]["attached_count"] == 2
     assert http_live["native_mcp"]["current_session_verified"] is False
+    assert http_live["native_mcp"]["native_probe_required"] is True
 
-    assert http_idle["status"] == "native MCP transport ready; session idle or detached"
+    assert http_idle["status"] == "native MCP transport ready; no live lease observed by REST bridge"
     assert http_idle["native_mcp"]["streamable_http_ready"] is True
     assert not http_idle["recovery_action"].startswith("reload")
 
@@ -317,6 +344,8 @@ def test_plugin_and_workspace_transport_truth_are_exactly_equal_for_all_probe_mo
     assert unavailable["native_mcp"]["probe_ok"] is False
     assert unavailable["native_mcp"]["transport_ready"] is False
     assert unavailable["native_mcp"]["reason_code"] == "attach_status_probe_failed"
+    assert unavailable["native_mcp"]["native_probe_required"] is False
+    assert unavailable["native_mcp"]["session_attribution"] == "not_available"
     assert set(unavailable["native_mcp"]["transports"]) == {"streamable_http"}
     assert all(
         item["reason_code"] == "probe_failed"

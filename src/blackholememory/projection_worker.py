@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 from typing import Callable
+from uuid import uuid4
 
 from .outbox import utc_now_iso
 from .qdrant_projector import ProjectorRunResult
@@ -29,6 +30,8 @@ class ProjectionWorkerMetrics:
     last_classification: str | None
     last_error: str | None
     last_duration_ms: float | None
+    last_backlog: int | None
+    last_claim_limit: int | None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +44,8 @@ class ProjectionWorkerMetrics:
             "last_classification": self.last_classification,
             "last_error": self.last_error,
             "last_duration_ms": self.last_duration_ms,
+            "last_backlog": self.last_backlog,
+            "last_claim_limit": self.last_claim_limit,
         }
 
 
@@ -59,6 +64,7 @@ class ProjectionWorker:
         config: ProjectionWorkerConfig | None = None,
         clock: Callable[[], str] | None = None,
         monotonic: Callable[[], float] | None = None,
+        controller_generation: str | None = None,
     ) -> None:
         self.repository = repository
         self.projector = projector
@@ -67,11 +73,20 @@ class ProjectionWorker:
         self._monotonic = monotonic or time.monotonic
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
-        self._metrics = ProjectionWorkerMetrics(0, 0, 0, 0, 0, None, None, None, None)
+        self._run_lock = threading.Lock()
+        self._controller_generation = controller_generation or f"controller_bhm_{uuid4().hex}"
+        self._consecutive_deferred = 0
+        self._metrics = ProjectionWorkerMetrics(0, 0, 0, 0, 0, None, None, None, None, None, None)
 
     @property
     def enabled(self) -> bool:
         return self.config.enabled
+
+    @property
+    def controller_generation(self) -> str:
+        """Opaque, process-local generation used to fence leases from prior workers."""
+
+        return self._controller_generation
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -86,38 +101,39 @@ class ProjectionWorker:
                 "projection worker is disabled; set BHM_PROJECTION_WORKER_ENABLED=true"
             )
 
-    def run_once(self, *, force: bool = False) -> ProjectorRunResult:
-        """Project at most one configured batch; no-op startup is impossible."""
+    def _backlog(self) -> int | None:
+        counts = getattr(self.repository, "outbox_counts", None)
+        if not callable(counts):
+            return None
+        snapshot = counts()
+        return sum(
+            int(value)
+            for status, value in snapshot.items()
+            if str(getattr(status, "value", status)) in {"pending", "failed"}
+        )
 
-        self._require_enabled(force=force)
-        started = self._monotonic()
-        run_at = self._clock()
-        try:
-            result = self.projector.run_once(
-                self.repository,
-                limit=self.config.batch_size,
-                lease_seconds=self.config.lease_seconds,
-                retry_after_seconds=self.config.retry_after_seconds,
-                max_attempts=self.config.max_attempts,
-            )
-        except Exception as exc:
-            elapsed_ms = round(max(self._monotonic() - started, 0.0) * 1_000, 3)
-            with self._lock:
-                current = self._metrics
-                self._metrics = ProjectionWorkerMetrics(
-                    runs=current.runs + 1,
-                    claimed=current.claimed,
-                    completed=current.completed,
-                    failed=current.failed,
-                    deferred=current.deferred,
-                    last_run_at=run_at,
-                    last_classification="worker_error",
-                    last_error=f"{type(exc).__module__}.{type(exc).__name__}: {exc}"[:2_000],
-                    last_duration_ms=elapsed_ms,
-                )
-            raise
+    def _claim_limit(self, backlog: int | None) -> int:
+        normal = min(self.config.batch_size, self.config.max_batch_size)
+        if backlog is None or backlog < self.config.high_watermark:
+            return normal
+        return min(self.config.max_batch_size, max(normal, backlog))
 
-        elapsed_ms = round(max(self._monotonic() - started, 0.0) * 1_000, 3)
+    def _retry_delay(self) -> float:
+        exponent = min(self._consecutive_deferred, 8)
+        return min(
+            self.config.retry_after_seconds * (2**exponent),
+            self.config.retry_budget_seconds,
+        )
+
+    def _record_result(
+        self,
+        result: ProjectorRunResult,
+        *,
+        run_at: str,
+        elapsed_ms: float,
+        backlog: int | None,
+        claim_limit: int | None,
+    ) -> None:
         with self._lock:
             current = self._metrics
             self._metrics = ProjectionWorkerMetrics(
@@ -134,7 +150,69 @@ class ProjectionWorker:
                     else None if result.failed == 0 else "one or more projection events failed"
                 ),
                 last_duration_ms=elapsed_ms,
+                last_backlog=backlog,
+                last_claim_limit=claim_limit,
             )
+
+    def run_once(self, *, force: bool = False) -> ProjectorRunResult:
+        """Project at most one configured batch; no-op startup is impossible."""
+
+        self._require_enabled(force=force)
+        started = self._monotonic()
+        run_at = self._clock()
+        if not self._run_lock.acquire(blocking=False):
+            result = ProjectorRunResult(
+                claimed=0,
+                completed=0,
+                failed=0,
+                outcomes=(),
+                classification="concurrency_capped",
+            )
+            self._record_result(
+                result,
+                run_at=run_at,
+                elapsed_ms=round(max(self._monotonic() - started, 0.0) * 1_000, 3),
+                backlog=None,
+                claim_limit=None,
+            )
+            return result
+        backlog: int | None = None
+        claim_limit: int | None = None
+        try:
+            backlog = self._backlog()
+            claim_limit = self._claim_limit(backlog)
+            result = self.projector.run_once(
+                self.repository,
+                limit=claim_limit,
+                lease_seconds=self.config.lease_seconds,
+                retry_after_seconds=self._retry_delay(),
+                max_attempts=self.config.max_attempts,
+                lease_generation=self.controller_generation,
+                retry_jitter_seconds=self.config.retry_jitter_seconds,
+                retry_budget_seconds=self.config.retry_budget_seconds,
+            )
+        except Exception as exc:
+            elapsed_ms = round(max(self._monotonic() - started, 0.0) * 1_000, 3)
+            self._record_result(
+                ProjectorRunResult(0, 0, 0, (), classification="worker_error", error=f"{type(exc).__module__}.{type(exc).__name__}: {exc}"[:2_000]),
+                run_at=run_at,
+                elapsed_ms=elapsed_ms,
+                backlog=backlog,
+                claim_limit=claim_limit,
+            )
+            raise
+        finally:
+            self._run_lock.release()
+
+        elapsed_ms = round(max(self._monotonic() - started, 0.0) * 1_000, 3)
+        self._consecutive_deferred = self._consecutive_deferred + 1 if result.deferred else 0
+        self._record_result(
+            result,
+            run_at=run_at,
+            elapsed_ms=elapsed_ms,
+            backlog=backlog,
+            claim_limit=claim_limit,
+        )
         return result
 
     def _poll_delay(self, consecutive_deferred: int) -> float:

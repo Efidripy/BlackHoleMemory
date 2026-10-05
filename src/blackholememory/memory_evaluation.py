@@ -43,6 +43,7 @@ class EvaluationCase(BaseModel):
     category: Literal[
         "single_hop", "multi_hop", "temporal", "knowledge_update", "abstention",
         "assistant_fact", "preference", "changing_fact", "implicit_connection", "open_domain", "adversarial",
+        "poisoned_input", "cross_scope", "cjk", "projection_drift", "replay_idempotency", "latency",
     ]
     expected_ids: tuple[str, ...] = ()
     expected_abstention: bool = False
@@ -50,6 +51,7 @@ class EvaluationCase(BaseModel):
     session_id: str = Field(default="unscoped", min_length=1, max_length=160)
     turn_id: str | None = Field(default=None, min_length=1, max_length=160)
     source_digest: str = Field(min_length=64, max_length=64)
+    latency_budget_ms: int | None = Field(default=None, ge=1, le=10_000)
 
     @field_validator("expected_ids", mode="before")
     @classmethod
@@ -432,13 +434,30 @@ def evaluate_retrieval(
     temporal_total = temporal_correct = 0
     update_total = update_correct = 0
     expected_abstentions = predicted_abstentions = correct_abstentions = 0
+    safety_case_ids: list[str] = []
+    safety_failed_case_ids: list[str] = []
+    replay_case_ids: list[str] = []
+    cjk_total = cjk_correct = 0
+    latency_budget_case_ids: list[str] = []
+    latency_budget_failed_case_ids: list[str] = []
     project_leakage_case_ids: list[str] = []
     provenance_unproven_case_ids: list[str] = []
     provenance_mismatch_case_ids: list[str] = []
     for case in manifest.cases:
+        is_safety_case = case.category in {"adversarial", "poisoned_input", "cross_scope", "projection_drift"}
+        if is_safety_case:
+            safety_case_ids.append(case.case_id)
+        if case.category == "replay_idempotency":
+            replay_case_ids.append(case.case_id)
+        if case.latency_budget_ms is not None:
+            latency_budget_case_ids.append(case.case_id)
         receipt = receipt_by_case.get(case.case_id)
         if receipt is None:
             missing.append(case.case_id)
+            if is_safety_case:
+                safety_failed_case_ids.append(case.case_id)
+            if case.latency_budget_ms is not None:
+                latency_budget_failed_case_ids.append(case.case_id)
             continue
         expected = set(case.expected_ids)
         actual = receipt.retrieved_ids[:k]
@@ -467,6 +486,15 @@ def evaluate_retrieval(
             correct_abstentions += int(receipt.abstained)
         if receipt.abstained:
             predicted_abstentions += 1
+        if is_safety_case:
+            if not receipt.abstained or actual:
+                safety_failed_case_ids.append(case.case_id)
+        if case.category == "cjk":
+            cjk_total += 1
+            cjk_correct += int(fully_correct)
+        if case.latency_budget_ms is not None:
+            if receipt.latency_seconds * 1_000 > case.latency_budget_ms:
+                latency_budget_failed_case_ids.append(case.case_id)
         if receipt.project is None or receipt.provenance_digest is None:
             provenance_unproven_case_ids.append(case.case_id)
         else:
@@ -477,8 +505,15 @@ def evaluate_retrieval(
     latencies = sorted(receipt.latency_seconds for receipt in receipt_by_case.values())
     provenance_evaluated_count = len(manifest.cases) - len(missing) - len(provenance_unproven_case_ids)
     isolation_passed: bool | None = None
-    if provenance_evaluated_count == len(manifest.cases):
-        isolation_passed = not project_leakage_case_ids and not provenance_mismatch_case_ids
+    if project_leakage_case_ids or provenance_mismatch_case_ids:
+        isolation_passed = False
+    elif provenance_evaluated_count == len(manifest.cases):
+        isolation_passed = True
+    replay_failed_case_ids = sorted(
+        case_id
+        for case_id in replay_case_ids
+        if case_id not in receipt_by_case or case_id in duplicate_receipt_case_ids
+    )
     report = {
         "schema_version": SCHEMA_VERSION,
         "manifest_digest": manifest.digest(),
@@ -506,6 +541,26 @@ def evaluate_retrieval(
                 "correct_count": correct_abstentions,
                 "precision": _ratio(correct_abstentions, predicted_abstentions),
                 "recall": _ratio(correct_abstentions, expected_abstentions),
+            },
+            "security_boundary": {
+                "case_count": len(safety_case_ids),
+                "failed_case_ids": sorted(safety_failed_case_ids),
+                "passed": not safety_failed_case_ids if safety_case_ids else None,
+            },
+            "replay_idempotency": {
+                "case_count": len(replay_case_ids),
+                "failed_case_ids": replay_failed_case_ids,
+                "passed": not replay_failed_case_ids if replay_case_ids else None,
+            },
+            "cjk_retrieval": {
+                "case_count": cjk_total,
+                "correct_count": cjk_correct,
+                "accuracy": _ratio(cjk_correct, cjk_total),
+            },
+            "latency_budget": {
+                "case_count": len(latency_budget_case_ids),
+                "failed_case_ids": sorted(latency_budget_failed_case_ids),
+                "passed": not latency_budget_failed_case_ids if latency_budget_case_ids else None,
             },
         },
         "provenance_and_isolation": {

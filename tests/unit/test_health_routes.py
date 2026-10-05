@@ -52,7 +52,9 @@ def test_health_domain_builders_keep_route_contract_shapes() -> None:
     ready = build_ready(runtime)
     assert ready["ok"] is True
     assert build_ready_public(runtime) == {"ok": True, "status": "ready"}
-    assert build_bhm_health(runtime)["mcp_transport"]["status"] == "attached"
+    health = build_bhm_health(runtime)
+    assert health["mcp_transport"]["status"] == "attached"
+    assert health["mem0"] == {"status": "projection-only"}
     assert build_cutover(runtime)["required_ok"] is True
 
 

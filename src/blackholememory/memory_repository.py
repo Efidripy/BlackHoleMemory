@@ -38,7 +38,9 @@ from .filesystem_boundaries import assert_safe_path
 from .outbox import OutboxEvent
 from .outbox import OutboxLeaseLost
 from .outbox import OutboxStatus
+from .outbox import fenced_lease_generation
 from .outbox import utc_now_iso
+from .outbox import validate_lease_generation
 from .temporal_contract import normalize_temporal_timestamp
 
 
@@ -2010,11 +2012,26 @@ class SQLiteMemoryRepository:
         finally:
             connection.close()
 
-    def claim_outbox(self, *, limit: int = 10, lease_seconds: float = 120.0) -> list[OutboxEvent]:
+    def claim_outbox(
+        self,
+        *,
+        limit: int = 10,
+        lease_seconds: float = 120.0,
+        lease_generation: str | None = None,
+    ) -> list[OutboxEvent]:
+        """Claim a bounded batch, optionally fencing it to one controller generation.
+
+        The generation lives solely inside the existing opaque claim token. It
+        is not a domain counter or a new SQLite authority field, which keeps
+        legacy rows and schema compatible while preventing a restarted
+        controller from acknowledging a fenced lease it did not issue.
+        """
+
         if limit < 1 or limit > 1_000:
             raise ValueError("outbox claim limit must be between 1 and 1000")
         if lease_seconds <= 0 or lease_seconds > 86_400:
             raise ValueError("lease_seconds must be between 0 and 86400")
+        generation = validate_lease_generation(lease_generation) if lease_generation else None
         now = utc_now_iso()
         expired_before = (
             datetime.now(timezone.utc) - timedelta(seconds=lease_seconds)
@@ -2041,7 +2058,11 @@ class SQLiteMemoryRepository:
             claimed: list[OutboxEvent] = []
             for row in rows:
                 event_id = str(row["event_id"])
-                token = f"lease_bhm_{uuid4().hex}"
+                token = (
+                    f"lease_bhm_gen_{generation}--{uuid4().hex}"
+                    if generation is not None
+                    else f"lease_bhm_{uuid4().hex}"
+                )
                 connection.execute(
                     """
                     UPDATE memory_outbox SET
@@ -2059,15 +2080,33 @@ class SQLiteMemoryRepository:
                     claimed.append(self._outbox_row_to_model(claimed_row))
             return claimed
 
-    def ack_outbox(self, event_id: str, claim_token: str) -> OutboxEvent:
+    @staticmethod
+    def _assert_outbox_lease_owner(
+        row: sqlite3.Row | None,
+        event_id: str,
+        claim_token: str,
+        lease_generation: str | None,
+    ) -> None:
+        if row is None or row["status"] != OutboxStatus.PROCESSING.value or row["claim_token"] != claim_token:
+            raise OutboxLeaseLost(f"outbox lease is not owned: {event_id}")
+        fenced_generation = fenced_lease_generation(str(row["claim_token"] or ""))
+        if fenced_generation is not None and lease_generation != fenced_generation:
+            raise OutboxLeaseLost(f"outbox lease generation is not owned: {event_id}")
+
+    def ack_outbox(
+        self,
+        event_id: str,
+        claim_token: str,
+        *,
+        lease_generation: str | None = None,
+    ) -> OutboxEvent:
         now = utc_now_iso()
         with self._write_transaction() as connection:
             row = connection.execute(
                 "SELECT * FROM memory_outbox WHERE event_id = ?",
                 (event_id,),
             ).fetchone()
-            if row is None or row["status"] != OutboxStatus.PROCESSING.value or row["claim_token"] != claim_token:
-                raise OutboxLeaseLost(f"outbox lease is not owned: {event_id}")
+            self._assert_outbox_lease_owner(row, event_id, claim_token, lease_generation)
             connection.execute(
                 """
                 UPDATE memory_outbox SET
@@ -2091,6 +2130,7 @@ class SQLiteMemoryRepository:
         error: str,
         *,
         retry_after_seconds: float = 5.0,
+        lease_generation: str | None = None,
     ) -> OutboxEvent:
         """Release an owned lease without charging an infrastructure attempt.
 
@@ -2113,8 +2153,7 @@ class SQLiteMemoryRepository:
                 "SELECT * FROM memory_outbox WHERE event_id = ?",
                 (event_id,),
             ).fetchone()
-            if row is None or row["status"] != OutboxStatus.PROCESSING.value or row["claim_token"] != claim_token:
-                raise OutboxLeaseLost(f"outbox lease is not owned: {event_id}")
+            self._assert_outbox_lease_owner(row, event_id, claim_token, lease_generation)
             connection.execute(
                 """
                 UPDATE memory_outbox SET
@@ -2140,6 +2179,7 @@ class SQLiteMemoryRepository:
         *,
         retry_after_seconds: float = 5.0,
         max_attempts: int = 5,
+        lease_generation: str | None = None,
     ) -> OutboxEvent:
         if retry_after_seconds < 0 or retry_after_seconds > 86_400:
             raise ValueError("retry_after_seconds must be between 0 and 86400")
@@ -2152,8 +2192,7 @@ class SQLiteMemoryRepository:
                 "SELECT * FROM memory_outbox WHERE event_id = ?",
                 (event_id,),
             ).fetchone()
-            if row is None or row["status"] != OutboxStatus.PROCESSING.value or row["claim_token"] != claim_token:
-                raise OutboxLeaseLost(f"outbox lease is not owned: {event_id}")
+            self._assert_outbox_lease_owner(row, event_id, claim_token, lease_generation)
             attempts = int(row["attempts"])
             terminal = attempts >= max_attempts
             available_at = now
@@ -2177,6 +2216,47 @@ class SQLiteMemoryRepository:
             ).fetchone()
             assert updated is not None
             return self._outbox_row_to_model(updated)
+
+    def outbox_counts(self) -> dict[OutboxStatus, int]:
+        """Return authoritative queue counts without claiming or mutating rows."""
+
+        connection = self._read_connection()
+        try:
+            rows = connection.execute(
+                "SELECT status, COUNT(*) AS count FROM memory_outbox GROUP BY status"
+            ).fetchall()
+            return {
+                OutboxStatus(str(row["status"])): int(row["count"])
+                for row in rows
+            }
+        finally:
+            connection.close()
+
+    def preview_dead_letter_requeue(self, *, limit: int = 100) -> dict[str, Any]:
+        """Create a digest-only dead-letter review plan; it never requeues rows."""
+
+        events = self.list_outbox(status=OutboxStatus.DEAD_LETTER, limit=limit)
+        entries = [
+            {
+                "event_id": event.event_id,
+                "aggregate_id": event.aggregate_id,
+                "attempts": event.attempts,
+                "last_error_sha256": hashlib.sha256(
+                    str(event.last_error or "").encode("utf-8")
+                ).hexdigest(),
+            }
+            for event in events
+        ]
+        digest = hashlib.sha256(
+            json.dumps(entries, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return {
+            "mode": "preview-only",
+            "writes_live_state": False,
+            "requires_explicit_confirmation": True,
+            "entries": entries,
+            "plan_digest": digest,
+        }
 
     def health(self) -> RepositoryHealth:
         connection = self._read_connection()

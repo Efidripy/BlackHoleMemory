@@ -113,6 +113,7 @@ def build_bhm_health(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
         memory_store=memory_store.as_dict(),
         fallback_mode=runtime.configured_fallback_mode(),
         fallback_active=runtime.fallback_grace_active(),
+        mem0_plan=runtime.mem0_runtime_plan(),
         observed_at=runtime.utc_now(),
         projection_required=projection_required,
     )

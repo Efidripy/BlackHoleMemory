@@ -151,15 +151,11 @@ def _path_check(value: Any, roots: Sequence[str]) -> tuple[str, dict[str, Any], 
 
 
 def _trust_label(record: Mapping[str, Any], *, project: str, project_match: bool, hard_findings: Sequence[str]) -> str:
-    explicit = _clip(record.get("trust_label"), 40).casefold()
-    if explicit in TRUST_LABELS and (explicit != "authoritative" or project_match) and not hard_findings:
-        return explicit
+    # Preview input is untrusted data. In particular, a caller cannot make a
+    # payload authoritative or reviewed merely by supplying a label/reviewer.
+    # Production admission binds trust to the server-owned ingress contour.
     if hard_findings:
         return "quarantined"
-    if bool(record.get("authoritative")) and project_match and _clip(record.get("source_kind"), 80) in {"sqlite", "bhm-authoritative"}:
-        return "authoritative"
-    if bool(record.get("reviewed")) and _clip(record.get("reviewer"), 120):
-        return "reviewed"
     if bool(record.get("proposed")) or _clip(record.get("source_kind"), 80).casefold() in {"proposal", "llm"}:
         return "proposed"
     if _clip(record.get("source_kind"), 80):

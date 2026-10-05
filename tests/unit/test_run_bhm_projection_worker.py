@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -67,6 +68,17 @@ def test_quiet_idle_suppresses_empty_success_json(capsys: pytest.CaptureFixture[
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == ""
+
+
+def test_dead_letter_requeue_preview_refuses_to_run_without_dry_run(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(sys, "argv", [str(SCRIPT), "--preview-dead-letter-requeue"])
+
+    assert MODULE.main() == 2
+
+    assert "requires --dry-run" in capsys.readouterr().err
 
 
 def test_infrastructure_report_is_timestamped_bounded_and_uses_retry_exit_code(

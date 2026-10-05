@@ -132,8 +132,10 @@ def test_live_catalog_and_runtime_can_reach_healthy():
     assert snapshot["catalog_coverage"]["missing"] == 0
     assert snapshot["catalog_coverage"]["extra"] == 0
     assert snapshot["schema_drift"]["state"] == "none"
-    assert snapshot["rest_degraded"]["status"] == "native MCP live; current session unverified"
+    assert snapshot["rest_degraded"]["status"] == "native MCP lease observed; REST bridge cannot verify this chat identity"
     assert snapshot["rest_degraded"]["current_session_verified"] is False
+    assert snapshot["rest_degraded"]["native_probe_required"] is True
+    assert snapshot["rest_degraded"]["session_attribution"] == "aggregate_only"
     assert snapshot["overall"]["state"] == "healthy"
     assert snapshot["overall"]["false_green_prevented"] is False
 
@@ -155,12 +157,14 @@ def test_idle_streamable_http_transport_is_ready_but_not_attached():
     assert snapshot["catalog_coverage"]["observed"] == 0
     assert snapshot["catalog_coverage"]["missing"] is None
     assert snapshot["catalog_coverage"]["extra"] is None
-    assert rest["status"] == "native MCP transport ready; session idle or detached"
+    assert rest["status"] == "native MCP transport ready; no live lease observed by REST bridge"
     assert rest["transport_ready"] is True
     assert rest["streamable_http_ready"] is True
     assert rest["attached"] is False
     assert rest["current_session_verified"] is False
-    assert rest["recovery_action"].startswith("invoke a native BHM tool")
+    assert rest["native_probe_required"] is True
+    assert rest["session_attribution"] == "aggregate_only"
+    assert rest["recovery_action"].startswith("use a native BHM tool probe")
     assert not rest["recovery_action"].startswith("reload")
     assert snapshot["overall"]["state"] == "warning"
     assert snapshot["overall"]["reason_code"] == "streamable_http_ready_session_idle_or_detached"
@@ -226,9 +230,10 @@ def test_live_http_session_is_aggregate_truth_not_current_caller_proof():
     assert snapshot["connected"]["state"] == "attached"
     assert "streamable_http" in snapshot["connected"]["transports"]
     assert snapshot["catalog"]["state"] == "ready"
-    assert snapshot["rest_degraded"]["status"] == "native MCP live; current session unverified"
+    assert snapshot["rest_degraded"]["status"] == "native MCP lease observed; REST bridge cannot verify this chat identity"
     assert snapshot["rest_degraded"]["runtime_lease_live"] is True
     assert snapshot["rest_degraded"]["current_session_verified"] is False
+    assert snapshot["rest_degraded"]["native_probe_required"] is True
 
 
 def test_homogeneous_multiple_live_sessions_prove_catalog_coverage():

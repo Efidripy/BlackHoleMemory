@@ -486,6 +486,35 @@ def test_projection_reconcile_apply_uses_exact_preview_contract_and_restarts_api
     assert payload["phase"] == "apply"
 
 
+def test_projection_reconcile_preview_refuses_blocked_model_dimension_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = tmp_path / "scripts" / "bhm_reconcile_projection.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# bounded test helper\n", encoding="utf-8")
+    monkeypatch.setattr(launcher, "find_project_root", lambda: tmp_path)
+    monkeypatch.setattr(launcher, "has_virtualenv", lambda _root: False)
+    monkeypatch.setattr(launcher, "host_python_executable", lambda: "python-test")
+    monkeypatch.setattr(
+        launcher,
+        "_operator_projection_report_path",
+        lambda _prefix: tmp_path / ".runtime" / "reports" / "operator-tools" / "preview.json",
+    )
+    monkeypatch.setattr(launcher, "_operator_database_path", lambda: tmp_path / "memory.sqlite3")
+    monkeypatch.setattr(
+        launcher,
+        "_run_operator_json",
+        lambda *_args, **_kwargs: {
+            "success": True,
+            "controlPlane": {"rebuildEligibility": "blocked", "blockingCollectionCount": 1},
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="no backup, stop or apply was started"):
+        launcher.operator_reconcile_preview("blackholememory")
+
+
 def test_operator_preview_context_and_thread_release_are_identity_bound() -> None:
     source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
 
