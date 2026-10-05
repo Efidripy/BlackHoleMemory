@@ -32,6 +32,10 @@ PROJECTION_WORKER_BATCH_SIZE_ENV = "BHM_PROJECTION_WORKER_BATCH_SIZE"
 PROJECTION_WORKER_LEASE_SECONDS_ENV = "BHM_PROJECTION_WORKER_LEASE_SECONDS"
 PROJECTION_WORKER_RETRY_AFTER_SECONDS_ENV = "BHM_PROJECTION_WORKER_RETRY_AFTER_SECONDS"
 PROJECTION_WORKER_MAX_ATTEMPTS_ENV = "BHM_PROJECTION_WORKER_MAX_ATTEMPTS"
+PROJECTION_WORKER_MAX_BATCH_SIZE_ENV = "BHM_PROJECTION_WORKER_MAX_BATCH_SIZE"
+PROJECTION_WORKER_HIGH_WATERMARK_ENV = "BHM_PROJECTION_WORKER_HIGH_WATERMARK"
+PROJECTION_WORKER_RETRY_JITTER_SECONDS_ENV = "BHM_PROJECTION_WORKER_RETRY_JITTER_SECONDS"
+PROJECTION_WORKER_RETRY_BUDGET_SECONDS_ENV = "BHM_PROJECTION_WORKER_RETRY_BUDGET_SECONDS"
 MEMORY_STORE_PARITY_CONFIRMED_ENV = "BHM_MEMORY_STORE_PARITY_CONFIRMED"
 MEMORY_STORE_WRITER_OFFLINE_CONFIRMED_ENV = "BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED"
 
@@ -70,6 +74,10 @@ class ProjectionWorkerConfig:
     lease_seconds: float = 120.0
     retry_after_seconds: float = 5.0
     max_attempts: int = 5
+    max_batch_size: int = 10
+    high_watermark: int = 100
+    retry_jitter_seconds: float = 1.0
+    retry_budget_seconds: float = 300.0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -386,6 +394,18 @@ def resolve_runtime_storage_config(
         ),
         max_attempts=_bounded_int(
             PROJECTION_WORKER_MAX_ATTEMPTS_ENV, 5, 1, 100, environ
+        ),
+        max_batch_size=_bounded_int(
+            PROJECTION_WORKER_MAX_BATCH_SIZE_ENV, 10, 1, 1_000, environ
+        ),
+        high_watermark=_bounded_int(
+            PROJECTION_WORKER_HIGH_WATERMARK_ENV, 100, 1, 1_000_000, environ
+        ),
+        retry_jitter_seconds=_bounded_float(
+            PROJECTION_WORKER_RETRY_JITTER_SECONDS_ENV, 1.0, 0.0, 86_400.0, environ
+        ),
+        retry_budget_seconds=_bounded_float(
+            PROJECTION_WORKER_RETRY_BUDGET_SECONDS_ENV, 300.0, 0.01, 86_400.0, environ
         ),
     )
     return RuntimeStorageConfig(

@@ -388,11 +388,11 @@ $ritualReady = $registry["runtime_health_ok"].ok -and $registry["start_ritual_re
 $finalVerdict = if ($ritualReady -and $mcpTransport.status -eq "MCP unavailable") {
     "REST bridge ready; MCP unavailable"
 } elseif ($ritualReady) {
-    "REST bridge ready; native MCP session unverified"
+    "REST bridge ready; native chat probe required"
 } elseif ($registry["runtime_health_ok"].ok -and $mcpTransport.status -eq "MCP unavailable") {
     "REST bridge partial; MCP unavailable"
 } elseif ($registry["runtime_health_ok"].ok) {
-    "REST bridge partial; native MCP session unverified"
+    "REST bridge partial; native chat probe required"
 } else {
     $verdictNotReady
 }

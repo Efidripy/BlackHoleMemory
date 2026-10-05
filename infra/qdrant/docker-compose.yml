@@ -10,7 +10,10 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
     healthcheck:
-      test: ["CMD", "pidof", "qdrant"]
+      # The process exists before Qdrant has recovered every collection and
+      # bound HTTP.  Keep Docker's health state aligned with BHM's /healthz
+      # readiness probe so dependants do not race the cold-start window.
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/6333; printf 'GET /healthz HTTP/1.1\\r\\nHost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n' >&3; IFS= read -r status <&3; [[ \"$$status\" == \"HTTP/\"*\" 200 \"* ]]"]
       interval: 15s
       timeout: 5s
       retries: 10

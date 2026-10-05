@@ -401,8 +401,8 @@
     .mcp-state[data-state="pending"],
     .mcp-state[data-state="unverified"],
     .mcp-state[data-state="native MCP"],
-    .mcp-state[data-state="native MCP live; current session unverified"],
-    .mcp-state[data-state="native MCP transport ready; session idle or detached"] { border-color: rgba(243,188,87,.42); }
+    .mcp-state[data-state="native MCP lease observed; REST bridge cannot verify this chat identity"],
+    .mcp-state[data-state="native MCP transport ready; no live lease observed by REST bridge"] { border-color: rgba(243,188,87,.42); }
 
     .mcp-state[data-state="unavailable"],
     .mcp-state[data-state="detached"],
@@ -1256,8 +1256,11 @@
       if (mcpTransport.native_mcp?.streamable_http_ready === true && mcpTransport.native_mcp?.runtime_lease_live !== true) {
         return { label: "MCP transport ready / session idle", tone: "warn", activated, failed };
       }
+      if (mcpTransport.native_mcp?.native_probe_required === true) {
+        return { label: "REST bridge / native chat probe required", tone: "warn", activated, failed };
+      }
       if (mcpTransport.mcp_available === false) {
-        return { label: "REST bridge / native MCP session unverified", tone: "warn", activated, failed };
+        return { label: "REST bridge / native MCP proof unavailable", tone: "warn", activated, failed };
       }
 
       if (failed === 0 && /ПОДКЛЮЧЕН$/u.test(verdict)) {

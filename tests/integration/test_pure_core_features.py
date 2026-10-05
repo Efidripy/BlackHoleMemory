@@ -3533,6 +3533,32 @@ def test_web_quarantine_isolation():
     assert cleared["extracted_web_fact"] is None
 
 
+def test_web_approved_fact_remains_quarantined_without_bhm_write():
+    class FakeBhm:
+        def __init__(self):
+            self.upserts: list[list[dict]] = []
+
+        def batch_upsert(self, items: list[dict]) -> dict:
+            self.upserts.append(items)
+            raise AssertionError("web output must not write BHM")
+
+    executor = developer_agent.BHMAgentExecutor(hypothesis_count=1)
+    fake_bhm = FakeBhm()
+    executor.bhm = fake_bhm
+
+    receipt = executor._publish_approved_web_fact(
+        "web-task",
+        {"status": "FACT_FOUND", "finding": "clean fact"},
+        {"status": "APPROVED"},
+    )
+
+    assert receipt is not None
+    assert receipt["status"] == "QUARANTINED_REVIEW_REQUIRED"
+    assert receipt["sqlite_written"] is False
+    assert receipt["projection_written"] is False
+    assert fake_bhm.upserts == []
+
+
 def test_data_hygiene_extraction():
     clean = developer_agent._normalize_extracted_web_fact(
         {

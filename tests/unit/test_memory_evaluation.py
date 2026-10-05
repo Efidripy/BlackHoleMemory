@@ -106,6 +106,26 @@ def test_evaluation_is_deterministic_and_separates_categories() -> None:
         "precision": 1.0,
         "recall": 1.0,
     }
+    assert first["capability_metrics"]["security_boundary"] == {
+        "case_count": 0,
+        "failed_case_ids": [],
+        "passed": None,
+    }
+    assert first["capability_metrics"]["replay_idempotency"] == {
+        "case_count": 0,
+        "failed_case_ids": [],
+        "passed": None,
+    }
+    assert first["capability_metrics"]["cjk_retrieval"] == {
+        "case_count": 0,
+        "correct_count": 0,
+        "accuracy": None,
+    }
+    assert first["capability_metrics"]["latency_budget"] == {
+        "case_count": 0,
+        "failed_case_ids": [],
+        "passed": None,
+    }
     assert first["latency_p50_seconds"] == 0.1
     assert first["latency_p95_seconds"] == 0.2
     assert first["provenance_and_isolation"]["coverage"] == 0.0
@@ -362,3 +382,91 @@ def test_frozen_fixture_cli_emits_offline_capability_and_isolation_metrics() -> 
         "qdrant_mutation": False,
         "mem0_mutation": False,
     }
+
+
+def test_v2_frozen_fixture_covers_foundational_negative_regressions() -> None:
+    fixture_path = Path(__file__).parents[1] / "fixtures" / "memory_evaluation" / "bhm-ng-008-v2.json"
+    fixture = load_frozen_evaluation_fixture(fixture_path)
+    report = run_frozen_evaluation_fixture(fixture_path)
+
+    assert fixture["manifest"].dataset_version == "bhm-ng-008-v2"
+    assert {case.category for case in fixture["manifest"].cases} == {
+        "temporal", "poisoned_input", "cross_scope", "cjk", "projection_drift", "replay_idempotency", "latency"
+    }
+    assert report == run_frozen_evaluation_fixture(fixture_path)
+    assert report["capability_metrics"]["security_boundary"] == {
+        "case_count": 3,
+        "failed_case_ids": [],
+        "passed": True,
+    }
+    assert report["capability_metrics"]["replay_idempotency"] == {
+        "case_count": 1,
+        "failed_case_ids": [],
+        "passed": True,
+    }
+    assert report["capability_metrics"]["cjk_retrieval"] == {
+        "case_count": 1,
+        "correct_count": 1,
+        "accuracy": 1.0,
+    }
+    assert report["capability_metrics"]["latency_budget"] == {
+        "case_count": 1,
+        "failed_case_ids": [],
+        "passed": True,
+    }
+
+
+def test_v2_negative_security_replay_and_latency_receipts_are_visible() -> None:
+    fixture_path = Path(__file__).parents[1] / "fixtures" / "memory_evaluation" / "bhm-ng-008-v2.json"
+    fixture = load_frozen_evaluation_fixture(fixture_path)
+    receipts = list(fixture["receipts"])
+    poisoned_index = next(index for index, receipt in enumerate(receipts) if receipt.case_id == "poisoned-input")
+    cross_scope_index = next(index for index, receipt in enumerate(receipts) if receipt.case_id == "cross-scope-leak")
+    latency_index = next(index for index, receipt in enumerate(receipts) if receipt.case_id == "latency-budget")
+    receipts[poisoned_index] = RetrievalReceipt(
+        **{**receipts[poisoned_index].model_dump(), "retrieved_ids": ("m-poison",), "abstained": False}
+    )
+    receipts[cross_scope_index] = RetrievalReceipt(
+        **{**receipts[cross_scope_index].model_dump(), "project": "foreign-project"}
+    )
+    receipts[latency_index] = RetrievalReceipt(
+        **{**receipts[latency_index].model_dump(), "latency_seconds": 0.051}
+    )
+    receipts.append(next(receipt for receipt in receipts if receipt.case_id == "replay-idempotency"))
+
+    report = evaluate_retrieval(fixture["manifest"], tuple(receipts))
+
+    assert report["capability_metrics"]["security_boundary"] == {
+        "case_count": 3,
+        "failed_case_ids": ["poisoned-input"],
+        "passed": False,
+    }
+    assert report["capability_metrics"]["replay_idempotency"] == {
+        "case_count": 1,
+        "failed_case_ids": ["replay-idempotency"],
+        "passed": False,
+    }
+    assert report["capability_metrics"]["latency_budget"] == {
+        "case_count": 1,
+        "failed_case_ids": ["latency-budget"],
+        "passed": False,
+    }
+    assert report["provenance_and_isolation"]["project_leakage_case_ids"] == ["cross-scope-leak"]
+    assert report["provenance_and_isolation"]["passed"] is False
+
+
+def test_v2_fixture_cli_emits_utf8_json_on_windows_console() -> None:
+    fixture_path = Path(__file__).parents[1] / "fixtures" / "memory_evaluation" / "bhm-ng-008-v2.json"
+    script = Path(__file__).resolve().parents[2] / "scripts" / "run-bhm-memory-evaluation.py"
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--fixture", str(fixture_path)],
+        check=False,
+        capture_output=True,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(result.stdout.decode("utf-8"))
+    assert payload["ok"] is True
+    assert "cjk-кириллица-日本語" in result.stdout.decode("utf-8")
+    assert "unscoped/cjk-кириллица-日本語" in payload["report"]["metrics_by_turn"]

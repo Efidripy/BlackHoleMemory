@@ -1,0 +1,82 @@
+{
+  "registry": {
+    "schema_version": "bhm.ecosystem-registry.v1",
+    "registry_id": "bhm-ng-011-fixture",
+    "as_of": "2026-10-04T00:00:00Z",
+    "records": [
+      {
+        "project_id": "audited-core",
+        "category": "direct-memory",
+        "coverage_state": "source-audited",
+        "activity_state": "active",
+        "release_state": "active",
+        "security_state": "unknown",
+        "disposition": "reference-only",
+        "source_ref_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "discovery_digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "last_reviewed_at": "2026-10-04T00:00:00Z",
+        "audit_evidence": {
+          "code": "1111111111111111111111111111111111111111111111111111111111111111",
+          "data": "2222222222222222222222222222222222222222222222222222222222222222",
+          "config": "3333333333333333333333333333333333333333333333333333333333333333",
+          "api": "4444444444444444444444444444444444444444444444444444444444444444",
+          "ops_ci": "5555555555555555555555555555555555555555555555555555555555555555"
+        },
+        "exclusion": null
+      },
+      {
+        "project_id": "small-watcher",
+        "category": "small-local",
+        "coverage_state": "watcher",
+        "activity_state": "unknown",
+        "release_state": "unknown",
+        "security_state": "unknown",
+        "disposition": "watch",
+        "source_ref_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "discovery_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "last_reviewed_at": "2026-10-04T00:00:00Z",
+        "audit_evidence": null,
+        "exclusion": null
+      },
+      {
+        "project_id": "carry-forward-watcher",
+        "category": "small-local",
+        "coverage_state": "watcher",
+        "activity_state": "unknown",
+        "release_state": "unknown",
+        "security_state": "unknown",
+        "disposition": "watch",
+        "source_ref_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "discovery_digest": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "last_reviewed_at": "2026-10-04T00:00:00Z",
+        "audit_evidence": null,
+        "exclusion": null
+      }
+    ],
+    "registry_digest": "610baea825436dfac667a0a8bc6ccbe66dcfa9f733b367b59cdeeb2b0e3a8031"
+  },
+  "capture": {
+    "schema_version": "bhm.ecosystem-source-capture.v1",
+    "capture_id": "bhm-ng-011-capture",
+    "captured_at": "2026-10-05T00:00:00Z",
+    "observations": [
+      {
+        "project_id": "audited-core",
+        "source_ref_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "observation_digest": "6666666666666666666666666666666666666666666666666666666666666666"
+      },
+      {
+        "project_id": "small-watcher",
+        "source_ref_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "observation_digest": "7777777777777777777777777777777777777777777777777777777777777777"
+      },
+      {
+        "project_id": "new-small-project",
+        "source_ref_digest": "8888888888888888888888888888888888888888888888888888888888888888",
+        "observation_digest": "9999999999999999999999999999999999999999999999999999999999999999"
+      }
+    ],
+    "capture_digest": "621d7ddad1684623393c0b8074ec7c0b2cc6d9c6e1a2213f43049e13922ffd79"
+  },
+  "fixture_digest": "a14e4ecb5199e13c07a52a1d6ad942bbd89dbcb2edbd44af4ddc907bfc19c590"
+}

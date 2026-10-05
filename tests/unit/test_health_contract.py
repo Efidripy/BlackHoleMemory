@@ -95,6 +95,30 @@ def test_health_contract_exposes_streamable_transport_as_the_only_mcp_truth():
     assert "mcp_attach" not in health
 
 
+def test_authenticated_bhm_health_exposes_redacted_qdrant_probe_receipt():
+    diagnostic = {
+        "schema_version": "bhm.qdrant-health-diagnostic.v1",
+        "last_failure_class": "connection_refused",
+        "last_http_status": None,
+        "private_endpoint": "http://127.0.0.1:6333/healthz",
+    }
+    health = bhm_health_payload(
+        service="BlackHoleMemory",
+        version="bhm-v1.7.1-PURE",
+        port=8000,
+        storage=_storage(),
+        memory_store=_memory_store(),
+        fallback_mode="explicit",
+        fallback_active=False,
+        mem0_plan={"status": "projection-only", "qdrant_health": {key: value for key, value in diagnostic.items() if key != "private_endpoint"}},
+    )
+
+    assert health["mem0"]["qdrant_health"] == {
+        key: value for key, value in diagnostic.items() if key != "private_endpoint"
+    }
+    assert "private_endpoint" not in str(health)
+
+
 def test_health_slo_builder_fails_closed_on_budget_breach():
     result = health_slo_payload(
         budgets={

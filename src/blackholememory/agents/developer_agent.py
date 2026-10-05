@@ -4594,35 +4594,17 @@ class BHMAgentExecutor:
             json.dumps(sanitized_fact, ensure_ascii=False, sort_keys=True),
             WEB_FACT_CONTENT_LIMIT,
         )
-        upsert_key = f"developer-agent-web-fact:{self._current_project}:{_stable_key(task_id, content)}"
-        item = {
-            "upsert_key": upsert_key,
-            "project": self._current_project,
-            "type": "web-fact-crystal",
-            "content": content,
-            "concepts": ["developer-agent", "web-quarantine", "root-cause-censor", "global-core"],
-            "metadata": {
-                "lifecycle": "validated",
-                "semantic_type": "fact",
-                "provenance": "web_quarantine",
-                "verification": "root_cause_censor",
-                "censor_status": "APPROVED",
-                "quarantine_scope": "web-ingest",
-                "source_node": "web_knowledge_extractor_node",
-                "publication_policy": "approved_only",
-                "vector_targets": ["local", "global"],
-                "collection_targets": ["local", "global"],
-                "vector_scope": "local+global",
-                "global_collection_name": "bhm_global_core_knowledge",
-                "version": PRODUCT_RUNTIME_METADATA_VERSION,
-            },
-        }
-        result = self.bhm.batch_upsert([item])
+        # Censor/LLM approval is not an operator review. Web-derived material
+        # must never become an authority row or a vector/graph projection from
+        # this agent path. Keep only a redacted, in-memory handoff receipt.
         return {
-            "status": "PUBLISHED",
-            "upsert_key": upsert_key,
-            "memory_id": _extract_upserted_id(result, upsert_key),
-            "target_collection": "bhm_global_core_knowledge",
+            "status": "QUARANTINED_REVIEW_REQUIRED",
+            "project": self._current_project,
+            "content_sha256": _stable_key(task_id, content),
+            "reason": "web_llm_output_requires_typed_operator_review",
+            "sqlite_written": False,
+            "projection_written": False,
+            "raw_emitted": False,
         }
 
     def fix_success_node(self, state: DeveloperAgentState) -> DeveloperAgentState:

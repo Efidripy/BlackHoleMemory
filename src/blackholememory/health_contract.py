@@ -62,6 +62,7 @@ def bhm_health_payload(
     memory_store: Mapping[str, Any],
     fallback_mode: str,
     fallback_active: bool,
+    mem0_plan: Mapping[str, Any] | None = None,
     observed_at: str | None = None,
     projection_required: bool = True,
 ) -> dict[str, Any]:
@@ -98,6 +99,8 @@ def bhm_health_payload(
     # Streamable HTTP is the sole current MCP lifecycle authority.
     if transport is not None:
         payload["mcp_transport"] = dict(transport)
+    if mem0_plan is not None:
+        payload["mem0"] = dict(mem0_plan)
     return payload
 
 

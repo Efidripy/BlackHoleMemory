@@ -34,7 +34,7 @@
     "composerIcon": "./assets/bhm-icon.svg",
     "logo": "./assets/bhm-icon.svg",
     "defaultPrompt": [
-      "Start the task with the local BHM ritual for this workspace.",
+      "Start the task with the local BHM ritual for this workspace. If native BHM tools are available, call bhm_health before any other BHM action; otherwise continue without BHM.",
       "Close the task with checkpoint and session record using the local BHM ritual.",
       "Discover the local BHM runtime and summarize whether it is usable."
     ]

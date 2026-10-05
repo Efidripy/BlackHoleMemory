@@ -1,0 +1,27 @@
+{
+  "fixture_schema_version": "bhm.memory-evaluation.fixture.v1",
+  "license": {"name": "0BSD", "source": "BHM-owned"},
+  "dataset": {
+    "suite": "bhm-fixture",
+    "dataset_version": "bhm-ng-008-v2",
+    "cases": [
+      {"case_id": "temporal-correction", "suite": "bhm-fixture", "category": "temporal", "expected_ids": ["m-temporal-current"], "project": "blackholememory", "source_digest": "12ab1583045fad1ab589406520340498696bf50790034e5c7de46862a21ad095"},
+      {"case_id": "poisoned-input", "suite": "bhm-fixture", "category": "poisoned_input", "expected_abstention": true, "project": "blackholememory", "source_digest": "1111111111111111111111111111111111111111111111111111111111111111"},
+      {"case_id": "cross-scope-leak", "suite": "bhm-fixture", "category": "cross_scope", "expected_abstention": true, "project": "blackholememory", "source_digest": "2222222222222222222222222222222222222222222222222222222222222222"},
+      {"case_id": "cjk-кириллица-日本語", "suite": "bhm-fixture", "category": "cjk", "expected_ids": ["m-cjk"], "project": "blackholememory", "source_digest": "3333333333333333333333333333333333333333333333333333333333333333"},
+      {"case_id": "projection-drift", "suite": "bhm-fixture", "category": "projection_drift", "expected_abstention": true, "project": "blackholememory", "source_digest": "4444444444444444444444444444444444444444444444444444444444444444"},
+      {"case_id": "replay-idempotency", "suite": "bhm-fixture", "category": "replay_idempotency", "expected_ids": ["m-idempotent"], "project": "blackholememory", "source_digest": "5555555555555555555555555555555555555555555555555555555555555555"},
+      {"case_id": "latency-budget", "suite": "bhm-fixture", "category": "latency", "expected_ids": ["m-latency"], "project": "blackholememory", "source_digest": "6666666666666666666666666666666666666666666666666666666666666666", "latency_budget_ms": 50}
+    ]
+  },
+  "dataset_digest": "ec71a23a24a740b375e32114cfa225bf396a515cf663d7c7b10611d784dcbc9e",
+  "recorded_receipts": [
+    {"case_id": "temporal-correction", "retrieved_ids": ["m-temporal-current"], "latency_seconds": 0.021, "route": "temporal", "project": "blackholememory", "provenance_digest": "12ab1583045fad1ab589406520340498696bf50790034e5c7de46862a21ad095"},
+    {"case_id": "poisoned-input", "retrieved_ids": [], "abstained": true, "latency_seconds": 0.011, "route": "local", "project": "blackholememory", "provenance_digest": "1111111111111111111111111111111111111111111111111111111111111111"},
+    {"case_id": "cross-scope-leak", "retrieved_ids": [], "abstained": true, "latency_seconds": 0.012, "route": "local", "project": "blackholememory", "provenance_digest": "2222222222222222222222222222222222222222222222222222222222222222"},
+    {"case_id": "cjk-кириллица-日本語", "retrieved_ids": ["m-cjk"], "latency_seconds": 0.018, "route": "local", "project": "blackholememory", "provenance_digest": "3333333333333333333333333333333333333333333333333333333333333333"},
+    {"case_id": "projection-drift", "retrieved_ids": [], "abstained": true, "latency_seconds": 0.013, "route": "projection", "project": "blackholememory", "provenance_digest": "4444444444444444444444444444444444444444444444444444444444444444"},
+    {"case_id": "replay-idempotency", "retrieved_ids": ["m-idempotent"], "latency_seconds": 0.014, "route": "local", "project": "blackholememory", "provenance_digest": "5555555555555555555555555555555555555555555555555555555555555555"},
+    {"case_id": "latency-budget", "retrieved_ids": ["m-latency"], "latency_seconds": 0.02, "route": "local", "project": "blackholememory", "provenance_digest": "6666666666666666666666666666666666666666666666666666666666666666"}
+  ]
+}

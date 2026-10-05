@@ -80,6 +80,7 @@ _STABLE_PROJECTION_FIELDS = (
     "source_episode_id",
     "source_uri",
     "source_digest",
+    "projection_embedding_model",
 )
 
 
@@ -105,6 +106,30 @@ class ProjectorRunResult:
     deferred: int = 0
     classification: str | None = None
     error: str | None = None
+
+
+def _deterministic_retry_delay(
+    event: OutboxEvent,
+    *,
+    retry_after_seconds: float,
+    retry_jitter_seconds: float,
+    retry_budget_seconds: float | None,
+    lease_generation: str | None,
+) -> float:
+    """Derive a bounded, reproducible per-event delay without random global state."""
+
+    base = max(float(retry_after_seconds), 0.0)
+    budget = max(float(retry_budget_seconds), 0.0) if retry_budget_seconds is not None else None
+    if budget is not None:
+        base = min(base, budget)
+    jitter_cap = max(float(retry_jitter_seconds), 0.0)
+    if budget is not None:
+        jitter_cap = min(jitter_cap, max(budget - base, 0.0))
+    if jitter_cap <= 0:
+        return base
+    material = f"{event.event_id}:{event.attempts}:{lease_generation or 'legacy'}".encode("utf-8")
+    fraction = int.from_bytes(hashlib.sha256(material).digest()[:8], "big") / (2**64 - 1)
+    return min(base + (fraction * jitter_cap), budget) if budget is not None else base + (fraction * jitter_cap)
 
 
 def bounded_projection_error(exc: BaseException, *, limit: int = 2_000) -> str:
@@ -255,6 +280,9 @@ def _projection_payload_body(memory: Memory, collection_name: str) -> dict[str, 
         "session_refs": list(memory.session_refs),
         "metadata": copy.deepcopy(memory.metadata),
         "vector_collection": collection_name,
+        # Projection metadata only: SQLite remains the authority.  The marker
+        # lets reconciliation refuse an unverified model-space rebuild.
+        "projection_embedding_model": settings.mem0_embedding_model,
     }
     if temporal_contract_enabled():
         payload.update(temporal_projection_fields(memory.to_record()))
@@ -504,8 +532,15 @@ class QdrantProjector:
         lease_seconds: float = 120.0,
         retry_after_seconds: float = 5.0,
         max_attempts: int = 5,
+        lease_generation: str | None = None,
+        retry_jitter_seconds: float = 0.0,
+        retry_budget_seconds: float | None = None,
     ) -> ProjectorRunResult:
-        claimed = repository.claim_outbox(limit=limit, lease_seconds=lease_seconds)
+        claimed = repository.claim_outbox(
+            limit=limit,
+            lease_seconds=lease_seconds,
+            lease_generation=lease_generation,
+        )
         outcomes: list[ProjectionOutcome] = []
         completed = 0
         failed = 0
@@ -540,7 +575,11 @@ class QdrantProjector:
                 token = event.claim_token
                 if not token:
                     raise ProjectorError(f"claimed event has no lease token: {event.event_id}")
-                repository.ack_outbox(event.event_id, token)
+                repository.ack_outbox(
+                    event.event_id,
+                    token,
+                    lease_generation=lease_generation,
+                )
                 outcomes.append(outcome)
                 completed += 1
             except Exception as exc:
@@ -556,7 +595,14 @@ class QdrantProjector:
                                 deferred_event.event_id,
                                 token,
                                 infrastructure_error,
-                                retry_after_seconds=retry_after_seconds,
+                                retry_after_seconds=_deterministic_retry_delay(
+                                    deferred_event,
+                                    retry_after_seconds=retry_after_seconds,
+                                    retry_jitter_seconds=retry_jitter_seconds,
+                                    retry_budget_seconds=retry_budget_seconds,
+                                    lease_generation=lease_generation,
+                                ),
+                                lease_generation=lease_generation,
                             )
                             deferred += 1
                         except Exception as record_exc:
@@ -588,8 +634,15 @@ class QdrantProjector:
                             event.event_id,
                             token,
                             str(exc),
-                            retry_after_seconds=retry_after_seconds,
+                            retry_after_seconds=_deterministic_retry_delay(
+                                event,
+                                retry_after_seconds=retry_after_seconds,
+                                retry_jitter_seconds=retry_jitter_seconds,
+                                retry_budget_seconds=retry_budget_seconds,
+                                lease_generation=lease_generation,
+                            ),
                             max_attempts=max_attempts,
+                            lease_generation=lease_generation,
                         )
                         failure_status = str(
                             getattr(failed_event.status, "value", failed_event.status)

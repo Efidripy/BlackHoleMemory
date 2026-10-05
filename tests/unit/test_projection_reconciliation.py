@@ -10,6 +10,7 @@ from blackholememory.qdrant_projector import deterministic_point_id
 from blackholememory.qdrant_projector import QdrantProjector
 from blackholememory.sync_service import MemoryLifecycleService
 from blackholememory.projection_reconciliation import ReconciliationAction
+from blackholememory.projection_reconciliation import ProjectionCompatibilityStatus
 from blackholememory.projection_reconciliation import apply_projection_reconciliation
 from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
 from blackholememory.projection_reconciliation import classify_projection_review_entries
@@ -27,6 +28,8 @@ class _Point:
 class _Surface:
     def __init__(self) -> None:
         self.points: dict[tuple[str, str], _Point] = {}
+        self.collection_dimensions: dict[str, int] = {}
+        self.fail_reads = False
 
     def list_collections(self) -> list[str]:
         return sorted({collection for collection, _point_id in self.points})
@@ -36,6 +39,8 @@ class _Surface:
         return {"id": point.id, "payload": dict(point.payload)} if point else None
 
     def list_points(self, collection_name: str):
+        if self.fail_reads:
+            raise RuntimeError("Qdrant unavailable")
         return [
             {"id": point.id, "payload": dict(point.payload)}
             for (collection, _point_id), point in self.points.items()
@@ -44,6 +49,13 @@ class _Surface:
 
     def delete_point(self, collection_name: str, point_id: str) -> None:
         self.points.pop((collection_name, point_id), None)
+
+    def collection_vector_dimensions(self, collection_name: str) -> int | None:
+        if collection_name in self.collection_dimensions:
+            return self.collection_dimensions[collection_name]
+        if any(collection == collection_name for collection, _point_id in self.points):
+            return 2
+        return None
 
     def upsert(self, *, collection_name, points, wait):
         assert wait is True
@@ -156,12 +168,12 @@ def test_reconciliation_detects_tombstone_delete_and_orphan_review(tmp_path):
     deleted = apply_projection_reconciliation(
         plan, repository, projector, surface, allow_orphan_delete=True
     )
-    # The first apply already removed the two canonical tombstone points;
-    # re-applying the same plan now fails closed on their missing rereads and
-    # only removes the still-present orphan.
-    assert deleted.deleted == 1
-    assert len(deleted.failed) == 2
-    assert surface.points == {}
+    # The first apply changed the projection.  Replaying the old confirmed
+    # plan must now fail at the generation fence before it can delete the
+    # still-present orphan.
+    assert deleted.deleted == 0
+    assert deleted.failed and "compatibility or generation changed" in deleted.failed[0]
+    assert surface.get_point("bhm_local_memory_blackholememory", "orphan-point") is not None
 
 
 def test_reconciliation_detects_metadata_only_payload_drift(tmp_path):
@@ -274,3 +286,120 @@ def test_reconciliation_ignores_intentional_quarantine_collection(tmp_path):
 
     assert plan.counts[ReconciliationAction.REVIEW.value] == 0
     assert plan.blocking_issues == ()
+
+
+def _compatible_plan(repository, surface, *, as_of="fixed"):
+    return build_projection_reconciliation_plan(
+        repository,
+        surface,
+        as_of=as_of,
+        expected_dimensions=2,
+        expected_embedding_model="test-model",
+    )
+
+
+def test_reconciliation_dimension_mismatch_blocks_without_mutation(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    surface = _Surface()
+    projector = QdrantProjector(surface, lambda _memory: [0.1, 0.9], expected_dimensions=2)
+    apply_projection_reconciliation(
+        build_projection_reconciliation_plan(repository, surface, as_of="seed"),
+        repository,
+        projector,
+        surface,
+    )
+    for point in surface.points.values():
+        point.payload["projection_embedding_model"] = "test-model"
+    surface.collection_dimensions = {
+        collection: 3 for collection, _point_id in surface.points
+    }
+
+    plan = _compatible_plan(repository, surface)
+
+    assert {item.status for item in plan.compatibility} == {
+        ProjectionCompatibilityStatus.DIMENSION_MISMATCH
+    }
+    result = apply_projection_reconciliation(plan, repository, projector, surface)
+    assert result.upserted == result.deleted == 0
+    assert result.failed and "blocking projection compatibility" in result.failed[0]
+
+
+def test_reconciliation_model_mismatch_blocks_without_mutation(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    surface = _Surface()
+    projector = QdrantProjector(surface, lambda _memory: [0.1, 0.9], expected_dimensions=2)
+    apply_projection_reconciliation(
+        build_projection_reconciliation_plan(repository, surface, as_of="seed"),
+        repository,
+        projector,
+        surface,
+    )
+    for point in surface.points.values():
+        point.payload["projection_embedding_model"] = "old-model"
+
+    plan = _compatible_plan(repository, surface)
+
+    assert {item.status for item in plan.compatibility} == {
+        ProjectionCompatibilityStatus.MODEL_MISMATCH
+    }
+    result = apply_projection_reconciliation(plan, repository, projector, surface)
+    assert result.upserted == result.deleted == 0
+    assert result.failed and "blocking projection compatibility" in result.failed[0]
+
+
+def test_reconciliation_source_generation_fence_rejects_stale_plan(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    surface = _Surface()
+    projector = QdrantProjector(surface, lambda _memory: [0.1, 0.9], expected_dimensions=2)
+    apply_projection_reconciliation(
+        build_projection_reconciliation_plan(repository, surface, as_of="seed"),
+        repository,
+        projector,
+        surface,
+    )
+    for point in surface.points.values():
+        point.payload["projection_embedding_model"] = "test-model"
+    plan = _compatible_plan(repository, surface)
+    changed = memory.model_copy(update={"metadata": {**memory.metadata, "changed": True}})
+    repository.save_memory(changed, expected_revision_id=memory.current_revision.revision_id)
+
+    result = apply_projection_reconciliation(plan, repository, projector, surface)
+
+    assert result.upserted == result.deleted == 0
+    assert result.failed and "SQLite generation changed" in result.failed[0]
+
+
+def test_reconciliation_collection_change_and_outage_fail_closed_without_delete(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    surface = _Surface()
+    projector = QdrantProjector(surface, lambda _memory: [0.1, 0.9], expected_dimensions=2)
+    apply_projection_reconciliation(
+        build_projection_reconciliation_plan(repository, surface, as_of="seed"),
+        repository,
+        projector,
+        surface,
+    )
+    for point in surface.points.values():
+        point.payload["projection_embedding_model"] = "test-model"
+    plan = _compatible_plan(repository, surface)
+    surface.collection_dimensions = {
+        collection: 3 for collection, _point_id in surface.points
+    }
+
+    changed = apply_projection_reconciliation(plan, repository, projector, surface)
+    assert changed.upserted == changed.deleted == 0
+    assert changed.failed and "compatibility or generation changed" in changed.failed[0]
+
+    surface.collection_dimensions.clear()
+    surface.fail_reads = True
+    unavailable = apply_projection_reconciliation(plan, repository, projector, surface)
+    assert unavailable.upserted == unavailable.deleted == 0
+    assert unavailable.failed and "preflight unavailable" in unavailable.failed[0]

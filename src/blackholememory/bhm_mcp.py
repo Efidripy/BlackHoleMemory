@@ -15,6 +15,8 @@ from pydantic import Field
 from .config import settings
 from . import memory_contracts as _memory_contracts
 from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
+from .ingress_admission import IngressKind
+from .ingress_admission import admit_ingress
 from .local_endpoint_policy import MAX_RESPONSE_BYTES
 from .local_endpoint_policy import validate_local_endpoint
 from .resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
@@ -58,12 +60,24 @@ mcp = FastMCP(
     "bhm",
     instructions=(
         "BHM is the primary workspace memory system. "
-        "Use these tools for memory search, remember, preflight, slots, lessons, "
+        "Use these tools for memory search, non-authoritative admission, preflight, slots, lessons, "
         "and diagnostics against the local BlackHoleMemory runtime. "
         "Prefer stable public tools for normal agent work. "
         "Treat deprecated compatibility candidates as transitional helpers and prefer their newer replacements."
     ),
 )
+
+
+def _mcp_authority_rejection(*, project: str | None, payload: Any) -> dict[str, Any]:
+    """Return a local fail-closed receipt without forwarding LLM tool content."""
+
+    admission = admit_ingress(
+        ingress=IngressKind.MCP,
+        project=str(project or DEFAULT_PROJECT),
+        actor="mcp-tool",
+        payload=payload,
+    )
+    return {"success": False, "code": "ingress_admission_rejected", "admission": admission.receipt()}
 
 
 class BhmBatchUpsertItem(BaseModel):
@@ -790,7 +804,7 @@ def bhm_recent_activity(
     return _post("/bhm/recent-activity", body)
 
 
-@mcp.tool(name="bhm_upsert_memory", description=f"Create or update a live BHM memory entry using an explicit upsert key. {TAXONOMY_METADATA_HINT}")
+@mcp.tool(name="bhm_upsert_memory", description="Reject direct MCP authority writes; use a future typed review and promotion flow.")
 def bhm_upsert_memory(
     upsert_key: str,
     content: str,
@@ -836,10 +850,7 @@ def bhm_upsert_memory(
     }.items():
         if value is not None:
             body[key] = value
-    return _post(
-        "/bhm/memory/upsert",
-        body,
-    )
+    return _mcp_authority_rejection(project=project, payload=body)
 
 
 @mcp.tool(name="bhm_get_memory_links", description="Get explicit live BHM memory links for a memory id.")
@@ -1510,12 +1521,10 @@ def bhm_memory_restore_from_archive(id: str, project: str | None = None) -> dict
     return _post("/bhm/memory/restore", {"id": id, "project": project})
 
 
-@mcp.tool(name="bhm_batch_upsert", description=f"Batch upsert multiple live BHM memories with typed item objects. {TAXONOMY_METADATA_HINT}")
+@mcp.tool(name="bhm_batch_upsert", description="Reject direct MCP authority writes; use a future typed review and promotion flow.")
 def bhm_batch_upsert(items: list[BhmBatchUpsertItem], project: str | None = None) -> dict[str, Any]:
-    return _post(
-        "/bhm/memories/batch-upsert",
-        {"project": project, "items": [_batch_upsert_item_payload(item) for item in items]},
-    )
+    payload = {"project": project, "items": [_batch_upsert_item_payload(item) for item in items]}
+    return _mcp_authority_rejection(project=project, payload=payload)
 
 
 @mcp.tool(name="bhm_batch_link", description=f"Batch create explicit memory links with typed item objects. {TAXONOMY_METADATA_HINT}")
@@ -1526,9 +1535,10 @@ def bhm_batch_link(items: list[BhmBatchLinkItem], project: str | None = None) ->
     )
 
 
-@mcp.tool(name="bhm_batch_upsert_memories", description="Compatibility JSON wrapper for bhm_batch_upsert.")
+@mcp.tool(name="bhm_batch_upsert_memories", description="Reject direct MCP authority writes; compatibility wrapper for bhm_batch_upsert.")
 def bhm_batch_upsert_memories(items_json: str, project: str | None = None) -> dict[str, Any]:
-    return _post("/bhm/memories/batch-upsert", {"project": project, "items": _jsonable_or_text(items_json) or []})
+    payload = {"project": project, "items": _jsonable_or_text(items_json) or []}
+    return _mcp_authority_rejection(project=project, payload=payload)
 
 
 @mcp.tool(name="bhm_batch_attach_source_refs", description="Batch attach canonical source references to multiple live BHM memories.")
@@ -2284,7 +2294,7 @@ def bhm_context_tier_promotion_rollback(
     )
 
 
-@mcp.tool(name="bhm_remember", description=f"Save a durable memory entry into BHM. {TAXONOMY_METADATA_HINT}")
+@mcp.tool(name="bhm_remember", description="Reject direct MCP authority writes; use a future typed review and promotion flow.")
 def bhm_remember(
     content: str,
     project: str = DEFAULT_PROJECT,
@@ -2326,10 +2336,7 @@ def bhm_remember(
             body[key] = value
     if metadata is not None:
         body["metadata"] = _metadata_payload(metadata)
-    return _post(
-        "/bhm/remember",
-        body,
-    )
+    return _mcp_authority_rejection(project=project, payload=body)
 
 
 @mcp.tool(name="bhm_profile", description="Get compact BHM profile stats for a project.")

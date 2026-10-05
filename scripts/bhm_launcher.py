@@ -1392,6 +1392,12 @@ def operator_reconcile_preview(project: str) -> dict[str, Any]:
         cwd=root,
         timeout=API_START_COMMAND_TIMEOUT_SECONDS,
     )
+    control_plane = result.get("controlPlane") if isinstance(result.get("controlPlane"), dict) else {}
+    if control_plane.get("rebuildEligibility") != "eligible":
+        raise RuntimeError(
+            "projection reconciliation is blocked by its model/dimension compatibility receipt; "
+            "no backup, stop or apply was started"
+        )
     return {"action": "reconcile", "phase": "preview", "report_path": str(report), **result}
 
 

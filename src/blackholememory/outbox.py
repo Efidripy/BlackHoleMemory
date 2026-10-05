@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from enum import Enum
@@ -28,6 +29,35 @@ class OutboxError(RuntimeError):
 
 class OutboxLeaseLost(OutboxError):
     """Raised when a worker tries to ack/fail an expired or foreign lease."""
+
+
+_FENCED_LEASE_PREFIX = "lease_bhm_gen_"
+_LEASE_GENERATION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{7,127}")
+
+
+def validate_lease_generation(value: str) -> str:
+    """Normalize a process-local controller generation without persisting policy state."""
+
+    candidate = str(value or "").strip()
+    if not _LEASE_GENERATION_PATTERN.fullmatch(candidate):
+        raise ValueError("outbox lease generation must be 8-128 safe characters")
+    return candidate
+
+
+def fenced_lease_generation(claim_token: str | None) -> str | None:
+    """Return the generation embedded in a new fenced token, if any.
+
+    Legacy random lease tokens intentionally return ``None`` so existing
+    in-flight rows remain recoverable without a schema migration.
+    """
+
+    candidate = str(claim_token or "")
+    if not candidate.startswith(_FENCED_LEASE_PREFIX):
+        return None
+    generation, separator, nonce = candidate.removeprefix(_FENCED_LEASE_PREFIX).partition("--")
+    if not separator or len(nonce) != 32 or not _LEASE_GENERATION_PATTERN.fullmatch(generation):
+        return None
+    return generation
 
 
 def _text(value: Any, field_name: str, *, required: bool = True) -> str | None:

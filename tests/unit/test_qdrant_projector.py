@@ -11,6 +11,7 @@ from blackholememory.mem0_adapter import global_collection_name
 from blackholememory.mem0_adapter import local_collection_name
 from blackholememory.outbox import OutboxStatus
 from blackholememory.qdrant_projector import QdrantProjector
+from blackholememory.qdrant_projector import _deterministic_retry_delay
 from blackholememory.qdrant_projector import _PROJECTION_PAYLOAD_SCHEMA_V1
 from blackholememory.qdrant_projector import _projection_payload_body
 from blackholememory.qdrant_projector import build_point_payload
@@ -589,3 +590,37 @@ def test_projector_and_live_record_routing_share_the_same_classifier():
     ).targets
 
     assert _vector_targets(memory) == expected
+
+
+def test_projection_retry_jitter_is_deterministic_per_event_and_never_exceeds_budget(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    repository.save_memory(_memory())
+    first = repository.claim_outbox(lease_generation="controller_bhm_retry_jitter")[0]
+    second = first.model_copy(update={"event_id": "evt_bhm_distinct_retry"})
+
+    first_delay = _deterministic_retry_delay(
+        first,
+        retry_after_seconds=8,
+        retry_jitter_seconds=5,
+        retry_budget_seconds=10,
+        lease_generation="controller_bhm_retry_jitter",
+    )
+    replay_delay = _deterministic_retry_delay(
+        first,
+        retry_after_seconds=8,
+        retry_jitter_seconds=5,
+        retry_budget_seconds=10,
+        lease_generation="controller_bhm_retry_jitter",
+    )
+    second_delay = _deterministic_retry_delay(
+        second,
+        retry_after_seconds=8,
+        retry_jitter_seconds=5,
+        retry_budget_seconds=10,
+        lease_generation="controller_bhm_retry_jitter",
+    )
+
+    assert first_delay == replay_delay
+    assert 8 <= first_delay <= 10
+    assert 8 <= second_delay <= 10
+    assert first_delay != second_delay

@@ -10,8 +10,10 @@ import logging
 import math
 import os
 import re
+import socket
 import threading
 import time
+import urllib.error
 import urllib.request
 import warnings
 from collections import Counter
@@ -34,6 +36,7 @@ from qdrant_client.http import models as qdrant_models
 from .config import settings
 from .filesystem_boundaries import append_bytes_safely
 from .filesystem_boundaries import replace_bytes_safely
+from .local_endpoint_policy import LocalEndpointError
 from .local_endpoint_policy import open_local_url
 from .local_endpoint_policy import read_bounded_response
 from .local_endpoint_policy import validate_local_endpoint
@@ -52,6 +55,18 @@ GLOBAL_COLLECTION_NAME = "bhm_global_core_knowledge"
 _QDRANT_UNAVAILABLE_CACHE_TTL_SECONDS = 2.0
 _qdrant_health_cache_lock = threading.Lock()
 _qdrant_unavailable_until = 0.0
+_QDRANT_HEALTH_DIAGNOSTIC_SCHEMA_VERSION = "bhm.qdrant-health-diagnostic.v1"
+_qdrant_health_diagnostic: dict[str, Any] = {
+    "last_checked_at": None,
+    "last_success_at": None,
+    "last_failure_at": None,
+    "last_failure_class": None,
+    "last_http_status": None,
+    "last_latency_ms": None,
+    "consecutive_failures": 0,
+    "total_failures": 0,
+    "total_successes": 0,
+}
 DECAY_ARCHIVE_PATH = settings.runtime_dir / "archive" / "decayed_memory_vault.json"
 SEMANTIC_GRAPH_PATH = settings.runtime_dir / "memory" / "semantic_graph.json"
 QDRANT_LOCAL_PATH = settings.runtime_dir / "qdrant-local"
@@ -177,12 +192,116 @@ def normalize_semantic_edge_type(edge_type: Any) -> str:
     return normalized
 
 
+def _qdrant_health_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _qdrant_health_latency_ms(started_at: float) -> int:
+    return max(0, min(int(round((time.monotonic() - started_at) * 1000)), 60_000))
+
+
+def _qdrant_health_failure_class(error: BaseException) -> tuple[str, int | None]:
+    """Classify local probe failures without exposing endpoint or exception text."""
+
+    if isinstance(error, urllib.error.HTTPError):
+        return f"http_{max(100, min(int(error.code), 599))}", int(error.code)
+    if isinstance(error, LocalEndpointError):
+        return "local_policy_rejected", None
+    if isinstance(error, (TimeoutError, socket.timeout)):
+        return "timeout", None
+    if isinstance(error, urllib.error.URLError):
+        reason = error.reason
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            return "timeout", None
+        if isinstance(reason, ConnectionRefusedError):
+            return "connection_refused", None
+        if isinstance(reason, OSError) and getattr(reason, "errno", None) in {111, 10061}:
+            return "connection_refused", None
+        return "transport_error", None
+    if isinstance(error, ConnectionRefusedError):
+        return "connection_refused", None
+    if isinstance(error, OSError) and getattr(error, "errno", None) in {111, 10061}:
+        return "connection_refused", None
+    return "transport_error", None
+
+
+def _record_qdrant_health_success(*, checked_at: str, latency_ms: int) -> None:
+    with _qdrant_health_cache_lock:
+        _qdrant_health_diagnostic.update(
+            {
+                "last_checked_at": checked_at,
+                "last_success_at": checked_at,
+                "last_failure_class": None,
+                "last_http_status": 200,
+                "last_latency_ms": latency_ms,
+                "consecutive_failures": 0,
+                "total_successes": int(_qdrant_health_diagnostic["total_successes"]) + 1,
+            }
+        )
+
+
+def _record_qdrant_health_failure(
+    *, checked_at: str, failure_class: str, http_status: int | None, latency_ms: int
+) -> None:
+    with _qdrant_health_cache_lock:
+        _qdrant_health_diagnostic.update(
+            {
+                "last_checked_at": checked_at,
+                "last_failure_at": checked_at,
+                "last_failure_class": failure_class,
+                "last_http_status": http_status,
+                "last_latency_ms": latency_ms,
+                "consecutive_failures": int(_qdrant_health_diagnostic["consecutive_failures"]) + 1,
+                "total_failures": int(_qdrant_health_diagnostic["total_failures"]) + 1,
+            }
+        )
+
+
+def qdrant_health_diagnostics() -> dict[str, Any]:
+    """Return bounded probe provenance for authenticated runtime health only."""
+
+    now = time.monotonic()
+    with _qdrant_health_cache_lock:
+        payload = dict(_qdrant_health_diagnostic)
+        negative_cache_active = now < _qdrant_unavailable_until
+    payload.update(
+        {
+            "schema_version": _QDRANT_HEALTH_DIAGNOSTIC_SCHEMA_VERSION,
+            "negative_cache_active": negative_cache_active,
+        }
+    )
+    return payload
+
+
+def _reset_qdrant_health_diagnostics_for_tests() -> None:
+    """Reset process-local probe state for deterministic unit tests."""
+
+    global _qdrant_unavailable_until
+    with _qdrant_health_cache_lock:
+        _qdrant_unavailable_until = 0.0
+        _qdrant_health_diagnostic.update(
+            {
+                "last_checked_at": None,
+                "last_success_at": None,
+                "last_failure_at": None,
+                "last_failure_class": None,
+                "last_http_status": None,
+                "last_latency_ms": None,
+                "consecutive_failures": 0,
+                "total_failures": 0,
+                "total_successes": 0,
+            }
+        )
+
+
 def _remote_qdrant_available() -> bool:
     global _qdrant_unavailable_until
     now = time.monotonic()
     with _qdrant_health_cache_lock:
         if now < _qdrant_unavailable_until:
             return False
+    started_at = time.monotonic()
+    checked_at = _qdrant_health_timestamp()
     try:
         request = urllib.request.Request(
             f"{settings.qdrant_url.rstrip('/')}/healthz",
@@ -190,9 +309,29 @@ def _remote_qdrant_available() -> bool:
         )
         with open_local_url(request, timeout=QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS) as response:
             read_bounded_response(response, limit=128)
-            available = 200 <= getattr(response, "status", 200) < 300
-    except Exception:
+            status = int(getattr(response, "status", 200))
+            available = 200 <= status < 300
+            if available:
+                _record_qdrant_health_success(
+                    checked_at=checked_at,
+                    latency_ms=_qdrant_health_latency_ms(started_at),
+                )
+            else:
+                _record_qdrant_health_failure(
+                    checked_at=checked_at,
+                    failure_class=f"http_{max(100, min(status, 599))}",
+                    http_status=status,
+                    latency_ms=_qdrant_health_latency_ms(started_at),
+                )
+    except Exception as error:
         available = False
+        failure_class, http_status = _qdrant_health_failure_class(error)
+        _record_qdrant_health_failure(
+            checked_at=checked_at,
+            failure_class=failure_class,
+            http_status=http_status,
+            latency_ms=_qdrant_health_latency_ms(started_at),
+        )
     if not available:
         with _qdrant_health_cache_lock:
             _qdrant_unavailable_until = time.monotonic() + _QDRANT_UNAVAILABLE_CACHE_TTL_SECONDS
@@ -687,6 +826,7 @@ def mem0_runtime_plan() -> dict[str, Any]:
         "storage_readiness": state.readiness,
         "storage_reason": state.reason,
         "storage_degraded": not state.ready,
+        "qdrant_health": qdrant_health_diagnostics(),
         "local_collection_prefix": LOCAL_COLLECTION_PREFIX,
         "default_local_collection_name": local_collection_name(settings.qdrant_collection),
         "global_collection_name": GLOBAL_COLLECTION_NAME,

@@ -697,8 +697,8 @@
     .mcp-gate-status[data-state="pending"],
     .mcp-gate-status[data-state="unverified"],
     .mcp-gate-status[data-state="native MCP"],
-    .mcp-gate-status[data-state="native MCP live; current session unverified"],
-    .mcp-gate-status[data-state="native MCP transport ready; session idle or detached"],
+    .mcp-gate-status[data-state="native MCP lease observed; REST bridge cannot verify this chat identity"],
+    .mcp-gate-status[data-state="native MCP transport ready; no live lease observed by REST bridge"],
     .mcp-gate-status[data-state="detached"] {
       border-color: rgba(251, 146, 60, 0.36);
       color: #fdba74;

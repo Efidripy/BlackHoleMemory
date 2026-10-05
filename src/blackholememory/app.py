@@ -118,6 +118,8 @@ from .health_routes import build_ready_public
 from .health_routes import build_slo
 from .storage_state import qdrant_required_for_core
 from .mcp_protocol_contract import validate_bhm_remember_arguments
+from .ingress_admission import IngressKind
+from .ingress_admission import admit_ingress
 from .mem0_adapter import BHMGraphManager
 from .mem0_adapter import StorageNotReady
 from .mem0_adapter import decay_lambda_for_payload
@@ -1894,6 +1896,13 @@ async def _enqueue_hook_request(kind: str, request: BaseModel) -> tuple[BaseMode
             headers=_hook_queue_headers(),
         )
     durable_request = _ensure_hook_request_identity(request)
+    _admit_new_content(
+        ingress=IngressKind.OBSERVATION,
+        project=str(getattr(durable_request, "project", "")),
+        actor="hook-queue",
+        payload=durable_request.model_dump(mode="json"),
+        requires_authority=False,
+    )
     priority = 10 if kind == "compact" else 100
     try:
         result = await asyncio.to_thread(
@@ -4628,6 +4637,33 @@ def _secure_observation_request_model(request: BaseModel, *, max_input_bytes: in
     except ObservationPayloadTooLarge as exc:
         raise HTTPException(status_code=413, detail=exc.as_detail()) from exc
     return request.__class__.model_validate(secured_payload)
+
+
+def _admit_new_content(*, ingress: IngressKind, project: str, actor: str, payload: Any, requires_authority: bool) -> dict[str, Any]:
+    """Fail before SQLite, queue, projection, or file mutation on hostile ingress."""
+
+    admission = admit_ingress(ingress=ingress, project=project, actor=actor, payload=payload)
+    if not admission.admitted or (requires_authority and not admission.authority_eligible):
+        raise HTTPException(status_code=422, detail={"code": "ingress_admission_rejected", "admission": admission.receipt()})
+    return admission.receipt()
+
+
+def _request_ingress(request: Request) -> IngressKind:
+    """Downgrade the known MCP bridge; callers do not select their trust class."""
+
+    surface = str(request.headers.get("X-BHM-Caller-Surface") or "").strip().casefold()
+    if surface == IngressKind.MCP.value:
+        return IngressKind.MCP
+    # A bearer proves only caller access. An authority write additionally needs
+    # the separate operator capability; otherwise the generic REST surface is
+    # a non-authoritative tool ingress.
+    capability = request.headers.get(ADMIN_CAPABILITY_HEADER, "")
+    return IngressKind.OPERATOR if is_admin_capability_valid(capability) else IngressKind.TOOL
+
+
+def _request_actor(request: Request) -> str:
+    principal = getattr(request.state, "bhm_caller_principal", None)
+    return str(getattr(principal, "caller_id", "authenticated-caller"))
 
 
 def _memory_store_state():
@@ -20201,7 +20237,14 @@ def bhm_recent_activity(request: MemoryRecentActivityRequest) -> dict:
 
 
 @app.post("/bhm/memory/upsert")
-async def bhm_memory_upsert(request: MemoryUpsertRequest) -> dict:
+async def bhm_memory_upsert(request: MemoryUpsertRequest, http_request: Request) -> dict:
+    _admit_new_content(
+        ingress=_request_ingress(http_request),
+        project=request.project,
+        actor=_request_actor(http_request),
+        payload=request.model_dump(mode="json"),
+        requires_authority=True,
+    )
     action, record = await _run_bounded_write("bhm.memory.upsert", _upsert_live_memory, request)
     semantic_graph = await _add_semantic_dependency_links(record, request.project)
     return {
@@ -20735,7 +20778,15 @@ async def bhm_memory_restore(request: RestoreMemoryRequest) -> dict:
 
 
 @app.post("/bhm/memories/batch-upsert")
-async def bhm_memories_batch_upsert(request: BatchUpsertMemoriesRequest) -> dict:
+async def bhm_memories_batch_upsert(request: BatchUpsertMemoriesRequest, http_request: Request) -> dict:
+    scope = request.project or next((item.project for item in request.items if item.project), None) or _canonical_project(None)
+    _admit_new_content(
+        ingress=_request_ingress(http_request),
+        project=scope,
+        actor=_request_actor(http_request),
+        payload=request.model_dump(mode="json"),
+        requires_authority=True,
+    )
     return await _run_bounded_write("bhm.memories.batch-upsert", _batch_upsert_memories, request)
 
 
@@ -21112,11 +21163,26 @@ def bhm_admin_export(request: AdminExportRequest) -> dict:
 
 @app.post("/bhm/admin/import-preview")
 def bhm_admin_import_preview(request: AdminImportPreviewRequest, http_request: Request) -> dict:
-    return _admin_import_preview(request, http_request=http_request)
+    result = _admin_import_preview(request, http_request=http_request)
+    result["admission"] = admit_ingress(
+        ingress=IngressKind.IMPORT,
+        project=str(result["project"]),
+        actor=_request_actor(http_request),
+        payload={"path": request.path, "scope": result["project"]},
+    ).receipt()
+    return result
 
 
 @app.post("/bhm/admin/import-apply")
 def bhm_admin_import_apply(request: AdminImportApplyRequest, http_request: Request) -> dict:
+    # Imports remain preview-only until a typed reviewed-promotion path exists.
+    _admit_new_content(
+        ingress=IngressKind.IMPORT,
+        project=request.project or "",
+        actor=_request_actor(http_request),
+        payload=request.model_dump(mode="json"),
+        requires_authority=True,
+    )
     return _admin_import_apply(request, http_request=http_request)
 
 
@@ -21589,7 +21655,14 @@ def _mem0_match_search(request: BhmMatchSearchRequest) -> dict:
 
 
 @app.post("/bhm/remember")
-async def bhm_remember(request: RememberRequest) -> dict:
+async def bhm_remember(request: RememberRequest, http_request: Request) -> dict:
+    _admit_new_content(
+        ingress=_request_ingress(http_request),
+        project=request.project,
+        actor=_request_actor(http_request),
+        payload=request.model_dump(mode="json"),
+        requires_authority=True,
+    )
     record = await _run_bounded_write("bhm.remember", _remember_live_memory, request)
     return {
         "success": True,
@@ -21642,12 +21715,19 @@ def bhm_lessons_search(request: BhmMatchSearchRequest) -> dict:
 
 
 @app.post("/bhm/observe")
-async def bhm_observe(request: ObservationIngressV1) -> dict:
+async def bhm_observe(request: ObservationIngressV1, http_request: Request) -> dict:
     secured_request = _secure_observation_request_model(
         request,
         max_input_bytes=OBSERVATION_MAX_INPUT_BYTES,
     )
     secured_request, tier_lifecycle = _with_observation_tier_lifecycle_receipt(secured_request)
+    _admit_new_content(
+        ingress=IngressKind.OBSERVATION,
+        project=secured_request.project,
+        actor=_request_actor(http_request),
+        payload=secured_request.model_dump(mode="json"),
+        requires_authority=False,
+    )
 
     def write_observation() -> dict:
         item = build_observation_record(secured_request)
