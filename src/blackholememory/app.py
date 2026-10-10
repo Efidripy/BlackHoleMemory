@@ -2565,6 +2565,9 @@ _MEMORY_SERVICE_LOCK = threading.RLock()
 _MEMORY_SERVICES: dict[str, SQLiteMemoryService] = {}
 _LINK_STORE_LOCK = threading.RLock()
 _TASK_LIFECYCLE_LOCK = threading.RLock()
+_TASK_INGRESS_FROZEN = False
+_TASK_INGRESS_REASON = ""
+_TASK_INGRESS_CHANGED_AT: str | None = None
 _JSON_STORE_LOCKS: dict[str, threading.RLock] = {}
 _JSON_STORE_LOCKS_LOCK = threading.RLock()
 _JSON_REPLACE_RETRY_DELAYS = (0.025, 0.05, 0.1, 0.2, 0.4, 0.8)
@@ -4040,6 +4043,12 @@ class TaskCloseRequest(BaseModel):
     conversation_notes: str = ""
     transcript_ref: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TaskIngressControlRequest(BaseModel):
+    """Bounded operator reason for an in-memory task-ingress transition."""
+
+    reason: str = Field(min_length=1, max_length=240)
 
 
 class TaskContextUpdateRequest(BaseModel):
@@ -10245,8 +10254,68 @@ def _open_task_unlocked(request: TaskOpenRequest) -> tuple[str, dict]:
     return action, record
 
 
+def _task_ingress_status_unlocked() -> dict[str, Any]:
+    """Return only bounded in-process maintenance state; nothing is persisted."""
+
+    safe_reason = redact_secret_text(_TASK_INGRESS_REASON).value.strip()[:240]
+    return {
+        "frozen": _TASK_INGRESS_FROZEN,
+        "reason": safe_reason if _TASK_INGRESS_FROZEN else "",
+        "changed_at": _TASK_INGRESS_CHANGED_AT,
+    }
+
+
+def _task_ingress_status() -> dict[str, Any]:
+    with _TASK_LIFECYCLE_LOCK:
+        return _task_ingress_status_unlocked()
+
+
+def _normalize_task_ingress_reason(reason: str) -> str:
+    normalized = " ".join(reason.split())
+    normalized = redact_secret_text(normalized).value.strip()
+    if not normalized:
+        raise HTTPException(status_code=422, detail={"code": "task_ingress_reason_required"})
+    if len(normalized) > 240:
+        raise HTTPException(status_code=422, detail={"code": "task_ingress_reason_too_long"})
+    return normalized
+
+
+def _freeze_task_ingress(request: TaskIngressControlRequest) -> tuple[str, dict[str, Any]]:
+    """Freeze only task open/close writers after any active lifecycle completes."""
+
+    global _TASK_INGRESS_FROZEN, _TASK_INGRESS_REASON, _TASK_INGRESS_CHANGED_AT
+    reason = _normalize_task_ingress_reason(request.reason)
+    with _TASK_LIFECYCLE_LOCK:
+        if _TASK_INGRESS_FROZEN:
+            return "already_frozen", _task_ingress_status_unlocked()
+        _TASK_INGRESS_FROZEN = True
+        _TASK_INGRESS_REASON = reason
+        _TASK_INGRESS_CHANGED_AT = _utc_now_iso()
+        return "frozen", _task_ingress_status_unlocked()
+
+
+def _resume_task_ingress(request: TaskIngressControlRequest) -> tuple[str, dict[str, Any]]:
+    """Reopen only task open/close writers; normal memory ingress is unaffected."""
+
+    global _TASK_INGRESS_FROZEN, _TASK_INGRESS_REASON, _TASK_INGRESS_CHANGED_AT
+    _normalize_task_ingress_reason(request.reason)
+    with _TASK_LIFECYCLE_LOCK:
+        if not _TASK_INGRESS_FROZEN:
+            return "already_open", _task_ingress_status_unlocked()
+        _TASK_INGRESS_FROZEN = False
+        _TASK_INGRESS_REASON = ""
+        _TASK_INGRESS_CHANGED_AT = _utc_now_iso()
+        return "opened", _task_ingress_status_unlocked()
+
+
+def _raise_if_task_ingress_frozen() -> None:
+    if _TASK_INGRESS_FROZEN:
+        raise HTTPException(status_code=503, detail={"code": "task_ingress_frozen"})
+
+
 def _open_task(request: TaskOpenRequest) -> tuple[str, dict]:
     with _TASK_LIFECYCLE_LOCK:
+        _raise_if_task_ingress_frozen()
         return _open_task_unlocked(request)
 
 
@@ -10340,6 +10409,7 @@ def _close_task_unlocked(request: TaskCloseRequest) -> tuple[str, dict]:
 
 def _close_task(request: TaskCloseRequest) -> tuple[str, dict]:
     with _TASK_LIFECYCLE_LOCK:
+        _raise_if_task_ingress_frozen()
         return _close_task_unlocked(request)
 
 
@@ -21184,6 +21254,23 @@ def bhm_admin_import_apply(request: AdminImportApplyRequest, http_request: Reque
         requires_authority=True,
     )
     return _admin_import_apply(request, http_request=http_request)
+
+
+@app.get("/bhm/admin/task-ingress/status")
+def bhm_admin_task_ingress_status() -> dict:
+    return {"task_ingress": _task_ingress_status()}
+
+
+@app.post("/bhm/admin/task-ingress/freeze")
+def bhm_admin_task_ingress_freeze(request: TaskIngressControlRequest) -> dict:
+    action, status = _freeze_task_ingress(request)
+    return {"success": True, "action": action, "task_ingress": status}
+
+
+@app.post("/bhm/admin/task-ingress/resume")
+def bhm_admin_task_ingress_resume(request: TaskIngressControlRequest) -> dict:
+    action, status = _resume_task_ingress(request)
+    return {"success": True, "action": action, "task_ingress": status}
 
 
 @app.get("/bhm/policy/profile")

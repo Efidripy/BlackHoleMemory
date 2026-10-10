@@ -19,7 +19,9 @@ from typing import Any, Mapping, Sequence
 from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .task_dependencies import TaskDependencyDeclaration
+from .task_dependencies import TaskDependencyCompletenessAttestation
 from .task_dependencies import dependency_declarations_by_pair
+from .task_dependencies import validate_dependency_completeness_attestation
 
 
 TASK_GRAPH_SCHEMA_VERSION = "bhm.task-graph.v1"
@@ -66,6 +68,8 @@ def build_task_graph(
     fail_after_stage: str | None = None,
     source_kind: str = "task",
     dependency_declarations: Sequence[Mapping[str, Any] | TaskDependencyDeclaration] = (),
+    dependency_completeness_attestation: TaskDependencyCompletenessAttestation | None = None,
+    task_source_sha256: str | None = None,
     connection: sqlite3.Connection | None = None,
     publish: bool = True,
     summary_extra: Mapping[str, Any] | None = None,
@@ -97,7 +101,12 @@ def build_task_graph(
             quarantine.append({"kind": "task", "id": task_id, "reason": "invalid_temporal_interval"})
             continue
         key = _node_key(project_name, "task", task_id)
-        dependencies = _bounded_strings(item.get("dependencies") or item.get("depends_on") or item.get("blocked_by"), 180, 32)
+        # An attested build uses only immutable ledger declarations.  The
+        # attestation is an owner decision, not permission to interpret legacy
+        # sidecar fields as graph edges.
+        dependencies = [] if dependency_completeness_attestation is not None else _bounded_strings(
+            item.get("dependencies") or item.get("depends_on") or item.get("blocked_by"), 180, 32
+        )
         payload = {"title": _clip(item.get("title"), 180), "status": _clip(item.get("status"), 40) or "open", "owner": _clip(item.get("owner") or item.get("owner_id"), 100), "dependencies": dependencies, "intent": _clip(item.get("intent"), 320), "evidence_backed": bool(item.get("evidence_backed"))}
         node = _node(key, "task", task_id, temporal, normalized_source_kind, task_id, payload, item)
         nodes[key] = node
@@ -107,6 +116,19 @@ def build_task_graph(
         project=project_name,
         known_task_ids=set(task_map),
     )
+    if dependency_completeness_attestation is not None:
+        if not task_source_sha256:
+            raise TaskGraphError("task_source_sha256 is required with a completeness attestation")
+        try:
+            validate_dependency_completeness_attestation(
+                dependency_completeness_attestation,
+                project=project_name,
+                tasks=tasks,
+                source_sha256=task_source_sha256,
+                declarations=declared_dependencies,
+            )
+        except ValueError as exc:
+            raise TaskGraphError(str(exc)) from exc
     for (task_id, dependency_id), declaration in declared_dependencies.items():
         dependencies = task_map[task_id]["payload"]["dependencies"]
         if dependency_id not in dependencies:
@@ -212,8 +234,16 @@ def build_task_graph(
     graph_digest = _sha256(_canonical_json({"nodes": nodes_list, "edges": edges_list, "quarantine": quarantine}))
     snapshot_id = f"tgraph_{_sha256(f'{project_name}:{graph_digest}')[:24]}"
     summary = {"node_count": len(nodes_list), "edge_count": len(edges_list), "quarantine_count": len(quarantine), "conflict_count": conflict_count, "lease_expired_count": sum(1 for edge in edges_list if edge["relation"] == "claims" and edge["payload"].get("expired")), "ready_count": sum(1 for node in nodes_list if node["entity_type"] == "task" and node["payload"].get("ready")), "evidence_backed_close_count": sum(1 for node in nodes_list if node["entity_type"] == "task" and node["payload"].get("evidence_backed_close"))}
-    if summary_extra:
-        summary["source_contract"] = dict(summary_extra)
+    source_contract = dict(summary_extra or {})
+    if dependency_completeness_attestation is not None:
+        source_contract.update({
+            "edge_completeness": "owner-attested-complete",
+            "dependency_completeness_attestation_digest": dependency_completeness_attestation.digest(),
+            "task_scope_digest": dependency_completeness_attestation.task_scope_digest,
+            "task_count": dependency_completeness_attestation.task_count,
+        })
+    if source_contract:
+        summary["source_contract"] = source_contract
     if len(nodes_list) > TASK_GRAPH_MAX_NODES or len(edges_list) > TASK_GRAPH_MAX_EDGES:
         raise TaskGraphError("task graph bounds exceeded")
     path = assert_safe_path(Path(database_path))
