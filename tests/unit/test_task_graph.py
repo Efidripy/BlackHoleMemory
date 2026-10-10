@@ -9,6 +9,7 @@ from blackholememory.task_graph import explain_task_graph
 from blackholememory.task_graph import query_task_graph
 from blackholememory.task_graph import simulate_conflict_recovery_fixture
 from blackholememory.task_dependencies import TaskDependencyDeclaration
+from blackholememory.task_dependencies import TaskDependencyCompletenessAttestation
 from blackholememory.task_dependencies import TaskDependencyError
 
 
@@ -178,3 +179,69 @@ def test_task_graph_rejects_explicit_dependency_unknown_endpoint_and_cycle(tmp_p
     )
     with pytest.raises(TaskDependencyError, match="introduces a cycle"):
         build_task_graph(tmp_path / "cycle.sqlite3", project="fixture", tasks=tasks, dependency_declarations=[a_to_b, b_to_a])
+
+
+def test_attested_graph_uses_only_declared_edges_and_preserves_current_pointer(tmp_path):
+    database = tmp_path / "attested.sqlite3"
+    tasks = [
+        {"task_id": "base", "project": "fixture", "status": "closed", "created_at": "2026-01-01T00:00:00Z"},
+        # This legacy-shaped field must not become a graph edge for an
+        # attested build.  Only the immutable declaration below is allowed.
+        {"task_id": "main", "project": "fixture", "status": "open", "dependencies": ["base"], "created_at": "2026-01-02T00:00:00Z"},
+    ]
+    declaration = TaskDependencyDeclaration(
+        project="fixture", task_id="main", depends_on_task_id="base",
+        declared_by="operator", declared_at="2026-10-06T12:00:00Z",
+    )
+    attestation = TaskDependencyCompletenessAttestation.from_tasks(
+        project="fixture", tasks=tasks, source_sha256="d" * 64, declarations=[declaration],
+        declared_by="owner-authorized-codex", declared_at="2026-10-06T12:01:00Z",
+    )
+    published = build_task_graph(database, project="fixture", tasks=tasks, publish=True)
+    staged = build_task_graph(
+        database,
+        project="fixture",
+        tasks=tasks,
+        dependency_declarations=[declaration],
+        dependency_completeness_attestation=attestation,
+        task_source_sha256="d" * 64,
+        publish=False,
+    )
+
+    assert staged["publication"] == "staged"
+    assert staged["summary"]["edge_count"] == 1
+    assert staged["summary"]["source_contract"]["edge_completeness"] == "owner-attested-complete"
+    with sqlite3.connect(database) as connection:
+        current = connection.execute("SELECT snapshot_id FROM task_graph_current WHERE project = 'fixture'").fetchone()[0]
+        staged_edge = connection.execute(
+            "SELECT source_kind, source_id FROM task_graph_edges WHERE snapshot_id = ?", (staged["snapshot_id"],)
+        ).fetchone()
+    assert current == published["snapshot_id"]
+    assert staged_edge == ("task_dependency_declaration", declaration.digest())
+
+
+def test_attested_graph_fails_closed_on_source_or_declared_edge_drift(tmp_path):
+    tasks = [
+        {"task_id": "base", "project": "fixture", "status": "closed", "created_at": "2026-01-01T00:00:00Z"},
+        {"task_id": "main", "project": "fixture", "status": "open", "created_at": "2026-01-02T00:00:00Z"},
+    ]
+    declaration = TaskDependencyDeclaration(
+        project="fixture", task_id="main", depends_on_task_id="base",
+        declared_by="operator", declared_at="2026-10-06T12:00:00Z",
+    )
+    attestation = TaskDependencyCompletenessAttestation.from_tasks(
+        project="fixture", tasks=tasks, source_sha256="e" * 64, declarations=[declaration],
+        declared_by="owner-authorized-codex", declared_at="2026-10-06T12:01:00Z",
+    )
+    with pytest.raises(TaskGraphError, match="source digest mismatch"):
+        build_task_graph(
+            tmp_path / "source-drift.sqlite3", project="fixture", tasks=tasks,
+            dependency_declarations=[declaration], dependency_completeness_attestation=attestation,
+            task_source_sha256="f" * 64, publish=False,
+        )
+    with pytest.raises(TaskGraphError, match="declared edges mismatch"):
+        build_task_graph(
+            tmp_path / "edge-drift.sqlite3", project="fixture", tasks=tasks,
+            dependency_declarations=[], dependency_completeness_attestation=attestation,
+            task_source_sha256="e" * 64, publish=False,
+        )
