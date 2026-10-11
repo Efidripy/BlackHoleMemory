@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -7,7 +8,9 @@ from pathlib import Path
 import pytest
 
 from blackholememory import repository_index as repository_index_module
+from blackholememory.code_graph import build_code_graph
 from blackholememory.repository_index import RepositoryIndexInjectedFailure
+from blackholememory.repository_index import RepositoryIndexError
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import RepositoryWatcher
 from blackholememory.repository_index import SQLiteRepositoryIndexStore
@@ -15,6 +18,7 @@ from blackholememory.repository_index import index_repository
 from blackholememory.repository_index import probe_repository_state
 from blackholememory.repository_index import repository_root_id
 from blackholememory.repository_index import RepositoryRootError
+from blackholememory.repository_index import STALE_JOB_DISPOSITION_REASON
 from blackholememory.repository_index import verify_repository_snapshot
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
@@ -338,6 +342,150 @@ def test_failure_before_publish_preserves_last_known_good_then_recovers(tmp_path
     recovered = index_repository(root, database, project="demo", source=_source())
     assert recovered["status"] == "completed"
     assert recovered["snapshot_id"] != first["snapshot_id"]
+
+
+def _copy_sqlite_database(source: Path, target: Path) -> str:
+    with sqlite3.connect(source) as source_connection, sqlite3.connect(target) as target_connection:
+        source_connection.backup(target_connection)
+    return hashlib.sha256(target.read_bytes()).hexdigest()
+
+
+def _stale_disposition_fixture(tmp_path: Path) -> tuple[Path, Path, SQLiteRepositoryIndexStore, object, list[str]]:
+    root = _repository(tmp_path)
+    database = tmp_path / "stale-disposition.sqlite3"
+    completed = index_repository(root, database, project="demo", source=_source())
+    prior_state = probe_repository_state(root, project="demo")
+    build_code_graph(
+        database,
+        project="demo",
+        root_id=prior_state.root_id,
+        repository_snapshot_id=completed["snapshot_id"],
+    )
+    store = SQLiteRepositoryIndexStore(database)
+    first = store.begin_or_resume_job(prior_state, _source(), force_refresh_nonce="stale-disposition-a")
+    second = store.begin_or_resume_job(prior_state, _source(), force_refresh_nonce="stale-disposition-b")
+    (root / "src" / "a.py").write_text("def a():\n    return 99\n", encoding="utf-8")
+    _git(root, "add", "src/a.py")
+    _git(root, "commit", "-m", "new binding")
+    current_state = probe_repository_state(root, project="demo")
+    return root, database, store, current_state, [first["job_id"], second["job_id"]]
+
+
+def test_stale_job_disposition_plans_and_applies_exact_zero_progress_rows(tmp_path: Path) -> None:
+    _, database, store, state, job_ids = _stale_disposition_fixture(tmp_path)
+    before_index_pointer = store.current_snapshot("demo", state.root_id)["snapshot_id"]
+    with sqlite3.connect(database) as connection:
+        before_graph_pointer = connection.execute(
+            "SELECT graph_snapshot_id FROM repository_code_graph_current WHERE project = ? AND root_id = ?",
+            ("demo", state.root_id),
+        ).fetchone()[0]
+        candidates_before = connection.execute(
+            "SELECT COUNT(*) FROM repository_index_job_candidates WHERE job_id IN (?, ?)",
+            tuple(job_ids),
+        ).fetchone()[0]
+    plan = store.plan_stale_job_disposition(state=state, job_ids=job_ids, operator="fixture-operator")
+    assert plan["reason"] == STALE_JOB_DISPOSITION_REASON
+    assert [item["job_id"] for item in plan["jobs"]] == sorted(job_ids)
+    backup = tmp_path / "rollback.sqlite3"
+    backup_sha256 = _copy_sqlite_database(database, backup)
+
+    applied = store.apply_stale_job_disposition(
+        state=state,
+        plan=plan,
+        expected_plan_digest=plan["plan_digest"],
+        offline=True,
+        backup_path=backup,
+        backup_sha256=backup_sha256,
+    )
+
+    assert applied["ok"] is True
+    assert applied["updates_current_pointers"] is False
+    assert applied["deletes_job_candidates"] is False
+    assert {store.job(job_id)["status"] for job_id in job_ids} == {"failed"}
+    assert store.current_snapshot("demo", state.root_id)["snapshot_id"] == before_index_pointer
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT graph_snapshot_id FROM repository_code_graph_current WHERE project = ? AND root_id = ?",
+            ("demo", state.root_id),
+        ).fetchone()[0] == before_graph_pointer
+        assert connection.execute(
+            "SELECT COUNT(*) FROM repository_index_job_candidates WHERE job_id IN (?, ?)",
+            tuple(job_ids),
+        ).fetchone()[0] == candidates_before
+
+
+def test_stale_job_disposition_rejects_wrong_id_non_running_and_binding_drift(tmp_path: Path) -> None:
+    _, database, store, state, job_ids = _stale_disposition_fixture(tmp_path)
+    with pytest.raises(RepositoryIndexError, match="job not found"):
+        store.plan_stale_job_disposition(state=state, job_ids=["missing-job"], operator="fixture-operator")
+    plan = store.plan_stale_job_disposition(state=state, job_ids=job_ids, operator="fixture-operator")
+    backup = tmp_path / "rollback.sqlite3"
+    backup_sha256 = _copy_sqlite_database(database, backup)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE repository_index_jobs SET state_digest = ? WHERE job_id = ?",
+            ("changed-binding", job_ids[0]),
+        )
+        connection.commit()
+    with pytest.raises(RepositoryIndexError, match="plan drifted"):
+        store.apply_stale_job_disposition(
+            state=state,
+            plan=plan,
+            expected_plan_digest=plan["plan_digest"],
+            offline=True,
+            backup_path=backup,
+            backup_sha256=backup_sha256,
+        )
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE repository_index_jobs SET status = 'failed' WHERE job_id = ?",
+            (job_ids[1],),
+        )
+        connection.commit()
+    with pytest.raises(RepositoryIndexError, match="job is not writable"):
+        store.save_batch(job_ids[1], [], [], cursor_path=None)
+    with pytest.raises(RepositoryIndexError, match="not running"):
+        store.plan_stale_job_disposition(state=state, job_ids=job_ids, operator="fixture-operator")
+
+
+def test_stale_job_disposition_rejects_pointer_drift_invalid_backup_and_missing_offline_gate(tmp_path: Path) -> None:
+    _, database, store, state, job_ids = _stale_disposition_fixture(tmp_path)
+    plan = store.plan_stale_job_disposition(state=state, job_ids=job_ids, operator="fixture-operator")
+    backup = tmp_path / "rollback.sqlite3"
+    backup_sha256 = _copy_sqlite_database(database, backup)
+    with pytest.raises(ValueError, match="offline boundary"):
+        store.apply_stale_job_disposition(
+            state=state,
+            plan=plan,
+            expected_plan_digest=plan["plan_digest"],
+            offline=False,
+            backup_path=backup,
+            backup_sha256=backup_sha256,
+        )
+    with pytest.raises(RepositoryIndexError, match="backup SHA-256"):
+        store.apply_stale_job_disposition(
+            state=state,
+            plan=plan,
+            expected_plan_digest=plan["plan_digest"],
+            offline=True,
+            backup_path=backup,
+            backup_sha256="0" * 64,
+        )
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE repository_index_current SET updated_at = ? WHERE project = ? AND root_id = ?",
+            ("pointer-drift", "demo", state.root_id),
+        )
+        connection.commit()
+    with pytest.raises(RepositoryIndexError, match="plan drifted"):
+        store.apply_stale_job_disposition(
+            state=state,
+            plan=plan,
+            expected_plan_digest=plan["plan_digest"],
+            offline=True,
+            backup_path=backup,
+            backup_sha256=backup_sha256,
+        )
 
 
 def test_polling_watcher_is_explicit_and_detects_freshness(tmp_path: Path) -> None:
