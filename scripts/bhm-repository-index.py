@@ -13,6 +13,7 @@ from blackholememory.observation_security import redact_secret_text
 from blackholememory.repository_index import RepositoryIndexLimits
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import RepositoryWatcher
+from blackholememory.repository_index import STALE_JOB_DISPOSITION_REASON
 from blackholememory.repository_index import SQLiteRepositoryIndexStore
 from blackholememory.repository_index import index_repository
 from blackholememory.repository_index import probe_repository_state
@@ -24,7 +25,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--action", choices=("plan", "index", "watch", "status", "migrate"), default="plan")
+    parser.add_argument(
+        "--action",
+        choices=(
+            "plan",
+            "index",
+            "watch",
+            "status",
+            "migrate",
+            "stale-job-disposition-plan",
+            "stale-job-disposition-apply",
+        ),
+        default="plan",
+    )
     parser.add_argument("--root", type=Path, default=ROOT)
     parser.add_argument("--database", type=Path, default=ROOT / ".runtime" / "live-memory" / "memories.sqlite3")
     parser.add_argument("--project", default="blackholememory")
@@ -42,6 +55,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval-seconds", type=float, default=2.0)
     parser.add_argument("--feature-config", type=Path, default=ROOT / "config" / "cbm-integration.json")
     parser.add_argument("--confirm", action="store_true")
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--offline", action="store_true")
+    parser.add_argument("--job-id", action="append", default=[])
+    parser.add_argument("--operator")
+    parser.add_argument("--stale-reason", choices=(STALE_JOB_DISPOSITION_REASON,), default=STALE_JOB_DISPOSITION_REASON)
+    parser.add_argument("--plan", type=Path)
+    parser.add_argument("--confirm-plan-digest")
+    parser.add_argument("--backup-sha256")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--backup", type=Path)
     return parser.parse_args()
@@ -61,6 +82,21 @@ def _watch_feature_enabled(path: Path) -> bool:
         return False
     flags = payload.get("feature_flags", {})
     return flags.get("repository_watch_enabled") is True
+
+
+def _read_disposition_plan(path: Path | None) -> dict[str, object]:
+    if path is None:
+        raise ValueError("stale disposition apply requires --plan")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError("stale disposition plan is unreadable") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("stale disposition plan must be a JSON object")
+    nested = payload.get("plan")
+    if isinstance(nested, dict):
+        payload = nested
+    return payload
 
 
 def main() -> int:
@@ -120,6 +156,44 @@ def main() -> int:
             result = {
                 "action": "migrate",
                 **SQLiteRepositoryIndexStore(args.database).migrate_empty_v1_to_v2(args.backup),
+            }
+        elif args.action == "stale-job-disposition-plan":
+            if not args.job_id or not args.operator:
+                raise ValueError("stale disposition plan requires explicit --job-id and --operator")
+            state = probe_repository_state(args.root, project=args.project, limits=limits)
+            plan = SQLiteRepositoryIndexStore(args.database).plan_stale_job_disposition(
+                state=state,
+                job_ids=args.job_id,
+                operator=args.operator,
+                reason=args.stale_reason,
+            )
+            result = {
+                "action": args.action,
+                "ok": True,
+                "plan": plan,
+                "writes_sqlite_state": False,
+                "writes_memory_rows": False,
+                "writes_qdrant": False,
+            }
+        elif args.action == "stale-job-disposition-apply":
+            if not args.apply or not args.offline:
+                raise ValueError("stale disposition apply requires --apply and --offline")
+            if not args.confirm_plan_digest or args.backup is None or not args.backup_sha256:
+                raise ValueError(
+                    "stale disposition apply requires --confirm-plan-digest, --backup and --backup-sha256"
+                )
+            plan = _read_disposition_plan(args.plan)
+            state = probe_repository_state(args.root, project=args.project, limits=limits)
+            result = {
+                "action": args.action,
+                **SQLiteRepositoryIndexStore(args.database).apply_stale_job_disposition(
+                    state=state,
+                    plan=plan,
+                    expected_plan_digest=args.confirm_plan_digest,
+                    offline=True,
+                    backup_path=args.backup,
+                    backup_sha256=args.backup_sha256,
+                ),
             }
         elif args.action == "index":
             if not args.confirm:
