@@ -233,6 +233,7 @@ from .retrieval_explanation import explain_retrieval_hit
 from .runtime_storage import MemoryStoreMode
 from .runtime_storage import runtime_storage_state as memory_runtime_storage_state
 from .runtime_storage import resolve_runtime_storage_config
+from .projection_generation_binding import active_projection_generation_bindings
 from .projection_generation_binding import ProjectionRouteUnavailable
 from .projection_generation_binding import resolve_projection_route
 from .memory_service import MemoryServiceNotReady
@@ -13603,6 +13604,26 @@ def _qdrant_point_to_vector_hit(
     return _normalize_collection_hit(hit, collection_name=collection_name, context_origin=context_origin)
 
 
+def _project_projection_route(project_name: str):
+    """Return the authority-bound local route for one project.
+
+    Bound/retired projects deliberately do not reopen their old local
+    collection if SQLite routing evidence becomes unavailable.  Unbound
+    projects retain the established legacy local route.
+    """
+
+    legacy_collection = local_collection_name(project_name)
+    database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+    return resolve_projection_route(
+        project=project_name,
+        legacy_collection=legacy_collection,
+        database=database_path,
+        embedding_model=settings.mem0_embedding_model,
+        vector_dimensions=settings.mem0_embedding_dims,
+        distance="Cosine",
+    )
+
+
 def _fetch_qdrant_hit_by_source_id_sync(target_id: str, project_name: str) -> dict | None:
     client = get_qdrant_client()
     source_id = str(target_id or "").strip()
@@ -13616,10 +13637,11 @@ def _fetch_qdrant_hit_by_source_id_sync(target_id: str, project_name: str) -> di
             )
         ]
     )
-    collections = [
-        (local_collection_name(project_name), _VECTOR_CONTEXT_LOCAL),
-        (global_collection_name(), _VECTOR_CONTEXT_GLOBAL),
-    ]
+    route = _project_projection_route(project_name)
+    collections: list[tuple[str, str]] = []
+    if route.collection_name is not None:
+        collections.append((route.collection_name, _VECTOR_CONTEXT_LOCAL))
+    collections.append((global_collection_name(), _VECTOR_CONTEXT_GLOBAL))
     for collection_name, context_origin in collections:
         try:
             points, _offset = client.scroll(
@@ -13739,17 +13761,32 @@ async def _augment_hits_with_graph_expansion(hits: list[dict], project_name: str
 def _galaxy_memory_collection_names(client: Any, project: str | None) -> list[str]:
     global_name = global_collection_name()
     if project:
-        return list(dict.fromkeys([local_collection_name(project), global_name]))
+        route = _project_projection_route(project)
+        names = [global_name]
+        if route.collection_name is not None:
+            names.insert(0, route.collection_name)
+        return list(dict.fromkeys(names))
+
+    database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+    bindings = active_projection_generation_bindings(database_path)
+    active_targets = {binding.target_collection for binding in bindings}
+    rollback_legacy = {local_collection_name(binding.project) for binding in bindings}
 
     try:
         collections = client.get_collections().collections
     except Exception:
-        return list(dict.fromkeys([local_collection_name(settings.qdrant_collection), global_name]))
+        route = _project_projection_route(settings.qdrant_collection)
+        names = [global_name]
+        if route.collection_name is not None:
+            names.insert(0, route.collection_name)
+        return list(dict.fromkeys(names))
 
     names: list[str] = []
     for collection in collections:
         name = str(getattr(collection, "name", "") or "")
-        if name == global_name or name.startswith("bhm_local_memory_"):
+        if name == global_name or name in active_targets:
+            names.append(name)
+        elif name.startswith("bhm_local_memory_") and name not in rollback_legacy:
             names.append(name)
     if global_name not in names:
         names.append(global_name)

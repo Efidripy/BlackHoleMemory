@@ -259,6 +259,11 @@
       "release": true
     },
     {
+      "path": "scripts/bhm-projection-generation-binding.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/bhm-projection-operator.ps1",
       "role": "operator",
       "release": true
