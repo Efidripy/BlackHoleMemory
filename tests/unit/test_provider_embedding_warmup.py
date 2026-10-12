@@ -229,7 +229,7 @@ def test_memory_warmup_only_instantiates_existing_collections(monkeypatch) -> No
     monkeypatch.setattr(
         bhm_app,
         "get_project_mem0_memory",
-        lambda project: (calls.append(f"project:{project}") or _Memory()),
+        lambda project, **_kwargs: (calls.append(f"project:{project}") or _Memory()),
     )
     monkeypatch.setattr(
         bhm_app,
@@ -242,3 +242,37 @@ def test_memory_warmup_only_instantiates_existing_collections(monkeypatch) -> No
     assert warmed == ["existing"]
     assert skipped == ["missing"]
     assert calls == ["project:existing", "global"]
+
+
+def test_memory_warmup_uses_bound_generation_not_legacy_collection(monkeypatch) -> None:
+    calls: list[tuple[str, object]] = []
+
+    class _Client:
+        def collection_exists(self, name: str) -> bool:
+            calls.append(("exists", name))
+            return name in {"generation", "global"}
+
+    class _Memory:
+        embedding_model = object()
+
+    monkeypatch.setenv("BHM_PROVIDER_WARMUP_PROJECTS", "bound")
+    monkeypatch.setattr(bhm_app, "get_qdrant_client", lambda: _Client())
+    monkeypatch.setattr(bhm_app, "global_collection_name", lambda: "global")
+    monkeypatch.setattr(
+        bhm_app,
+        "_project_projection_route",
+        lambda _project: SimpleNamespace(collection_name="generation"),
+    )
+    monkeypatch.setattr(
+        bhm_app,
+        "get_project_mem0_memory",
+        lambda project, **kwargs: (calls.append(("memory", (project, kwargs))) or _Memory()),
+    )
+    monkeypatch.setattr(bhm_app, "get_global_core_memory", lambda: _Memory())
+
+    warmed, skipped = bhm_app._post_provider_memory_warmup_probe()
+
+    assert warmed == ["bound"]
+    assert skipped == []
+    assert ("exists", "generation") in calls
+    assert ("memory", ("bound", {"collection_name": "generation", "ensure_collection": False})) in calls
