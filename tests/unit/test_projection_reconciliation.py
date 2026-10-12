@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import pytest
+
 from blackholememory.domain import Memory
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import local_collection_name
@@ -16,6 +18,8 @@ from blackholememory.projection_reconciliation import build_projection_reconcili
 from blackholememory.projection_reconciliation import classify_projection_review_entries
 from blackholememory.projection_reconciliation import ProjectionReviewDisposition
 from blackholememory.projection_reconciliation import QDRANT_QUARANTINE_COLLECTION_PREFIX
+from blackholememory.projection_reconciliation import apply_projection_generation_plan
+from blackholememory.projection_reconciliation import build_projection_generation_plan
 
 
 @dataclass
@@ -82,6 +86,25 @@ class _Surface:
         assert wait is True
         for point_id in points:
             self.points[(collection_name, str(point_id))].payload = dict(payload)
+
+
+class _GenerationClient:
+    def __init__(self) -> None:
+        self.collections: set[str] = set()
+        self.points: dict[tuple[str, str], object] = {}
+
+    def collection_exists(self, collection_name: str) -> bool:
+        return collection_name in self.collections
+
+    def create_collection(self, *, collection_name, vectors_config):
+        assert vectors_config.size == 2
+        self.collections.add(collection_name)
+
+    def upsert(self, *, collection_name, points, wait):
+        assert wait is True
+        assert collection_name in self.collections
+        for point in points:
+            self.points[(collection_name, str(point.id))] = point
 
 
 def _memory() -> Memory:
@@ -403,3 +426,123 @@ def test_reconciliation_collection_change_and_outage_fail_closed_without_delete(
     unavailable = apply_projection_reconciliation(plan, repository, projector, surface)
     assert unavailable.upserted == unavailable.deleted == 0
     assert unavailable.failed and "preflight unavailable" in unavailable.failed[0]
+
+
+def test_generation_plan_isolated_and_apply_binds_exact_source_snapshot(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _GenerationClient()
+    projector = QdrantProjector(client, lambda _memory: [0.1, 0.9], expected_dimensions=2)
+
+    plan = build_projection_generation_plan(
+        repository,
+        projects=["blackholememory"],
+        target_generation="rebuild-01",
+        as_of="2026-07-13T14:10:00Z",
+        expected_dimensions=2,
+        expected_embedding_model="test-model",
+    )
+    assert plan.counts == {"projects": 1, "collections": 1, "upsert": 1, "delete": 0, "switch": 0}
+    target = plan.collection_for("blackholememory")
+    assert target.startswith("bhm_projection_generation_")
+    assert target not in {"bhm_local_memory_blackholememory", "bhm_global_core_knowledge"}
+    assert plan.digest == build_projection_generation_plan(
+        repository,
+        projects=["blackholememory"],
+        target_generation="rebuild-01",
+        as_of="2026-07-13T14:10:00Z",
+        expected_dimensions=2,
+        expected_embedding_model="test-model",
+    ).digest
+
+    result = apply_projection_generation_plan(
+        plan,
+        repository,
+        projector,
+        confirm_plan_digest=plan.digest,
+    )
+    assert result.ok is True
+    assert result.upserted == 1
+    assert result.created_collections == (target,)
+    point = next(iter(client.points.values()))
+    assert point.payload["projection_generation"]["source_basis_digest"] == plan.source_basis_digest
+    assert point.payload["projection_generation"]["embedding_model"] == "test-model"
+    assert point.payload["projection_generation"]["target_collection"] == target
+
+
+def test_generation_apply_rejects_source_drift_before_creating_target(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    plan = build_projection_generation_plan(
+        repository,
+        projects=["blackholememory"],
+        target_generation="rebuild-02",
+        as_of="fixed",
+        expected_dimensions=2,
+        expected_embedding_model="test-model",
+    )
+    changed = memory.model_copy(update={"metadata": {**memory.metadata, "changed": True}})
+    repository.save_memory(changed, expected_revision_id=memory.current_revision.revision_id)
+    client = _GenerationClient()
+    result = apply_projection_generation_plan(
+        plan,
+        repository,
+        QdrantProjector(client, lambda _memory: [0.1, 0.9], expected_dimensions=2),
+        confirm_plan_digest=plan.digest,
+    )
+    assert result.ok is False
+    assert result.upserted == 0
+    assert result.created_collections == ()
+    assert not client.collections
+    assert "SQLite generation changed" in result.failed[0]
+
+
+@pytest.mark.parametrize("label", ("../escape", "Rebuild-01", "x", "rebuild_01"))
+def test_generation_plan_rejects_unsafe_target_label(tmp_path, label):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    repository.save_memory(_memory())
+    with pytest.raises(ValueError, match="strict lowercase identifier"):
+        build_projection_generation_plan(
+            repository,
+            projects=["blackholememory"],
+            target_generation=label,
+            as_of="fixed",
+            expected_dimensions=2,
+            expected_embedding_model="test-model",
+        )
+
+
+def test_generation_apply_rejects_digest_or_existing_target_without_write(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    repository.save_memory(_memory())
+    plan = build_projection_generation_plan(
+        repository,
+        projects=["blackholememory"],
+        target_generation="rebuild-04",
+        as_of="fixed",
+        expected_dimensions=2,
+        expected_embedding_model="test-model",
+    )
+    client = _GenerationClient()
+    client.collections.add(plan.collection_for("blackholememory"))
+    projector = QdrantProjector(client, lambda _memory: [0.1, 0.9], expected_dimensions=2)
+    collision = apply_projection_generation_plan(
+        plan,
+        repository,
+        projector,
+        confirm_plan_digest=plan.digest,
+    )
+    assert collision.ok is False
+    assert collision.upserted == 0
+    assert "already exists" in collision.failed[0]
+    digest_mismatch = apply_projection_generation_plan(
+        plan,
+        repository,
+        projector,
+        confirm_plan_digest="0" * 64,
+    )
+    assert digest_mismatch.ok is False
+    assert digest_mismatch.upserted == 0
+    assert "digest changed" in digest_mismatch.failed[0]

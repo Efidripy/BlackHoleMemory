@@ -233,6 +233,8 @@ from .retrieval_explanation import explain_retrieval_hit
 from .runtime_storage import MemoryStoreMode
 from .runtime_storage import runtime_storage_state as memory_runtime_storage_state
 from .runtime_storage import resolve_runtime_storage_config
+from .projection_generation_binding import ProjectionRouteUnavailable
+from .projection_generation_binding import resolve_projection_route
 from .memory_service import MemoryServiceNotReady
 from .memory_service import SQLiteMemoryService
 from .ontology_registry import ACTIVATION_ARTIFACT_TYPE as ONTOLOGY_ACTIVATION_ARTIFACT_TYPE
@@ -14368,8 +14370,26 @@ def _search_memory_collection(
         collection_name = global_collection_name()
         memory = get_global_core_memory()
     else:
-        collection_name = local_collection_name(project_name)
-        memory = get_project_mem0_memory(project_name)
+        legacy_collection = local_collection_name(project_name)
+        database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+        route = resolve_projection_route(
+            project=project_name,
+            legacy_collection=legacy_collection,
+            database=database_path,
+            embedding_model=settings.mem0_embedding_model,
+            vector_dimensions=settings.mem0_embedding_dims,
+            distance="Cosine",
+        )
+        if route.collection_name is None:
+            raise ProjectionRouteUnavailable(
+                f"local projection route unavailable: {route.reason}"
+            )
+        collection_name = route.collection_name
+        memory = get_project_mem0_memory(
+            project_name,
+            collection_name=collection_name,
+            ensure_collection=collection_name == legacy_collection,
+        )
 
     filters = candidate_filters or {"user_id": settings.mem0_user_id}
     if query_embedding is None:

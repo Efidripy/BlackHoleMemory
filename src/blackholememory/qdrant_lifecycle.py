@@ -11,6 +11,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
+from .config import settings
 from .memory_repository import MemoryRepository
 from .projection_reconciliation import QdrantSurfaceAdapter
 from .projection_reconciliation import ReconciliationAction
@@ -128,6 +129,9 @@ def build_qdrant_lifecycle_report(
     reconciliation = build_projection_reconciliation_plan(
         repository,
         QdrantSurfaceAdapter(client),
+        route_database=str(getattr(repository, "path", "") or "") or None,
+        route_vector_dimensions=settings.mem0_embedding_dims,
+        route_embedding_model=settings.mem0_embedding_model,
     )
     desired_by_memory: dict[str, list[Any]] = {}
     for entry in reconciliation.entries:
