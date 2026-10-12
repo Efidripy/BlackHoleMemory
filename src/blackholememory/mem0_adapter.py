@@ -930,14 +930,23 @@ def ensure_memory_collections(project_name: str | None = None) -> dict[str, Any]
 
 
 @lru_cache(maxsize=None)
-def get_mem0_memory(collection_name: str | None = None) -> Memory:
+def get_mem0_memory(collection_name: str | None = None, *, ensure_collection: bool = True) -> Memory:
     resolved_collection_name = collection_name or local_collection_name(settings.qdrant_collection)
-    _ensure_qdrant_collection(resolved_collection_name)
+    if ensure_collection:
+        _ensure_qdrant_collection(resolved_collection_name)
     return Memory.from_config(build_mem0_config(resolved_collection_name))
 
 
-def get_project_mem0_memory(project_name: str | None = None) -> Memory:
-    return get_mem0_memory(local_collection_name(project_name))
+def get_project_mem0_memory(
+    project_name: str | None = None,
+    *,
+    collection_name: str | None = None,
+    ensure_collection: bool = True,
+) -> Memory:
+    return get_mem0_memory(
+        collection_name or local_collection_name(project_name),
+        ensure_collection=ensure_collection,
+    )
 
 
 def get_global_core_memory() -> Memory:

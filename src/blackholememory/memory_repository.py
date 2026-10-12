@@ -47,18 +47,27 @@ from .temporal_contract import normalize_temporal_timestamp
 MEMORY_STORE_SCHEMA_VERSION = 1
 FRESHNESS_SCHEMA_VERSION = 2
 GOVERNED_CONSOLIDATION_SCHEMA_VERSION = 3
+PROJECTION_GENERATION_BINDING_SCHEMA_VERSION = 4
 # Governance tables are an explicit operator migration.  New and legacy
 # runtime initialization intentionally remains on the ordinary schema rather
 # than upgrading a live authority store at startup.
-MEMORY_STORE_SCHEMA_LATEST_VERSION = FRESHNESS_SCHEMA_VERSION
+MEMORY_STORE_SCHEMA_LATEST_VERSION = PROJECTION_GENERATION_BINDING_SCHEMA_VERSION
 SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS = frozenset(
-    {MEMORY_STORE_SCHEMA_VERSION, FRESHNESS_SCHEMA_VERSION, GOVERNED_CONSOLIDATION_SCHEMA_VERSION}
+    {
+        MEMORY_STORE_SCHEMA_VERSION,
+        FRESHNESS_SCHEMA_VERSION,
+        GOVERNED_CONSOLIDATION_SCHEMA_VERSION,
+        PROJECTION_GENERATION_BINDING_SCHEMA_VERSION,
+    }
 )
 FRESHNESS_SCHEMA_TABLES = frozenset(
     {"freshness_candidates", "freshness_candidate_events", "freshness_scan_state"}
 )
 GOVERNED_CONSOLIDATION_SCHEMA_TABLES = frozenset(
     {"governed_consolidation_proposals", "governed_consolidation_events"}
+)
+PROJECTION_GENERATION_BINDING_SCHEMA_TABLES = frozenset(
+    {"projection_generation_bindings", "projection_generation_binding_events"}
 )
 MEMORY_STORE_BUSY_TIMEOUT_MS = 5_000
 MEMORY_STORE_WRITE_RETRY_DELAYS = (0.025, 0.05, 0.1, 0.2, 0.4)
@@ -525,6 +534,8 @@ class SQLiteMemoryRepository:
                 if version >= FRESHNESS_SCHEMA_VERSION and not FRESHNESS_SCHEMA_TABLES.issubset(tables):
                     return False
                 if version >= GOVERNED_CONSOLIDATION_SCHEMA_VERSION and not GOVERNED_CONSOLIDATION_SCHEMA_TABLES.issubset(tables):
+                    return False
+                if version >= PROJECTION_GENERATION_BINDING_SCHEMA_VERSION and not PROJECTION_GENERATION_BINDING_SCHEMA_TABLES.issubset(tables):
                     return False
                 return fast or str(connection.execute("PRAGMA quick_check").fetchone()[0]).casefold() == "ok"
             finally:

@@ -34,6 +34,7 @@ _VOLATILE_PROJECTION_KEYS = {
 }
 _PROJECTION_PAYLOAD_SCHEMA_V1 = "bhm.qdrant.payload.v1"
 _PROJECTION_PAYLOAD_SCHEMA_V2 = "bhm.qdrant.payload.v2"
+_PROJECTION_GENERATION_COLLECTION_PREFIX = "bhm_projection_generation_"
 _V1_STABLE_PROJECTION_FIELDS = (
     "source_id",
     "user_id",
@@ -340,6 +341,69 @@ def build_point_payload(event_id: str, memory: Memory, collection_name: str) -> 
     return payload
 
 
+def _generation_payload_digest(payload: Mapping[str, Any]) -> str:
+    """Fingerprint a shadow-generation payload without trusting its marker."""
+
+    generation = payload.get("projection_generation")
+    if not isinstance(generation, Mapping):
+        raise ProjectorError("generation payload is missing immutable provenance")
+    canonical = json.dumps(
+        {
+            "projection_payload_digest": projection_payload_digest_from_payload(payload),
+            "projection_generation": _stable_projection_value(dict(generation)),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def build_generation_point_payload(
+    event_id: str,
+    memory: Memory,
+    collection_name: str,
+    *,
+    generation_provenance: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Build a model-stamped payload for an isolated shadow generation.
+
+    Generation metadata is additive and is intentionally separate from the
+    normal projector route.  This lets a future operator compare a shadow
+    collection without changing the active collection resolver.
+    """
+
+    provenance = dict(generation_provenance)
+    required = {
+        "schema_version",
+        "generation_id",
+        "source_basis_digest",
+        "target_collection",
+        "project",
+        "embedding_model",
+        "vector_dimensions",
+        "distance",
+    }
+    if set(provenance) != required:
+        raise ProjectorError("generation provenance fields are incomplete")
+    if str(provenance["target_collection"]) != collection_name:
+        raise ProjectorError("generation target collection does not match provenance")
+    if str(provenance["project"]) != memory.project:
+        raise ProjectorError("generation provenance crossed project boundary")
+    if not str(provenance["embedding_model"]).strip() or not str(
+        provenance["source_basis_digest"]
+    ).strip():
+        raise ProjectorError("generation provenance is missing model or source digest")
+
+    payload = build_point_payload(event_id, memory, collection_name)
+    payload["projection_embedding_model"] = str(provenance["embedding_model"])
+    payload["projection_payload_digest"] = projection_payload_digest_from_payload(payload)
+    payload["projection_generation"] = provenance
+    payload["projection_generation_payload_digest"] = _generation_payload_digest(payload)
+    return payload
+
+
 class QdrantProjector:
     """Project claimed outbox events with deterministic point identities."""
 
@@ -350,11 +414,13 @@ class QdrantProjector:
         *,
         expected_dimensions: int | None = None,
         ensure_collection: Callable[[str], Any] | None = None,
+        route_database: str | None = None,
     ) -> None:
         self.client = client
         self.vectorizer = vectorizer
         self.expected_dimensions = expected_dimensions
         self.ensure_collection = ensure_collection
+        self.route_database = route_database
 
     @staticmethod
     def collection_names(memory: Memory) -> tuple[str, ...]:
@@ -364,11 +430,109 @@ class QdrantProjector:
             names.append(global_collection_name())
         return tuple(names)
 
-    _collection_names = collection_names
+    def _collection_names(self, memory: Memory) -> tuple[str, ...]:
+        """Resolve the local write target before touching Qdrant.
+
+        A worker learns the authority path from its repository at ``run_once``.
+        Standalone fixture callers retain the historical local route unless they
+        explicitly supply a binding authority database.
+        """
+
+        targets = _vector_targets(memory)
+        local_name = local_collection_name(memory.project)
+        if self.route_database:
+            from .projection_generation_binding import resolve_projection_route
+
+            route = resolve_projection_route(
+                project=memory.project,
+                legacy_collection=local_name,
+                database=self.route_database,
+                embedding_model=settings.mem0_embedding_model,
+                vector_dimensions=settings.mem0_embedding_dims,
+                distance="Cosine",
+            )
+            if route.collection_name is None:
+                raise ProjectorError(f"projection route unavailable: {route.reason}")
+            local_name = route.collection_name
+        names = [local_name]
+        if "global" in targets:
+            names.append(global_collection_name())
+        return tuple(names)
 
     def _ensure(self, collection_name: str) -> None:
         if self.ensure_collection is not None:
             self.ensure_collection(collection_name)
+
+    def create_isolated_generation_collection(
+        self,
+        *,
+        collection_name: str,
+        dimensions: int,
+        distance: str,
+    ) -> None:
+        """Create exactly one new shadow-generation collection, never overwrite.
+
+        This method deliberately does not reuse ``_ensure``: the normal
+        projector may create or reuse canonical resolver collections, whereas
+        a recovery generation must fail closed on any existing target.
+        """
+
+        if not collection_name.startswith(_PROJECTION_GENERATION_COLLECTION_PREFIX):
+            raise ProjectorError("generation target is outside the isolated namespace")
+        if dimensions <= 0 or self.expected_dimensions != dimensions:
+            raise ProjectorError("generation dimensions do not match the configured projector")
+        if distance != "Cosine":
+            raise ProjectorError("unsupported generation distance")
+        exists = getattr(self.client, "collection_exists", None)
+        create = getattr(self.client, "create_collection", None)
+        if not callable(exists) or not callable(create):
+            raise ProjectorError("projector client lacks isolated collection support")
+        if exists(collection_name):
+            raise ProjectorError("generation target collection already exists")
+        create(
+            collection_name=collection_name,
+            vectors_config=qdrant_models.VectorParams(
+                size=dimensions,
+                distance=qdrant_models.Distance.COSINE,
+            ),
+        )
+        if not exists(collection_name):
+            raise ProjectorError("generation target collection creation was not confirmed")
+
+    def project_memory_to_generation(
+        self,
+        memory: Memory,
+        *,
+        collection_name: str,
+        event_id: str,
+        generation_provenance: Mapping[str, Any],
+    ) -> ProjectionOutcome:
+        """Write one non-tombstoned authority row to an isolated generation."""
+
+        if memory.lifecycle is Lifecycle.TOMBSTONED:
+            raise ProjectorError("tombstoned memory cannot enter a generation rebuild")
+        if not collection_name.startswith(_PROJECTION_GENERATION_COLLECTION_PREFIX):
+            raise ProjectorError("generation target is outside the isolated namespace")
+        point_id = deterministic_point_id(collection_name, memory.id)
+        payload = build_generation_point_payload(
+            event_id,
+            memory,
+            collection_name,
+            generation_provenance=generation_provenance,
+        )
+        vector = _finite_vector(self.vectorizer(memory), expected_dimensions=self.expected_dimensions)
+        self.client.upsert(
+            collection_name=collection_name,
+            points=[qdrant_models.PointStruct(id=point_id, vector=vector, payload=payload)],
+            wait=True,
+        )
+        return ProjectionOutcome(
+            event_id=event_id,
+            aggregate_id=memory.id,
+            collections=(collection_name,),
+            point_ids=(point_id,),
+            deleted=False,
+        )
 
     def projection_matches(self, memory: Memory) -> bool:
         """Return whether all deterministic points already match this revision.
@@ -384,7 +548,7 @@ class QdrantProjector:
         if not callable(retrieve):
             return False
         collection_exists = getattr(self.client, "collection_exists", None)
-        for collection_name in self.collection_names(memory):
+        for collection_name in self._collection_names(memory):
             point_id = deterministic_point_id(collection_name, memory.id)
             if callable(collection_exists):
                 try:
@@ -424,7 +588,7 @@ class QdrantProjector:
         return True
 
     def _projection_outcome(self, memory: Memory, *, event_id: str) -> ProjectionOutcome:
-        collections = self.collection_names(memory)
+        collections = self._collection_names(memory)
         return ProjectionOutcome(
             event_id=event_id,
             aggregate_id=memory.id,
@@ -439,7 +603,7 @@ class QdrantProjector:
         return self.project_memory(Memory.from_dict(event.payload), event_id=event.event_id)
 
     def project_memory(self, memory: Memory, *, event_id: str) -> ProjectionOutcome:
-        collections = self.collection_names(memory)
+        collections = self._collection_names(memory)
         point_ids = tuple(deterministic_point_id(name, memory.id) for name in collections)
 
         if memory.lifecycle is Lifecycle.TOMBSTONED:
@@ -536,6 +700,10 @@ class QdrantProjector:
         retry_jitter_seconds: float = 0.0,
         retry_budget_seconds: float | None = None,
     ) -> ProjectorRunResult:
+        if self.route_database is None:
+            candidate = getattr(repository, "path", None)
+            if candidate is not None:
+                self.route_database = str(candidate)
         claimed = repository.claim_outbox(
             limit=limit,
             lease_seconds=lease_seconds,

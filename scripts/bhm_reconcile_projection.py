@@ -30,7 +30,9 @@ from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.projection_reconciliation import QdrantSurfaceAdapter
+from blackholememory.projection_reconciliation import apply_projection_generation_plan
 from blackholememory.projection_reconciliation import apply_projection_reconciliation
+from blackholememory.projection_reconciliation import build_projection_generation_plan
 from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
 from blackholememory.qdrant_projector import QdrantProjector
 from blackholememory.runtime_storage import inspect_memory_store_schema
@@ -102,6 +104,14 @@ def _serialize_plan(plan: Any, *, include_observed_payload: bool) -> dict[str, A
 def _control_plane_summary(plan: dict[str, Any]) -> dict[str, Any]:
     """Keep the launcher preview concise while the full report keeps receipts."""
 
+    if plan.get("schema_version") == "bhm.qdrant.generation-plan.v1":
+        return {
+            "rebuildEligibility": "isolated_generation_planned",
+            "compatibilityStatusCounts": {},
+            "blockingCollectionCount": 0,
+            "blockingCollections": [],
+            "action": "review exact generation plan; apply still requires confirmed digest and offline writer gate",
+        }
     compatibility = plan.get("compatibility") if isinstance(plan.get("compatibility"), list) else []
     statuses: dict[str, int] = {}
     blocking_collections: list[str] = []
@@ -127,7 +137,7 @@ def _control_plane_summary(plan: dict[str, Any]) -> dict[str, Any]:
 
 def _summary(report: dict[str, Any]) -> dict[str, Any]:
     plan = report.get("plan") or {}
-    return {
+    summary = {
         "success": report.get("success"),
         "mode": report.get("mode"),
         "database": report.get("database"),
@@ -145,6 +155,10 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
         "planDigest": plan.get("plan_digest"),
         "apply": report.get("apply"),
     }
+    if "generationProjects" in report:
+        summary["generationProjects"] = report.get("generationProjects")
+        summary["targetGeneration"] = report.get("targetGeneration")
+    return summary
 
 
 def _listener_open(host: str = DEFAULT_BHM_HOST, port: int = DEFAULT_BHM_PORT) -> bool:
@@ -210,6 +224,17 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database", type=Path, default=DEFAULT_DATABASE)
     parser.add_argument("--project", default=None)
+    parser.add_argument(
+        "--target-generation",
+        default="",
+        help="strict isolated shadow-generation label; requires one or more --generation-project values",
+    )
+    parser.add_argument(
+        "--generation-project",
+        action="append",
+        default=[],
+        help="exact SQLite project identifier for --target-generation; repeat for each selected scope",
+    )
     parser.add_argument("--as-of", default="", help="fixed UTC ISO timestamp; required for apply")
     parser.add_argument("--report", type=Path)
     parser.add_argument("--apply", action="store_true")
@@ -248,6 +273,15 @@ def main() -> int:
             )
         if args.allow_orphan_delete and not args.apply:
             raise ProjectionReconciliationError("--allow-orphan-delete requires --apply")
+        generation_requested = bool(args.target_generation)
+        if generation_requested and (args.project or not args.generation_project):
+            raise ProjectionReconciliationError(
+                "--target-generation requires one or more --generation-project values and forbids --project"
+            )
+        if not generation_requested and args.generation_project:
+            raise ProjectionReconciliationError("--generation-project requires --target-generation")
+        if generation_requested and args.allow_orphan_delete:
+            raise ProjectionReconciliationError("generation rebuild never permits --allow-orphan-delete")
         if args.apply and not args.as_of:
             raise ProjectionReconciliationError("--apply requires exact --as-of from reviewed dry-run")
         if args.apply and not args.confirm_plan_digest:
@@ -270,8 +304,6 @@ def main() -> int:
             raise ProjectionReconciliationError(f"invalid --as-of timestamp: {args.as_of}")
 
         started = time.perf_counter()
-        client = get_qdrant_client()
-        surface = QdrantSurfaceAdapter(client)
         temp_root: Path | None = None
         repository_path = database
         try:
@@ -280,14 +312,27 @@ def main() -> int:
                 repository_path = temp_root / "memories.sqlite3"
                 _copy_sqlite_read_only(database, repository_path)
             repository = SQLiteMemoryRepository(repository_path)
-            plan = build_projection_reconciliation_plan(
-                repository,
-                surface,
-                project=args.project,
-                as_of=_utc_iso(as_of),
-                expected_dimensions=settings.mem0_embedding_dims,
-                expected_embedding_model=settings.mem0_embedding_model,
-            )
+            surface = None
+            if generation_requested:
+                plan = build_projection_generation_plan(
+                    repository,
+                    projects=args.generation_project,
+                    target_generation=args.target_generation,
+                    as_of=_utc_iso(as_of),
+                    expected_dimensions=settings.mem0_embedding_dims,
+                    expected_embedding_model=settings.mem0_embedding_model,
+                )
+            else:
+                client = get_qdrant_client()
+                surface = QdrantSurfaceAdapter(client)
+                plan = build_projection_reconciliation_plan(
+                    repository,
+                    surface,
+                    project=args.project,
+                    as_of=_utc_iso(as_of),
+                    expected_dimensions=settings.mem0_embedding_dims,
+                    expected_embedding_model=settings.mem0_embedding_model,
+                )
             report: dict[str, Any] = {
                 "success": True,
                 "mode": "apply" if args.apply else "dry-run",
@@ -299,7 +344,7 @@ def main() -> int:
                     "apiListenerOpen": listener_open,
                     "applyRequiresOfflineLiveWriter": True,
                     "nonAuthoritativeApplyExplicitlyAllowed": bool(args.allow_non_authoritative_target),
-                    "compatibilityMismatchRequiresConfirmedRebuild": True,
+                    "compatibilityMismatchRequiresConfirmedRebuild": not generation_requested,
                     "runtimeRebuildExecuted": False,
                 },
                 "readOnlyRehearsal": not args.apply,
@@ -312,27 +357,49 @@ def main() -> int:
                     include_observed_payload=args.include_observed_payload,
                 ),
             }
+            if generation_requested:
+                report["generationProjects"] = list(args.generation_project)
+                report["targetGeneration"] = args.target_generation
+                report["writerBoundary"]["isolatedGenerationOnly"] = True
             if args.apply:
                 if plan.digest != args.confirm_plan_digest:
                     raise ProjectionReconciliationError(
                         "projection reconciliation plan digest changed; rerun dry-run"
                     )
                 projector = _build_projector()
-                result = apply_projection_reconciliation(
-                    plan,
-                    repository,
-                    projector,
-                    surface,
-                    allow_orphan_delete=args.allow_orphan_delete,
-                )
-                report["apply"] = {
-                    "plan_digest": result.plan_digest,
-                    "upserted": result.upserted,
-                    "deleted": result.deleted,
-                    "reviewed": result.reviewed,
-                    "failed": list(result.failed),
-                    "ok": result.ok,
-                }
+                if generation_requested:
+                    result = apply_projection_generation_plan(
+                        plan,
+                        repository,
+                        projector,
+                        confirm_plan_digest=args.confirm_plan_digest,
+                    )
+                    report["apply"] = {
+                        "plan_digest": result.plan_digest,
+                        "created_collections": list(result.created_collections),
+                        "upserted": result.upserted,
+                        "deleted": 0,
+                        "switched": 0,
+                        "failed": list(result.failed),
+                        "ok": result.ok,
+                    }
+                else:
+                    assert surface is not None
+                    result = apply_projection_reconciliation(
+                        plan,
+                        repository,
+                        projector,
+                        surface,
+                        allow_orphan_delete=args.allow_orphan_delete,
+                    )
+                    report["apply"] = {
+                        "plan_digest": result.plan_digest,
+                        "upserted": result.upserted,
+                        "deleted": result.deleted,
+                        "reviewed": result.reviewed,
+                        "failed": list(result.failed),
+                        "ok": result.ok,
+                    }
                 if not result.ok:
                     report["success"] = False
             _write_report(args.report, report)

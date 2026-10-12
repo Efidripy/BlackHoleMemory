@@ -21,6 +21,11 @@ from typing import Mapping
 
 from .filesystem_boundaries import FilesystemBoundaryError
 from .filesystem_boundaries import assert_safe_path
+from .memory_repository import FRESHNESS_SCHEMA_TABLES as MEMORY_STORE_FRESHNESS_SCHEMA_TABLES
+from .memory_repository import GOVERNED_CONSOLIDATION_SCHEMA_TABLES as MEMORY_STORE_GOVERNED_CONSOLIDATION_SCHEMA_TABLES
+from .memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_TABLES as MEMORY_STORE_PROJECTION_GENERATION_BINDING_SCHEMA_TABLES
+from .memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_VERSION
+from .memory_repository import SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS
 from .resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
 
 
@@ -136,16 +141,16 @@ _MODE_ALIASES = {
 }
 
 _DEFAULT_RUNTIME_DIR = Path(__file__).resolve().parents[2] / ".runtime"
-_MEMORY_STORE_SCHEMA_VERSIONS = frozenset({1, 2, 3})
+# Runtime readiness imports the repository's canonical compatibility registry so
+# an explicitly migrated authoritative store cannot be rejected by a stale
+# second allowlist. The schema-specific table checks below remain fail-closed.
+_MEMORY_STORE_SCHEMA_VERSIONS = SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS
 # Compatibility alias for versioned contract/report scripts.  The plural set
 # remains the readiness source of truth; this scalar names the latest schema.
 _MEMORY_STORE_SCHEMA_VERSION = max(_MEMORY_STORE_SCHEMA_VERSIONS)
-_FRESHNESS_SCHEMA_TABLES = frozenset(
-    {"freshness_candidates", "freshness_candidate_events", "freshness_scan_state"}
-)
-_GOVERNED_CONSOLIDATION_SCHEMA_TABLES = frozenset(
-    {"governed_consolidation_proposals", "governed_consolidation_events"}
-)
+_FRESHNESS_SCHEMA_TABLES = MEMORY_STORE_FRESHNESS_SCHEMA_TABLES
+_GOVERNED_CONSOLIDATION_SCHEMA_TABLES = MEMORY_STORE_GOVERNED_CONSOLIDATION_SCHEMA_TABLES
+_PROJECTION_GENERATION_BINDING_SCHEMA_TABLES = MEMORY_STORE_PROJECTION_GENERATION_BINDING_SCHEMA_TABLES
 _REQUIRED_MEMORY_STORE_TABLES = frozenset(
     {
         "memory_store_meta",
@@ -192,6 +197,11 @@ def _inspect_memory_store_schema_uncached(
                 return False, "sqlite_freshness_schema_missing_tables"
             if version >= 3 and not _GOVERNED_CONSOLIDATION_SCHEMA_TABLES.issubset(tables):
                 return False, "sqlite_governed_consolidation_schema_missing_tables"
+            if (
+                version >= PROJECTION_GENERATION_BINDING_SCHEMA_VERSION
+                and not _PROJECTION_GENERATION_BINDING_SCHEMA_TABLES.issubset(tables)
+            ):
+                return False, "sqlite_projection_generation_binding_schema_missing_tables"
             quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0]).casefold()
             return (
                 (True, "sqlite_schema_valid")

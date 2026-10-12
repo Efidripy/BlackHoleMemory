@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,11 @@ from blackholememory.runtime_storage import resolve_runtime_storage_mode
 from blackholememory.runtime_storage import runtime_storage_state
 from blackholememory.resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
 from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.memory_repository import (
+    FRESHNESS_SCHEMA_TABLES,
+    GOVERNED_CONSOLIDATION_SCHEMA_TABLES,
+    PROJECTION_GENERATION_BINDING_SCHEMA_TABLES,
+)
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
@@ -166,6 +172,62 @@ def test_runtime_storage_state_inspects_sqlite_schema_without_writing(tmp_path):
     healthy = runtime_storage_state(runtime_dir=tmp_path, environ=environ)
     assert healthy.ready is True
     assert healthy.as_dict()["database_schema_ready"] is True
+
+
+def _set_schema_version_with_required_tables(database_path: Path, version: int, tables: set[str]) -> None:
+    with sqlite3.connect(database_path) as connection:
+        for table in sorted(tables):
+            connection.execute(f"CREATE TABLE {table} (id TEXT)")
+        connection.execute(f"PRAGMA user_version={version}")
+
+
+def test_runtime_schema_probe_accepts_v3_and_complete_v4_but_rejects_unknown_version(tmp_path):
+    v3_path = tmp_path / "v3.sqlite3"
+    SQLiteMemoryRepository(v3_path).initialize()
+    _set_schema_version_with_required_tables(
+        v3_path,
+        3,
+        set(FRESHNESS_SCHEMA_TABLES | GOVERNED_CONSOLIDATION_SCHEMA_TABLES),
+    )
+    assert inspect_memory_store_schema(v3_path, cache_ttl_seconds=0) == (True, "sqlite_schema_valid")
+
+    v4_path = tmp_path / "v4.sqlite3"
+    SQLiteMemoryRepository(v4_path).initialize()
+    _set_schema_version_with_required_tables(
+        v4_path,
+        4,
+        set(
+            FRESHNESS_SCHEMA_TABLES
+            | GOVERNED_CONSOLIDATION_SCHEMA_TABLES
+            | PROJECTION_GENERATION_BINDING_SCHEMA_TABLES
+        ),
+    )
+    assert inspect_memory_store_schema(v4_path, cache_ttl_seconds=0) == (True, "sqlite_schema_valid")
+
+    with sqlite3.connect(v4_path) as connection:
+        connection.execute("PRAGMA user_version=5")
+    assert inspect_memory_store_schema(v4_path, cache_ttl_seconds=0) == (
+        False,
+        "sqlite_schema_version_invalid",
+    )
+
+
+@pytest.mark.parametrize("missing_table", sorted(PROJECTION_GENERATION_BINDING_SCHEMA_TABLES))
+def test_runtime_schema_probe_rejects_v4_missing_projection_binding_table(tmp_path, missing_table):
+    database_path = tmp_path / "incomplete-v4.sqlite3"
+    SQLiteMemoryRepository(database_path).initialize()
+    tables = set(
+        FRESHNESS_SCHEMA_TABLES
+        | GOVERNED_CONSOLIDATION_SCHEMA_TABLES
+        | PROJECTION_GENERATION_BINDING_SCHEMA_TABLES
+    )
+    tables.remove(missing_table)
+    _set_schema_version_with_required_tables(database_path, 4, tables)
+
+    assert inspect_memory_store_schema(database_path, cache_ttl_seconds=0) == (
+        False,
+        "sqlite_projection_generation_binding_schema_missing_tables",
+    )
 
 
 def test_runtime_storage_schema_probe_uses_registry_timeout() -> None:
