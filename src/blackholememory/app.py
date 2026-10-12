@@ -962,11 +962,19 @@ def _post_provider_memory_warmup_probe() -> tuple[list[str], list[str]]:
     warmed: list[str] = []
     skipped: list[str] = []
     for project in _provider_memory_warmup_projects():
-        collection_name = local_collection_name(project)
+        route = _project_projection_route(project)
+        collection_name = route.collection_name
+        if collection_name is None:
+            skipped.append(project)
+            continue
         if not client.collection_exists(collection_name):
             skipped.append(project)
             continue
-        memory = get_project_mem0_memory(project)
+        memory = get_project_mem0_memory(
+            project,
+            collection_name=collection_name,
+            ensure_collection=False,
+        )
         _ = memory.embedding_model
         warmed.append(project)
 
@@ -9140,7 +9148,10 @@ def _refresh_decay_scores_for_project(project: str, limit: int) -> dict:
     updated = 0
     scanned = 0
     errors: list[dict[str, str]] = []
-    collection_names = _dedupe_text([local_collection_name(project), global_collection_name()])
+    route = _project_projection_route(project)
+    collection_names = [global_collection_name()]
+    if route.collection_name is not None:
+        collection_names.insert(0, route.collection_name)
 
     for collection_name in collection_names:
         offset = None
