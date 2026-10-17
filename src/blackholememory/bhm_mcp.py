@@ -12,6 +12,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel
 from pydantic import Field
 
+from .agent_playbook_contract import build_agent_playbook
 from .config import settings
 from . import memory_contracts as _memory_contracts
 from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
@@ -59,7 +60,7 @@ TAXONOMY_METADATA_HINT = (
 mcp = FastMCP(
     "bhm",
     instructions=(
-        "BHM is the primary workspace memory system. "
+        "BHM is the primary workspace memory system. For a complex task, call bhm_agent_playbook first to obtain read-only, task-specific operating guidance. "
         "Use these tools for memory search, non-authoritative admission, preflight, slots, lessons, "
         "and diagnostics against the local BlackHoleMemory runtime. "
         "Prefer stable public tools for normal agent work. "
@@ -320,6 +321,23 @@ def bhm_health_slo(
 @mcp.tool(name="bhm_diagnostics", description="Read compact BHM diagnostics and dependency state.")
 def bhm_diagnostics() -> dict[str, Any]:
     return _post("/bhm/diagnostics", {})
+
+
+@mcp.tool(name="bhm_agent_playbook", description="Task playbook.")
+def bhm_agent_playbook(request: str = "implementation") -> dict[str, Any]:
+    """Return portable guidance without reading BHM state or client files.
+
+    ``request`` is ``task_kind`` or the compact ``task_kind:language`` form,
+    for example ``code_change:ru``.
+    """
+
+    task_kind, separator, language = str(request or "implementation").strip().partition(":")
+    if separator and ":" in language:
+        raise ValueError("playbook request must use task_kind or task_kind:language")
+    return build_agent_playbook(
+        task_kind=task_kind or "implementation",
+        language=language or "en",
+    )
 
 
 @mcp.tool(name="bhm_preflight", description="Run the BHM memory preflight pattern for a project.")
