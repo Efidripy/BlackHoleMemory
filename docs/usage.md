@@ -295,6 +295,36 @@ http://127.0.0.1:8000/mcp
 Подключайте агента к серверу `bhm` через Streamable HTTP. Для проверки сначала
 убедитесь, что `/health/ready` возвращает успешный ответ.
 
+### Portable agent playbook
+
+Для сложной задачи внешний агент начинает с public read-only MCP tool
+`bhm_agent_playbook`. Он не требует правки чужого `AGENTS.md` и возвращает
+versioned deterministic guidance для `exploration`, `implementation`,
+`code_change`, `incident`, `release` или `handoff`.
+
+```text
+bhm_agent_playbook(request="code_change:ru")
+```
+
+Playbook предлагает только 2–4 относящихся read-only инструмента, а не
+обязывает вызывать весь каталог. Он явно фиксирует следующие границы:
+
+- actual native MCP catalog — единственное доказательство tool attach в
+  текущем чате; configured registration и REST health этого не доказывают;
+- при attached native tools `bhm_health` вызывается один раз первым
+  BHM-действием;
+- Git, source, tests и canonical docs сильнее stale/incomplete index evidence;
+- `bhm_memory_used`, lifecycle/task/slot/memory actions и любая persistent
+  операция требуют отдельного Task Brief и явного owner authorization;
+- при недоступном MCP агент продолжает по Git/source/tests/docs и не пытается
+  самостоятельно менять attach, credentials, config или runtime.
+
+Tool не читает project content, не возвращает secrets или payloads и не пишет
+SQLite, Qdrant, runtime либо client files. Его availability в уже запущенном
+runtime появляется после обычного управляемого restart/deploy этой версии;
+один только REST health не доказывает, что конкретный клиент получил новый
+catalog.
+
 ### Лимит и очередь сессий
 
 Транспорт держит до 32 одновременно admitted MCP-сессий. Если лимит занят,

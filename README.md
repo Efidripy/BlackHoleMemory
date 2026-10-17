@@ -103,6 +103,13 @@ bearer_token_env_var = "BHM_CALLER_TOKEN"
 
 See [`docs/mcp-caller-token-runbook.md`](docs/mcp-caller-token-runbook.md) for token handling and [`docs/architecture-authority.md`](docs/architecture-authority.md) for the authority model. Configured MCP inventory is informational until the current client has verified an attached native session.
 
+For a complex coding task, an attached agent should first call the public,
+read-only `bhm_agent_playbook` MCP tool. It returns a versioned task-specific
+sequence of relevant read-only BHM tools, freshness rules, evidence fields and
+write boundaries. It does not inspect project data or modify BHM, the runtime,
+or client files. If MCP is unavailable, the agent continues with Git, source,
+tests and canonical documentation instead of trying to repair local BHM setup.
+
 ### Evidence and benchmark boundaries
 
 The checked-in [BHM Value Benchmark](docs/benchmarks/bhm-value-benchmark.md) is a deterministic frozen-fixture study: 1,000 unique cases replayed 10 times (10,000 case evaluations) across controlled no-memory, file-only, vector, and BHM modes. It demonstrates retrieval, provenance, context-budget, and leakage behavior on that fixture; it is not universal model quality or real-user telemetry.

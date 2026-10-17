@@ -29,6 +29,7 @@ class McpSurface(StrEnum):
 GOVERNANCE_PUBLIC_TOOL_NAMES = frozenset(
     {
         "bhm_health",
+        "bhm_agent_playbook",
         "bhm_health_slo",
         "bhm_diagnostics",
         "bhm_preflight",
@@ -156,6 +157,7 @@ GOVERNANCE_PUBLIC_TOOL_NAMES = frozenset(
 CORE_TOOL_NAMES = frozenset(
     {
         "bhm_health",
+        "bhm_agent_playbook",
         "bhm_explain_retrieval",
         "bhm_search",
         "bhm_context_compile",

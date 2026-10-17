@@ -25,7 +25,7 @@ CLI_PATH = ROOT / "scripts" / "bhm-factories.py"
 BENCHMARK_PATH = ROOT / "scripts" / "benchmark-bhm-factories.py"
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 WI10_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-WI10_EXPECTED_CORE_TOOL_COUNT = 36
+WI10_EXPECTED_CORE_TOOL_COUNT = 37
 
 
 def _fixture():
