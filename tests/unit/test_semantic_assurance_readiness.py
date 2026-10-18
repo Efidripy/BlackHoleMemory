@@ -50,13 +50,7 @@ def _structural_unit_dataset() -> dict[str, object]:
                 "partition": partition,
                 "support_ids": support_ids,
                 "risk_class": sealed_risks[offset] if partition == "sealed_holdout" else ALL_RISKS[offset % len(ALL_RISKS)],
-                "expected": {
-                    "factuality": "true",
-                    "entailment": "supported",
-                    "conflict": "direct" if partition == "sealed_holdout" and offset < 200 else "none",
-                    "operation": "no_op",
-                    "support_relevance": {support_id: "relevant" for support_id in support_ids},
-                },
+                "expected": _expected_labels(partition, offset, support_ids),
                 "isolation": {
                     "family_id": f"family-{sequence}",
                     "group_id": f"group-{sequence}",
@@ -84,10 +78,35 @@ def _structural_unit_dataset() -> dict[str, object]:
     }
 
 
+def _expected_labels(partition: str, offset: int, support_ids: tuple[str, ...]) -> dict[str, object]:
+    """Provide exact overlapping sealed strata for structural gate tests."""
+
+    factuality = "true"
+    entailment = "supported"
+    conflict = "none"
+    relevance = "relevant"
+    if partition == "sealed_holdout":
+        if offset < 80:
+            factuality, entailment, conflict, relevance = "false", "contradicted", "direct", "irrelevant"
+        elif offset < 160:
+            factuality, entailment, conflict = "ambiguous", "insufficient", "temporal"
+        elif offset < 240:
+            factuality, conflict = "insufficient", "scope"
+        elif offset < 320:
+            conflict = "implicit"
+    return {
+        "factuality": factuality,
+        "entailment": entailment,
+        "conflict": conflict,
+        "operation": "no_op",
+        "support_relevance": {support_id: relevance for support_id in support_ids},
+    }
+
+
 def _policy() -> dict[str, object]:
     return {
-        "schema_version": "bhm.semantic-assurance-threshold-policy.v1",
-        "policy_id": "unit-policy-v1",
+        "schema_version": "bhm.semantic-assurance-threshold-policy.v2",
+        "policy_id": "unit-policy-v2",
         "minimum_case_count": 400,
         "minimum_support_row_count": 800,
         "minimum_repeats": 3,
@@ -97,6 +116,18 @@ def _policy() -> dict[str, object]:
             "support_relevance": 0.95,
         },
         "minimum_conflict_recall_lower_95": 0.95,
+        "minimum_stratum_support": {
+            "factuality": {"false": 80, "ambiguous": 80, "insufficient": 80},
+            "entailment": {"contradicted": 80, "insufficient": 80},
+            "support_relevance": {"irrelevant": 80},
+            "conflict": {"direct": 80, "temporal": 80, "scope": 80, "implicit": 80},
+        },
+        "minimum_stratum_exact_label_recall_lower_95": {
+            "factuality": {"false": 0.95, "ambiguous": 0.95, "insufficient": 0.95},
+            "entailment": {"contradicted": 0.95, "insufficient": 0.95},
+            "support_relevance": {"irrelevant": 0.95},
+            "conflict": {"direct": 0.95, "temporal": 0.95, "scope": 0.95, "implicit": 0.95},
+        },
         "unsafe_non_no_op_budget": 0,
         "missed_conflict_budget": 0,
         "required_risk_classes": ALL_RISKS,
@@ -327,7 +358,7 @@ def _evidence(tmp_path: Path) -> dict[str, object]:
         "automatic_apply_authorized": False,
     }
     return {
-        "schema_version": "bhm.semantic-assurance-readiness.v1",
+        "schema_version": "bhm.semantic-assurance-readiness.v2",
         "admission_receipt": admission,
         "live_receipt": live,
         "threshold_policy": policy,
@@ -608,7 +639,7 @@ def test_rejects_results_with_recomputed_digests_but_forged_aggregates(tmp_path:
     assert isinstance(report, dict)
     results = report["results"]
     assert isinstance(results, list)
-    results[0]["prediction"]["factuality"] = "false"
+    results[0]["prediction"]["factuality"] = "true"
     derived = recompute_semantic_assurance_results(results)
     report["prediction_digest"] = derived["prediction_digest"]
     report["results_digest"] = derived["results_digest"]
@@ -623,6 +654,110 @@ def test_loader_reads_only_local_json(tmp_path: Path) -> None:
     path = tmp_path / "readiness.json"
     path.write_text(json.dumps(evidence), encoding="utf-8")
     assert load_semantic_assurance_readiness(path)["decision"]["decision"] == "no_go"
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "missing",
+        "wrong",
+    ],
+)
+def test_rejects_missing_or_wrong_stratified_policy_shape(
+    tmp_path: Path,
+    kind: str,
+) -> None:
+    evidence = _evidence(tmp_path)
+    policy = evidence["threshold_policy"]
+    assert isinstance(policy, dict)
+    if kind == "missing":
+        del policy["minimum_stratum_support"]["factuality"]["false"]
+    else:
+        policy["minimum_stratum_exact_label_recall_lower_95"]["conflict"]["unknown"] = 0.95
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="stratified minima are invalid"):
+        assess_semantic_assurance_readiness(evidence)
+
+
+def test_rejects_policy_that_weakens_required_stratified_sealed_minima(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    policy = evidence["threshold_policy"]
+    assert isinstance(policy, dict)
+    policy["minimum_stratum_support"]["factuality"]["false"] = 79
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="weakens stratified sealed minima"):
+        assess_semantic_assurance_readiness(evidence)
+
+
+def test_rejects_derived_stratum_undercoverage(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    _change_all_repeat_results(
+        evidence,
+        lambda result: result["expected"].update({"factuality": "true"}) if result["expected"]["factuality"] == "false" else None,
+        limit=1,
+    )
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="stratified sample minimum"):
+        assess_semantic_assurance_readiness(evidence)
+
+
+def test_rejects_derived_stratum_misprediction(tmp_path: Path) -> None:
+    evidence = _evidence(tmp_path)
+    _change_all_repeat_results(
+        evidence,
+        lambda result: result["prediction"].update({"factuality": "true"}) if result["expected"]["factuality"] == "false" else None,
+        limit=1,
+    )
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="stratified lower confidence bound"):
+        assess_semantic_assurance_readiness(evidence)
+
+
+def _change_all_repeat_results(
+    evidence: dict[str, object],
+    change: object,
+    *,
+    limit: int,
+) -> None:
+    """Apply an equivalent canonical-row change to each deterministic repeat."""
+
+    assert callable(change)
+    live = evidence["live_receipt"]
+    assert isinstance(live, dict)
+    reports = live["offline_reports"]
+    assert isinstance(reports, list)
+    for report in reports:
+        assert isinstance(report, dict)
+        results = report["results"]
+        assert isinstance(results, list)
+        changed = 0
+        for result in results:
+            before = _digest(result)
+            change(result)
+            if _digest(result) != before:
+                changed += 1
+                if changed == limit:
+                    break
+        assert changed == limit
+        _rebind_report_from_results(report)
+    _rebind_live(evidence)
+    _rebind_dependents(evidence)
+
+
+def _rebind_report_from_results(report: dict[str, object]) -> None:
+    results = report["results"]
+    assert isinstance(results, list)
+    derived = recompute_semantic_assurance_results(results)
+    report["prediction_digest"] = derived["prediction_digest"]
+    report["results_digest"] = derived["results_digest"]
+    report["counts"] = {
+        "case_count": derived["case_count"],
+        "support_row_count": derived["support_row_count"],
+        "exact_case_match_count": sum(row["exact_match"] for row in derived["results"]),
+        "exact_case_mismatch_count": sum(not row["exact_match"] for row in derived["results"]),
+    }
+    report["metrics"] = derived["metrics"]
+    report["safety"] = derived["safety"]
 
 
 def _rebind_live(evidence: dict[str, object]) -> None:

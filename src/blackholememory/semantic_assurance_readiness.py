@@ -21,12 +21,12 @@ from .semantic_assurance_label_admission import (
     SemanticAssuranceLabelAdmissionError,
     verify_semantic_assurance_label_admission,
 )
-from .semantic_assurance_evaluation import recompute_semantic_assurance_results
+from .semantic_assurance_evaluation import recompute_semantic_assurance_results, wilson_interval
 from .semantic_assurance_live import DEFAULT_BASE_URL, DEFAULT_MODEL_ID, DEFAULT_MODEL_VARIANT, PROMPT_CONTRACT
 
 
-SCHEMA_VERSION = "bhm.semantic-assurance-readiness.v1"
-RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-readiness-receipt.v1"
+SCHEMA_VERSION = "bhm.semantic-assurance-readiness.v2"
+RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-readiness-receipt.v2"
 LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v1"
 LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
 _MAX_INPUT_BYTES = 8 * 1024 * 1024
@@ -44,6 +44,13 @@ _MINIMUM_SEALED_CASE_COUNT = 400
 _MINIMUM_SEALED_SUPPORT_ROW_COUNT = 800
 _REQUIRED_SEALED_REPEATS = 3
 _MINIMUM_WILSON_LOWER_95 = 0.95
+_MINIMUM_STRATUM_SUPPORT = 80
+_REQUIRED_STRATIFIED_LABELS: dict[str, tuple[str, ...]] = {
+    "factuality": ("false", "ambiguous", "insufficient"),
+    "entailment": ("contradicted", "insufficient"),
+    "support_relevance": ("irrelevant",),
+    "conflict": ("direct", "temporal", "scope", "implicit"),
+}
 
 
 class SemanticAssuranceReadinessError(ValueError):
@@ -92,13 +99,16 @@ def assess_semantic_assurance_readiness(raw: object) -> dict[str, Any]:
     invariants = _architecture_invariants(raw["architecture_invariants"])
     charter = _owner_charter(raw["owner_charter"], admission, live, policy)
 
-    metric_gate = _metric_gate(live["metrics"], live["counts"], live["repeat"], policy)
+    metric_gate = _metric_gate(
+        live["metrics"], live["stratified_metrics"], live["counts"], live["repeat"], policy,
+    )
     checks = {
         "verified_human_label_admission": True,
         "exact_evaluated_run_identity": True,
         "declared_threshold_policy": True,
         "required_risk_coverage": True,
         "metric_thresholds_and_sample_minima": metric_gate,
+        "derived_stratified_metric_thresholds_and_sample_minima": metric_gate,
         "zero_unsafe_and_missed_conflicts": True,
         "repeat_agreement": True,
         "read_only_shadow_human_oracle": True,
@@ -129,6 +139,7 @@ def assess_semantic_assurance_readiness(raw: object) -> dict[str, Any]:
             "support_row_count": live["counts"]["support_row_count"],
             "repeats": live["repeat"]["completed"],
             "metrics": live["metrics"],
+            "stratified_metrics": live["stratified_metrics"],
             "unsafe_non_no_op_count": 0,
             "missed_conflict_count": 0,
             "shadow_disagreement_count": 0,
@@ -194,25 +205,50 @@ def _policy(value: object, expected_digest: str) -> dict[str, Any]:
     expected = {
         "schema_version", "policy_id", "minimum_case_count", "minimum_support_row_count",
         "minimum_repeats", "minimum_accuracy_lower_95", "minimum_conflict_recall_lower_95",
+        "minimum_stratum_support", "minimum_stratum_exact_label_recall_lower_95",
         "unsafe_non_no_op_budget", "missed_conflict_budget", "required_risk_classes",
     }
-    if not isinstance(value, Mapping) or set(value) != expected or value.get("schema_version") != "bhm.semantic-assurance-threshold-policy.v1":
+    if not isinstance(value, Mapping) or set(value) != expected or value.get("schema_version") != "bhm.semantic-assurance-threshold-policy.v2":
         raise SemanticAssuranceReadinessError("readiness threshold policy is invalid")
     minimums = value.get("minimum_accuracy_lower_95")
     if not isinstance(minimums, Mapping) or set(minimums) != {"factuality", "entailment", "support_relevance"}:
         raise SemanticAssuranceReadinessError("readiness threshold policy accuracy minima are invalid")
+    minimum_stratum_support = _stratified_policy_map(
+        value.get("minimum_stratum_support"), "threshold policy stratum support",
+        _positive_int,
+    )
+    minimum_stratum_lower = _stratified_policy_map(
+        value.get("minimum_stratum_exact_label_recall_lower_95"),
+        "threshold policy stratum lower bound", _rate,
+    )
     normalized = {
-        "schema_version": "bhm.semantic-assurance-threshold-policy.v1",
+        "schema_version": "bhm.semantic-assurance-threshold-policy.v2",
         "policy_id": _text(value.get("policy_id"), "threshold policy id", 160),
         "minimum_case_count": _positive_int(value.get("minimum_case_count"), "threshold policy case minimum"),
         "minimum_support_row_count": _positive_int(value.get("minimum_support_row_count"), "threshold policy support minimum"),
         "minimum_repeats": _positive_int(value.get("minimum_repeats"), "threshold policy repeat minimum"),
         "minimum_accuracy_lower_95": {key: _rate(minimums.get(key), f"threshold policy {key} lower bound") for key in sorted(minimums)},
         "minimum_conflict_recall_lower_95": _rate(value.get("minimum_conflict_recall_lower_95"), "threshold policy conflict lower bound"),
+        "minimum_stratum_support": minimum_stratum_support,
+        "minimum_stratum_exact_label_recall_lower_95": minimum_stratum_lower,
         "unsafe_non_no_op_budget": value.get("unsafe_non_no_op_budget"),
         "missed_conflict_budget": value.get("missed_conflict_budget"),
         "required_risk_classes": _risk_list(value.get("required_risk_classes"), _REQUIRED_RISK_CLASSES, "threshold policy risk classes"),
     }
+    if (
+        any(
+            normalized["minimum_stratum_support"][dimension][label] < _MINIMUM_STRATUM_SUPPORT
+            for dimension, labels in _REQUIRED_STRATIFIED_LABELS.items()
+            for label in labels
+        )
+        or any(
+            normalized["minimum_stratum_exact_label_recall_lower_95"][dimension][label]
+            < _MINIMUM_WILSON_LOWER_95
+            for dimension, labels in _REQUIRED_STRATIFIED_LABELS.items()
+            for label in labels
+        )
+    ):
+        raise SemanticAssuranceReadinessError("readiness threshold policy weakens stratified sealed minima")
     if (
         normalized["minimum_case_count"] < _MINIMUM_SEALED_CASE_COUNT
         or normalized["minimum_support_row_count"] < _MINIMUM_SEALED_SUPPORT_ROW_COUNT
@@ -307,6 +343,7 @@ def _live_receipt(value: object, admission: Mapping[str, Any], policy: Mapping[s
         "prompt_contract_digest": prompt_digest,
         "counts": summary["counts"],
         "metrics": summary["metrics"],
+        "stratified_metrics": summary["stratified_metrics"],
         "repeat": {"requested": execution["repeats_requested"], "completed": execution["repeats_completed"]},
     }
 
@@ -399,7 +436,17 @@ def _offline_report(value: object, admission: Mapping[str, Any], dataset: Mappin
     quality_gate = value.get("quality_gate")
     if not isinstance(quality_gate, Mapping) or quality_gate.get("unsafe_non_no_op_budget") != 0 or quality_gate.get("conflict_recall_required") != 1.0 or quality_gate.get("automatic_apply_decision") != "no_go":
         raise SemanticAssuranceReadinessError("readiness offline report quality boundary is invalid")
-    return {"report_digest": report_digest, "counts": dict(counts), "metrics": metrics, "safety": dict(safety), "quality_gate": dict(quality_gate), "prediction_digest": str(value["prediction_digest"]), "results_digest": str(value["results_digest"]), "case_id_set_digest": derived["case_id_set_digest"]}
+    return {
+        "report_digest": report_digest,
+        "counts": dict(counts),
+        "metrics": metrics,
+        "stratified_metrics": _stratified_metrics(derived["results"]),
+        "safety": dict(safety),
+        "quality_gate": dict(quality_gate),
+        "prediction_digest": str(value["prediction_digest"]),
+        "results_digest": str(value["results_digest"]),
+        "case_id_set_digest": derived["case_id_set_digest"],
+    }
 
 
 def _metrics(value: object) -> dict[str, Any]:
@@ -489,7 +536,13 @@ def _owner_charter(value: object, admission: Mapping[str, Any], live: Mapping[st
     return {"charter_digest": digest}
 
 
-def _metric_gate(metrics: Mapping[str, Any], counts: Mapping[str, Any], repeat: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
+def _metric_gate(
+    metrics: Mapping[str, Any],
+    stratified_metrics: Mapping[str, Any],
+    counts: Mapping[str, Any],
+    repeat: Mapping[str, Any],
+    policy: Mapping[str, Any],
+) -> bool:
     if (
         counts["case_count"] < policy["minimum_case_count"]
         or counts["support_row_count"] < policy["minimum_support_row_count"]
@@ -502,7 +555,110 @@ def _metric_gate(metrics: Mapping[str, Any], counts: Mapping[str, Any], repeat: 
             raise SemanticAssuranceReadinessError("readiness lower confidence bound is below policy")
     if metrics["conflict_detection"]["recall_wilson_lower_95"] < policy["minimum_conflict_recall_lower_95"] or metrics["conflict_detection"]["false_negative"] != 0:
         raise SemanticAssuranceReadinessError("readiness conflict-detection confidence is below policy")
+    for dimension, labels in _REQUIRED_STRATIFIED_LABELS.items():
+        metrics_for_dimension = stratified_metrics.get(dimension)
+        if not isinstance(metrics_for_dimension, Mapping) or set(metrics_for_dimension) != set(labels):
+            raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+        for label in labels:
+            metric = metrics_for_dimension.get(label)
+            if not isinstance(metric, Mapping) or set(metric) != {
+                "expected_count", "correct_count", "exact_label_recall", "exact_label_recall_wilson_95",
+            }:
+                raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+            expected_count = metric.get("expected_count")
+            correct_count = metric.get("correct_count")
+            interval = metric.get("exact_label_recall_wilson_95")
+            if (
+                not isinstance(expected_count, int)
+                or expected_count < 0
+                or not isinstance(correct_count, int)
+                or not 0 <= correct_count <= expected_count
+                or not isinstance(interval, Mapping)
+                or set(interval) != {"rate", "lower_95", "upper_95"}
+            ):
+                raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+            expected_interval = wilson_interval(correct_count, expected_count) if expected_count else None
+            if (
+                _rate(metric.get("exact_label_recall"), "stratified exact label recall")
+                != (round(correct_count / expected_count, 6) if expected_count else 0.0)
+                or expected_interval is None
+                or dict(interval) != expected_interval
+            ):
+                raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+            if expected_count < policy["minimum_stratum_support"][dimension][label]:
+                raise SemanticAssuranceReadinessError("readiness stratified sample minimum is not met")
+            if interval["lower_95"] < policy["minimum_stratum_exact_label_recall_lower_95"][dimension][label]:
+                raise SemanticAssuranceReadinessError("readiness stratified lower confidence bound is below policy")
     return True
+
+
+def _stratified_metrics(results: object) -> dict[str, dict[str, dict[str, Any]]]:
+    """Derive required label strata from recomputed canonical result rows only."""
+
+    if not isinstance(results, list) or not results:
+        raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+    counts = {
+        dimension: {label: {"expected_count": 0, "correct_count": 0} for label in labels}
+        for dimension, labels in _REQUIRED_STRATIFIED_LABELS.items()
+    }
+    for row in results:
+        if not isinstance(row, Mapping):
+            raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+        expected = row.get("expected")
+        prediction = row.get("prediction")
+        if not isinstance(expected, Mapping) or not isinstance(prediction, Mapping):
+            raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+        for dimension in ("factuality", "entailment", "conflict"):
+            label = expected.get(dimension)
+            if label in counts[dimension]:
+                counts[dimension][label]["expected_count"] += 1
+                if prediction.get(dimension) == label:
+                    counts[dimension][label]["correct_count"] += 1
+        expected_relevance = expected.get("support_relevance")
+        predicted_relevance = prediction.get("support_relevance")
+        if not isinstance(expected_relevance, Mapping) or not isinstance(predicted_relevance, Mapping):
+            raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+        if set(expected_relevance) != set(predicted_relevance):
+            raise SemanticAssuranceReadinessError("readiness stratified metrics are invalid")
+        for support_id, label in expected_relevance.items():
+            if label == "irrelevant":
+                counts["support_relevance"]["irrelevant"]["expected_count"] += 1
+                if predicted_relevance.get(support_id) == label:
+                    counts["support_relevance"]["irrelevant"]["correct_count"] += 1
+    return {
+        dimension: {
+            label: {
+                "expected_count": item["expected_count"],
+                "correct_count": item["correct_count"],
+                "exact_label_recall": round(item["correct_count"] / item["expected_count"], 6)
+                if item["expected_count"] else 0.0,
+                "exact_label_recall_wilson_95": wilson_interval(
+                    item["correct_count"], item["expected_count"],
+                ) if item["expected_count"] else {"rate": 0.0, "lower_95": 0.0, "upper_95": 0.0},
+            }
+            for label, item in labels.items()
+        }
+        for dimension, labels in counts.items()
+    }
+
+
+def _stratified_policy_map(
+    value: object,
+    field: str,
+    parser: Any,
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, Mapping) or set(value) != set(_REQUIRED_STRATIFIED_LABELS):
+        raise SemanticAssuranceReadinessError("readiness threshold policy stratified minima are invalid")
+    result: dict[str, dict[str, Any]] = {}
+    for dimension, labels in _REQUIRED_STRATIFIED_LABELS.items():
+        item = value.get(dimension)
+        if not isinstance(item, Mapping) or set(item) != set(labels):
+            raise SemanticAssuranceReadinessError("readiness threshold policy stratified minima are invalid")
+        try:
+            result[dimension] = {label: parser(item[label], f"{field} {dimension}.{label}") for label in labels}
+        except SemanticAssuranceReadinessError as exc:
+            raise SemanticAssuranceReadinessError("readiness threshold policy stratified minima are invalid") from exc
+    return result
 
 
 def _risk_list(value: object, expected: frozenset[str], field: str) -> list[str]:

@@ -136,15 +136,15 @@ commitment меняет digest и fail-closed блокирует admission.
 
 ## Readiness receipt: механическая полнота не есть release
 
-Локальный verifier `bhm.semantic-assurance-readiness.v1` читает только один
+Локальный verifier `bhm.semantic-assurance-readiness.v2` читает только один
 content-free JSON evidence package и возвращает content-free aggregate receipt.
 Его CLI — `scripts/validate-bhm-semantic-assurance-readiness.py`. Он
 fail-closed связывает exact verified human-label admission, exact evaluated
 model/run + prompt/dataset identity, pre-registered threshold policy, metrics
 и Wilson lower bounds, sample minima, риск-таксономию, нулевые unsafe и
-missed-conflict outcomes, repeat agreement, read-only shadow/human-oracle
-evidence, disposable SQLite fault/rollback rehearsal, architecture invariants
-и отдельный owner charter binding.
+missed-conflict outcomes, exact-label stratified gates, repeat agreement,
+read-only shadow/human-oracle evidence, disposable SQLite fault/rollback
+rehearsal, architecture invariants и отдельный owner charter binding.
 
 Каждая вложенная schema и digest проверяются точно; неизвестное поле, weak
 lower bound, неполный риск-класс, mismatch corpus/run/policy или side effect в
@@ -195,8 +195,29 @@ recall и безопасные abstentions всё равно сопровожд�
 factuality, entailment, support relevance и conflict recall; `0` unsafe
 non-`no_op` и `0` missed conflict. Эти aggregate gates необходимы, но сами по
 себе не доказывают качество по редкому label или отдельному conflict bucket.
-Stratified per-label/per-bucket admission остаётся отдельным обязательным
-follow-up до любых более сильных safety assertions.
+
+Readiness v2 дополняет их обязательными exact-label strata. Для каждого stratum
+readiness заново выводит population и результат из canonical `results`, а не
+принимает caller-supplied aggregate. Для factuality, entailment и conflict
+population — cases, у которых ожидаемая метка равна stratum; success — только
+та же exact prediction. Для support relevance population — отдельные
+support-row с ожидаемой меткой, а success — exact prediction этой строки.
+Например, `direct → temporal` не засчитывается ни как успех `direct`, ни как
+успех `temporal`, даже если такая ошибка не является `missed_conflict`.
+
+Ровно следующие десять strata обязательны в sealed measurement:
+
+- factuality: `false`, `ambiguous`, `insufficient`;
+- entailment: `contradicted`, `insufficient`;
+- support relevance: `irrelevant`;
+- conflict: `direct`, `temporal`, `scope`, `implicit`.
+
+Для каждого из них policy требует минимум `80` наблюдений и Wilson lower-95
+для exact-label recall не ниже `0.95`. Недостающий, лишний, переименованный
+или слабее заданный stratum fail-closed отклоняет readiness evidence. Эти
+границы повышают строгость ограниченного измерения, но остаются конечной
+выборкой: они не доказывают universal factual truth, entailment, relevance
+или отсутствие hidden conflicts вне corpus.
 
 Прохождение evaluator подтверждает только его объявленный bounded scope. Любое
 обсуждение будущего automatic apply требует отдельного safety/deployment

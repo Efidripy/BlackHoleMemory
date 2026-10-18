@@ -12,6 +12,7 @@ from blackholememory.semantic_assurance_evaluation import SemanticAssuranceEvalu
 from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
 from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_dataset
 from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_predictions
+from blackholememory.semantic_assurance_evaluation import recompute_semantic_assurance_results
 from blackholememory.semantic_assurance_evaluation import wilson_interval
 
 
@@ -243,6 +244,71 @@ def test_wilson_interval_is_bounded_and_deterministic() -> None:
     assert wilson_interval(2, 2) == {"rate": 1.0, "lower_95": 0.34238, "upper_95": 1.0}
     with pytest.raises(SemanticAssuranceEvaluationError):
         wilson_interval(3, 2)
+
+
+def test_recomputed_per_label_metrics_cover_every_readiness_stratum() -> None:
+    """Readiness consumes exact-label metrics derived from canonical rows only."""
+
+    labels = [
+        ("false", "supported", "direct"),
+        ("ambiguous", "supported", "temporal"),
+        ("insufficient", "insufficient", "scope"),
+        ("true", "contradicted", "implicit"),
+        ("true", "insufficient", "none"),
+    ]
+    rows = [
+        {
+            "case_id": f"case-{index}",
+            "risk_class": "unit",
+            "support_ids": [f"support-{index}"],
+            "expected": {
+                "factuality": factuality,
+                "entailment": entailment,
+                "conflict": conflict,
+                "operation": "no_op",
+                "support_relevance": {f"support-{index}": "irrelevant"},
+            },
+            "prediction": {
+                "factuality": factuality,
+                "entailment": entailment,
+                "conflict": conflict,
+                "operation": "no_op",
+                "support_relevance": {f"support-{index}": "irrelevant"},
+            },
+        }
+        for index, (factuality, entailment, conflict) in enumerate(labels, start=1)
+    ]
+
+    metrics = recompute_semantic_assurance_results(rows)["metrics"]
+    expected_strata = {
+        ("factuality", "false"): 1,
+        ("factuality", "ambiguous"): 1,
+        ("factuality", "insufficient"): 1,
+        ("entailment", "contradicted"): 1,
+        ("entailment", "insufficient"): 2,
+        ("support_relevance", "irrelevant"): 5,
+        ("conflict", "direct"): 1,
+        ("conflict", "temporal"): 1,
+        ("conflict", "scope"): 1,
+        ("conflict", "implicit"): 1,
+    }
+
+    for (dimension, label), support in expected_strata.items():
+        per_label = metrics[dimension]["per_label"][label]
+        assert set(per_label) == {
+            "support",
+            "true_positive",
+            "false_positive",
+            "false_negative",
+            "precision",
+            "recall",
+            "f1",
+            "recall_wilson_95",
+        }
+        assert per_label["support"] == support
+        assert per_label["true_positive"] == support
+        assert per_label["recall"] == 1.0
+        assert per_label["recall_wilson_95"] == wilson_interval(support, support)
 
 
 def load_semantic_assurance_dataset_from_raw(raw: dict[str, object]) -> dict[str, object]:
