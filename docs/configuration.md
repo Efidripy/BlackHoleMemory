@@ -52,32 +52,24 @@ migration path. Do not point it at a live database.
 
 In the normal mode, every lifecycle mutation stays approval-gated: an operator
 must approve one proposal and submit `apply=true` with the exact proposal ID as
-confirmation. `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED` is a third, separately
-default-off opt-in for the semantic stored-proposal route only. When enabled,
-BHM performs a deterministic policy review and uses the same exact-ID apply
-path automatically, unless `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` is set.
-That consent switch keeps proposals queued until the launcher operator presses
-**Apply memory proposals**; the launcher previews the bounded queue, creates a
-verified backup, then approves and applies only policy-eligible items. It
-accepts only a confirmed local-model proposal with no conflicts and an
-operation-specific high-confidence threshold (`0.90` for `create`/`revise`/`link`,
-`0.97` for `supersede`/`archive`). It rejects no-op, fallback, incomplete
-receipts, malformed or low-confidence candidates and records only the policy version, actor digest and
-reason codes. Neither flag polls for work or generates a proposal from every
-memory write.
+confirmation. `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED` is retained as a
+configured policy signal for compatibility and status visibility. It **does
+not** authorize, approve or apply a semantic lifecycle proposal: source policy
+reports `automatic_apply_enabled=false` regardless of this value. A semantic
+proposal requires exact privileged human review/attestation, followed by a
+separate operator apply with the exact proposal ID.
 
-Semantic degraded results are retried at most three bounded times. After a
-fallback, no-op, conflict or low-confidence pass, lifecycle apply requires a
-2-of-3 matching candidate digest; disagreement emits a no-op and performs no
-authority mutation. `BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS` may lower the
-bound (1–3) for a local test, but cannot raise it.
+`BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` remains a stricter policy signal;
+it never turns the semantic route into automation. No governed flag polls for
+work, generates a proposal from every memory write, or bypasses the manual
+semantic decision contract.
 
-Proposal preview, inspection, validation and dry-run remain non-mutating.
-Regardless of the mode, the apply revalidates revision/digest inside the SQLite
-transaction and writes only the normal `memory_outbox`; it never writes Mem0 or
-Qdrant directly. Disablement is reversible by removing the auto-review flag
-and restarting the API; existing proposal evidence remains inspectable. The
-authority contract is documented in [architecture-authority.md](architecture-authority.md).
+Proposal preview, inspection, validation and dry-run remain non-mutating. A
+manual apply revalidates revision/digest and the approval-event binding inside
+the SQLite transaction and writes only the normal `memory_outbox`; it never
+writes Mem0 or Qdrant directly. Changing either policy signal does not alter
+already stored evidence. The authority contract is documented in
+[architecture-authority.md](architecture-authority.md).
 
 ### Local semantic proposal editor (default off)
 
@@ -94,18 +86,19 @@ This preserves an already approved local activation across a desktop restart;
 it neither enables the feature by default nor imports caller credentials or
 admin capability through that allowlist.
 
-To enable the automatic policy stage after a disposable rehearsal, persist the
-additional non-secret User setting and restart through the canonical launcher:
+For compatibility/status diagnostics an operator may persist the following
+non-secret policy values. They do not enable automatic semantic approval or
+apply, so no restart is a substitute for privileged review and explicit apply:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED', '1', 'User')
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED', '1', 'User')
 ```
 
-Removing the auto-review value (or setting it to `0`) and restarting restores
-the manual approval/apply mode. Keeping `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1`
-selects the launcher-button consent mode. The REST status response exposes the active
-policy version and thresholds without memory content.
+Removing the auto-review value (or setting it to `0`) only changes the reported
+policy signal. Keeping `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` preserves the
+stricter consent requirement. The REST status response exposes the effective
+automatic-apply prohibition and policy reason without memory content.
 
 Optional settings are `BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL`,
 `BHM_GOVERNED_SEMANTIC_EDITOR_MODEL`,
@@ -117,7 +110,9 @@ The base
 URL goes through the existing local-only endpoint policy, so a remote URL,
 credentials in the URL, redirects and oversized response are rejected. See
 [governed-semantic-editor.md](governed-semantic-editor.md) for the operator
-sequence and shadow-mode evidence contract.
+sequence and [semantic-assurance.md](semantic-assurance.md) for the bounded
+evaluation contract. Neither document treats a finite model evaluation as
+permission for automatic semantic apply.
 
 For an explicitly approved local backfill, the launcher also imports the
 non-secret governor overrides `BHM_LLM_GOVERNOR_MAX_VRAM_RATIO` and

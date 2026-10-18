@@ -12,6 +12,7 @@
 - [Authority boundaries](architecture-authority.md) — SQLite/outbox authority и governed consolidation proposals.
 - [Historical trace classification](architecture-authority.md#current-state-and-historical-trace-retrieval) — current state versus checkpoint/session provenance.
 - [Governed semantic editor](governed-semantic-editor.md) — local-model proposals, SQLite revalidation and shadow-mode quality gates.
+- [Semantic assurance](semantic-assurance.md) — bounded factuality, entailment, relevance and conflict evaluation; no automatic-apply admission.
 - [Local model quality](local-model-quality.md) — frozen synthetic exact-answer gate for an already-loaded local model.
 - [Data hygiene](data-hygiene.md) — двухфазная очистка точных disposable project IDs.
 - [Local artifact cleanup](local-artifact-cleanup.md) — fail-closed очистка только воспроизводимых локальных cache/scratch-артефактов.

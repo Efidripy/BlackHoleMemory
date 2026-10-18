@@ -66,17 +66,14 @@ and leaves vector projection to the existing sidecar. A changed basis is marked
 `stale`; no partial lifecycle operation is committed. `archive` and
 `supersede` keep immutable revision provenance for recovery.
 
-When the separate `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED=1` flag is enabled,
-the stored local-model semantic proposal route substitutes a deterministic
-policy review and the same guarded apply for the two manual clicks. Set
-`BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` to keep that route queued until the
-launcher **Apply memory proposals** button is pressed. The launcher displays
-the proposed-item count, makes one verified backup, then approves/applies only
-eligible proposals; no-op, fallback, malformed, conflicted and low-confidence
-items remain queued with redacted reason codes. Semantic degraded passes are
-bounded to three attempts and require 2-of-3 candidate-digest agreement. The
-flow does not create a background worker, poll for new memories, or alter the
-manual recovery routes.
+`BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED=1` is only a configured policy signal;
+it cannot replace the semantic reviewer or apply step. The runtime reports
+`automatic_apply_enabled=false` regardless of that signal. Each semantic
+proposal remains subject to exact privileged human attestation and a separate
+explicit operator apply with the exact proposal ID. Setting
+`BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` adds a stricter consent condition;
+it does not create a launcher-mediated automatic route. This flow does not
+create a background worker, poll for new memories, or alter manual recovery.
 
 The bounded observability contract is content-safe: a proposal reports the
 number of selected authority records and local analyzer duration; an accepted
@@ -86,9 +83,10 @@ outbox events it created. It never returns memory content from telemetry.
 An optional local semantic editor can retrieve 1–20 candidate IDs through the
 existing semantic path, then re-read those records from SQLite and return a
 strict proposal JSON result. Its normal preview stays proposal-only; its stored
-route can enter the separate default-off automatic policy stage. It never turns
-Mem0/Qdrant into writers. Its preview/store/shadow flow is documented in
-[governed-semantic-editor.md](governed-semantic-editor.md).
+route enters the operator review queue only. It never turns Mem0/Qdrant into
+writers. Its preview/store/shadow flow is documented in
+[governed-semantic-editor.md](governed-semantic-editor.md); bounded quality
+evidence and its limits are in [semantic-assurance.md](semantic-assurance.md).
 
 The REST/MCP endpoints are authenticated, project-scoped and operator-only for
 decision/apply. They are intentionally absent from the ordinary MCP attach

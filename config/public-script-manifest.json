@@ -99,6 +99,16 @@
       "release": true
     },
     {
+      "path": "scripts/run-bhm-semantic-assurance.py",
+      "role": "quality-gate",
+      "release": true
+    },
+    {
+      "path": "scripts/run-bhm-semantic-assurance-live.py",
+      "role": "quality-gate",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_semantic_diagnose.py",
       "role": "quality-gate",
       "release": true
