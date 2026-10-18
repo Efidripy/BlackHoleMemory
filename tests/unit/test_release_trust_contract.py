@@ -403,9 +403,10 @@ def test_trust_verifier_rejects_source_snapshot_receipt_tamper(tmp_path, monkeyp
 
 def test_trust_archive_rejects_duplicate_members(tmp_path):
     archive_path = tmp_path / "release.zip"
-    with zipfile.ZipFile(archive_path, "w") as archive:
-        archive.writestr("BlackHoleMemory/release-manifest.json", "{}")
-        archive.writestr("BlackHoleMemory/release-manifest.json", "{}")
+    with pytest.warns(UserWarning, match="Duplicate name"):
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            archive.writestr("BlackHoleMemory/release-manifest.json", "{}")
+            archive.writestr("BlackHoleMemory/release-manifest.json", "{}")
     _, failures = verify_trust.read_archive(archive_path)
     assert "archive contains duplicate members" in failures
 

@@ -30,10 +30,14 @@ dependencies = [
 test = [
   "pytest==9.0.3",
   "pytest-cov==7.1.0",
+  "httpx2==2.13.1",
+  "PyQt6==6.11.0",
 ]
 dev = [
   "pytest==9.0.3",
   "pytest-cov==7.1.0",
+  "httpx2==2.13.1",
+  "PyQt6==6.11.0",
   "ruff==0.15.10",
 ]
 build = [

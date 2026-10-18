@@ -383,8 +383,7 @@ def test_operator_drawer_live_geometry_is_scrollable_and_non_overlapping(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
-    if not launcher.load_pyqt6():
-        pytest.skip("PyQt6 is not installed in this test environment")
+    assert launcher.load_pyqt6(), "PyQt6 is a required test/dev extra for the live offscreen UI contract"
     application = launcher.QApplication.instance() or launcher.QApplication([])
     application.setStyleSheet(launcher.build_qss())
     view = launcher.DashboardScreen()

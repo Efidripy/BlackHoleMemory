@@ -126,7 +126,7 @@ BHM is designed for an authorized local development environment. Keep `.runtime`
 
 - Start with [`docs/getting-started.md`](docs/getting-started.md), [`docs/usage.md`](docs/usage.md), and [`docs/configuration.md`](docs/configuration.md).
 - Read [`docs/README.md`](docs/README.md) for the documentation map.
-- Run the project gates before submitting changes: `uv run pytest -q`, `uv run ruff check src tests scripts`, `uv run python -m compileall -q src scripts tests`, and the documented release/public-tree validators.
+- Run the project gates before submitting changes: `uv sync --locked --extra dev`, `uv run pytest -q`, `uv run ruff check src tests scripts`, `uv run python -m compileall -q src scripts tests`, and the documented release/public-tree validators. The `dev` extra includes the offscreen PyQt6 UI contract and `httpx2` TestClient implementation.
 - Contributions are welcome through issues and pull requests. Preserve the SQLite-authoritative boundary and do not commit secrets or runtime artifacts.
 
 BHM-authored code and documentation are released under the [0BSD license](LICENSE). Third-party components retain their own licenses and provenance records.
