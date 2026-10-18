@@ -77,6 +77,7 @@ def evaluate_semantic_assurance(
     *,
     partition: str = "sealed_holdout",
     invocation: Mapping[str, Any] | None = None,
+    label_admission: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Compare local content-free classifications to one sealed partition.
 
@@ -98,6 +99,7 @@ def evaluate_semantic_assurance(
     if set(by_case) != expected_ids:
         raise SemanticAssuranceEvaluationError("semantic assurance prediction coverage must exactly match the partition")
 
+    admitted_labels = _validate_label_admission(label_admission, normalized_dataset)
     results = [_evaluate_case(case, by_case[case["case_id"]]) for case in expected_cases]
     metrics = _metrics(expected_cases, by_case)
     safety = _safety_summary(results)
@@ -108,8 +110,11 @@ def evaluate_semantic_assurance(
         "required_abstention": safety["required_abstention_violation_count"] == 0,
         "boundary_contract": True,
         "automatic_apply_stays_no_go": quality_gate["automatic_apply_decision"] == "no_go",
+        "independent_human_labels_admitted": admitted_labels["admitted"],
     }
-    mechanical_valid = all(gate_checks.values())
+    # v1 public fixtures remain valid mechanics tests.  Human-label admission
+    # upgrades only the evidence tier, never silently rewrites v1 history.
+    mechanical_valid = all(value for key, value in gate_checks.items() if key != "independent_human_labels_admitted")
     normalized_invocation = _validate_invocation(invocation)
     prediction_digest = _digest(normalized_predictions)
     report_core = {
@@ -120,8 +125,8 @@ def evaluate_semantic_assurance(
             "fixture_digest": normalized_dataset["fixture_digest"],
             "label_digest": normalized_dataset["label_digest"],
             "partition": selected_partition,
-            # The evaluator cannot authenticate reviewer identities or provenance.
-            "label_independence": "not_verified_by_evaluator",
+            "label_independence": admitted_labels["status"],
+            "human_label_admission_digest": admitted_labels["admission_digest"],
         },
         "prediction_digest": prediction_digest,
         "invocation": normalized_invocation,
@@ -139,7 +144,8 @@ def evaluate_semantic_assurance(
             "mechanical_valid": mechanical_valid,
             # This is a fixture-mechanics acceptance only, never deployment approval.
             "accepted": mechanical_valid,
-            "acceptance_scope": "proposal_only_fixture_measurement",
+            "acceptance_scope": "proposal_only_human_labelled_measurement" if admitted_labels["admitted"] else "proposal_only_fixture_measurement",
+            "safety_case_eligible": mechanical_valid and admitted_labels["admitted"],
             "automatic_apply_ready": False,
             "automatic_apply_decision": "no_go",
         },
@@ -160,6 +166,7 @@ def evaluate_semantic_assurance(
         "limitations": [
             "the evaluator verifies only supplied labels and content-free predictions",
             "label provenance and reviewer independence are not verified by this evaluator",
+            "a verified admission structurally binds attested reviewer evidence but cannot authenticate human identity or prove semantic truth",
             "a passing mechanical gate is not universal factuality, entailment, relevance, or hidden-conflict proof",
             "automatic semantic apply remains no_go",
         ],
@@ -238,6 +245,8 @@ def _validate_dataset(raw: Any) -> dict[str, Any]:
         "_semantic_assurance_normalized": True,
         "schema_version": SCHEMA_VERSION,
         "dataset_id": dataset_id,
+        "labeling_kind": _text(raw["labeling"].get("kind"), "semantic assurance labeling kind", 120),
+        "label_provenance_kind": _text(raw["label_provenance"].get("kind"), "semantic assurance label provenance kind", 120),
         "cases": normalized_cases,
         "quality_gate": quality_gate,
         "fixture_digest": _digest(raw),
@@ -307,7 +316,15 @@ def _validate_case(raw: Any, groups: Mapping[str, str]) -> dict[str, Any]:
     for key in _ISOLATION_KEYS[2:]:
         if key in raw:
             isolation[key] = _text(raw.get(key), f"semantic assurance {key}", 160)
-    return {"case_id": case_id, "partition": partition, "expected": expected, "isolation": isolation}
+    # Preserve only opaque support identities.  They are required to bind
+    # independent relevance labels, but reveal neither prompt nor evidence.
+    return {
+        "case_id": case_id,
+        "partition": partition,
+        "support_ids": tuple(sorted(support_ids)),
+        "expected": expected,
+        "isolation": isolation,
+    }
 
 
 def _validate_prediction(raw: Any) -> dict[str, Any]:
@@ -478,6 +495,39 @@ def _validate_invocation(raw: Mapping[str, Any] | None) -> dict[str, str]:
     if set(raw) - allowed:
         raise SemanticAssuranceEvaluationError("semantic assurance invocation contains unsupported fields")
     return {key: _text(raw.get(key) or "not_provided", f"semantic assurance {key}", 256) for key in sorted(allowed)}
+
+
+def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[str, Any]) -> dict[str, Any]:
+    """Bind an optional content-free dual-review receipt to this exact corpus.
+
+    The import stays local to avoid a module cycle: the admission contract uses
+    the label enums from this module, while this evaluator only needs its final
+    receipt verifier.  A missing receipt is explicit lower-tier evidence, not
+    a permissive substitute.
+    """
+
+    if raw is None:
+        return {"admitted": False, "status": "not_verified_by_evaluator", "admission_digest": "not_provided"}
+    try:
+        from .semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
+        from .semantic_assurance_label_admission import verify_semantic_assurance_label_admission
+
+        receipt = verify_semantic_assurance_label_admission(raw)
+    except SemanticAssuranceLabelAdmissionError as exc:
+        raise SemanticAssuranceEvaluationError("semantic assurance human-label admission is invalid") from exc
+    corpus = receipt["corpus"]
+    expected = {
+        "dataset_id": dataset["dataset_id"],
+        "fixture_digest": dataset["fixture_digest"],
+        "label_digest": dataset["label_digest"],
+    }
+    if corpus != expected:
+        raise SemanticAssuranceEvaluationError("semantic assurance human-label admission does not bind this exact dataset")
+    return {
+        "admitted": True,
+        "status": "attested_structurally_bound_not_identity_authenticated",
+        "admission_digest": receipt["admission_digest"],
+    }
 
 
 def _partition_name(value: Any) -> str:

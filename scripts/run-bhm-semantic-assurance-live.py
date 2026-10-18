@@ -26,21 +26,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout-seconds", type=float, default=30.0)
     parser.add_argument("--repeats", type=int, choices=(1, 2, 3), default=1)
+    parser.add_argument("--label-admission", type=Path, help="optional content-free dual-review admission receipt JSON")
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID)
     parser.add_argument("--model-variant", default=DEFAULT_MODEL_VARIANT)
     parser.add_argument("--output", type=Path, help="optional explicit content-free JSON receipt path")
     args = parser.parse_args(argv)
     try:
+        label_admission = json.loads(args.label_admission.read_text(encoding="utf-8")) if args.label_admission else None
         report = run_live_semantic_assurance(
             args.dataset,
             partition=args.partition,
             base_url=args.base_url,
             timeout_seconds=args.timeout_seconds,
             repeats=args.repeats,
+            label_admission=label_admission,
             model_id=args.model_id,
             model_variant=args.model_variant,
         )
-    except SemanticAssuranceLiveError as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, SemanticAssuranceLiveError) as exc:
         print(json.dumps({"accepted": False, "error": type(exc).__name__, "detail": str(exc)}, ensure_ascii=False))
         return 2
     if args.output:
