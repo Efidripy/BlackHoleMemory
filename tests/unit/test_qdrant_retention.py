@@ -4,9 +4,13 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
+
 from blackholememory.projection_quarantine import json_sha256
 from blackholememory.qdrant_retention import build_qdrant_retention_preview
 from blackholememory.qdrant_retention import run_qdrant_restore_drill
+from blackholememory.qdrant_validation_bounds import ValidationBudgetExceeded
+from blackholememory.qdrant_validation_bounds import ValidationScanBudget
 
 
 def _write_manifest(root: Path, *, tamper: bool = False) -> None:
@@ -24,7 +28,9 @@ def _write_manifest(root: Path, *, tamper: bool = False) -> None:
     }
     if tamper:
         point["vectorSha256"] = "bad"
-    backup.write_text(json.dumps({"points": [point]}, ensure_ascii=False), encoding="utf-8")
+    backup.write_text(
+        json.dumps({"points": [point]}, ensure_ascii=False), encoding="utf-8"
+    )
     (root / "quarantine-manifest.json").write_text(
         json.dumps(
             {
@@ -72,7 +78,10 @@ def test_retention_preview_digest_and_apply_boundary_are_stable(tmp_path: Path):
                 "decision_reasons": ["canonical_active"],
                 "backup_status": "authoritative_sqlite_rebuild_path",
                 "restore_status": "rebuild_from_sqlite",
-                "observed": {"known_source_points": None, "unknown_source_points": None},
+                "observed": {
+                    "known_source_points": None,
+                    "unknown_source_points": None,
+                },
             },
             {
                 "name": "bhm_local_memory_review",
@@ -95,3 +104,17 @@ def test_retention_preview_digest_and_apply_boundary_are_stable(tmp_path: Path):
     assert first["apply_contract"]["mutation_enabled"] is False
     assert first["preview_digest"] == second["preview_digest"]
 
+
+def test_restore_drill_refuses_to_scan_past_manifest_budget(tmp_path: Path):
+    _write_manifest(tmp_path)
+    nested = tmp_path / "next"
+    nested.mkdir()
+    _write_manifest(nested)
+
+    with pytest.raises(ValidationBudgetExceeded) as exc_info:
+        run_qdrant_restore_drill(
+            tmp_path, validation_budget=ValidationScanBudget(max_targets=1)
+        )
+
+    assert exc_info.value.status == "budget_exceeded"
+    assert exc_info.value.stage == "retention.manifest"

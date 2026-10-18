@@ -59,6 +59,8 @@ def _candidate(*, operation: str = "create", confidence: float = 0.91, conflicts
             "memory_type": "decision",
             "concepts": ["uninstall", "safety"],
             "files": [],
+            "evidence_refs": [1, 2],
+            **({"target_evidence_ref": 2} if operation in {"revise", "supersede", "archive", "link"} else {}),
         },
         "confidence": confidence,
         "conflicts": conflicts or [],
@@ -132,7 +134,33 @@ def test_semantic_editor_discards_model_target_id_and_binds_link_to_same_project
     )
 
     assert proposal["operation"] == "link"
-    assert proposal["candidate"]["target_memory_id"] == "mem_bhm_a"
+    assert proposal["candidate"]["target_memory_id"] == "mem_bhm_b"
+    assert proposal["semantic_editor"]["binding"]["target"]["memory_id"] == "mem_bhm_b"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "guard_code"),
+    [
+        (lambda candidate: candidate.pop("evidence_refs"), "evidence_support_required"),
+        (lambda candidate: candidate.update({"evidence_refs": [1, 1]}), "evidence_support_ambiguous"),
+        (lambda candidate: candidate.update({"target_evidence_ref": 3}), "lifecycle_target_required"),
+    ],
+)
+def test_semantic_editor_converts_missing_or_ambiguous_support_target_to_noop(mutate, guard_code: str) -> None:
+    operation = "revise" if guard_code == "lifecycle_target_required" else "create"
+    candidate = _candidate(operation=operation)
+    mutate(candidate["candidate"])
+
+    proposal = build_semantic_proposal(
+        project="multiserversubgen",
+        query="bound evidence",
+        retrieved_records=[_record("mem_bhm_a", "A"), _record("mem_bhm_b", "B")],
+        completion=_Completion(candidate),
+    )
+
+    assert proposal["operation"] == "no_op"
+    assert proposal["semantic_editor"]["policy"]["guard_code"] == guard_code
+    assert proposal["semantic_editor"]["binding"]["target"] is None
 
 
 def test_conflicting_or_low_confidence_semantic_result_becomes_no_op() -> None:

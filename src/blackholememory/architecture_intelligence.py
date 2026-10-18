@@ -16,10 +16,177 @@ ARCHITECTURE_INTELLIGENCE_SCHEMA_VERSION = "bhm.architecture-intelligence.v1"
 ARCHITECTURE_MEMORY_SCHEMA_VERSION = "bhm.architecture-memory.v1"
 ARCHITECTURE_EXPLAIN_RECEIPT_SCHEMA_VERSION = "bhm.architecture-explain-receipt.v1"
 GRAPH_ANALYSIS_QUALITY_SCHEMA_VERSION = "bhm.graph-analysis-quality.v1"
+ARCHITECTURE_RESPONSE_BOUNDS_SCHEMA_VERSION = "bhm.architecture-response-bounds.v1"
+# This is deliberately below the generic MCP-to-REST transport ceiling. The
+# architecture route adds a tool-specific bound rather than relaxing that
+# shared defensive boundary.
+ARCHITECTURE_RESPONSE_MAX_SERIALIZED_BYTES = 240 * 1024
 _DEPENDENCY_EDGE_KINDS = {"imports", "depends_on", "exposes", "route_handles", "http_calls", "emits", "listens_on"}
 _CALL_EDGE_KINDS = {"calls", "async_calls", "route_handles", "tests"}
 _CLONE_NODE_KINDS = {"function", "method", "class", "interface", "type", "enum", "struct", "module", "package"}
 _ENTRYPOINT_NAMES = {"main", "app", "cli", "run", "start", "handler", "lambda_handler"}
+
+
+def bound_architecture_response(
+    response: Mapping[str, Any],
+    *,
+    max_serialized_bytes: int = ARCHITECTURE_RESPONSE_MAX_SERIALIZED_BYTES,
+) -> dict[str, Any]:
+    """Return an architecture response that fits the MCP REST payload budget.
+
+    Architecture projections can repeat bounded graph proposals in multiple
+    receipts. Item counts alone therefore do not establish a byte bound. The
+    route keeps the detailed response when it fits, progressively compacts
+    metadata-only fields when it does not, and exposes the result explicitly.
+    """
+
+    budget = max(1_024, int(max_serialized_bytes))
+    original = dict(response)
+    original_size = _serialized_json_bytes(original)
+    for strategy, collection_limit, mapping_limit, text_limit, depth_limit in (
+        ("full", None, None, None, None),
+        ("metadata_compact", 12, 48, 384, 8),
+        ("metadata_minimal", 4, 24, 160, 6),
+    ):
+        candidate = (
+            original
+            if collection_limit is None
+            else _compact_architecture_metadata(
+                original,
+                collection_limit=collection_limit,
+                mapping_limit=mapping_limit or 1,
+                text_limit=text_limit or 1,
+                depth_limit=depth_limit or 1,
+            )
+        )
+        bounded = _with_architecture_response_bounds(
+            candidate,
+            max_serialized_bytes=budget,
+            original_serialized_bytes=original_size,
+            truncated=strategy != "full",
+            strategy=strategy,
+        )
+        if _serialized_json_bytes(bounded) <= budget:
+            return _finalize_architecture_response_bounds(bounded)
+
+    fallback = {
+        "schema_version": _bounded_text(original.get("schema_version"), 128),
+        "contract_digest": _bounded_text(original.get("contract_digest"), 128),
+        "operation": "architecture",
+        "project": _bounded_text(original.get("project"), 160),
+        "root_id": _bounded_text(original.get("root_id"), 192),
+        "graph_snapshot_id": _bounded_text(original.get("graph_snapshot_id"), 192),
+        "architecture": {"summary": {"truncated": True}},
+        "provenance": {"source": "code-graph-summary", "raw_source_returned": False},
+        "execution": {"writes_sqlite_state": False, "raw_source_returned": False},
+    }
+    bounded = _with_architecture_response_bounds(
+        fallback,
+        max_serialized_bytes=budget,
+        original_serialized_bytes=original_size,
+        truncated=True,
+        strategy="metadata_fallback",
+    )
+    if _serialized_json_bytes(bounded) > budget:
+        raise ValueError("architecture response bounds metadata exceeded its own budget")
+    return _finalize_architecture_response_bounds(bounded)
+
+
+def _compact_architecture_metadata(
+    value: Any,
+    *,
+    collection_limit: int,
+    mapping_limit: int,
+    text_limit: int,
+    depth_limit: int,
+    _depth: int = 0,
+) -> Any:
+    """Deterministically compact graph metadata without returning source."""
+
+    if isinstance(value, str):
+        return _bounded_text(value, text_limit)
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, Mapping):
+        if _depth >= depth_limit:
+            return {"truncated": True, "omitted_items": len(value), "omitted_type": "mapping"}
+        items = sorted(((str(key), item) for key, item in value.items()), key=lambda item: item[0])
+        return {
+            key: _compact_architecture_metadata(
+                item,
+                collection_limit=collection_limit,
+                mapping_limit=mapping_limit,
+                text_limit=text_limit,
+                depth_limit=depth_limit,
+                _depth=_depth + 1,
+            )
+            for key, item in items[:mapping_limit]
+        }
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        if _depth >= depth_limit:
+            return {"truncated": True, "omitted_items": len(value), "omitted_type": "sequence"}
+        return [
+            _compact_architecture_metadata(
+                item,
+                collection_limit=collection_limit,
+                mapping_limit=mapping_limit,
+                text_limit=text_limit,
+                depth_limit=depth_limit,
+                _depth=_depth + 1,
+            )
+            for item in value[:collection_limit]
+        ]
+    return _bounded_text(value, text_limit)
+
+
+def _bounded_text(value: Any, limit: int) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(limit - 1, 0)]}…"
+
+
+def _serialized_json_bytes(value: Any) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8"))
+
+
+def _with_architecture_response_bounds(
+    response: Mapping[str, Any],
+    *,
+    max_serialized_bytes: int,
+    original_serialized_bytes: int,
+    truncated: bool,
+    strategy: str,
+) -> dict[str, Any]:
+    bounded = dict(response)
+    architecture = bounded.get("architecture")
+    architecture_payload = dict(architecture) if isinstance(architecture, Mapping) else {}
+    architecture_payload["response_bounds"] = {
+        "schema_version": ARCHITECTURE_RESPONSE_BOUNDS_SCHEMA_VERSION,
+        "max_serialized_bytes": max_serialized_bytes,
+        "original_serialized_bytes": original_serialized_bytes,
+        "serialized_bytes": 0,
+        "truncated": truncated,
+        "strategy": strategy,
+        "reason": "serialized_response_budget" if truncated else "within_serialized_response_budget",
+        "raw_source_returned": False,
+    }
+    bounded["architecture"] = architecture_payload
+    return bounded
+
+
+def _finalize_architecture_response_bounds(response: dict[str, Any]) -> dict[str, Any]:
+    """Set the measured final byte count without changing the payload shape."""
+
+    architecture = response.get("architecture")
+    if not isinstance(architecture, dict):
+        raise ValueError("architecture response must contain an object")
+    bounds = architecture.get("response_bounds")
+    if not isinstance(bounds, dict):
+        raise ValueError("architecture response bounds are unavailable")
+    for _ in range(3):
+        bounds["serialized_bytes"] = _serialized_json_bytes(response)
+    return response
 
 
 def build_architecture_intelligence(

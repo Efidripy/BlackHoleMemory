@@ -211,9 +211,7 @@ from .governed_consolidation import dry_run_apply as dry_run_governed_consolidat
 from .governed_consolidation import runtime_enabled as governed_consolidation_enabled
 from .governed_consolidation import runtime_status as governed_consolidation_status
 from .governed_consolidation import validate_proposal_current as validate_governed_consolidation_proposal
-from .governed_auto_review import auto_review_and_apply_proposal
 from .governed_auto_review import policy_status as governed_auto_review_policy_status
-from .governed_auto_review import runtime_enabled as governed_auto_review_apply_enabled
 from .governed_auto_review import operator_consent_required as governed_operator_consent_required
 from .governed_semantic_editor import GovernedSemanticEditorError
 from .governed_semantic_editor import GovernedSemanticEditorUnavailable
@@ -348,6 +346,7 @@ from .architecture_intelligence import build_architecture_intelligence
 from .architecture_intelligence import build_architecture_explain_receipt
 from .architecture_intelligence import build_architecture_memory
 from .architecture_intelligence import build_graph_analysis_quality_receipt
+from .architecture_intelligence import bound_architecture_response
 from .code_graph_query import ALLOWED_OPERATIONS as CODE_GRAPH_QUERY_OPERATIONS
 from .code_graph_query import CodeGraphQueryError
 from .code_graph_query import explain_code_graph
@@ -371,6 +370,7 @@ from .cross_repo_links import build_cross_repo_link_preview
 from .cross_repo_links import project_scope_is_aggregate
 from .change_impact import ChangeImpactError
 from .change_impact import build_change_impact_preview
+from .change_impact import bound_change_impact_preview_response
 from .change_impact import build_impact_binding_receipt
 from .change_impact import build_git_history_correlation_receipt
 from .change_impact_risk_receipt import build_change_impact_risk_receipt
@@ -2192,7 +2192,21 @@ def _mcp_model_dump(value: Any) -> Any:
     return value
 
 
-def _mcp_catalog_tool_dump(value: Any) -> dict[str, Any]:
+def _compact_mcp_input_schema_descriptions(value: Any) -> Any:
+    """Drop only verbose nested schema prose from the bounded core catalog."""
+
+    if isinstance(value, dict):
+        return {
+            key: _compact_mcp_input_schema_descriptions(item)
+            for key, item in value.items()
+            if key != "description" or not isinstance(item, str) or len(item) <= 120
+        }
+    if isinstance(value, list):
+        return [_compact_mcp_input_schema_descriptions(item) for item in value]
+    return value
+
+
+def _mcp_catalog_tool_dump(value: Any, *, compact_schema: bool = False) -> dict[str, Any]:
     """Publish a compact core catalog without FastMCP implementation extras."""
 
     dumped = _mcp_model_dump(value)
@@ -2206,6 +2220,8 @@ def _mcp_catalog_tool_dump(value: Any) -> dict[str, Any]:
     description = dumped.get("description")
     if isinstance(description, str) and len(description) > 240:
         dumped["description"] = description[:237].rstrip() + "..."
+    if compact_schema and isinstance(dumped.get("inputSchema"), dict):
+        dumped["inputSchema"] = _compact_mcp_input_schema_descriptions(dumped["inputSchema"])
     return dumped
 
 
@@ -2295,7 +2311,15 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
         if surface.value == "admin" and not is_admin_capability_valid(extract_mcp_capability(params)):
             requested_tools = resolve_mcp_surface("core")
         tools = filter_tools(await bhm_mcp.mcp.list_tools(), requested_tools)
-        return _jsonrpc_success(request_id, {"tools": [_mcp_catalog_tool_dump(tool) for tool in tools]})
+        return _jsonrpc_success(
+            request_id,
+            {
+                "tools": [
+                    _mcp_catalog_tool_dump(tool, compact_schema=requested_tools.value == "core")
+                    for tool in tools
+                ]
+            },
+        )
     if method == "tools/call":
         name = str(params.get("name") or "")
         arguments = params.get("arguments") or {}
@@ -3186,13 +3210,14 @@ class GovernedSemanticProposalRequest(BaseModel):
 
 
 class GovernedConsolidationDecisionRequest(BaseModel):
-    """Record a human decision; approval alone never applies lifecycle state."""
+    """Record a human decision; semantic approvals carry a bound attestation."""
 
     model_config = ConfigDict(extra="forbid")
 
     project: str = Field(min_length=1, max_length=160)
     proposal_id: str = Field(min_length=8, max_length=96)
     decision: Literal["approve", "reject"]
+    semantic_attestation: dict[str, Any] | None = None
 
 
 class GovernedConsolidationProposalRequest(BaseModel):
@@ -3525,7 +3550,7 @@ class PublicCodeToolRequest(BaseModel):
         "bicep_module_resolution",
     ]
     project: StrictStr = Field(default="blackholememory", min_length=1, max_length=120)
-    root: StrictStr = Field(default=".", min_length=1, max_length=512)
+    root: StrictStr | None = Field(default=None, min_length=1, max_length=512)
     apply: StrictBool = False
     build_graph: StrictBool = True
     defer_graph: StrictBool = False
@@ -5542,16 +5567,6 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
         automatic_review: dict[str, Any] | None = None
         if request.store_proposal:
             stored, inserted = GovernedConsolidationRepository(_governed_consolidation_database_path()).create(proposal)
-            if governed_auto_review_apply_enabled():
-                automatic_review = auto_review_and_apply_proposal(
-                    database_path=_governed_consolidation_database_path(),
-                    proposal_id=str(stored["proposal_id"]),
-                    project=project,
-                )
-                stored = GovernedConsolidationRepository(_governed_consolidation_database_path()).get(
-                    str(stored["proposal_id"]),
-                    project=project,
-                )
         return {
             "proposal": stored or proposal,
             "stored": request.store_proposal,
@@ -5881,7 +5896,13 @@ def _governed_consolidation_decide(request: GovernedConsolidationDecisionRequest
     _require_governed_consolidation_enabled()
     project = _governed_consolidation_project(principal, request.project)
     try:
-        proposal = GovernedConsolidationRepository(_governed_consolidation_database_path()).decide(proposal_id=request.proposal_id, project=project, decision=request.decision, actor=str(principal.caller_id))
+        proposal = GovernedConsolidationRepository(_governed_consolidation_database_path()).decide(
+            proposal_id=request.proposal_id,
+            project=project,
+            decision=request.decision,
+            actor=str(principal.caller_id),
+            semantic_attestation=request.semantic_attestation,
+        )
     except GovernedConsolidationError as exc:
         raise _governed_consolidation_error(exc) from exc
     return {"proposal": proposal, "apply_performed": False, "side_effects": {"sqlite_mutation": True, "memory_lifecycle_mutation": False, "memory_outbox_mutation": False, "qdrant_mutation": False, "mem0_mutation": False}}
@@ -16636,11 +16657,85 @@ def _public_code_projects(
     }
 
 
+def _public_code_indexed_root_paths(database_path: Path, project: str) -> tuple[str, ...]:
+    """Return distinct current root paths for one project from SQLite authority."""
+
+    store = SQLiteRepositoryIndexStore(database_path)
+    schema = store.inspect_schema(fast=True)
+    if not schema.get("ready"):
+        raise HTTPException(status_code=503, detail={"error": "repository_root_index_unavailable"})
+    connection = store._connect(read_only=True)
+    try:
+        rows = connection.execute(
+            """
+            SELECT DISTINCT snapshots.root_path
+            FROM repository_index_current AS current
+            JOIN repository_index_snapshots AS snapshots
+              ON snapshots.snapshot_id = current.snapshot_id
+            WHERE current.project = ?
+            ORDER BY snapshots.root_path
+            """,
+            (project,),
+        ).fetchall()
+    finally:
+        connection.close()
+    return tuple(str(row["root_path"] or "") for row in rows if str(row["root_path"] or ""))
+
+
+def _public_code_root_matches_configured_root(project: str, root: Path) -> bool:
+    """Allow the configured repository only for its configured default project."""
+
+    return project == _PROJECT_REGISTRY.default_project and root == settings.repo_root.resolve()
+
+
+def _resolve_implicit_public_code_root(
+    database_path: Path,
+    project: str,
+) -> Path:
+    """Resolve an omitted root only when SQLite has one current candidate."""
+
+    indexed_roots = _public_code_indexed_root_paths(database_path, project)
+    if len(indexed_roots) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "repository_root_ambiguous",
+                "project": project,
+                "candidate_count": len(indexed_roots),
+                "explicit_root_required": True,
+            },
+        )
+    return _resolve_public_code_root(indexed_roots[0])
+
+
+def _validate_explicit_public_code_root(
+    database_path: Path,
+    project: str,
+    root: Path,
+) -> None:
+    """Require an explicit root to match configured or SQLite-indexed identity."""
+
+    if _public_code_root_matches_configured_root(project, root):
+        return
+    indexed_roots = _public_code_indexed_root_paths(database_path, project)
+    root_identity = os.path.normcase(os.path.realpath(os.fspath(root)))
+    indexed_identities = {
+        os.path.normcase(os.path.realpath(indexed_root))
+        for indexed_root in indexed_roots
+    }
+    if root_identity not in indexed_identities:
+        raise HTTPException(status_code=422, detail={"error": "repository_project_root_unrecognized"})
+
+
 def _public_code_request_scope(
     request: PublicCodeToolRequest,
 ) -> tuple[Path, str]:
-    root = _resolve_public_code_root(request.root)
     project = _canonical_project(request.project)
+    if request.root is None:
+        database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+        root = _resolve_implicit_public_code_root(database_path, project)
+    else:
+        root = _resolve_public_code_root(request.root)
     return root, project
 
 
@@ -16733,7 +16828,14 @@ async def bhm_public_code_tools(
             }
         except (CodeGraphError, OSError, sqlite3.Error) as exc:
             raise HTTPException(status_code=503, detail={"error": "cross_repo_preview_unavailable", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
-    root, project = await _run_bounded_read(
+    project = _canonical_project(request.project)
+    if principal is not None:
+        project_error = authorize_projects(principal, (project,), require_explicit=True)
+        if project_error:
+            raise HTTPException(status_code=403, detail={"error": project_error})
+        if request.root is None and not principal.all_projects:
+            raise HTTPException(status_code=403, detail={"error": "caller_project_root_required"})
+    root, _ = await _run_bounded_read(
         "code.request_scope",
         _public_code_request_scope,
         request,
@@ -16747,6 +16849,14 @@ async def bhm_public_code_tools(
         )
         if root_error:
             raise HTTPException(status_code=403, detail={"error": root_error})
+    if request.root is not None:
+        await _run_bounded_read(
+            "code.request_root_binding",
+            _validate_explicit_public_code_root,
+            database_path,
+            project,
+            root,
+        )
     # Do not probe, index or inspect the requested repository until the
     # caller's project-to-root binding has passed. The root/scope resolution
     # above is intentionally the only pre-authorization boundary work.
@@ -17876,7 +17986,7 @@ async def bhm_public_code_tools(
             result["operation"] = operation
             result["contract_digest"] = _public_code_contract_digest()
             result["provenance"] = {"source": "sqlite-authoritative+git-metadata", "graph_snapshot_id": current.get("graph_snapshot_id"), "raw_source_returned": False}
-            return result
+            return bound_change_impact_preview_response(result)
         except (ChangeImpactError, ConventionMemoryError, OSError, subprocess.CalledProcessError) as exc:
             raise HTTPException(status_code=422, detail={"error": "impact_preview_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
     if operation in {"search", "graph", "trace", "impact"}:
@@ -18091,7 +18201,7 @@ async def bhm_public_code_tools(
             repository_snapshot_id=str(current.get("repository_snapshot_id") or ""),
             max_items=32,
         )
-        return {
+        return bound_architecture_response({
             "schema_version": "bhm.public-code-tools.v1",
             "contract_digest": _public_code_contract_digest(),
             "operation": operation,
@@ -18110,7 +18220,7 @@ async def bhm_public_code_tools(
             },
             "provenance": {"source": "code-graph-summary", "raw_source_returned": False},
             "execution": {"writes_sqlite_state": False, "raw_source_returned": False},
-        }
+        })
     raise HTTPException(status_code=422, detail={"error": "code_tool_operation_unhandled"})
 
 
@@ -21547,7 +21657,7 @@ async def bhm_governed_consolidation_status() -> dict[str, Any]:
     result = governed_consolidation_status(_governed_consolidation_database_path())
     auto_review = governed_auto_review_policy_status()
     result["auto_review_apply"] = auto_review
-    if result.get("enabled") and auto_review["enabled"] and not governed_operator_consent_required():
+    if result.get("enabled") and auto_review["automatic_apply_enabled"]:
         result["state"] = "policy-auto-reviewed"
         result["mode"] = "policy-auto-reviewed"
     elif result.get("enabled") and governed_operator_consent_required():
@@ -21563,7 +21673,8 @@ async def bhm_governed_consolidation_status() -> dict[str, Any]:
         "model_id": config.model_id or None,
         "direct_mem0_writes": False,
         "direct_qdrant_writes": False,
-        "automatic_apply": auto_review["enabled"] and not governed_operator_consent_required(),
+        "automatic_apply": False,
+        "automatic_apply_reason": "semantic_evidence_requires_operator_review",
         "operator_consent_required": governed_operator_consent_required(),
     }
     return result

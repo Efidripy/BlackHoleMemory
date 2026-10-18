@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
-from blackholememory.change_impact import ChangeImpactError, build_change_impact_preview, build_impact_binding_receipt
+from blackholememory.change_impact import IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES, ChangeImpactError, bound_change_impact_preview_response
+from blackholememory.change_impact import build_change_impact_preview, build_impact_binding_receipt
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
 from blackholememory.change_impact import build_cross_repo_history_preview, build_git_history_correlation_receipt, build_git_symbol_impact_evidence
 from blackholememory.change_impact import collect_git_diff_hunks
 from blackholememory.change_impact import correlate_diff_hunks_to_symbols, summarize_diff_hunks
@@ -36,6 +40,40 @@ def test_change_impact_builds_deterministic_ready_decision_card() -> None:
     assert first["selectedTests"] == ["tests/test_service.py"]
     assert first["preview_digest"] == second["preview_digest"]
     assert first["execution"]["auto_apply"] is False
+
+
+def test_change_impact_response_is_deterministically_bounded_with_review_signals() -> None:
+    oversized = build_change_impact_preview(_snapshot(), ["service.py"], conventions={"stale": False, "cards": []})
+    oversized["operation"] = "impact_preview"
+    oversized["contract_digest"] = "d" * 64
+    oversized["provenance"] = {"source": "sqlite-authoritative+git-metadata", "raw_source_returned": False}
+    oversized["gates"]["coverage_complete"] = False
+    oversized["risk_receipt"] = {"status": "review_required", "execution": {"raw_source_returned": False}}
+    oversized["impact_binding"] = {"status": "gap", "gaps": ["diff_hunk_coverage_missing"], "execution": {"raw_source_returned": False}}
+    metadata = "metadata-only-" * 512
+    oversized["impact"] = [
+        {"path": f"src/module_{index:03d}.py", "name": metadata, "stable_key": metadata}
+        for index in range(128)
+    ]
+    oversized["decision_card"]["impact"] = list(oversized["impact"])
+
+    first = bound_change_impact_preview_response(oversized)
+    second = bound_change_impact_preview_response(oversized)
+    serialized = json.dumps(first, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    bounds = first["response_bounds"]
+
+    assert first == second
+    assert len(serialized) <= IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES <= MAX_RESPONSE_BYTES
+    assert bounds["truncated"] is True
+    assert bounds["original_serialized_bytes"] > MAX_RESPONSE_BYTES
+    assert bounds["serialized_bytes"] == len(serialized)
+    assert bounds["reason"] == "serialized_response_budget"
+    assert first["gates"]["coverage_complete"] is False
+    assert first["gates"]["human_review_required"] is True
+    assert first["impact_binding"]["status"] == "gap"
+    assert "diff_hunk_coverage_missing" in first["impact_binding"]["gaps"]
+    assert first["risk_receipt"]["status"] == "review_required"
+    assert first["provenance"]["raw_source_returned"] is False
 
 
 def test_change_impact_fails_closed_for_stale_conventions() -> None:

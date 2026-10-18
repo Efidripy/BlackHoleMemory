@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .projection_quarantine import json_sha256
+from .qdrant_validation_bounds import ValidationScanBudget
 
 
 RETENTION_SCHEMA_VERSION = "1.0"
@@ -16,7 +17,9 @@ _MANIFEST_NAME = "quarantine-manifest.json"
 
 
 def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+    )
 
 
 def _digest(value: Any) -> str:
@@ -51,16 +54,27 @@ def _resolve_backup_path(
     return resolved
 
 
-def _manifest_paths(backup_root: Path | None) -> list[Path]:
+def _manifest_paths(
+    backup_root: Path | None, *, validation_budget: ValidationScanBudget
+) -> list[Path]:
     if backup_root is None or not backup_root.exists():
         return []
     try:
-        return sorted(backup_root.rglob(_MANIFEST_NAME))
+        result = []
+        for path in backup_root.rglob(_MANIFEST_NAME):
+            validation_budget.target("retention.manifest")
+            result.append(path)
+        return sorted(result)
     except OSError:
         return []
 
 
-def _validate_backup_manifest(path: Path, *, backup_root: Path | None = None) -> dict[str, Any]:
+def _validate_backup_manifest(
+    path: Path,
+    *,
+    backup_root: Path | None = None,
+    validation_budget: ValidationScanBudget,
+) -> dict[str, Any]:
     errors: list[str] = []
     try:
         resolved_manifest = path.resolve()
@@ -89,7 +103,9 @@ def _validate_backup_manifest(path: Path, *, backup_root: Path | None = None) ->
             "errors": ["manifest_unreadable"],
         }
     try:
+        validation_budget.request("retention.manifest_read")
         manifest = json.loads(path.read_text(encoding="utf-8"))
+        validation_budget.checkpoint("retention.manifest_read")
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return {
             "manifest": str(path),
@@ -124,14 +140,22 @@ def _validate_backup_manifest(path: Path, *, backup_root: Path | None = None) ->
         errors.append("backup_missing")
     else:
         try:
+            validation_budget.request("retention.backup_hash")
             actual_backup_hash = hashlib.sha256(backup_path.read_bytes()).hexdigest()
+            validation_budget.checkpoint("retention.backup_hash")
         except OSError as exc:
             errors.append(f"backup_read:{type(exc).__name__}")
         if expected_backup_hash and actual_backup_hash != expected_backup_hash:
             errors.append("backup_sha256_mismatch")
         try:
+            validation_budget.request("retention.backup_read")
             backup_document = json.loads(backup_path.read_text(encoding="utf-8"))
-            points = backup_document.get("points") if isinstance(backup_document, dict) else []
+            validation_budget.checkpoint("retention.backup_read")
+            points = (
+                backup_document.get("points")
+                if isinstance(backup_document, dict)
+                else []
+            )
             if not isinstance(points, list):
                 errors.append("backup_points_not_list")
                 points = []
@@ -142,6 +166,7 @@ def _validate_backup_manifest(path: Path, *, backup_root: Path | None = None) ->
     vector_hash_mismatches = 0
     invalid_points = 0
     for point in points:
+        validation_budget.target("retention.backup_point")
         if not isinstance(point, dict):
             invalid_points += 1
             continue
@@ -150,16 +175,25 @@ def _validate_backup_manifest(path: Path, *, backup_root: Path | None = None) ->
         quarantine_point_id = str(point.get("quarantinePointId") or "")
         payload = point.get("payload")
         vector = point.get("vector")
-        if not original_collection or not original_point_id or not quarantine_point_id or not isinstance(payload, dict):
+        if (
+            not original_collection
+            or not original_point_id
+            or not quarantine_point_id
+            or not isinstance(payload, dict)
+        ):
             invalid_points += 1
             continue
         key = (original_collection, original_point_id)
         if key in point_ids:
             errors.append("duplicate_original_point")
         point_ids.add(key)
-        if point.get("payloadSha256") and str(point["payloadSha256"]).lower() != json_sha256(payload):
+        if point.get("payloadSha256") and str(
+            point["payloadSha256"]
+        ).lower() != json_sha256(payload):
             payload_hash_mismatches += 1
-        if point.get("vectorSha256") and str(point["vectorSha256"]).lower() != json_sha256(vector):
+        if point.get("vectorSha256") and str(
+            point["vectorSha256"]
+        ).lower() != json_sha256(vector):
             vector_hash_mismatches += 1
     expected_count = manifest.get("candidateCount")
     if expected_count is not None and int(expected_count) != len(points):
@@ -196,10 +230,15 @@ def build_qdrant_retention_preview(
 
     collections = []
     decision_counts: Counter[str] = Counter()
-    for item in sorted(lifecycle_report.get("collections", []), key=lambda value: str(value.get("name") or "")):
+    for item in sorted(
+        lifecycle_report.get("collections", []),
+        key=lambda value: str(value.get("name") or ""),
+    ):
         decision = str(item.get("decision") or "review")
         decision_counts[decision] += 1
-        observed = item.get("observed") if isinstance(item.get("observed"), dict) else {}
+        observed = (
+            item.get("observed") if isinstance(item.get("observed"), dict) else {}
+        )
         collections.append(
             {
                 "name": item.get("name"),
@@ -215,7 +254,9 @@ def build_qdrant_retention_preview(
                 "repair_first_points": observed.get("repair_first_points"),
             }
         )
-    eligible_for_apply = [item["name"] for item in collections if item["decision"] == "purge"]
+    eligible_for_apply = [
+        item["name"] for item in collections if item["decision"] == "purge"
+    ]
     digest_payload = {
         "schema_version": RETENTION_SCHEMA_VERSION,
         "collections": collections,
@@ -262,10 +303,17 @@ def run_qdrant_restore_drill(
     backup_root: Path | None,
     *,
     lifecycle_report: dict[str, Any] | None = None,
+    validation_budget: ValidationScanBudget | None = None,
 ) -> dict[str, Any]:
     """Validate every quarantine backup as an in-memory restore rehearsal."""
 
-    manifests = [_validate_backup_manifest(path, backup_root=backup_root) for path in _manifest_paths(backup_root)]
+    budget = validation_budget or ValidationScanBudget()
+    manifests = [
+        _validate_backup_manifest(
+            path, backup_root=backup_root, validation_budget=budget
+        )
+        for path in _manifest_paths(backup_root, validation_budget=budget)
+    ]
     ready = [item for item in manifests if item["restore_ready"]]
     drill_payload = [
         {
@@ -276,7 +324,9 @@ def run_qdrant_restore_drill(
             "restore_ready": item["restore_ready"],
             "errors": item["errors"],
         }
-        for item in sorted(manifests, key=lambda value: str(value.get("collection") or ""))
+        for item in sorted(
+            manifests, key=lambda value: str(value.get("collection") or "")
+        )
     ]
     active_rebuildable = 0
     if lifecycle_report is not None:
@@ -302,5 +352,5 @@ def run_qdrant_restore_drill(
         ],
         "manifests": manifests,
         "drill_digest": _digest(drill_payload),
+        "validation": budget.snapshot(),
     }
-

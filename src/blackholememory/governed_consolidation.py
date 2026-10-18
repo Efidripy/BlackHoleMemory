@@ -35,6 +35,9 @@ MAX_PROPOSALS = 200
 MAX_CONTENT_CHARS = 8_000
 OPERATIONS = frozenset({"no_op", "create", "revise", "supersede", "archive", "link"})
 STATUSES = frozenset({"proposed", "approved", "rejected", "applied", "stale", "failed"})
+SEMANTIC_EDITOR_ANALYZER_PREFIX = "bhm-local-semantic-editor/"
+SEMANTIC_EVIDENCE_BINDING_SCHEMA_VERSION = "bhm.governed-semantic-evidence-binding.v1"
+SEMANTIC_OPERATOR_ATTESTATION_SCHEMA_VERSION = "bhm.governed-semantic-operator-attestation.v1"
 
 
 class GovernedConsolidationError(RuntimeError):
@@ -74,6 +77,12 @@ def _canonical_json(value: Any) -> str:
 def _sha256(value: str | bytes) -> str:
     encoded = value.encode("utf-8") if isinstance(value, str) else value
     return hashlib.sha256(encoded).hexdigest()
+
+
+def canonical_json_sha256(value: Any) -> str:
+    """Hash one canonical JSON value for an immutable proposal binding."""
+
+    return _sha256(_canonical_json(value))
 
 
 def _bounded_text(value: Any, *, limit: int, field: str, required: bool = False) -> str:
@@ -199,6 +208,183 @@ def _confidence(value: Any) -> float:
     return round(parsed, 6)
 
 
+def _is_sha256(value: Any) -> bool:
+    text = str(value or "")
+    return len(text) == 64 and all(char in "0123456789abcdef" for char in text)
+
+
+def _semantic_binding_error(message: str) -> None:
+    raise GovernedConsolidationError(f"semantic evidence binding invalid: {message}")
+
+
+def _is_semantic_proposal(proposal: Mapping[str, Any]) -> bool:
+    return str(proposal.get("analyzer") or "").startswith(SEMANTIC_EDITOR_ANALYZER_PREFIX)
+
+
+def _semantic_attestation_error(message: str) -> None:
+    raise GovernedConsolidationApprovalRequired(f"semantic operator attestation invalid: {message}")
+
+
+def _semantic_attestation_targets(binding: Mapping[str, Any]) -> list[str]:
+    """Return the exact, ordered lifecycle endpoints that an operator reviewed."""
+
+    targets: list[str] = []
+    for key in ("source", "target"):
+        item = binding.get(key)
+        if isinstance(item, Mapping):
+            memory_id = str(item.get("memory_id") or "")
+            if not memory_id:
+                _semantic_attestation_error(f"binding {key} has no memory id")
+            targets.append(memory_id)
+    return targets
+
+
+def validate_semantic_operator_attestation(
+    attestation: Any,
+    *,
+    proposal: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate a privileged semantic approval without persisting reviewer text.
+
+    The attestation deliberately repeats the identity fields an operator sees.
+    It is stored only inside the immutable approval-event JSON, so no SQLite
+    schema change or broadening of non-semantic decisions is required.
+    """
+
+    if not _is_semantic_proposal(proposal):
+        _semantic_attestation_error("proposal is not semantic")
+    if not isinstance(attestation, Mapping):
+        _semantic_attestation_error("attestation is required")
+    normalized = dict(attestation)
+    expected_keys = {
+        "schema_version",
+        "proposal_id",
+        "proposal_digest",
+        "identity_binding",
+        "model_operation",
+        "effective_operation",
+        "target_memory_ids",
+        "reviewer_outcome",
+    }
+    if set(normalized) != expected_keys:
+        _semantic_attestation_error("attestation keys are unsupported")
+    if normalized.get("schema_version") != SEMANTIC_OPERATOR_ATTESTATION_SCHEMA_VERSION:
+        _semantic_attestation_error("attestation schema is unsupported")
+    if normalized.get("proposal_id") != proposal.get("proposal_id"):
+        _semantic_attestation_error("proposal id does not match")
+    if normalized.get("proposal_digest") != proposal.get("proposal_digest"):
+        _semantic_attestation_error("proposal digest does not match")
+    binding = proposal.get("identity_binding")
+    if not isinstance(binding, Mapping) or normalized.get("identity_binding") != dict(binding):
+        _semantic_attestation_error("identity binding does not match")
+    semantic = proposal.get("semantic_editor")
+    policy = semantic.get("policy") if isinstance(semantic, Mapping) and isinstance(semantic.get("policy"), Mapping) else None
+    if policy is None:
+        _semantic_attestation_error("policy receipt is required")
+    if normalized.get("model_operation") != policy.get("model_operation"):
+        _semantic_attestation_error("model operation does not match policy receipt")
+    if normalized.get("effective_operation") != proposal.get("operation") or normalized.get("effective_operation") != policy.get("effective_operation"):
+        _semantic_attestation_error("effective operation does not match")
+    raw_targets = normalized.get("target_memory_ids")
+    if not isinstance(raw_targets, list) or any(not isinstance(item, str) or not item for item in raw_targets):
+        _semantic_attestation_error("target memory ids must be a string array")
+    if raw_targets != _semantic_attestation_targets(dict(binding)):
+        _semantic_attestation_error("target memory ids do not match binding")
+    if normalized.get("reviewer_outcome") != "approved":
+        _semantic_attestation_error("reviewer outcome must be approved")
+    return normalized
+
+
+def _validate_identity_binding(
+    binding: Any,
+    *,
+    basis: list[dict[str, str]],
+    candidate: Mapping[str, Any],
+    operation: str,
+) -> dict[str, Any]:
+    """Validate the evidence/target receipt that is included in proposal identity.
+
+    This is deliberately structural: it validates exact canonical IDs/revisions,
+    content hashes and target endpoints without pretending that lexical variation
+    proves semantic entailment.  A human reviewer still reads the support rows.
+    """
+
+    if not isinstance(binding, Mapping):
+        _semantic_binding_error("binding is required")
+    normalized = dict(binding)
+    expected_keys = {"schema_version", "policy_sha256", "candidate_sha256", "support", "target", "source"}
+    if set(normalized) != expected_keys:
+        _semantic_binding_error("binding keys are unsupported")
+    if normalized.get("schema_version") != SEMANTIC_EVIDENCE_BINDING_SCHEMA_VERSION:
+        _semantic_binding_error("binding schema is unsupported")
+    if not _is_sha256(normalized.get("policy_sha256")) or not _is_sha256(normalized.get("candidate_sha256")):
+        _semantic_binding_error("binding digests must be SHA-256")
+    if normalized["candidate_sha256"] != canonical_json_sha256(dict(candidate)):
+        _semantic_binding_error("candidate digest does not match")
+    support = normalized.get("support")
+    if not isinstance(support, list) or support != basis:
+        _semantic_binding_error("support must exactly match canonical basis")
+    target = normalized.get("target")
+    source = normalized.get("source")
+    lifecycle = {"revise", "supersede", "archive", "link"}
+    if operation in lifecycle:
+        if not isinstance(target, Mapping) or dict(target) not in basis:
+            _semantic_binding_error("exact lifecycle target is required")
+        if candidate.get("target_memory_id") != target.get("memory_id"):
+            _semantic_binding_error("candidate target does not match binding")
+    elif target is not None:
+        _semantic_binding_error("non-lifecycle operation cannot bind a target")
+    if operation == "link":
+        if len(basis) != 2 or not isinstance(source, Mapping) or dict(source) not in basis:
+            _semantic_binding_error("link requires exactly two bound endpoints")
+        if source.get("memory_id") == target.get("memory_id"):
+            _semantic_binding_error("link endpoints must differ")
+    elif source is not None:
+        _semantic_binding_error("only link may bind a source")
+    return normalized
+
+
+def _proposal_identity(proposal: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract the immutable fields covered by a proposal digest."""
+
+    keys = (
+        "schema_version", "project", "operation", "basis", "candidate", "reason",
+        "confidence", "conflicts", "analyzer", "model_or_provider",
+    )
+    if any(key not in proposal for key in keys):
+        raise GovernedConsolidationError("proposal identity is incomplete")
+    identity = {key: proposal[key] for key in keys}
+    if "identity_binding" in proposal:
+        identity["identity_binding"] = proposal["identity_binding"]
+    return identity
+
+
+def validate_proposal_identity(proposal: Mapping[str, Any]) -> None:
+    """Fail closed when the exact persisted proposal identity was altered."""
+
+    identity = _proposal_identity(proposal)
+    expected_digest = canonical_json_sha256(identity)
+    actual_digest = str(proposal.get("proposal_digest") or "")
+    if actual_digest != expected_digest or str(proposal.get("proposal_id") or "") != f"gcp_bhm_{expected_digest[:24]}":
+        raise GovernedConsolidationError("proposal identity digest does not match")
+    analyzer = str(identity["analyzer"] or "")
+    if analyzer.startswith(SEMANTIC_EDITOR_ANALYZER_PREFIX):
+        binding = _validate_identity_binding(
+            identity.get("identity_binding"),
+            basis=list(identity["basis"]),
+            candidate=dict(identity["candidate"]),
+            operation=str(identity["operation"]),
+        )
+        semantic = proposal.get("semantic_editor")
+        if not isinstance(semantic, Mapping) or semantic.get("binding") != binding:
+            _semantic_binding_error("receipt binding does not match identity")
+        policy = semantic.get("policy")
+        if not isinstance(policy, Mapping) or canonical_json_sha256(dict(policy)) != binding["policy_sha256"]:
+            _semantic_binding_error("policy receipt digest does not match")
+        if semantic.get("proposal_identity_digest") != expected_digest:
+            _semantic_binding_error("receipt does not bind proposal identity")
+
+
 def build_proposal(
     *,
     project: str,
@@ -211,6 +397,7 @@ def build_proposal(
     analyzer: str = GOVERNED_CONSOLIDATION_ANALYZER,
     model_or_provider: str | None = None,
     analysis_duration_ms: float | None = None,
+    identity_binding: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build one deterministic, non-persisting project-scoped proposal."""
 
@@ -246,7 +433,14 @@ def build_proposal(
         "analyzer": _bounded_text(analyzer, limit=160, field="analyzer", required=True),
         "model_or_provider": _bounded_text(model_or_provider, limit=160, field="model_or_provider") or None,
     }
-    proposal_digest = _sha256(_canonical_json(identity))
+    if identity_binding is not None:
+        identity["identity_binding"] = _validate_identity_binding(
+            identity_binding,
+            basis=decoded_basis,
+            candidate=normalized_candidate,
+            operation=normalized_operation,
+        )
+    proposal_digest = canonical_json_sha256(identity)
     return {
         "proposal_id": f"gcp_bhm_{proposal_digest[:24]}",
         "proposal_digest": proposal_digest,
@@ -416,6 +610,7 @@ class GovernedConsolidationRepository:
         normalized = copy.deepcopy(dict(proposal))
         if normalized.get("status") != "proposed" or normalized.get("requires_human_approval") is not True:
             raise GovernedConsolidationError("only a proposed human-approved contract can be stored")
+        validate_proposal_identity(normalized)
         proposal_id = _bounded_text(normalized.get("proposal_id"), limit=96, field="proposal_id", required=True)
         proposal_digest = _bounded_text(normalized.get("proposal_digest"), limit=64, field="proposal_digest", required=True)
         project = _bounded_text(normalized.get("project"), limit=160, field="project", required=True)
@@ -489,31 +684,104 @@ class GovernedConsolidationRepository:
         finally:
             connection.close()
 
-    def decide(self, *, proposal_id: str, project: str, decision: str, actor: str) -> dict[str, Any]:
+    def decide(
+        self,
+        *,
+        proposal_id: str,
+        project: str,
+        decision: str,
+        actor: str,
+        semantic_attestation: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if decision not in {"approve", "reject"}:
             raise GovernedConsolidationError("decision must be approve or reject")
         actor_digest = _sha256(_bounded_text(actor, limit=240, field="actor", required=True))
         now = _utc_now_iso()
         with self._write() as connection:
             row = connection.execute(
-                "SELECT status FROM governed_consolidation_proposals WHERE proposal_id = ? AND project = ?",
+                "SELECT status, proposal_json FROM governed_consolidation_proposals WHERE proposal_id = ? AND project = ?",
                 (proposal_id, project),
             ).fetchone()
             if row is None:
                 raise GovernedConsolidationError("proposal not found")
+            proposal = json.loads(str(row["proposal_json"]))
+            validate_proposal_identity(proposal)
             status = str(row["status"])
             desired = "approved" if decision == "approve" else "rejected"
             if status == desired:
+                if decision == "approve" and _is_semantic_proposal(proposal):
+                    supplied = validate_semantic_operator_attestation(
+                        semantic_attestation,
+                        proposal=proposal,
+                    )
+                    recorded = self._validate_semantic_approval_event(
+                        connection,
+                        proposal_id=proposal_id,
+                        proposal=proposal,
+                    )
+                    if supplied != recorded:
+                        _semantic_attestation_error("approval event does not match supplied attestation")
                 return self.get(proposal_id, project=project)
             if status != "proposed":
                 raise GovernedConsolidationError(f"proposal cannot be {decision}d from {status}")
+            validated_attestation = None
+            if decision == "approve" and _is_semantic_proposal(proposal):
+                validated_attestation = validate_semantic_operator_attestation(
+                    semantic_attestation,
+                    proposal=proposal,
+                )
             column = "approved" if decision == "approve" else "rejected"
             connection.execute(
                 f"UPDATE governed_consolidation_proposals SET status = ?, {column}_at = ?, {column}_by_digest = ?, updated_at = ? WHERE proposal_id = ?",
                 (desired, now, actor_digest, now, proposal_id),
             )
-            self._append_event(connection, proposal_id, desired, now, {"actor_digest": actor_digest})
+            details: dict[str, Any] = {"actor_digest": actor_digest}
+            if validated_attestation is not None:
+                details["semantic_operator_attestation"] = validated_attestation
+            self._append_event(connection, proposal_id, desired, now, details)
         return self.get(proposal_id, project=project)
+
+    @staticmethod
+    def _validate_semantic_approval_event(
+        connection: sqlite3.Connection,
+        *,
+        proposal_id: str,
+        proposal: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Require exactly one valid manual semantic approval event before apply."""
+
+        rows = connection.execute(
+            "SELECT details_json FROM governed_consolidation_events WHERE proposal_id = ? AND action = 'approved' ORDER BY created_at, event_id",
+            (proposal_id,),
+        ).fetchall()
+        if len(rows) != 1:
+            _semantic_attestation_error("exactly one approval event is required")
+        try:
+            details = json.loads(str(rows[0]["details_json"]))
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            _semantic_attestation_error("approval event is malformed")
+            raise AssertionError("unreachable") from exc
+        if not isinstance(details, Mapping):
+            _semantic_attestation_error("approval event is malformed")
+        return validate_semantic_operator_attestation(
+            details.get("semantic_operator_attestation"),
+            proposal=proposal,
+        )
+
+    def validate_approved_semantic_attestation(self, proposal: Mapping[str, Any]) -> None:
+        """Read-only event check used immediately before an approved semantic apply."""
+
+        if not _is_semantic_proposal(proposal):
+            return
+        connection = self._read()
+        try:
+            self._validate_semantic_approval_event(
+                connection,
+                proposal_id=str(proposal["proposal_id"]),
+                proposal=proposal,
+            )
+        finally:
+            connection.close()
 
     def decide_automatically(
         self,
@@ -542,11 +810,17 @@ class GovernedConsolidationRepository:
         now = _utc_now_iso()
         with self._write() as connection:
             row = connection.execute(
-                "SELECT status FROM governed_consolidation_proposals WHERE proposal_id = ? AND project = ?",
+                "SELECT status, proposal_json FROM governed_consolidation_proposals WHERE proposal_id = ? AND project = ?",
                 (proposal_id, project),
             ).fetchone()
             if row is None:
                 raise GovernedConsolidationError("proposal not found")
+            proposal = json.loads(str(row["proposal_json"]))
+            validate_proposal_identity(proposal)
+            if decision == "approve" and _is_semantic_proposal(proposal):
+                raise GovernedConsolidationApprovalRequired(
+                    "semantic proposals require a privileged operator attestation"
+                )
             status = str(row["status"])
             desired = "approved" if decision == "approve" else "rejected"
             if status == desired:
@@ -710,11 +984,13 @@ def _proposal_mutations(proposal: Mapping[str, Any], repository: SQLiteMemoryRep
         return [Memory.from_dict(archived_payload)], None, expected
     if operation == "link":
         target_id = str(candidate["target_memory_id"])
+        binding = proposal.get("identity_binding") if isinstance(proposal.get("identity_binding"), Mapping) else None
+        bound_source = binding.get("source") if isinstance(binding, Mapping) and isinstance(binding.get("source"), Mapping) else None
         # Basis is canonically sorted for idempotency, so its first item may
         # be the explicit target.  Choose the first distinct same-project
         # basis endpoint rather than rejecting an otherwise valid two-memory
         # link proposal merely because of that stable ordering.
-        source_id = next(
+        source_id = str(bound_source.get("memory_id") or "") if bound_source is not None else next(
             (str(item["memory_id"]) for item in basis if str(item["memory_id"]) != target_id),
             "",
         )
@@ -729,6 +1005,7 @@ def _proposal_mutations(proposal: Mapping[str, Any], repository: SQLiteMemoryRep
 def validate_proposal_current(*, proposal: Mapping[str, Any], repository: SQLiteMemoryRepository) -> dict[str, Any]:
     """Read-only optimistic-concurrency probe against canonical SQLite state."""
 
+    validate_proposal_identity(proposal)
     project = str(proposal["project"])
     stale: list[str] = []
     for basis in proposal["basis"]:
@@ -781,6 +1058,11 @@ def apply_approved_proposal(*, database_path: Path | str, proposal_id: str, proj
     proposal = proposal_store.get(proposal_id, project=project)
     if proposal["status"] != "approved":
         raise GovernedConsolidationApprovalRequired("proposal is not approved")
+    # A semantic approval is valid only when the event ledger still carries a
+    # reviewer attestation bound to this exact proposal/evidence identity. This
+    # catches direct proposal-json or event-json tampering before any lifecycle
+    # transaction or outbox event is attempted.
+    proposal_store.validate_approved_semantic_attestation(proposal)
     repository = SQLiteMemoryRepository(database_path)
     validation = validate_proposal_current(proposal=proposal, repository=repository)
     if not validation["current"]:

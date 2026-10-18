@@ -13,6 +13,7 @@ from blackholememory.app import _resolve_public_code_root
 def test_public_code_tool_contract_is_allowlisted_and_read_only_by_default() -> None:
     request = PublicCodeToolRequest(operation="schema")
     assert request.apply is False
+    assert request.root is None
     assert request.operation in _PUBLIC_CODE_TOOL_OPERATIONS
     assert request.max_files_per_run == 666
     assert PublicCodeToolRequest(operation="graph", graph_operation="resolve").graph_operation == "resolve"
@@ -70,3 +71,17 @@ def test_mcp_index_forwards_bounded_resume_and_graph_receipt_fields(monkeypatch)
         "expected_state_digest": None,
         "snapshot_id": "snapshot-1",
     }
+
+
+def test_mcp_status_preserves_omitted_root_for_fail_closed_resolution(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_public_code_tool(operation: str, **kwargs):
+        captured["operation"] = operation
+        captured.update(kwargs)
+        return {"ok": True}
+
+    monkeypatch.setattr(bhm_mcp, "_public_code_tool", fake_public_code_tool)
+
+    assert bhm_mcp.bhm_index_status(project="demo") == {"ok": True}
+    assert captured == {"operation": "status", "project": "demo", "root": None}
