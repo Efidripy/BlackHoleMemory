@@ -63,6 +63,7 @@ def bhm_health_payload(
     fallback_mode: str,
     fallback_active: bool,
     mem0_plan: Mapping[str, Any] | None = None,
+    source_identity: Mapping[str, Any] | None = None,
     observed_at: str | None = None,
     projection_required: bool = True,
 ) -> dict[str, Any]:
@@ -101,6 +102,8 @@ def bhm_health_payload(
         payload["mcp_transport"] = dict(transport)
     if mem0_plan is not None:
         payload["mem0"] = dict(mem0_plan)
+    if source_identity is not None:
+        payload["source_identity"] = dict(source_identity)
     return payload
 
 

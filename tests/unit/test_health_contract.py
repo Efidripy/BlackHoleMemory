@@ -95,6 +95,21 @@ def test_health_contract_exposes_streamable_transport_as_the_only_mcp_truth():
     assert "mcp_attach" not in health
 
 
+def test_authenticated_bhm_health_can_expose_launcher_bound_source_identity():
+    health = bhm_health_payload(
+        service="BlackHoleMemory",
+        version="bhm-test",
+        port=8000,
+        storage=_storage(),
+        memory_store=_memory_store(),
+        fallback_mode="explicit",
+        fallback_active=False,
+        source_identity={"status": "verified", "revision": "a" * 40, "tree_state": "clean"},
+    )
+
+    assert health["source_identity"] == {"status": "verified", "revision": "a" * 40, "tree_state": "clean"}
+
+
 def test_authenticated_bhm_health_exposes_redacted_qdrant_probe_receipt():
     diagnostic = {
         "schema_version": "bhm.qdrant-health-diagnostic.v1",

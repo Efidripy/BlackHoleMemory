@@ -34,6 +34,7 @@ def _runtime(*, mode: str = "sqlite-authoritative", outbox: dict | None = None) 
         configured_fallback_mode=lambda: "explicit",
         fallback_grace_active=lambda: False,
         mem0_runtime_plan=lambda: {"status": "projection-only"},
+        source_identity=lambda: {"status": "verified", "revision": "a" * 40, "tree_state": "clean"},
         provider_warmup_status=lambda: {"ready": True},
         utc_now=lambda: "2026-07-30T00:00:00Z",
         transport_snapshot=lambda: {"status": "attached"},
@@ -55,6 +56,7 @@ def test_health_domain_builders_keep_route_contract_shapes() -> None:
     health = build_bhm_health(runtime)
     assert health["mcp_transport"]["status"] == "attached"
     assert health["mem0"] == {"status": "projection-only"}
+    assert health["source_identity"] == {"status": "verified", "revision": "a" * 40, "tree_state": "clean"}
     assert build_cutover(runtime)["required_ok"] is True
 
 

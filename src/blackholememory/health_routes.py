@@ -38,6 +38,7 @@ class HealthRuntimeDependencies:
     configured_fallback_mode: Callable[[], str]
     fallback_grace_active: Callable[[], bool]
     mem0_runtime_plan: Callable[[], Mapping[str, Any]]
+    source_identity: Callable[[], Mapping[str, Any]]
     provider_warmup_status: Callable[[], Mapping[str, Any]]
     utc_now: Callable[[], str]
     transport_snapshot: Callable[[], Mapping[str, Any]]
@@ -114,6 +115,7 @@ def build_bhm_health(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
         fallback_mode=runtime.configured_fallback_mode(),
         fallback_active=runtime.fallback_grace_active(),
         mem0_plan=runtime.mem0_runtime_plan(),
+        source_identity=runtime.source_identity(),
         observed_at=runtime.utc_now(),
         projection_required=projection_required,
     )

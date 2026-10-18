@@ -48,6 +48,22 @@ function Set-AuthoritativeEnvironment {
   Resolve-LocalLmStudioEndpoint
 }
 
+function Set-AuthoritativeSourceIdentity {
+  $revision = (& git -C $repoRoot rev-parse --verify HEAD 2>$null).Trim().ToLowerInvariant()
+  if ($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$') {
+    throw 'authoritative launcher requires a resolved Git revision'
+  }
+  $dirty = @(& git -C $repoRoot status --porcelain 2>$null)
+  if ($LASTEXITCODE -ne 0) {
+    throw 'authoritative launcher cannot verify Git worktree state'
+  }
+  if ($dirty.Count -ne 0) {
+    throw 'authoritative launcher refuses an identity attestation from a dirty tracked worktree'
+  }
+  $env:BHM_SOURCE_REVISION = $revision
+  $env:BHM_SOURCE_DIRTY = 'false'
+}
+
 function Get-ConfiguredOpenAiBaseUrl {
   if ($env:OPENAI_BASE_URL) {
     return $env:OPENAI_BASE_URL.Trim().TrimEnd('/')
@@ -359,6 +375,7 @@ if ($StopOnly) {
   } | ConvertTo-Json -Depth 4
   exit 0
 }
+Set-AuthoritativeSourceIdentity
 Set-AuthoritativeEnvironment
 $initial = Get-ContractSnapshot -BaseUrl $BaseUrl
 if ($ProbeOnly) {
