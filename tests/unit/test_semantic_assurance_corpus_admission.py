@@ -106,6 +106,90 @@ def _refresh_curator_binding(raw: dict[str, object]) -> None:
     ))
 
 
+def _v6_controls(cases: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "schema_version": "bhm.semantic-assurance-v6-curation-controls.v1",
+        "case_controls": [
+            {
+                "case_id": case["case_id"],
+                "atomic_fact_id": _opaque(f"atomic-fact:{case['case_id']}"),
+                "support_count_bucket": "two",
+                "approximate_length_bucket": "medium",
+                "document_genre": "governance",
+                "relation_form": "support",
+                "adversarial_form": "none",
+                "dimension_surfaces": ["factuality", "entailment", "relevance", "safe_operation"],
+            }
+            for case in cases
+        ],
+    }
+
+
+def _rebuild_v6_packets_and_ledger(raw: dict[str, object]) -> None:
+    corpus = raw["corpus"]
+    assert isinstance(corpus, dict)
+    cases = corpus["cases"]
+    assert isinstance(cases, list)
+    packet_cases = [
+        {key: case[key] for key in ("case_id", "prompt", "candidate", "supports")}
+        for case in cases
+    ]
+    second_packet = packet_cases[1:] + packet_cases[:1]
+
+    def ledger(rows: list[dict[str, object]]) -> dict[str, object]:
+        return {"rows": [
+            {"case_id": row["case_id"], "support_ids": [item["support_id"] for item in row["supports"]], "labels": None}
+            for row in rows
+        ]}
+
+    raw["packets"] = {"reviewer_a": {"cases": packet_cases}, "reviewer_b": {"cases": second_packet}}
+    raw["ledgers"] = {"reviewer_a": ledger(packet_cases), "reviewer_b": ledger(second_packet)}
+    raw["curator_ledger"] = {"rows": [
+        {
+            "case_id": case["case_id"],
+            "semantic_id": _opaque(f"semantic:{case['case_id']}"),
+            "proposition_id": _opaque(f"proposition:{case['case_id']}"),
+            "mechanism_id": _opaque(f"mechanism:{case['case_id']}"),
+            "source_fragments": [_opaque(f"fragment:{case['case_id']}")],
+        }
+        for case in cases
+    ]}
+    raw["v6_curation_controls"] = _v6_controls(cases)
+    _refresh_curator_binding(raw)
+
+
+def _raw_v6() -> dict[str, object]:
+    raw = _raw()
+    raw["schema_version"] = "bhm.semantic-assurance-corpus-admission.v2"
+    raw["admission_profile"] = "v6_independent_human_curation"
+    corpus = raw["corpus"]
+    assert isinstance(corpus, dict)
+    cases = corpus["cases"]
+    assert isinstance(cases, list)
+    cases[:] = [case for case in cases if case["partition"] != "sealed_holdout"]
+    for partition in ("development", "validation"):
+        for index in range(140):
+            cases.append(_case(len(cases), partition, RISKS[index % len(RISKS)]))
+    for risk in CONFLICTS:
+        for _ in range(50):
+            cases.append(_case(len(cases), "sealed_holdout", risk))
+    for index in range(200):
+        cases.append(_case(len(cases), "sealed_holdout", RISKS[index % len(RISKS)]))
+    _rebuild_v6_packets_and_ledger(raw)
+    return raw
+
+
+def _reduce_sealed_direct_conflicts_to_49(raw: dict[str, object]) -> None:
+    corpus = raw["corpus"]
+    assert isinstance(corpus, dict)
+    cases = corpus["cases"]
+    assert isinstance(cases, list)
+    direct = [case for case in cases if case["partition"] == "sealed_holdout" and case["risk_class"] == "direct_conflict"]
+    for case in direct[49:]:
+        case["risk_class"] = "factuality"
+    _refresh_curator_binding(raw)
+
+
 def test_admits_complete_blinded_private_corpus_and_returns_content_free_no_go_receipt() -> None:
     raw = _raw()
     receipt = admit_semantic_assurance_corpus_for_human_review(raw)
@@ -130,6 +214,76 @@ def test_admits_complete_blinded_private_corpus_and_returns_content_free_no_go_r
     rendered = json.dumps(receipt, sort_keys=True)
     assert "Candidate statement" not in rendered
     assert "Evidence alpha" not in rendered
+
+
+def test_v6_admits_exact_840_case_floor_all_partition_risk_cells_and_private_controls() -> None:
+    receipt = admit_semantic_assurance_corpus_for_human_review(_raw_v6())
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-corpus-admission-receipt.v2"
+    assert receipt["admission_profile"] == "v6_independent_human_curation"
+    assert receipt["corpus"]["partition_counts"] == {"development": 220, "sealed_holdout": 400, "validation": 220}
+    assert receipt["corpus"]["case_count"] == 840
+    assert all(
+        set(counts) == set(RISKS) and all(value >= 1 for value in counts.values())
+        for counts in receipt["corpus"]["partition_risk_counts"].values()
+    )
+    assert len(receipt["corpus"]["v6_control_binding_digest"]) == 64
+    assert receipt["assurance"]["semantic_independence_proven"] is False
+    assert receipt["assurance"]["automatic_apply_ready"] is False
+    assert verify_semantic_assurance_corpus_admission(receipt) == receipt
+    rendered = json.dumps(receipt, sort_keys=True)
+    assert "atomic-fact" not in rendered
+    assert "governance" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda raw: (
+                raw["corpus"]["cases"].pop(next(index for index, case in enumerate(raw["corpus"]["cases"]) if case["partition"] == "development")),
+                _rebuild_v6_packets_and_ledger(raw),
+            ),
+            "partition coverage",
+        ),
+        (
+            lambda raw: (
+                [case.__setitem__("risk_class", "factuality") for case in raw["corpus"]["cases"] if case["partition"] == "validation" and case["risk_class"] == "abstention"],
+                _refresh_curator_binding(raw),
+            ),
+            "risk coverage",
+        ),
+        (
+            _reduce_sealed_direct_conflicts_to_49,
+            "conflict bucket",
+        ),
+        (
+            lambda raw: raw["v6_curation_controls"]["case_controls"][1].__setitem__("atomic_fact_id", raw["v6_curation_controls"]["case_controls"][0]["atomic_fact_id"]),
+            "one-to-one",
+        ),
+        (
+            lambda raw: raw["v6_curation_controls"]["case_controls"].pop(),
+            "cover every",
+        ),
+    ],
+)
+def test_v6_rejects_weak_partition_risk_conflict_and_control_evidence(mutate, match: str) -> None:
+    raw = _raw_v6()
+    mutate(raw)
+    with pytest.raises(SemanticAssuranceCorpusAdmissionError, match=match):
+        admit_semantic_assurance_corpus_for_human_review(raw)
+
+
+def test_v1_receipt_cannot_masquerade_as_v6_and_v6_receipt_is_tamper_evident() -> None:
+    v1 = admit_semantic_assurance_corpus_for_human_review(_raw())
+    v1["schema_version"] = "bhm.semantic-assurance-corpus-admission-receipt.v2"
+    with pytest.raises(SemanticAssuranceCorpusAdmissionError, match="schema"):
+        verify_semantic_assurance_corpus_admission(v1)
+
+    v6 = admit_semantic_assurance_corpus_for_human_review(_raw_v6())
+    v6["corpus"]["partition_risk_counts"]["development"]["factuality"] += 1
+    with pytest.raises(SemanticAssuranceCorpusAdmissionError, match="partition risk"):
+        verify_semantic_assurance_corpus_admission(v6)
 
 
 @pytest.mark.parametrize(
