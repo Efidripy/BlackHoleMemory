@@ -300,7 +300,7 @@ def _validate_case(raw: Any, groups: Mapping[str, str]) -> dict[str, Any]:
     partition = _partition_name(raw.get("partition"))
     if groups.get(group_id) != partition:
         raise SemanticAssuranceEvaluationError("semantic assurance case group partition is invalid")
-    _text(raw.get("risk_class"), "semantic assurance risk class", 120)
+    risk_class = _text(raw.get("risk_class"), "semantic assurance risk class", 120)
     supports = raw.get("supports")
     if not isinstance(supports, list) or not supports:
         raise SemanticAssuranceEvaluationError("semantic assurance supports are invalid")
@@ -322,6 +322,7 @@ def _validate_case(raw: Any, groups: Mapping[str, str]) -> dict[str, Any]:
         "case_id": case_id,
         "partition": partition,
         "support_ids": tuple(sorted(support_ids)),
+        "risk_class": risk_class,
         "expected": expected,
         "isolation": isolation,
     }

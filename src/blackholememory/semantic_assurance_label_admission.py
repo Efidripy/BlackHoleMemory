@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,15 @@ RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-human-label-admission-receipt.v
 _MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 _LABEL_KEYS = frozenset({"factuality", "entailment", "conflict", "support_relevance", "operation"})
 _REQUIRED_HUMAN_ISOLATION_KEYS = frozenset({"family_id", "group_id", "source_group_id", "source_theme", "prompt_template_id", "paraphrase_cluster_id"})
+_REQUIRED_RISK_CLASSES = frozenset({
+    "factuality", "entailment", "relevance", "direct_conflict", "temporal_conflict",
+    "scope_conflict", "implicit_conflict", "injection", "cross_project",
+    "retrieval_pressure", "abstention",
+})
+_SEALED_CRITICAL_RISK_CLASSES = frozenset({
+    "direct_conflict", "temporal_conflict", "scope_conflict", "implicit_conflict",
+    "injection", "cross_project", "retrieval_pressure", "abstention",
+})
 
 
 class SemanticAssuranceLabelAdmissionError(ValueError):
@@ -70,11 +80,12 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
             raise SemanticAssuranceLabelAdmissionError("human-label corpus lacks required split-isolation identities")
     if not isinstance(raw, Mapping) or raw.get("schema_version") != SCHEMA_VERSION:
         raise SemanticAssuranceLabelAdmissionError("human-label manifest schema is unsupported")
-    expected_fields = {"schema_version", "corpus", "protocol", "reviewers", "adjudications"}
+    expected_fields = {"schema_version", "corpus", "protocol", "pre_registration", "reviewers", "adjudications"}
     if set(raw) != expected_fields:
         raise SemanticAssuranceLabelAdmissionError("human-label manifest has unexpected fields")
     _validate_corpus(raw.get("corpus"), normalized_dataset)
     _validate_protocol(raw.get("protocol"))
+    pre_registration = _validate_pre_registration(raw.get("pre_registration"), dataset)
     dataset_cases = dataset["cases"]
     case_support_ids = {
         str(case["case_id"]): tuple(str(item) for item in case["support_ids"])
@@ -111,6 +122,7 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
             "adjudicator_blinded_to_reviewer_identities": True,
             "holdout_not_used_for_tuning": True,
         },
+        "pre_registration": pre_registration,
         "execution": {
             "network_used": False,
             "model_called": False,
@@ -134,7 +146,7 @@ def verify_semantic_assurance_label_admission(value: object) -> dict[str, Any]:
 
     if not isinstance(value, Mapping):
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt is invalid")
-    expected = {"schema_version", "ok", "corpus", "review", "protocol", "execution", "assurance", "admission_digest"}
+    expected = {"schema_version", "ok", "corpus", "review", "protocol", "pre_registration", "execution", "assurance", "admission_digest"}
     if set(value) != expected or value.get("schema_version") != RECEIPT_SCHEMA_VERSION or value.get("ok") is not True:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt schema is invalid")
     corpus = value.get("corpus")
@@ -174,11 +186,12 @@ def verify_semantic_assurance_label_admission(value: object) -> dict[str, Any]:
         "adjudicator_blinded_to_reviewer_identities": True,
         "holdout_not_used_for_tuning": True,
     }
+    pre_registration = _validate_receipt_pre_registration(value.get("pre_registration"))
     expected_execution = {"network_used": False, "model_called": False, "sqlite_mutation": False, "mem0_mutation": False, "qdrant_mutation": False, "automatic_apply": False}
     expected_assurance = {"status": "attested_structurally_bound_not_identity_authenticated", "human_identity_authenticated": False, "semantic_truth_proven": False, "automatic_apply_ready": False}
     if value.get("protocol") != expected_protocol or value.get("execution") != expected_execution or value.get("assurance") != expected_assurance:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt boundary is invalid")
-    core = {"schema_version": RECEIPT_SCHEMA_VERSION, "ok": True, "corpus": normalized_corpus, "review": dict(review), "protocol": expected_protocol, "execution": expected_execution, "assurance": expected_assurance}
+    core = {"schema_version": RECEIPT_SCHEMA_VERSION, "ok": True, "corpus": normalized_corpus, "review": dict(review), "protocol": expected_protocol, "pre_registration": pre_registration, "execution": expected_execution, "assurance": expected_assurance}
     digest = value.get("admission_digest")
     if not isinstance(digest, str):
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt digest is invalid")
@@ -222,6 +235,81 @@ def _validate_protocol(raw: object) -> None:
     }
     if raw != expected:
         raise SemanticAssuranceLabelAdmissionError("human-label protocol attestations are incomplete")
+
+
+def _validate_pre_registration(raw: object, dataset: Mapping[str, Any]) -> dict[str, Any]:
+    expected_fields = {
+        "protocol_id", "committed_at", "sealed_holdout_commitment_digest", "threshold_policy_digest",
+        "tuning_scope", "validation_is_frozen", "sealed_holdout_immutable", "labels_excluded_from_model_input",
+        "required_risk_classes",
+    }
+    if not isinstance(raw, Mapping) or set(raw) != expected_fields:
+        raise SemanticAssuranceLabelAdmissionError("human-label pre-registration is incomplete")
+    committed_at = _iso_timestamp(raw.get("committed_at"), "human-label pre-registration committed_at")
+    risk_classes = raw.get("required_risk_classes")
+    if not isinstance(risk_classes, list) or set(risk_classes) != _REQUIRED_RISK_CLASSES or len(risk_classes) != len(_REQUIRED_RISK_CLASSES):
+        raise SemanticAssuranceLabelAdmissionError("human-label pre-registration risk taxonomy is invalid")
+    expected_seal = _sealed_holdout_commitment(dataset)
+    if _digest_text(raw.get("sealed_holdout_commitment_digest"), "human-label sealed holdout commitment") != expected_seal:
+        raise SemanticAssuranceLabelAdmissionError("human-label sealed holdout commitment does not bind exact labels")
+    all_risks = {str(case.get("risk_class")) for case in dataset["cases"]}
+    sealed_risks = {str(case.get("risk_class")) for case in dataset["cases"] if case.get("partition") == "sealed_holdout"}
+    if not _REQUIRED_RISK_CLASSES.issubset(all_risks) or not _SEALED_CRITICAL_RISK_CLASSES.issubset(sealed_risks):
+        raise SemanticAssuranceLabelAdmissionError("human-label corpus lacks required adversarial risk coverage")
+    if raw.get("tuning_scope") != "development_only" or raw.get("validation_is_frozen") is not True or raw.get("sealed_holdout_immutable") is not True or raw.get("labels_excluded_from_model_input") is not True:
+        raise SemanticAssuranceLabelAdmissionError("human-label pre-registration isolation policy is unsafe")
+    return {
+        "protocol_id": _text(raw.get("protocol_id"), "human-label pre-registration protocol id", 160),
+        "committed_at": committed_at,
+        "sealed_holdout_commitment_digest": expected_seal,
+        "threshold_policy_digest": _digest_text(raw.get("threshold_policy_digest"), "human-label threshold policy digest"),
+        "tuning_scope": "development_only",
+        "validation_is_frozen": True,
+        "sealed_holdout_immutable": True,
+        "labels_excluded_from_model_input": True,
+        "risk_taxonomy_digest": _digest(sorted(_REQUIRED_RISK_CLASSES)),
+        "required_risk_class_count": len(_REQUIRED_RISK_CLASSES),
+        "sealed_critical_risk_class_count": len(_SEALED_CRITICAL_RISK_CLASSES),
+    }
+
+
+def _validate_receipt_pre_registration(raw: object) -> dict[str, Any]:
+    expected_fields = {
+        "protocol_id", "committed_at", "sealed_holdout_commitment_digest", "threshold_policy_digest",
+        "tuning_scope", "validation_is_frozen", "sealed_holdout_immutable", "labels_excluded_from_model_input",
+        "risk_taxonomy_digest", "required_risk_class_count", "sealed_critical_risk_class_count",
+    }
+    if not isinstance(raw, Mapping) or set(raw) != expected_fields:
+        raise SemanticAssuranceLabelAdmissionError("human-label admission receipt pre-registration is invalid")
+    result = {
+        "protocol_id": _text(raw.get("protocol_id"), "human-label receipt protocol id", 160),
+        "committed_at": _iso_timestamp(raw.get("committed_at"), "human-label receipt committed_at"),
+        "sealed_holdout_commitment_digest": _digest_text(raw.get("sealed_holdout_commitment_digest"), "human-label receipt sealed commitment"),
+        "threshold_policy_digest": _digest_text(raw.get("threshold_policy_digest"), "human-label receipt threshold policy"),
+        "tuning_scope": raw.get("tuning_scope"),
+        "validation_is_frozen": raw.get("validation_is_frozen"),
+        "sealed_holdout_immutable": raw.get("sealed_holdout_immutable"),
+        "labels_excluded_from_model_input": raw.get("labels_excluded_from_model_input"),
+        "risk_taxonomy_digest": _digest_text(raw.get("risk_taxonomy_digest"), "human-label receipt risk taxonomy"),
+        "required_risk_class_count": raw.get("required_risk_class_count"),
+        "sealed_critical_risk_class_count": raw.get("sealed_critical_risk_class_count"),
+    }
+    if result["tuning_scope"] != "development_only" or any(result[key] is not True for key in ("validation_is_frozen", "sealed_holdout_immutable", "labels_excluded_from_model_input")):
+        raise SemanticAssuranceLabelAdmissionError("human-label admission receipt isolation policy is invalid")
+    if result["risk_taxonomy_digest"] != _digest(sorted(_REQUIRED_RISK_CLASSES)) or result["required_risk_class_count"] != len(_REQUIRED_RISK_CLASSES) or result["sealed_critical_risk_class_count"] != len(_SEALED_CRITICAL_RISK_CLASSES):
+        raise SemanticAssuranceLabelAdmissionError("human-label admission receipt risk taxonomy is invalid")
+    return result
+
+
+def _sealed_holdout_commitment(dataset: Mapping[str, Any]) -> str:
+    sealed = [
+        {"case_id": case["case_id"], "isolation": case["isolation"], "risk_class": case["risk_class"], "expected": case["expected"]}
+        for case in dataset["cases"]
+        if case["partition"] == "sealed_holdout"
+    ]
+    if not sealed:
+        raise SemanticAssuranceLabelAdmissionError("human-label corpus has no sealed holdout")
+    return _digest(sorted(sealed, key=lambda item: str(item["case_id"])))
 
 
 def _validate_reviewers(raw: object, expected_ids: set[str], supports: Mapping[str, Sequence[str]]) -> list[dict[str, Any]]:
@@ -312,6 +400,17 @@ def _text(value: object, field: str, limit: int) -> str:
     text = str(value or "").strip()
     if not text or len(text) > limit:
         raise SemanticAssuranceLabelAdmissionError(f"{field} is invalid")
+    return text
+
+
+def _iso_timestamp(value: object, field: str) -> str:
+    text = _text(value, field, 64)
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise SemanticAssuranceLabelAdmissionError(f"{field} must be ISO-8601") from exc
+    if parsed.tzinfo is None:
+        raise SemanticAssuranceLabelAdmissionError(f"{field} must include timezone")
     return text
 
 
