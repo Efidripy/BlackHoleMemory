@@ -27,9 +27,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model-variant", default="not_provided")
     parser.add_argument("--prompt-digest", default="not_provided")
     parser.add_argument("--endpoint", default="not_provided")
+    parser.add_argument("--label-admission", type=Path, help="optional content-free dual-review admission receipt JSON")
     parser.add_argument("--output", type=Path, help="optional local content-free receipt JSON path")
     args = parser.parse_args(argv)
     try:
+        label_admission = None
+        if args.label_admission:
+            label_admission = json.loads(args.label_admission.read_text(encoding="utf-8"))
         report = evaluate_semantic_assurance(
             load_semantic_assurance_dataset(args.dataset),
             load_semantic_assurance_predictions(args.predictions),
@@ -40,8 +44,9 @@ def main(argv: list[str] | None = None) -> int:
                 "prompt_digest": args.prompt_digest,
                 "endpoint": args.endpoint,
             },
+            label_admission=label_admission,
         )
-    except SemanticAssuranceEvaluationError as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, SemanticAssuranceEvaluationError) as exc:
         print(json.dumps({"accepted": False, "error": type(exc).__name__, "detail": str(exc)}, ensure_ascii=False))
         return 2
     if args.output:

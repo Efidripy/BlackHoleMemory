@@ -24,6 +24,8 @@ import httpx
 from blackholememory.semantic_assurance_evaluation import SemanticAssuranceEvaluationError
 from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
 from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_dataset
+from blackholememory.semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
+from blackholememory.semantic_assurance_label_admission import verify_semantic_assurance_label_admission
 
 
 LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v1"
@@ -72,6 +74,7 @@ def run_live_semantic_assurance(
     repeats: int = 1,
     model_id: str = DEFAULT_MODEL_ID,
     model_variant: str = DEFAULT_MODEL_VARIANT,
+    label_admission: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a bounded fixture partition against the already-loaded exact model.
 
@@ -86,6 +89,7 @@ def run_live_semantic_assurance(
     repeat_count = _repeat_count(repeats)
     requested_model = _requested_model(model_id, model_variant)
     dataset, prompt_cases = _load_prompt_cases(dataset_path, partition)
+    normalized_label_admission = _validate_label_admission(label_admission, dataset)
     started = time.perf_counter()
     failure: dict[str, Any] | None = None
     reports: list[dict[str, Any]] = []
@@ -129,6 +133,7 @@ def run_live_semantic_assurance(
                                 "prompt_digest": _digest(PROMPT_CONTRACT),
                                 "endpoint": endpoint,
                             },
+                            label_admission=normalized_label_admission,
                         )
                     except SemanticAssuranceEvaluationError:
                         failure = _failure("offline_evaluation", "offline_evaluation_failed", repeat_number)
@@ -215,6 +220,28 @@ def _load_prompt_cases(dataset_path: Path | str, partition: str) -> tuple[dict[s
     if {case["case_id"] for case in cases} != set(expected_cases):
         raise SemanticAssuranceLiveError("semantic assurance live fixture coverage is invalid")
     return dataset, cases
+
+
+def _validate_label_admission(
+    raw: Mapping[str, Any] | None,
+    dataset: Mapping[str, Any],
+) -> Mapping[str, Any] | None:
+    """Reject a mismatched human-label receipt before creating an HTTP client."""
+
+    if raw is None:
+        return None
+    try:
+        receipt = verify_semantic_assurance_label_admission(raw)
+    except SemanticAssuranceLabelAdmissionError as exc:
+        raise SemanticAssuranceLiveError("semantic assurance human-label admission is invalid") from exc
+    expected = {
+        "dataset_id": dataset["dataset_id"],
+        "fixture_digest": dataset["fixture_digest"],
+        "label_digest": dataset["label_digest"],
+    }
+    if receipt["corpus"] != expected:
+        raise SemanticAssuranceLiveError("semantic assurance human-label admission does not bind this exact dataset")
+    return receipt
 
 
 def _inventory(client: httpx.Client, requested_model: Mapping[str, str]) -> dict[str, Any]:

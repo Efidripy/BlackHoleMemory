@@ -49,6 +49,31 @@ Public baseline v1 — синтетический, redacted и source-only на�
 paraphrase cluster не могут пересекать partitions. Sealed holdout не меняют по
 результатам теста.
 
+## Admission dual human review
+
+Для private corpus добавлен локальный contract
+`bhm.semantic-assurance-human-label-admission.v1`. Он принимает только exact
+binding к уже загруженному dataset: два различных opaque reviewer digest,
+полное покрытие одинакового набора case/support IDs, один отличный от них
+adjudicator digest и final labels, точно совпадающие с dataset labels.
+
+Manifest и raw review ledgers должны оставаться в owner-controlled ignored
+location; public Git и receipt содержат только digests, counts и declared
+protocol assertions. Команда
+`scripts/validate-bhm-semantic-assurance-human-labels.py` выдаёт content-free
+receipt. Его можно передать offline runner через `--label-admission`; mismatch
+dataset/labels/digest или неполный review блокируют evaluation до scoring.
+
+Это проверяет structural binding заявленного dual-review процесса, но не
+аутентифицирует личности reviewers, не доказывает, что blind process реально
+состоялся, и не превращает synthetic v1 fixture в human evidence. Поэтому
+receipt формулирует tier только как
+`attested_structurally_bound_not_identity_authenticated`; даже при нём
+`automatic_apply_ready=false` и `automatic_apply_decision=no_go`.
+Admission намеренно отвергает corpus с `fixture_reference_contract` и требует
+явные source/theme/template/paraphrase isolation identities: к synthetic v1
+нельзя приложить новый manifest задним числом для повышения evidence tier.
+
 ## Метрики и gates
 
 Receipt фиксирует dataset/model/variant/prompt digests, endpoint identity,

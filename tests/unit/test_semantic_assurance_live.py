@@ -168,6 +168,16 @@ def test_live_adapter_rejects_non_loopback_and_other_model_contracts() -> None:
         live.run_live_semantic_assurance(FIXTURE, model_id="another/local-model")
 
 
+def test_live_adapter_rejects_tampered_human_label_receipt_before_http(monkeypatch: pytest.MonkeyPatch) -> None:
+    class ForbiddenClient:
+        def __init__(self, **kwargs: Any) -> None:
+            raise AssertionError("human-label receipt must be validated before HTTP client creation")
+
+    monkeypatch.setattr(live.httpx, "Client", ForbiddenClient)
+    with pytest.raises(live.SemanticAssuranceLiveError, match="human-label admission"):
+        live.run_live_semantic_assurance(FIXTURE, label_admission={"tampered": True})
+
+
 def _holdout_ids() -> list[str]:
     raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
     return [str(case["case_id"]) for case in raw["cases"] if case["partition"] == "sealed_holdout"]
