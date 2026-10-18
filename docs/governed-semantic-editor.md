@@ -81,9 +81,14 @@ Qdrant/Mem0 retrieval candidate IDs
   A semantic `approve` must carry the current operator-attestation schema in
   the approval event: exact proposal ID/digest, immutable evidence binding,
   model and effective operations, explicit target endpoint IDs (an explicit
-  empty list for `create`) and reviewer outcome `approved`. The repository
-  revalidates that event immediately before apply. Missing, stale, altered or
-  mismatched attestation fails closed before lifecycle or outbox work.
+  empty list for `create`), reviewer outcome `approved`, and a content-free
+  semantic-review verdict bound to every support row. The verdict must state
+  `candidate_entailment=supported`,
+  `relevance_assessment=all_support_relevant`, and
+  `hidden_conflict_assessment=none_observed`; any conflict, insufficiency,
+  missing support row, legacy v1 attestation, or mismatch fails closed before
+  lifecycle or outbox work. This is an accountable human review assertion,
+  not an automatic proof of semantic truth.
   Non-semantic governed proposals retain their existing decision contract.
 - The editor never calls `Mem0.add/update/delete`, writes Qdrant, starts a
   worker or polls a provider. Stored semantic proposals never auto-apply from
@@ -128,8 +133,10 @@ before it could finish a foreground proposal.
    automatic review or lifecycle apply from this caller-scoped request.
 3. In manual mode, inspect/validate the policy receipt and every bound support
    row. An authorized reviewer supplies the exact semantic attestation together
-   with `approve`; it is recorded only in the proposal approval event JSON.
-   Reject remains available without an attestation.
+   with `approve`, explicitly attesting that the candidate is supported, every
+   support row is relevant, and no hidden conflict was observed. It is recorded
+   only in the proposal approval event JSON. Reject remains available without
+   an attestation.
 4. Re-read the proposal and run explicit apply through the existing privileged
    governed route or MCP tool with an exact proposal confirmation. Apply
    independently rechecks both SQLite revisions and the approval event binding.

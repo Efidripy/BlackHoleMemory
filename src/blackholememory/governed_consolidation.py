@@ -37,7 +37,8 @@ OPERATIONS = frozenset({"no_op", "create", "revise", "supersede", "archive", "li
 STATUSES = frozenset({"proposed", "approved", "rejected", "applied", "stale", "failed"})
 SEMANTIC_EDITOR_ANALYZER_PREFIX = "bhm-local-semantic-editor/"
 SEMANTIC_EVIDENCE_BINDING_SCHEMA_VERSION = "bhm.governed-semantic-evidence-binding.v1"
-SEMANTIC_OPERATOR_ATTESTATION_SCHEMA_VERSION = "bhm.governed-semantic-operator-attestation.v1"
+SEMANTIC_OPERATOR_ATTESTATION_SCHEMA_VERSION = "bhm.governed-semantic-operator-attestation.v2"
+SEMANTIC_REVIEW_SCHEMA_VERSION = "bhm.governed-semantic-review.v1"
 
 
 class GovernedConsolidationError(RuntimeError):
@@ -239,6 +240,63 @@ def _semantic_attestation_targets(binding: Mapping[str, Any]) -> list[str]:
     return targets
 
 
+def _semantic_attestation_support_ids(binding: Mapping[str, Any]) -> list[str]:
+    """Return the exact support rows whose meaning the reviewer assessed."""
+
+    support = binding.get("support")
+    if not isinstance(support, list) or not support:
+        _semantic_attestation_error("binding support is required")
+    identifiers: list[str] = []
+    for item in support:
+        if not isinstance(item, Mapping):
+            _semantic_attestation_error("binding support entry is malformed")
+        memory_id = str(item.get("memory_id") or "")
+        if not memory_id:
+            _semantic_attestation_error("binding support entry has no memory id")
+        identifiers.append(memory_id)
+    if len(set(identifiers)) != len(identifiers):
+        _semantic_attestation_error("binding support memory ids must be distinct")
+    return identifiers
+
+
+def _validate_semantic_review(review: Any, *, binding: Mapping[str, Any]) -> dict[str, Any]:
+    """Require an exact, content-free human semantic verdict before approval.
+
+    The model and structural identity binding cannot prove entailment.  This
+    compact verdict makes the privileged reviewer explicitly attest that every
+    bound support row was relevant, the candidate was entailed, and no hidden
+    conflict was observed.  It is bound to the immutable support identities;
+    it does not claim an automatic semantic proof and never enables auto-apply.
+    """
+
+    if not isinstance(review, Mapping):
+        _semantic_attestation_error("semantic review is required")
+    normalized = dict(review)
+    expected_keys = {
+        "schema_version",
+        "reviewed_support_memory_ids",
+        "candidate_entailment",
+        "relevance_assessment",
+        "hidden_conflict_assessment",
+    }
+    if set(normalized) != expected_keys:
+        _semantic_attestation_error("semantic review keys are unsupported")
+    if normalized.get("schema_version") != SEMANTIC_REVIEW_SCHEMA_VERSION:
+        _semantic_attestation_error("semantic review schema is unsupported")
+    support_ids = normalized.get("reviewed_support_memory_ids")
+    if not isinstance(support_ids, list) or any(not isinstance(item, str) or not item for item in support_ids):
+        _semantic_attestation_error("reviewed support memory ids must be a string array")
+    if support_ids != _semantic_attestation_support_ids(binding):
+        _semantic_attestation_error("reviewed support memory ids do not match binding")
+    if normalized.get("candidate_entailment") != "supported":
+        _semantic_attestation_error("candidate entailment must be supported")
+    if normalized.get("relevance_assessment") != "all_support_relevant":
+        _semantic_attestation_error("all support must be relevant")
+    if normalized.get("hidden_conflict_assessment") != "none_observed":
+        _semantic_attestation_error("hidden conflict assessment must be none_observed")
+    return normalized
+
+
 def validate_semantic_operator_attestation(
     attestation: Any,
     *,
@@ -264,6 +322,7 @@ def validate_semantic_operator_attestation(
         "model_operation",
         "effective_operation",
         "target_memory_ids",
+        "semantic_review",
         "reviewer_outcome",
     }
     if set(normalized) != expected_keys:
@@ -277,6 +336,10 @@ def validate_semantic_operator_attestation(
     binding = proposal.get("identity_binding")
     if not isinstance(binding, Mapping) or normalized.get("identity_binding") != dict(binding):
         _semantic_attestation_error("identity binding does not match")
+    normalized["semantic_review"] = _validate_semantic_review(
+        normalized.get("semantic_review"),
+        binding=dict(binding),
+    )
     semantic = proposal.get("semantic_editor")
     policy = semantic.get("policy") if isinstance(semantic, Mapping) and isinstance(semantic.get("policy"), Mapping) else None
     if policy is None:

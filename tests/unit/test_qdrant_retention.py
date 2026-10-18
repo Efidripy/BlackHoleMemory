@@ -66,6 +66,31 @@ def test_restore_drill_verifies_point_and_vector_hashes(tmp_path: Path):
     assert invalid["inspection_errors"]
 
 
+def test_restore_drill_derives_active_rebuildable_count_from_live_report(tmp_path: Path):
+    drill = run_qdrant_restore_drill(
+        tmp_path,
+        lifecycle_report={
+            "collections": [
+                {
+                    "classification": "active",
+                    "restore_status": "rebuild_from_sqlite",
+                },
+                {
+                    "classification": "active",
+                    "restore_status": "rebuild_from_sqlite",
+                },
+                {
+                    "classification": "review",
+                    "restore_status": "manual_review_required",
+                },
+            ]
+        },
+    )
+
+    assert drill["active_sqlite_rebuildable_count"] == 2
+    assert drill["inspection_errors"] == []
+
+
 def test_retention_preview_digest_and_apply_boundary_are_stable(tmp_path: Path):
     lifecycle = {
         "reconciliation": {"counts": {"noop": 1}, "blocking_issues": 0},
