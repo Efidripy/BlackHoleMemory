@@ -22,11 +22,23 @@ from .semantic_assurance_label_admission import (
     verify_semantic_assurance_label_admission,
 )
 from .semantic_assurance_evaluation import recompute_semantic_assurance_results, wilson_interval
-from .semantic_assurance_live import DEFAULT_BASE_URL, DEFAULT_MODEL_ID, DEFAULT_MODEL_VARIANT, PROMPT_CONTRACT
+from .semantic_assurance_live import (
+    DEFAULT_BASE_URL,
+    DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_VARIANT,
+    LIVE_RECEIPT_SCHEMA_VERSION as LIVE_RECEIPT_SCHEMA_VERSION_V3,
+    PROMPT_CONTRACT,
+)
+from .semantic_assurance_runner_attestation import (
+    SemanticAssuranceRunnerAttestationError,
+    verify_semantic_assurance_runner_attestation,
+)
 
 
 SCHEMA_VERSION = "bhm.semantic-assurance-readiness.v2"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-readiness-receipt.v2"
+SCHEMA_VERSION_V3 = "bhm.semantic-assurance-readiness.v3"
+RECEIPT_SCHEMA_VERSION_V3 = "bhm.semantic-assurance-readiness-receipt.v3"
 LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v1"
 LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
 _MAX_INPUT_BYTES = 8 * 1024 * 1024
@@ -57,6 +69,147 @@ class SemanticAssuranceReadinessError(ValueError):
     """A readiness evidence package is incomplete, weak, or unbound."""
 
 
+def assess_semantic_assurance_readiness_v3(
+    raw: object,
+    *,
+    trust_registry: Mapping[str, Any] | Path | str | None = None,
+) -> dict[str, Any]:
+    """Validate v2 evidence plus an independently signed runner attestation.
+
+    The attestation is deliberately a separate gate.  A deterministic
+    pre-attestation core is built from the already validated v2 receipt and
+    the caller-provided source identity; only its digest is signed.  The
+    returned v3 receipt is therefore not part of the signed payload and cannot
+    form a circular hash dependency.  This function never authorises
+    automatic semantic apply.
+    """
+
+    if not isinstance(raw, Mapping) or raw.get("schema_version") != SCHEMA_VERSION_V3:
+        raise SemanticAssuranceReadinessError("readiness v3 evidence schema is unsupported")
+    expected = {
+        "schema_version", "admission_receipt", "live_receipt", "threshold_policy",
+        "risk_coverage", "shadow_human_oracle", "sqlite_rehearsal",
+        "architecture_invariants", "owner_charter", "source_identity",
+        "runner_attestation",
+    }
+    if set(raw) != expected:
+        raise SemanticAssuranceReadinessError("readiness v3 evidence contains unexpected fields")
+
+    source = _source_identity(raw["source_identity"])
+    # Reuse the v2 validator for all existing evidence.  It remains the
+    # authoritative structural gate and is intentionally not weakened by v3.
+    v2_input = {key: raw[key] for key in expected - {"schema_version", "source_identity", "runner_attestation"}}
+    v2_input["schema_version"] = SCHEMA_VERSION
+    try:
+        v2_receipt = assess_semantic_assurance_readiness(v2_input, _allow_live_v3=True)
+    except SemanticAssuranceReadinessError:
+        raise
+
+    live = raw["live_receipt"]
+    if not isinstance(live, Mapping):  # Defensive; v2 already checks this.
+        raise SemanticAssuranceReadinessError("readiness v3 live receipt is invalid")
+    execution = live.get("execution")
+    event_chain = execution.get("event_chain") if isinstance(execution, Mapping) else None
+    event_chain = _event_chain_for_v3(event_chain)
+    inventory = live.get("inventory")
+    if not isinstance(inventory, Mapping) or set(inventory) != {"before", "after"}:
+        raise SemanticAssuranceReadinessError("readiness v3 inventory binding is invalid")
+    inventory_before_digest = _digest(inventory["before"])
+    inventory_after_digest = _digest(inventory["after"])
+
+    # Exclude the v2 outer digest from the pre-core.  It is itself derived
+    # from the v2 core, while including it would make the signed object harder
+    # to reason about and gives no additional binding strength.
+    pre_core = {
+        "schema_version": "bhm.semantic-assurance-pre-attestation-core.v1",
+        "source_identity": source,
+        "readiness_v2": {
+            key: value for key, value in v2_receipt.items() if key != "readiness_digest"
+        },
+        "live_report_digest": live["report_digest"],
+        "event_chain": event_chain,
+        "inventory_before_digest": inventory_before_digest,
+        "inventory_after_digest": inventory_after_digest,
+    }
+    pre_digest = _digest(pre_core)
+    admission_receipt = raw["admission_receipt"]
+    policy = raw["threshold_policy"]
+    if not isinstance(admission_receipt, Mapping) or not isinstance(policy, Mapping):
+        raise SemanticAssuranceReadinessError("readiness v3 admission or policy is invalid")
+    corpus_admission = admission_receipt.get("corpus_admission")
+    if not isinstance(corpus_admission, Mapping):
+        raise SemanticAssuranceReadinessError("readiness v3 corpus admission binding is invalid")
+
+    v2_bindings = v2_receipt["bindings"]
+    expected_bindings = {
+        "source_revision": source["source_revision"],
+        "source_tree_sha256": source["source_tree_sha256"],
+        "runner_manifest_digest": source["runner_manifest_digest"],
+        "prompt_contract_digest": hashlib.sha256(PROMPT_CONTRACT.encode("utf-8")).hexdigest(),
+        "corpus_admission_digest": corpus_admission.get("admission_digest"),
+        "label_admission_digest": v2_bindings["admission_digest"],
+        "threshold_policy_digest": v2_bindings["threshold_policy_digest"],
+        "live_report_digest": live["report_digest"],
+        "pre_attestation_readiness_digest": pre_digest,
+        "event_count": event_chain["event_count"],
+        "first_event_digest": event_chain["first_event_digest"],
+        "last_event_digest": event_chain["last_event_digest"],
+        "chain_root": event_chain["chain_root"],
+        "inventory_before_digest": inventory_before_digest,
+        "inventory_after_digest": inventory_after_digest,
+    }
+    try:
+        runner_kwargs: dict[str, Any] = {"expected_bindings": expected_bindings}
+        if trust_registry is not None:
+            runner_kwargs["trust_registry"] = trust_registry
+        runner = verify_semantic_assurance_runner_attestation(raw["runner_attestation"], **runner_kwargs)
+    except (SemanticAssuranceRunnerAttestationError, TypeError, KeyError) as exc:
+        raise SemanticAssuranceReadinessError("readiness v3 trusted runner attestation is invalid") from exc
+
+    core = {
+        "schema_version": RECEIPT_SCHEMA_VERSION_V3,
+        "mode": "read-only-content-free-readiness-aggregation-v3",
+        "bindings": {
+            "pre_attestation_readiness_digest": pre_digest,
+            "runner_attestation_digest": runner["attestation_digest"],
+            "trust_registry_digest": runner["trusted_runner"]["trust_registry_digest"],
+            "evaluated_run_digest": v2_receipt["bindings"]["evaluated_run_digest"],
+            "admission_digest": v2_receipt["bindings"]["admission_digest"],
+        },
+        "evidence": v2_receipt["evidence"],
+        "architecture": v2_receipt["architecture"],
+        "checks": {
+            **v2_receipt["checks"],
+            "trusted_runner_attestation": True,
+            "source_identity_binding": True,
+            "event_chain_binding": True,
+            "pre_attestation_no_cycle": True,
+        },
+        "status": "evidence_complete_but_release_not_authorized",
+        "decision": {
+            "automatic_apply_ready": False,
+            "decision": "no_go",
+            "reason": "trusted runner integrity evidence is not deployment authorization",
+        },
+        "execution": {
+            "read_only": True,
+            "network_used": False,
+            "model_called": False,
+            "sqlite_mutation": False,
+            "mem0_mutation": False,
+            "qdrant_mutation": False,
+            "automatic_apply": False,
+        },
+        "limitations": [
+            "the trusted signature binds a bounded runner assertion, not universal semantic truth",
+            "runner attestation does not prove physical HTTP execution against a compromised host",
+            "automatic semantic apply remains no_go",
+        ],
+        "trusted_runner": runner["trusted_runner"],
+    }
+    return {**core, "readiness_digest": _digest(core)}
+
+
 def load_semantic_assurance_readiness(path: Path | str) -> dict[str, Any]:
     """Read one bounded local JSON package and emit its public-safe receipt."""
 
@@ -69,10 +222,16 @@ def load_semantic_assurance_readiness(path: Path | str) -> dict[str, Any]:
         raise
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise SemanticAssuranceReadinessError("readiness evidence package is unreadable") from exc
+    if isinstance(raw, Mapping) and raw.get("schema_version") == SCHEMA_VERSION_V3:
+        return assess_semantic_assurance_readiness_v3(raw)
     return assess_semantic_assurance_readiness(raw)
 
 
-def assess_semantic_assurance_readiness(raw: object) -> dict[str, Any]:
+def assess_semantic_assurance_readiness(
+    raw: object,
+    *,
+    _allow_live_v3: bool = False,
+) -> dict[str, Any]:
     """Validate one immutable, content-free readiness evidence package.
 
     All nested receipts use exact schemas.  Unknown fields, a changed digest,
@@ -92,7 +251,7 @@ def assess_semantic_assurance_readiness(raw: object) -> dict[str, Any]:
 
     admission = _admission(raw["admission_receipt"])
     policy = _policy(raw["threshold_policy"], admission["pre_registration"]["threshold_policy_digest"])
-    live = _live_receipt(raw["live_receipt"], admission, policy)
+    live = _live_receipt(raw["live_receipt"], admission, policy, allow_live_v3=_allow_live_v3)
     risk_coverage = _risk_coverage(raw["risk_coverage"], admission, live)
     shadow = _shadow_human_oracle(raw["shadow_human_oracle"], admission, live, policy)
     rehearsal = _sqlite_rehearsal(raw["sqlite_rehearsal"], admission, live)
@@ -201,6 +360,118 @@ def _admission(value: object) -> dict[str, Any]:
     return receipt
 
 
+def _source_identity(value: object) -> dict[str, str]:
+    """Validate the source/runner manifest binding used by readiness v3."""
+
+    expected = {"schema_version", "source_revision", "source_tree_sha256", "runner_manifest_digest"}
+    if not isinstance(value, Mapping) or set(value) != expected or value.get("schema_version") != "bhm.semantic-assurance-source-identity.v1":
+        raise SemanticAssuranceReadinessError("readiness v3 source identity is invalid")
+    revision = value.get("source_revision")
+    if not isinstance(revision, str) or len(revision) != 40 or any(char not in "0123456789abcdef" for char in revision):
+        raise SemanticAssuranceReadinessError("readiness v3 source revision is invalid")
+    return {
+        "schema_version": "bhm.semantic-assurance-source-identity.v1",
+        "source_revision": revision,
+        "source_tree_sha256": _digest_text(value.get("source_tree_sha256"), "readiness v3 source tree digest"),
+        "runner_manifest_digest": _digest_text(value.get("runner_manifest_digest"), "readiness v3 runner manifest digest"),
+    }
+
+
+def _event_chain_for_v3(
+    value: object,
+    *,
+    expected_case_ids: set[str] | None = None,
+    expected_inventory: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Validate the content-free 1200-event chain summary.
+
+    Individual request/response bodies never enter receipts.  If a trusted
+    runner emits a private event log, only its independently computed anchors
+    are published here and signed by the runner attestation.
+    """
+
+    expected = {
+        "events", "event_count", "first_event_digest", "last_event_digest", "chain_root",
+        "inventory_before_digest", "inventory_after_digest",
+    }
+    event_expected = {
+        "sequence", "repeat_number", "case_id", "request_digest", "response_digest", "event_digest",
+    }
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != expected
+        or value.get("event_count") != 1200
+        or not isinstance(value.get("events"), list)
+        or len(value["events"]) != 1200
+    ):
+        raise SemanticAssuranceReadinessError("readiness v3 event chain is invalid")
+    before_digest = _digest_text(value.get("inventory_before_digest"), "readiness v3 inventory before digest")
+    after_digest = _digest_text(value.get("inventory_after_digest"), "readiness v3 inventory after digest")
+    if expected_inventory is not None and (
+        before_digest != _digest(expected_inventory.get("before"))
+        or after_digest != _digest(expected_inventory.get("after"))
+    ):
+        raise SemanticAssuranceReadinessError("readiness v3 event chain inventory binding is invalid")
+    previous = _digest({
+        "domain": "bhm.semantic-assurance-live-event-chain.v3",
+        "inventory_before_digest": before_digest,
+    })
+    pairs: set[tuple[int, str]] = set()
+    for sequence, event in enumerate(value["events"], start=1):
+        if (
+            not isinstance(event, Mapping)
+            or set(event) != event_expected
+            or event.get("sequence") != sequence
+            or event.get("repeat_number") not in {1, 2, 3}
+            or not isinstance(event.get("case_id"), str)
+            or not event["case_id"]
+        ):
+            raise SemanticAssuranceReadinessError("readiness v3 event chain is invalid")
+        request_digest = _digest_text(event.get("request_digest"), "readiness v3 event request digest")
+        response_digest = _digest_text(event.get("response_digest"), "readiness v3 event response digest")
+        event_digest = _digest_text(event.get("event_digest"), "readiness v3 event digest")
+        if event_digest != _digest({
+            "sequence": sequence,
+            "repeat_number": event["repeat_number"],
+            "case_id": event["case_id"],
+            "request_digest": request_digest,
+            "response_digest": response_digest,
+            "previous_event_digest": previous,
+        }):
+            raise SemanticAssuranceReadinessError("readiness v3 event chain digest is invalid")
+        pair = (event["repeat_number"], event["case_id"])
+        if pair in pairs:
+            raise SemanticAssuranceReadinessError("readiness v3 event chain coverage is invalid")
+        pairs.add(pair)
+        previous = event_digest
+    first = _digest_text(value.get("first_event_digest"), "readiness v3 first event digest")
+    last = _digest_text(value.get("last_event_digest"), "readiness v3 last event digest")
+    root = _digest_text(value.get("chain_root"), "readiness v3 chain root")
+    if first != value["events"][0]["event_digest"] or last != value["events"][-1]["event_digest"]:
+        raise SemanticAssuranceReadinessError("readiness v3 event chain anchors are invalid")
+    if root != _digest({
+        "domain": "bhm.semantic-assurance-live-event-chain.v3",
+        "inventory_before_digest": before_digest,
+        "inventory_after_digest": after_digest,
+        "event_count": 1200,
+        "first_event_digest": first,
+        "last_event_digest": last,
+    }):
+        raise SemanticAssuranceReadinessError("readiness v3 event chain root is invalid")
+    if expected_case_ids is not None:
+        expected_pairs = {(repeat, case_id) for repeat in (1, 2, 3) for case_id in expected_case_ids}
+        if len(expected_case_ids) != 400 or pairs != expected_pairs:
+            raise SemanticAssuranceReadinessError("readiness v3 event chain coverage is invalid")
+    return {
+        "event_count": 1200,
+        "first_event_digest": first,
+        "last_event_digest": last,
+        "chain_root": root,
+        "inventory_before_digest": before_digest,
+        "inventory_after_digest": after_digest,
+    }
+
+
 def _policy(value: object, expected_digest: str) -> dict[str, Any]:
     expected = {
         "schema_version", "policy_id", "minimum_case_count", "minimum_support_row_count",
@@ -271,12 +542,23 @@ def _policy(value: object, expected_digest: str) -> dict[str, Any]:
     return {**normalized, "threshold_policy_digest": digest}
 
 
-def _live_receipt(value: object, admission: Mapping[str, Any], policy: Mapping[str, Any]) -> dict[str, Any]:
+def _live_receipt(
+    value: object,
+    admission: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    *,
+    allow_live_v3: bool = False,
+) -> dict[str, Any]:
     expected = {
         "schema_version", "mode", "dataset", "model", "prompt_contract", "execution", "inventory",
         "model_load_events", "model_load_telemetry", "offline_reports", "failure", "gate", "limitations", "report_digest",
     }
-    if not isinstance(value, Mapping) or set(value) != expected or value.get("schema_version") != LIVE_RECEIPT_SCHEMA_VERSION or value.get("mode") != "live-read-only-local-classifier":
+    schema_version = value.get("schema_version") if isinstance(value, Mapping) else None
+    if schema_version == LIVE_RECEIPT_SCHEMA_VERSION_V3 and not allow_live_v3:
+        raise SemanticAssuranceReadinessError("readiness live receipt is invalid")
+    if schema_version not in {LIVE_RECEIPT_SCHEMA_VERSION, LIVE_RECEIPT_SCHEMA_VERSION_V3}:
+        raise SemanticAssuranceReadinessError("readiness live receipt is invalid")
+    if not isinstance(value, Mapping) or set(value) != expected or value.get("mode") != "live-read-only-local-classifier":
         raise SemanticAssuranceReadinessError("readiness live receipt is invalid")
     core = {key: value[key] for key in expected - {"report_digest"}}
     if _digest(core) != _digest_text(value.get("report_digest"), "live receipt digest"):
@@ -297,7 +579,7 @@ def _live_receipt(value: object, admission: Mapping[str, Any], policy: Mapping[s
         raise SemanticAssuranceReadinessError("readiness live prompt identity is invalid")
     if prompt.get("name") != PROMPT_CONTRACT or prompt_digest != _digest(PROMPT_CONTRACT):
         raise SemanticAssuranceReadinessError("readiness live prompt contract is not frozen")
-    execution = _live_execution(value.get("execution"))
+    execution = _live_execution(value.get("execution"), require_event_chain=schema_version == LIVE_RECEIPT_SCHEMA_VERSION_V3)
     _live_inventory(value.get("inventory"))
     if value.get("failure") is not None or value.get("model_load_events") != 0 or value.get("model_load_telemetry") != "available":
         raise SemanticAssuranceReadinessError("readiness live execution is incomplete or has unsafe model-load evidence")
@@ -329,6 +611,8 @@ def _live_receipt(value: object, admission: Mapping[str, Any], policy: Mapping[s
         "all_classifications_parsed": True, "offline_mechanical_valid": True,
         "deterministic_repeat_agreement": True, "exact_repeat_execution_coverage": True, "model_boundaries_intact": True,
     }
+    if schema_version == LIVE_RECEIPT_SCHEMA_VERSION_V3:
+        expected_checks["content_free_event_chain_integrity"] = True
     if not isinstance(gate, Mapping) or set(gate) != {"checks", "mechanical_valid", "accepted", "acceptance_scope", "automatic_apply_ready", "automatic_apply_decision"} or gate.get("checks") != expected_checks or gate.get("mechanical_valid") is not True or gate.get("accepted") is not True or gate.get("automatic_apply_ready") is not False or gate.get("automatic_apply_decision") != "no_go":
         raise SemanticAssuranceReadinessError("readiness live gate is invalid")
     summary = report_summaries[0]
@@ -336,6 +620,13 @@ def _live_receipt(value: object, admission: Mapping[str, Any], policy: Mapping[s
         raise SemanticAssuranceReadinessError("readiness live report safety boundary is invalid")
     evaluated_run_digest = _digest({"live_report_digest": value["report_digest"], "report_digests": [item["report_digest"] for item in report_summaries], "prediction_digest": summary["prediction_digest"], "results_digest": summary["results_digest"], "admission_digest": admission["admission_digest"]})
     model_run_identity_digest = _digest({"model": model_binding, "prompt_contract": dict(prompt), "partition": execution["partition"], "repeats": execution["repeats_completed"], "chat_call_count": execution["chat_call_count"]})
+    event_chain: dict[str, Any] | None = None
+    if schema_version == LIVE_RECEIPT_SCHEMA_VERSION_V3:
+        event_chain = _event_chain_for_v3(
+            execution["event_chain"],
+            expected_case_ids=set(report_summaries[0]["case_ids"]),
+            expected_inventory=value["inventory"],
+        )
     return {
         "evaluated_run_digest": evaluated_run_digest,
         "model_run_identity_digest": model_run_identity_digest,
@@ -345,10 +636,12 @@ def _live_receipt(value: object, admission: Mapping[str, Any], policy: Mapping[s
         "metrics": summary["metrics"],
         "stratified_metrics": summary["stratified_metrics"],
         "repeat": {"requested": execution["repeats_requested"], "completed": execution["repeats_completed"]},
+        "live_report_digest": _digest_text(value["report_digest"], "live receipt digest"),
+        "event_chain": event_chain,
     }
 
 
-def _live_execution(value: object) -> dict[str, Any]:
+def _live_execution(value: object, *, require_event_chain: bool = False) -> dict[str, Any]:
     expected = {
         "partition", "repeats_requested", "repeats_completed", "chat_call_count", "temperature", "reasoning", "store",
         "allowed_http_routes", "model_load_requested", "model_unload_requested", "model_download_requested",
@@ -356,6 +649,8 @@ def _live_execution(value: object) -> dict[str, Any]:
         "sqlite_mutation", "mem0_mutation", "qdrant_mutation", "mcp_or_tools_used", "queue_persistence", "automatic_apply", "elapsed_ms",
         "repeat_executions",
     }
+    if require_event_chain:
+        expected.add("event_chain")
     if not isinstance(value, Mapping) or set(value) != expected:
         raise SemanticAssuranceReadinessError("readiness live execution schema is invalid")
     if value.get("partition") != "sealed_holdout" or not isinstance(value.get("repeats_requested"), int) or value["repeats_requested"] != _REQUIRED_SEALED_REPEATS or value.get("repeats_completed") != value["repeats_requested"] or not isinstance(value.get("chat_call_count"), int) or value["chat_call_count"] < 1 or not isinstance(value.get("repeat_executions"), list) or len(value["repeat_executions"]) != _REQUIRED_SEALED_REPEATS:
@@ -365,7 +660,10 @@ def _live_execution(value: object) -> dict[str, Any]:
     false_fields = {"model_load_requested", "model_unload_requested", "model_download_requested", "model_configuration_requested", "sqlite_mutation", "mem0_mutation", "qdrant_mutation", "mcp_or_tools_used", "queue_persistence", "automatic_apply"}
     if any(value.get(key) is not False for key in false_fields) or not isinstance(value.get("elapsed_ms"), (int, float)) or not math.isfinite(float(value["elapsed_ms"])) or float(value["elapsed_ms"]) < 0:
         raise SemanticAssuranceReadinessError("readiness live execution has an unsafe side effect")
-    return {"partition": "sealed_holdout", "repeats_requested": value["repeats_requested"], "repeats_completed": value["repeats_completed"], "chat_call_count": value["chat_call_count"], "repeat_executions": value["repeat_executions"]}
+    result = {"partition": "sealed_holdout", "repeats_requested": value["repeats_requested"], "repeats_completed": value["repeats_completed"], "chat_call_count": value["chat_call_count"], "repeat_executions": value["repeat_executions"]}
+    if require_event_chain:
+        result["event_chain"] = value["event_chain"]
+    return result
 
 
 def _live_inventory(value: object) -> None:
@@ -446,6 +744,7 @@ def _offline_report(value: object, admission: Mapping[str, Any], dataset: Mappin
         "prediction_digest": str(value["prediction_digest"]),
         "results_digest": str(value["results_digest"]),
         "case_id_set_digest": derived["case_id_set_digest"],
+        "case_ids": tuple(sorted(item["case_id"] for item in derived["results"])),
     }
 
 
@@ -714,9 +1013,12 @@ def _digest(value: Any) -> str:
 
 __all__ = [
     "RECEIPT_SCHEMA_VERSION",
+    "RECEIPT_SCHEMA_VERSION_V3",
     "SCHEMA_VERSION",
+    "SCHEMA_VERSION_V3",
     "SemanticAssuranceReadinessError",
     "assess_semantic_assurance_readiness",
+    "assess_semantic_assurance_readiness_v3",
     "load_semantic_assurance_readiness",
     "write_semantic_assurance_readiness_receipt",
 ]

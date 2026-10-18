@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from copy import deepcopy
 from pathlib import Path
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
 from blackholememory.semantic_assurance_evaluation import recompute_semantic_assurance_results
@@ -13,7 +15,10 @@ from blackholememory.semantic_assurance_corpus_admission import verify_semantic_
 from blackholememory.semantic_assurance_label_admission import admit_semantic_assurance_human_labels
 from blackholememory.semantic_assurance_readiness import SemanticAssuranceReadinessError
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness
+from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v3
 from blackholememory.semantic_assurance_readiness import load_semantic_assurance_readiness
+from blackholememory.semantic_assurance_runner_attestation import runner_attestation_payload_digest
+from blackholememory.semantic_assurance_runner_attestation import runner_trust_registry_digest
 from blackholememory.semantic_assurance_live import DEFAULT_BASE_URL, DEFAULT_MODEL_ID, DEFAULT_MODEL_VARIANT, PROMPT_CONTRACT
 
 
@@ -374,6 +379,189 @@ def _evidence(tmp_path: Path) -> dict[str, object]:
     }
 
 
+def _source_identity() -> dict[str, str]:
+    return {
+        "schema_version": "bhm.semantic-assurance-source-identity.v1",
+        "source_revision": "1" * 40,
+        "source_tree_sha256": _digest("unit-source-tree"),
+        "runner_manifest_digest": _digest("unit-runner-manifest"),
+    }
+
+
+def _event_chain(case_ids: list[str], before: object, after: object) -> dict[str, object]:
+    previous = _digest({
+        "domain": "bhm.semantic-assurance-live-event-chain.v3",
+        "inventory_before_digest": _digest(before),
+    })
+    events: list[dict[str, object]] = []
+    sequence = 0
+    for repeat in (1, 2, 3):
+        for case_id in case_ids:
+            sequence += 1
+            request_digest = _digest({"unit_request": repeat, "case_id": case_id})
+            response_digest = _digest({"unit_response": repeat, "case_id": case_id})
+            event = {
+                "sequence": sequence,
+                "repeat_number": repeat,
+                "case_id": case_id,
+                "request_digest": request_digest,
+                "response_digest": response_digest,
+                "event_digest": _digest({
+                    "sequence": sequence,
+                    "repeat_number": repeat,
+                    "case_id": case_id,
+                    "request_digest": request_digest,
+                    "response_digest": response_digest,
+                    "previous_event_digest": previous,
+                }),
+            }
+            events.append(event)
+            previous = str(event["event_digest"])
+    root = _digest({
+        "domain": "bhm.semantic-assurance-live-event-chain.v3",
+        "inventory_before_digest": _digest(before),
+        "inventory_after_digest": _digest(after),
+        "event_count": len(events),
+        "first_event_digest": events[0]["event_digest"],
+        "last_event_digest": events[-1]["event_digest"],
+    })
+    return {
+        "events": events,
+        "event_count": len(events),
+        "first_event_digest": events[0]["event_digest"],
+        "last_event_digest": events[-1]["event_digest"],
+        "chain_root": root,
+        "inventory_before_digest": _digest(before),
+        "inventory_after_digest": _digest(after),
+    }
+
+
+def _v3_live(evidence: dict[str, object]) -> None:
+    live = evidence["live_receipt"]
+    assert isinstance(live, dict)
+    execution = live["execution"]
+    inventory = live["inventory"]
+    reports = live["offline_reports"]
+    assert isinstance(execution, dict) and isinstance(inventory, dict) and isinstance(reports, list)
+    first = reports[0]
+    assert isinstance(first, dict)
+    results = first["results"]
+    assert isinstance(results, list)
+    case_ids = sorted(str(row["case_id"]) for row in results)
+    assert len(case_ids) == 400
+    execution["event_chain"] = _event_chain(case_ids, inventory["before"], inventory["after"])
+    live["schema_version"] = "bhm.semantic-assurance-live-receipt.v3"
+    gate = live["gate"]
+    assert isinstance(gate, dict)
+    checks = gate["checks"]
+    assert isinstance(checks, dict)
+    checks["content_free_event_chain_integrity"] = True
+    _refresh_live_digest(live)
+    _rebind_dependents(evidence)
+
+
+def _runner_registry(private: Ed25519PrivateKey) -> dict[str, object]:
+    public_key = private.public_key().public_bytes_raw()
+    registry: dict[str, object] = {
+        "schema_version": "bhm.semantic-assurance-runner-trust.v1",
+        "registry_id": "readiness-v3-unit-registry",
+        "signers": [{
+            "signer_id": "readiness-v3-runner",
+            "role": "trusted_runner",
+            "public_key_sha256": hashlib.sha256(public_key).hexdigest(),
+            "active": True,
+        }],
+        "registry_digest": "",
+    }
+    registry["registry_digest"] = runner_trust_registry_digest(registry)
+    return registry
+
+
+def _v3_pre_digest(evidence: dict[str, object], source: dict[str, str]) -> str:
+    v2 = assess_semantic_assurance_readiness({
+        "schema_version": "bhm.semantic-assurance-readiness.v2",
+        **{key: evidence[key] for key in (
+            "admission_receipt", "live_receipt", "threshold_policy", "risk_coverage",
+            "shadow_human_oracle", "sqlite_rehearsal", "architecture_invariants", "owner_charter",
+        )},
+    }, _allow_live_v3=True)
+    live = evidence["live_receipt"]
+    assert isinstance(live, dict)
+    execution = live["execution"]
+    inventory = live["inventory"]
+    assert isinstance(execution, dict) and isinstance(inventory, dict)
+    chain = execution["event_chain"]
+    assert isinstance(chain, dict)
+    chain_summary = {key: chain[key] for key in (
+        "event_count", "first_event_digest", "last_event_digest", "chain_root",
+        "inventory_before_digest", "inventory_after_digest",
+    )}
+    core = {
+        "schema_version": "bhm.semantic-assurance-pre-attestation-core.v1",
+        "source_identity": source,
+        "readiness_v2": {key: value for key, value in v2.items() if key != "readiness_digest"},
+        "live_report_digest": live["report_digest"],
+        "event_chain": chain_summary,
+        "inventory_before_digest": _digest(inventory["before"]),
+        "inventory_after_digest": _digest(inventory["after"]),
+    }
+    return _digest(core)
+
+
+def _v3_evidence(tmp_path: Path) -> tuple[dict[str, object], dict[str, object]]:
+    evidence = _evidence(tmp_path)
+    _v3_live(evidence)
+    source = _source_identity()
+    private = Ed25519PrivateKey.generate()
+    registry = _runner_registry(private)
+    admission = evidence["admission_receipt"]
+    live = evidence["live_receipt"]
+    policy = evidence["threshold_policy"]
+    assert isinstance(admission, dict) and isinstance(live, dict) and isinstance(policy, dict)
+    corpus_admission = admission["corpus_admission"]
+    execution = live["execution"]
+    inventory = live["inventory"]
+    assert isinstance(corpus_admission, dict) and isinstance(execution, dict) and isinstance(inventory, dict)
+    chain = execution["event_chain"]
+    assert isinstance(chain, dict)
+    public_key_b64 = base64.b64encode(private.public_key().public_bytes_raw()).decode("ascii")
+    runner: dict[str, object] = {
+        "schema_version": "bhm.semantic-assurance-runner-attestation.v2",
+        **{key: value for key, value in source.items() if key != "schema_version"},
+        "model": {"model_id": DEFAULT_MODEL_ID, "model_variant": DEFAULT_MODEL_VARIANT, "endpoint": DEFAULT_BASE_URL},
+        "prompt_contract_digest": hashlib.sha256(PROMPT_CONTRACT.encode("utf-8")).hexdigest(),
+        "corpus_admission_digest": corpus_admission["admission_digest"],
+        "label_admission_digest": admission["admission_digest"],
+        "threshold_policy_digest": _digest(policy),
+        "live_report_digest": live["report_digest"],
+        "pre_attestation_readiness_digest": _v3_pre_digest(evidence, source),
+        "event_chain": {
+            "event_count": chain["event_count"],
+            "first_event_digest": chain["first_event_digest"],
+            "last_event_digest": chain["last_event_digest"],
+            "chain_root": chain["chain_root"],
+        },
+        "inventory_before_digest": _digest(inventory["before"]),
+        "inventory_after_digest": _digest(inventory["after"]),
+        "execution": {
+            "read_only": True, "automatic_apply": False, "sqlite_mutation": False,
+            "mem0_mutation": False, "qdrant_mutation": False, "model_load_requested": False,
+            "model_unload_requested": False, "model_download_requested": False,
+            "model_configuration_requested": False,
+        },
+        "signer": {"signer_id": "readiness-v3-runner", "public_key_b64": public_key_b64, "signature_b64": ""},
+        "trust_registry_digest": registry["registry_digest"],
+    }
+    runner["signer"]["signature_b64"] = base64.b64encode(private.sign(bytes.fromhex(runner_attestation_payload_digest(runner)))).decode("ascii")  # type: ignore[index]
+    evidence = {
+        **evidence,
+        "schema_version": "bhm.semantic-assurance-readiness.v3",
+        "source_identity": source,
+        "runner_attestation": runner,
+    }
+    return evidence, registry
+
+
 
 
 def test_complete_evidence_remains_no_go_and_is_content_free(tmp_path: Path) -> None:
@@ -389,6 +577,57 @@ def test_complete_evidence_remains_no_go_and_is_content_free(tmp_path: Path) -> 
     assert DEFAULT_MODEL_ID not in rendered
     assert "127.0.0.1" not in rendered
     assert "reviewer-a" not in rendered
+
+
+def test_v3_validates_ephemeral_trusted_runner_without_hash_cycle(tmp_path: Path) -> None:
+    evidence, registry = _v3_evidence(tmp_path)
+
+    receipt = assess_semantic_assurance_readiness_v3(evidence, trust_registry=registry)
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-readiness-receipt.v3"
+    assert receipt["checks"]["trusted_runner_attestation"] is True
+    assert receipt["checks"]["pre_attestation_no_cycle"] is True
+    assert receipt["decision"]["automatic_apply_ready"] is False
+    assert receipt["decision"]["decision"] == "no_go"
+    assert receipt["bindings"]["pre_attestation_readiness_digest"] != receipt["readiness_digest"]
+
+
+def test_v3_rejects_empty_repository_runner_registry(tmp_path: Path) -> None:
+    evidence, _registry = _v3_evidence(tmp_path)
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="trusted runner attestation"):
+        assess_semantic_assurance_readiness_v3(evidence)
+
+
+def test_v3_rejects_wrong_signed_runner_binding(tmp_path: Path) -> None:
+    evidence, registry = _v3_evidence(tmp_path)
+    source = evidence["source_identity"]
+    assert isinstance(source, dict)
+    # Keep the signed envelope valid, but change the independently supplied
+    # source binding.  This proves v3 reconstructs expected bindings instead
+    # of accepting whichever digest the runner envelope declares.
+    source["source_tree_sha256"] = "f" * 64
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="trusted runner attestation"):
+        assess_semantic_assurance_readiness_v3(evidence, trust_registry=registry)
+
+
+def test_v3_rejects_event_chain_substitution_even_with_recomputed_live_digest(tmp_path: Path) -> None:
+    evidence, registry = _v3_evidence(tmp_path)
+    live = evidence["live_receipt"]
+    assert isinstance(live, dict)
+    execution = live["execution"]
+    assert isinstance(execution, dict)
+    chain = execution["event_chain"]
+    assert isinstance(chain, dict)
+    events = chain["events"]
+    assert isinstance(events, list)
+    events[0]["case_id"] = "substituted-case-id"
+    _refresh_live_digest(live)
+    _rebind_dependents(evidence)
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="event chain"):
+        assess_semantic_assurance_readiness_v3(evidence, trust_registry=registry)
 
 
 def test_rejects_v1_label_admission_without_corpus_pre_admission(tmp_path: Path) -> None:

@@ -76,6 +76,15 @@ def test_live_adapter_uses_only_inventory_and_chat_and_emits_content_free_receip
     assert calls[-1:] == [("GET", "/api/v1/models")]
     assert set(calls[1:-1]) == {("POST", "/api/v1/chat")}
     assert report["execution"]["chat_call_count"] == len(_holdout_ids()) * 3
+    chain = report["execution"]["event_chain"]
+    assert set(chain) == {
+        "events", "event_count", "first_event_digest", "last_event_digest", "chain_root",
+        "inventory_before_digest", "inventory_after_digest",
+    }
+    assert chain["event_count"] == report["execution"]["chat_call_count"]
+    assert len(chain["events"]) == report["execution"]["chat_call_count"]
+    assert all(set(event) == {"sequence", "repeat_number", "case_id", "request_digest", "response_digest", "event_digest"} for event in chain["events"])
+    assert live._event_chain_is_valid(chain, report["execution"]["chat_call_count"]) is True
     assert [entry["repeat_number"] for entry in report["execution"]["repeat_executions"]] == [1, 2, 3]
     assert all(entry["chat_call_count"] == len(_holdout_ids()) for entry in report["execution"]["repeat_executions"])
     assert all(entry["case_id_set_digest"] == _sealed_case_binding_digest(live.load_semantic_assurance_dataset(FIXTURE)) for entry in report["execution"]["repeat_executions"])
@@ -85,6 +94,40 @@ def test_live_adapter_uses_only_inventory_and_chat_and_emits_content_free_receip
     assert len({item["results_digest"] for item in report["offline_reports"]}) == 1
     assert "Synthetic projection work" not in rendered
     assert "support_id=s1" not in rendered
+
+
+def test_v3_event_chain_has_exact_1200_ordered_content_free_events_and_binds_inventories() -> None:
+    before = {"exact_requested_model_loaded": True, "only_requested_llm_loaded": True, "loaded_llm_count": 1}
+    after = {"exact_requested_model_loaded": True, "only_requested_llm_loaded": True, "loaded_llm_count": 1}
+    previous = live._event_chain_seed(before)
+    events: list[dict[str, object]] = []
+    for sequence in range(1, 1201):
+        event = live._event_record(
+            sequence=sequence,
+            repeat_number=((sequence - 1) // 400) + 1,
+            case_id=f"sealed-{((sequence - 1) % 400) + 1:03d}",
+            request_digest=_digest({"request": sequence}),
+            response_digest=_digest({"response": sequence}),
+            previous_event_digest=previous,
+        )
+        events.append(event)
+        previous = event["event_digest"]
+
+    chain = live._event_chain(events, before, after)
+
+    assert chain["event_count"] == 1200
+    assert chain["first_event_digest"] == events[0]["event_digest"]
+    assert chain["last_event_digest"] == events[-1]["event_digest"]
+    assert live._event_chain_is_valid(chain, 1200) is True
+    assert '"request":' not in json.dumps(chain)
+    assert '"response":' not in json.dumps(chain)
+
+    changed_inventory = dict(chain)
+    changed_inventory["inventory_after_digest"] = "0" * 64
+    assert live._event_chain_is_valid(changed_inventory, 1200) is False
+    changed_event = {**chain, "events": [dict(event) for event in chain["events"]]}
+    changed_event["events"][400]["case_id"] = "substituted-case"
+    assert live._event_chain_is_valid(changed_event, 1200) is False
 
 
 def test_live_adapter_fails_closed_on_malformed_model_classification(monkeypatch: pytest.MonkeyPatch) -> None:
