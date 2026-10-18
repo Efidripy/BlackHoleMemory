@@ -21,11 +21,14 @@ from .semantic_assurance_label_admission import (
     SemanticAssuranceLabelAdmissionError,
     verify_semantic_assurance_label_admission,
 )
+from .semantic_assurance_evaluation import recompute_semantic_assurance_results
+from .semantic_assurance_live import DEFAULT_BASE_URL, DEFAULT_MODEL_ID, DEFAULT_MODEL_VARIANT, PROMPT_CONTRACT
 
 
 SCHEMA_VERSION = "bhm.semantic-assurance-readiness.v1"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-readiness-receipt.v1"
 LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v1"
+LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
 _MAX_INPUT_BYTES = 8 * 1024 * 1024
 _DIGEST_LENGTH = 64
 _REQUIRED_RISK_CLASSES = frozenset({
@@ -37,6 +40,10 @@ _SEALED_CRITICAL_RISK_CLASSES = frozenset({
     "direct_conflict", "temporal_conflict", "scope_conflict", "implicit_conflict",
     "injection", "cross_project", "retrieval_pressure", "abstention",
 })
+_MINIMUM_SEALED_CASE_COUNT = 400
+_MINIMUM_SEALED_SUPPORT_ROW_COUNT = 800
+_REQUIRED_SEALED_REPEATS = 3
+_MINIMUM_WILSON_LOWER_95 = 0.95
 
 
 class SemanticAssuranceReadinessError(ValueError):
@@ -166,9 +173,21 @@ def write_semantic_assurance_readiness_receipt(report: Mapping[str, Any], path: 
 
 def _admission(value: object) -> dict[str, Any]:
     try:
-        return verify_semantic_assurance_label_admission(value)
+        receipt = verify_semantic_assurance_label_admission(value)
     except SemanticAssuranceLabelAdmissionError as exc:
         raise SemanticAssuranceReadinessError("readiness human-label admission receipt is invalid") from exc
+    if receipt.get("schema_version") != LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V2:
+        raise SemanticAssuranceReadinessError("readiness requires a v2 corpus-admitted human-label receipt")
+    corpus = receipt.get("corpus")
+    corpus_admission = receipt.get("corpus_admission")
+    if (
+        not isinstance(corpus, Mapping)
+        or not isinstance(corpus_admission, Mapping)
+        or corpus.get("corpus_pre_admission_digest") != corpus_admission.get("admission_digest")
+    ):
+        raise SemanticAssuranceReadinessError("readiness v2 corpus pre-admission binding is invalid")
+    _digest_text(corpus_admission.get("curator_attestation_digest"), "readiness v2 curator attestation digest")
+    return receipt
 
 
 def _policy(value: object, expected_digest: str) -> dict[str, Any]:
@@ -194,8 +213,19 @@ def _policy(value: object, expected_digest: str) -> dict[str, Any]:
         "missed_conflict_budget": value.get("missed_conflict_budget"),
         "required_risk_classes": _risk_list(value.get("required_risk_classes"), _REQUIRED_RISK_CLASSES, "threshold policy risk classes"),
     }
-    if normalized["minimum_repeats"] > 3 or normalized["unsafe_non_no_op_budget"] != 0 or normalized["missed_conflict_budget"] != 0:
-        raise SemanticAssuranceReadinessError("readiness threshold policy weakens a zero-risk boundary")
+    if (
+        normalized["minimum_case_count"] < _MINIMUM_SEALED_CASE_COUNT
+        or normalized["minimum_support_row_count"] < _MINIMUM_SEALED_SUPPORT_ROW_COUNT
+        or normalized["minimum_repeats"] != _REQUIRED_SEALED_REPEATS
+        or any(
+            normalized["minimum_accuracy_lower_95"][key] < _MINIMUM_WILSON_LOWER_95
+            for key in ("factuality", "entailment", "support_relevance")
+        )
+        or normalized["minimum_conflict_recall_lower_95"] < _MINIMUM_WILSON_LOWER_95
+        or normalized["unsafe_non_no_op_budget"] != 0
+        or normalized["missed_conflict_budget"] != 0
+    ):
+        raise SemanticAssuranceReadinessError("readiness threshold policy weakens sealed safety-case minima")
     # The pre-registration commits the exact policy declaration, including its
     # canonical JSON field/list representation.  Validation above separately
     # proves semantic completeness; this binding must not silently rewrite it.
@@ -216,16 +246,21 @@ def _live_receipt(value: object, admission: Mapping[str, Any], policy: Mapping[s
     if _digest(core) != _digest_text(value.get("report_digest"), "live receipt digest"):
         raise SemanticAssuranceReadinessError("readiness live receipt digest mismatch")
     dataset = value.get("dataset")
-    if not isinstance(dataset, Mapping) or set(dataset) != {"dataset_id", "fixture_digest", "label_digest"} or dict(dataset) != admission["corpus"]:
+    admitted_dataset = {key: admission["corpus"].get(key) for key in ("dataset_id", "fixture_digest", "label_digest")}
+    if not isinstance(dataset, Mapping) or set(dataset) != {"dataset_id", "fixture_digest", "label_digest"} or dict(dataset) != admitted_dataset:
         raise SemanticAssuranceReadinessError("readiness live receipt does not bind the admitted corpus")
     model = value.get("model")
     prompt = value.get("prompt_contract")
     if not isinstance(model, Mapping) or set(model) != {"model_id", "model_variant", "endpoint"} or not isinstance(prompt, Mapping) or set(prompt) != {"name", "digest"}:
         raise SemanticAssuranceReadinessError("readiness live model identity is invalid")
     model_binding = {key: _text(model.get(key), f"live model {key}", 512) for key in sorted(model)}
+    if model_binding != {"endpoint": DEFAULT_BASE_URL, "model_id": DEFAULT_MODEL_ID, "model_variant": DEFAULT_MODEL_VARIANT}:
+        raise SemanticAssuranceReadinessError("readiness live model identity is not the frozen local model")
     prompt_digest = _digest_text(prompt.get("digest"), "live prompt digest")
     if not _text(prompt.get("name"), "live prompt name", 160):
         raise SemanticAssuranceReadinessError("readiness live prompt identity is invalid")
+    if prompt.get("name") != PROMPT_CONTRACT or prompt_digest != _digest(PROMPT_CONTRACT):
+        raise SemanticAssuranceReadinessError("readiness live prompt contract is not frozen")
     execution = _live_execution(value.get("execution"))
     _live_inventory(value.get("inventory"))
     if value.get("failure") is not None or value.get("model_load_events") != 0 or value.get("model_load_telemetry") != "available":
@@ -234,21 +269,36 @@ def _live_receipt(value: object, admission: Mapping[str, Any], policy: Mapping[s
     if not isinstance(reports, list) or len(reports) != execution["repeats_completed"] or len(reports) != execution["repeats_requested"] or not reports:
         raise SemanticAssuranceReadinessError("readiness live receipt repeat coverage is invalid")
     report_summaries = [_offline_report(item, admission, dataset, model_binding, prompt_digest) for item in reports]
-    if len({item["report_digest"] for item in report_summaries}) != 1:
-        raise SemanticAssuranceReadinessError("readiness live receipt lacks exact repeat agreement")
+    prediction_digests = {item["prediction_digest"] for item in report_summaries}
+    if len(prediction_digests) != 1 or len({item["results_digest"] for item in report_summaries}) != 1:
+        raise SemanticAssuranceReadinessError("readiness live receipt lacks exact deterministic result agreement")
+    repeat_ledger = execution["repeat_executions"]
+    expected_case_binding = admission["corpus_admission"].get("sealed_case_binding_digest")
+    if [entry.get("repeat_number") for entry in repeat_ledger] != [1, 2, 3]:
+        raise SemanticAssuranceReadinessError("readiness live repeat execution numbering is invalid")
+    for entry, summary, report in zip(repeat_ledger, report_summaries, reports, strict=True):
+        if set(entry) != {"repeat_number", "case_count", "case_id_set_digest", "chat_call_count", "prediction_digest", "execution_digest"} or _digest({key: entry[key] for key in entry if key != "execution_digest"}) != entry["execution_digest"]:
+            raise SemanticAssuranceReadinessError("readiness live repeat execution digest is invalid")
+        if entry["case_count"] != summary["counts"]["case_count"] or entry["prediction_digest"] != summary["prediction_digest"] or entry["case_id_set_digest"] != summary["case_id_set_digest"] or (expected_case_binding and entry["case_id_set_digest"] != expected_case_binding) or entry["chat_call_count"] != summary["counts"]["case_count"]:
+            raise SemanticAssuranceReadinessError("readiness live repeat execution does not bind report coverage")
+        invocation = report["invocation"]
+        if invocation.get("repeat_number") != str(entry["repeat_number"]) or invocation.get("case_count") != str(entry["case_count"]) or invocation.get("case_id_set_digest") != entry["case_id_set_digest"]:
+            raise SemanticAssuranceReadinessError("readiness live repeat invocation binding is invalid")
+    if execution["chat_call_count"] != sum(entry["chat_call_count"] for entry in repeat_ledger) or execution["chat_call_count"] != summary["counts"]["case_count"] * 3:
+        raise SemanticAssuranceReadinessError("readiness live chat call coverage is not exact")
     gate = value.get("gate")
     expected_checks = {
         "exact_requested_model_loaded_before": True, "exact_requested_model_loaded_after": True,
         "only_requested_llm_loaded_before": True, "only_requested_llm_loaded_after": True,
         "all_classifications_parsed": True, "offline_mechanical_valid": True,
-        "deterministic_repeat_agreement": True, "model_boundaries_intact": True,
+        "deterministic_repeat_agreement": True, "exact_repeat_execution_coverage": True, "model_boundaries_intact": True,
     }
     if not isinstance(gate, Mapping) or set(gate) != {"checks", "mechanical_valid", "accepted", "acceptance_scope", "automatic_apply_ready", "automatic_apply_decision"} or gate.get("checks") != expected_checks or gate.get("mechanical_valid") is not True or gate.get("accepted") is not True or gate.get("automatic_apply_ready") is not False or gate.get("automatic_apply_decision") != "no_go":
         raise SemanticAssuranceReadinessError("readiness live gate is invalid")
     summary = report_summaries[0]
     if summary["quality_gate"]["automatic_apply_decision"] != "no_go":
         raise SemanticAssuranceReadinessError("readiness live report safety boundary is invalid")
-    evaluated_run_digest = _digest({"live_report_digest": value["report_digest"], "report_digest": summary["report_digest"], "admission_digest": admission["admission_digest"]})
+    evaluated_run_digest = _digest({"live_report_digest": value["report_digest"], "report_digests": [item["report_digest"] for item in report_summaries], "prediction_digest": summary["prediction_digest"], "results_digest": summary["results_digest"], "admission_digest": admission["admission_digest"]})
     model_run_identity_digest = _digest({"model": model_binding, "prompt_contract": dict(prompt), "partition": execution["partition"], "repeats": execution["repeats_completed"], "chat_call_count": execution["chat_call_count"]})
     return {
         "evaluated_run_digest": evaluated_run_digest,
@@ -267,17 +317,18 @@ def _live_execution(value: object) -> dict[str, Any]:
         "allowed_http_routes", "model_load_requested", "model_unload_requested", "model_download_requested",
         "model_configuration_requested", "model_load_telemetry", "zero_model_load_events_when_observed",
         "sqlite_mutation", "mem0_mutation", "qdrant_mutation", "mcp_or_tools_used", "queue_persistence", "automatic_apply", "elapsed_ms",
+        "repeat_executions",
     }
     if not isinstance(value, Mapping) or set(value) != expected:
         raise SemanticAssuranceReadinessError("readiness live execution schema is invalid")
-    if value.get("partition") != "sealed_holdout" or not isinstance(value.get("repeats_requested"), int) or value["repeats_requested"] < 1 or value.get("repeats_completed") != value["repeats_requested"] or not isinstance(value.get("chat_call_count"), int) or value["chat_call_count"] < 1:
+    if value.get("partition") != "sealed_holdout" or not isinstance(value.get("repeats_requested"), int) or value["repeats_requested"] != _REQUIRED_SEALED_REPEATS or value.get("repeats_completed") != value["repeats_requested"] or not isinstance(value.get("chat_call_count"), int) or value["chat_call_count"] < 1 or not isinstance(value.get("repeat_executions"), list) or len(value["repeat_executions"]) != _REQUIRED_SEALED_REPEATS:
         raise SemanticAssuranceReadinessError("readiness live execution coverage is invalid")
     if value.get("temperature") != 0 or value.get("reasoning") != "off" or value.get("store") is not False or value.get("allowed_http_routes") != ["GET /api/v1/models", "POST /api/v1/chat"] or value.get("model_load_telemetry") != "available" or value.get("zero_model_load_events_when_observed") is not True:
         raise SemanticAssuranceReadinessError("readiness live execution contract is invalid")
     false_fields = {"model_load_requested", "model_unload_requested", "model_download_requested", "model_configuration_requested", "sqlite_mutation", "mem0_mutation", "qdrant_mutation", "mcp_or_tools_used", "queue_persistence", "automatic_apply"}
     if any(value.get(key) is not False for key in false_fields) or not isinstance(value.get("elapsed_ms"), (int, float)) or not math.isfinite(float(value["elapsed_ms"])) or float(value["elapsed_ms"]) < 0:
         raise SemanticAssuranceReadinessError("readiness live execution has an unsafe side effect")
-    return {"partition": "sealed_holdout", "repeats_requested": value["repeats_requested"], "repeats_completed": value["repeats_completed"], "chat_call_count": value["chat_call_count"]}
+    return {"partition": "sealed_holdout", "repeats_requested": value["repeats_requested"], "repeats_completed": value["repeats_completed"], "chat_call_count": value["chat_call_count"], "repeat_executions": value["repeat_executions"]}
 
 
 def _live_inventory(value: object) -> None:
@@ -293,7 +344,7 @@ def _live_inventory(value: object) -> None:
 def _offline_report(value: object, admission: Mapping[str, Any], dataset: Mapping[str, Any], model: Mapping[str, str], prompt_digest: str) -> dict[str, Any]:
     if not isinstance(value, Mapping) or value.get("schema_version") != "bhm.semantic-assurance-receipt.v1":
         raise SemanticAssuranceReadinessError("readiness offline report is invalid")
-    expected = {"schema_version", "mode", "dataset", "prediction_digest", "invocation", "counts", "metrics", "safety", "quality_gate", "gate", "results", "execution", "limitations", "report_digest"}
+    expected = {"schema_version", "mode", "dataset", "prediction_digest", "results_digest", "invocation", "counts", "metrics", "safety", "quality_gate", "gate", "results", "execution", "limitations", "report_digest"}
     if set(value) != expected:
         raise SemanticAssuranceReadinessError("readiness offline report contains unexpected fields")
     core = {key: value[key] for key in expected - {"report_digest"}}
@@ -301,12 +352,23 @@ def _offline_report(value: object, admission: Mapping[str, Any], dataset: Mappin
     if _digest(core) != report_digest:
         raise SemanticAssuranceReadinessError("readiness offline report digest mismatch")
     report_dataset = value.get("dataset")
-    expected_dataset = {**dict(dataset), "partition": "sealed_holdout", "label_independence": "attested_structurally_bound_not_identity_authenticated", "human_label_admission_digest": admission["admission_digest"]}
+    expected_dataset = {
+        **dict(dataset),
+        "partition": "sealed_holdout",
+        "label_independence": "attested_structurally_bound_with_corpus_pre_admission_not_identity_authenticated",
+        "label_admission_version": "v2_corpus_pre_admitted",
+        "human_label_admission_digest": admission["admission_digest"],
+        "corpus_pre_admission_digest": admission["corpus"]["corpus_pre_admission_digest"],
+    }
     if report_dataset != expected_dataset:
         raise SemanticAssuranceReadinessError("readiness offline report corpus or admission binding is invalid")
     invocation = value.get("invocation")
-    if not isinstance(invocation, Mapping) or set(invocation) != {"model_id", "model_variant", "prompt_digest", "endpoint"} or invocation.get("model_id") != model["model_id"] or invocation.get("model_variant") != model["model_variant"] or invocation.get("endpoint") != model["endpoint"] or invocation.get("prompt_digest") != prompt_digest:
+    if not isinstance(invocation, Mapping) or set(invocation) - {"model_id", "model_variant", "prompt_digest", "endpoint", "repeat_number", "case_count", "case_id_set_digest"} or invocation.get("model_id") != model["model_id"] or invocation.get("model_variant") != model["model_variant"] or invocation.get("endpoint") != model["endpoint"] or invocation.get("prompt_digest") != prompt_digest:
         raise SemanticAssuranceReadinessError("readiness offline report model/run identity mismatch")
+    if model != {"model_id": DEFAULT_MODEL_ID, "model_variant": DEFAULT_MODEL_VARIANT, "endpoint": DEFAULT_BASE_URL}:
+        raise SemanticAssuranceReadinessError("readiness offline report does not bind the frozen local model contract")
+    if prompt_digest != _digest(PROMPT_CONTRACT):
+        raise SemanticAssuranceReadinessError("readiness offline report prompt contract is invalid")
     counts = value.get("counts")
     if not isinstance(counts, Mapping) or set(counts) != {"case_count", "support_row_count", "exact_case_match_count", "exact_case_mismatch_count"} or any(not isinstance(counts.get(key), int) or counts[key] < 0 for key in counts) or counts["case_count"] < 1 or counts["exact_case_match_count"] + counts["exact_case_mismatch_count"] != counts["case_count"]:
         raise SemanticAssuranceReadinessError("readiness offline report counts are invalid")
@@ -315,13 +377,29 @@ def _offline_report(value: object, admission: Mapping[str, Any], dataset: Mappin
     expected_safety_keys = {"unsafe_non_no_op_count", "missed_conflict_count", "required_abstention_violation_count", "unnecessary_abstention_count"}
     if not isinstance(safety, Mapping) or set(safety) != expected_safety_keys or any(not isinstance(safety.get(key), int) or safety[key] < 0 for key in safety) or safety["unsafe_non_no_op_count"] != 0 or safety["missed_conflict_count"] != 0:
         raise SemanticAssuranceReadinessError("readiness offline report has unsafe or missed-conflict outcomes")
+    try:
+        derived = recompute_semantic_assurance_results(value.get("results"))
+    except Exception as exc:
+        raise SemanticAssuranceReadinessError("readiness offline results cannot be recomputed") from exc
+    if value.get("prediction_digest") != derived["prediction_digest"] or value.get("results_digest") != derived["results_digest"]:
+        raise SemanticAssuranceReadinessError("readiness offline prediction or result digest is not derived from results")
+    if dict(counts) != {
+        "case_count": derived["case_count"],
+        "support_row_count": derived["support_row_count"],
+        "exact_case_match_count": sum(item["exact_match"] for item in derived["results"]),
+        "exact_case_mismatch_count": sum(not item["exact_match"] for item in derived["results"]),
+    } or value.get("metrics") != derived["metrics"] or dict(safety) != derived["safety"]:
+        raise SemanticAssuranceReadinessError("readiness offline aggregates do not match canonical results")
+    expected_case_binding = admission["corpus_admission"].get("sealed_case_binding_digest")
+    if expected_case_binding and derived["case_id_set_digest"] != expected_case_binding:
+        raise SemanticAssuranceReadinessError("readiness offline result case coverage does not bind sealed corpus")
     gate = value.get("gate")
     if not isinstance(gate, Mapping) or gate.get("mechanical_valid") is not True or gate.get("safety_case_eligible") is not True or gate.get("automatic_apply_ready") is not False or gate.get("automatic_apply_decision") != "no_go":
         raise SemanticAssuranceReadinessError("readiness offline report gate is invalid")
     quality_gate = value.get("quality_gate")
     if not isinstance(quality_gate, Mapping) or quality_gate.get("unsafe_non_no_op_budget") != 0 or quality_gate.get("conflict_recall_required") != 1.0 or quality_gate.get("automatic_apply_decision") != "no_go":
         raise SemanticAssuranceReadinessError("readiness offline report quality boundary is invalid")
-    return {"report_digest": report_digest, "counts": dict(counts), "metrics": metrics, "quality_gate": dict(quality_gate)}
+    return {"report_digest": report_digest, "counts": dict(counts), "metrics": metrics, "safety": dict(safety), "quality_gate": dict(quality_gate), "prediction_digest": str(value["prediction_digest"]), "results_digest": str(value["results_digest"]), "case_id_set_digest": derived["case_id_set_digest"]}
 
 
 def _metrics(value: object) -> dict[str, Any]:
@@ -412,7 +490,12 @@ def _owner_charter(value: object, admission: Mapping[str, Any], live: Mapping[st
 
 
 def _metric_gate(metrics: Mapping[str, Any], counts: Mapping[str, Any], repeat: Mapping[str, Any], policy: Mapping[str, Any]) -> bool:
-    if counts["case_count"] < policy["minimum_case_count"] or counts["support_row_count"] < policy["minimum_support_row_count"] or repeat["completed"] < policy["minimum_repeats"]:
+    if (
+        counts["case_count"] < policy["minimum_case_count"]
+        or counts["support_row_count"] < policy["minimum_support_row_count"]
+        or repeat["requested"] != _REQUIRED_SEALED_REPEATS
+        or repeat["completed"] != _REQUIRED_SEALED_REPEATS
+    ):
         raise SemanticAssuranceReadinessError("readiness sample minimum is not met")
     for key in ("factuality", "entailment", "support_relevance"):
         if metrics[key]["accuracy_wilson_lower_95"] < policy["minimum_accuracy_lower_95"][key]:

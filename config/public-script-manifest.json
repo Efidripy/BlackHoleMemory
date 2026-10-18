@@ -109,6 +109,11 @@
       "release": true
     },
     {
+      "path": "scripts/validate-bhm-semantic-assurance-corpus.py",
+      "role": "quality-gate",
+      "release": true
+    },
+    {
       "path": "scripts/validate-bhm-semantic-assurance-human-labels.py",
       "role": "quality-gate",
       "release": true

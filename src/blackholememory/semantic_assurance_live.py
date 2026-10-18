@@ -36,7 +36,10 @@ PROMPT_CONTRACT = "bhm.semantic-assurance-live-classifier.v1"
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_TIMEOUT_SECONDS = 60.0
 MAX_REPEATS = 3
-MAX_CASES_PER_PARTITION = 64
+# Readiness policy requires a sealed partition with at least 400 cases.  The
+# adapter remains deliberately bounded, but its ceiling must not make that
+# independently declared evidence gate mathematically unreachable.
+MAX_CASES_PER_PARTITION = 512
 MAX_SUPPORTS_PER_CASE = 32
 _CLASSIFIER_KEYS = frozenset({"factuality", "entailment", "conflict", "operation", "support_relevance"})
 _FACTUALITY = frozenset({"true", "false", "insufficient", "ambiguous"})
@@ -44,6 +47,23 @@ _ENTAILMENT = frozenset({"supported", "contradicted", "insufficient"})
 _CONFLICT = frozenset({"none", "direct", "temporal", "scope", "implicit"})
 _OPERATION = frozenset({"no_op", "create", "revise", "supersede", "archive", "link"})
 _RELEVANCE = frozenset({"relevant", "irrelevant"})
+_LABEL_ADMISSION_RECEIPT_V1 = "bhm.semantic-assurance-human-label-admission-receipt.v1"
+_LABEL_ADMISSION_RECEIPT_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
+_V2_CORPUS_ADMISSION_KEYS = frozenset({
+    "receipt_schema_version",
+    "admission_digest",
+    "case_count",
+    "partition_counts",
+    "sealed_support_count",
+    "packet_payload_set_digest",
+    "curator_ledger_digest",
+    "curator_attestation_digest",
+    "dataset_binding_digest",
+    "sealed_case_binding_digest",
+    "sealed_support_binding_digest",
+    "risk_counts",
+    "sealed_risk_counts",
+})
 
 _SYSTEM_PROMPT = """You are a read-only semantic-assurance classifier.
 Return exactly one JSON object and nothing else.  Its exact keys must be:
@@ -90,6 +110,7 @@ def run_live_semantic_assurance(
     requested_model = _requested_model(model_id, model_variant)
     dataset, prompt_cases = _load_prompt_cases(dataset_path, partition)
     normalized_label_admission = _validate_label_admission(label_admission, dataset)
+    case_binding_digest = _partition_case_binding_digest(dataset, partition)
     started = time.perf_counter()
     failure: dict[str, Any] | None = None
     reports: list[dict[str, Any]] = []
@@ -98,6 +119,7 @@ def run_live_semantic_assurance(
     model_load_events = 0
     model_load_evidence_available = True
     chat_call_count = 0
+    repeat_executions: list[dict[str, Any]] = []
 
     try:
         with httpx.Client(base_url=endpoint, timeout=timeout, trust_env=False, follow_redirects=False) as client:
@@ -107,6 +129,7 @@ def run_live_semantic_assurance(
                 failure = _failure("inventory_before", exc.code)
             if failure is None:
                 for repeat_number in range(1, repeat_count + 1):
+                    repeat_started_calls = chat_call_count
                     predictions: list[dict[str, Any]] = []
                     for case in prompt_cases:
                         try:
@@ -132,6 +155,9 @@ def run_live_semantic_assurance(
                                 "model_variant": requested_model["model_variant"],
                                 "prompt_digest": _digest(PROMPT_CONTRACT),
                                 "endpoint": endpoint,
+                                "repeat_number": repeat_number,
+                                "case_count": len(prompt_cases),
+                                "case_id_set_digest": case_binding_digest,
                             },
                             label_admission=normalized_label_admission,
                         )
@@ -139,6 +165,15 @@ def run_live_semantic_assurance(
                         failure = _failure("offline_evaluation", "offline_evaluation_failed", repeat_number)
                         break
                     reports.append(report)
+                    if failure is None:
+                        repeat_entry = {
+                            "repeat_number": repeat_number,
+                            "case_count": len(prompt_cases),
+                            "case_id_set_digest": case_binding_digest,
+                            "chat_call_count": chat_call_count - repeat_started_calls,
+                            "prediction_digest": report["prediction_digest"],
+                        }
+                        repeat_executions.append({**repeat_entry, "execution_digest": _digest(repeat_entry)})
             if failure is None:
                 try:
                     after_inventory = _inventory(client, requested_model)
@@ -161,6 +196,7 @@ def run_live_semantic_assurance(
         model_load_events=model_load_events,
         model_load_evidence_available=model_load_evidence_available,
         elapsed_ms=(time.perf_counter() - started) * 1000.0,
+        repeat_executions=repeat_executions,
     )
 
 
@@ -239,9 +275,83 @@ def _validate_label_admission(
         "fixture_digest": dataset["fixture_digest"],
         "label_digest": dataset["label_digest"],
     }
-    if receipt["corpus"] != expected:
+    corpus = receipt.get("corpus")
+    if not isinstance(corpus, Mapping) or any(corpus.get(key) != value for key, value in expected.items()):
         raise SemanticAssuranceLiveError("semantic assurance human-label admission does not bind this exact dataset")
+    schema_version = receipt.get("schema_version")
+    if schema_version == _LABEL_ADMISSION_RECEIPT_V1:
+        if set(corpus) != set(expected):
+            raise SemanticAssuranceLiveError("semantic assurance v1 human-label admission corpus is invalid")
+        return receipt
+    if schema_version != _LABEL_ADMISSION_RECEIPT_V2:
+        raise SemanticAssuranceLiveError("semantic assurance human-label admission receipt version is unsupported")
+    corpus_pre_admission_digest = _sha256_digest(
+        corpus.get("corpus_pre_admission_digest"),
+        "corpus pre-admission digest",
+    )
+    corpus_admission = receipt.get("corpus_admission")
+    if not isinstance(corpus_admission, Mapping) or set(corpus_admission) != _V2_CORPUS_ADMISSION_KEYS:
+        raise SemanticAssuranceLiveError("semantic assurance v2 corpus pre-admission binding is invalid")
+    _sha256_digest(
+        corpus_admission.get("curator_attestation_digest"),
+        "curator attestation binding",
+    )
+    for key in ("dataset_binding_digest", "sealed_case_binding_digest", "sealed_support_binding_digest"):
+        _sha256_digest(corpus_admission.get(key), f"{key} binding")
+    if not isinstance(corpus_admission.get("risk_counts"), Mapping) or not isinstance(corpus_admission.get("sealed_risk_counts"), Mapping):
+        raise SemanticAssuranceLiveError("semantic assurance v2 corpus risk binding is invalid")
+    rows = _canonical_dataset_rows(dataset)
+    sealed_rows = [row for row in rows if row["partition"] == "sealed_holdout"]
+    partition_counts = {
+        name: sum(row["partition"] == name for row in rows)
+        for name in ("development", "validation", "sealed_holdout")
+    }
+    risk_counts = {
+        risk: sum(row["risk_class"] == risk for row in rows)
+        for risk in sorted(str(item) for item in corpus_admission["risk_counts"])
+    }
+    sealed_risk_counts = {
+        risk: sum(row["risk_class"] == risk for row in sealed_rows)
+        for risk in sorted(str(item) for item in corpus_admission["sealed_risk_counts"])
+    }
+    if (
+        corpus_admission.get("case_count") != len(rows)
+        or corpus_admission.get("partition_counts") != partition_counts
+        or corpus_admission.get("sealed_support_count") != sum(len(row["support_ids"]) for row in sealed_rows)
+        or corpus_admission.get("risk_counts") != risk_counts
+        or corpus_admission.get("sealed_risk_counts") != sealed_risk_counts
+        or corpus_admission.get("dataset_binding_digest") != _digest(rows)
+        or corpus_admission.get("sealed_case_binding_digest") != _digest(sealed_rows)
+        or corpus_admission.get("sealed_support_binding_digest") != _digest([{"case_id": row["case_id"], "support_ids": row["support_ids"]} for row in sealed_rows])
+    ):
+        raise SemanticAssuranceLiveError("semantic assurance v2 corpus dataset binding does not match this dataset")
+    if _sha256_digest(corpus_admission.get("admission_digest"), "corpus admission binding") != corpus_pre_admission_digest:
+        raise SemanticAssuranceLiveError("semantic assurance v2 corpus pre-admission digest does not bind the receipt")
     return receipt
+
+
+def _canonical_dataset_rows(dataset: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Build the exact content-free corpus rows used by admission and readiness."""
+
+    rows = [
+        {
+            "case_id": str(case["case_id"]),
+            "partition": str(case["partition"]),
+            "risk_class": str(case["risk_class"]),
+            "support_ids": sorted(str(item) for item in case["support_ids"]),
+        }
+        for case in dataset["cases"]
+    ]
+    rows.sort(key=lambda row: row["case_id"])
+    return rows
+
+
+def _partition_case_binding_digest(dataset: Mapping[str, Any], partition: str) -> str:
+    selected = str(partition).strip().casefold()
+    rows = [row for row in _canonical_dataset_rows(dataset) if row["partition"] == selected]
+    if not rows:
+        raise SemanticAssuranceLiveError("semantic assurance live partition is invalid")
+    return _digest(rows)
 
 
 def _inventory(client: httpx.Client, requested_model: Mapping[str, str]) -> dict[str, Any]:
@@ -360,10 +470,18 @@ def _receipt(
     model_load_events: int,
     model_load_evidence_available: bool,
     elapsed_ms: float,
+    repeat_executions: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    report_digests = [str(report["report_digest"]) for report in reports]
     all_reports_valid = len(reports) == repeats and all(bool(report["gate"]["mechanical_valid"]) for report in reports)
-    deterministic = len(report_digests) == repeats and len(set(report_digests)) == 1
+    deterministic = len(reports) == repeats and len({str(report.get("prediction_digest")) for report in reports}) == 1 and len({str(report.get("results_digest")) for report in reports}) == 1
+    expected_repeat_numbers = list(range(1, repeats + 1))
+    repeat_ledger_valid = [entry.get("repeat_number") for entry in repeat_executions] == expected_repeat_numbers and all(
+        isinstance(entry, Mapping)
+        and set(entry) == {"repeat_number", "case_count", "case_id_set_digest", "chat_call_count", "prediction_digest", "execution_digest"}
+        and _digest({key: entry[key] for key in entry if key != "execution_digest"}) == entry["execution_digest"]
+        for entry in repeat_executions
+    )
+    repeat_reports_bound = _repeat_reports_bind_ledger(reports, repeat_executions)
     model_boundary = (
         before_inventory is not None
         and after_inventory is not None
@@ -377,6 +495,7 @@ def _receipt(
         "all_classifications_parsed": failure is None,
         "offline_mechanical_valid": all_reports_valid,
         "deterministic_repeat_agreement": deterministic,
+        "exact_repeat_execution_coverage": repeat_ledger_valid and repeat_reports_bound and sum(int(entry["chat_call_count"]) for entry in repeat_executions) == chat_call_count,
         "model_boundaries_intact": model_boundary,
     }
     mechanical_valid = all(checks.values())
@@ -399,6 +518,7 @@ def _receipt(
             "repeats_requested": repeats,
             "repeats_completed": len(reports),
             "chat_call_count": chat_call_count,
+            "repeat_executions": list(repeat_executions),
             "temperature": 0,
             "reasoning": "off",
             "store": False,
@@ -438,6 +558,32 @@ def _receipt(
         ],
     }
     return {**core, "report_digest": _digest(core)}
+
+
+def _repeat_reports_bind_ledger(
+    reports: Sequence[Mapping[str, Any]],
+    repeat_executions: Sequence[Mapping[str, Any]],
+) -> bool:
+    """Reject copied reports by binding every unique repeat to its own invocation."""
+
+    if len(reports) != len(repeat_executions):
+        return False
+    report_digests: set[str] = set()
+    for report, entry in zip(reports, repeat_executions, strict=True):
+        invocation = report.get("invocation")
+        report_digest = report.get("report_digest")
+        if (
+            not isinstance(invocation, Mapping)
+            or not isinstance(report_digest, str)
+            or report_digest in report_digests
+            or invocation.get("repeat_number") != str(entry.get("repeat_number"))
+            or invocation.get("case_count") != str(entry.get("case_count"))
+            or invocation.get("case_id_set_digest") != entry.get("case_id_set_digest")
+            or report.get("prediction_digest") != entry.get("prediction_digest")
+        ):
+            return False
+        report_digests.add(report_digest)
+    return True
 
 
 def _loopback_endpoint(value: str) -> str:
@@ -494,6 +640,13 @@ def _bounded_text(value: Any, field: str, maximum: int) -> str:
     text = str(value or "").strip()
     if not text or len(text) > maximum:
         raise SemanticAssuranceLiveError(f"live semantic assurance {field} is invalid")
+    return text
+
+
+def _sha256_digest(value: Any, field: str) -> str:
+    text = _bounded_text(value, field, 64).casefold()
+    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+        raise SemanticAssuranceLiveError(f"live semantic assurance {field} must be a SHA-256 digest")
     return text
 
 
