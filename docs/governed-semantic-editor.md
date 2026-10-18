@@ -106,8 +106,11 @@ The local model adapter has a second default-off flag:
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_SEMANTIC_EDITOR_MODEL', 'qwen2.5-coder-7b-instruct', 'User')
 ```
 
-The automatic policy stage is independent and remains off unless explicitly
-enabled after its disposable rehearsal:
+`BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED` is retained only as a configured
+policy signal. It never enables automatic semantic approval or lifecycle apply:
+the runtime reports `automatic_apply_enabled=false` regardless of its value.
+The companion consent setting can make the manual route stricter, but cannot
+make it automatic:
 
 ```powershell
 [Environment]::SetEnvironmentVariable('BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED', '1', 'User')
@@ -115,9 +118,10 @@ enabled after its disposable rehearsal:
 ```
 
 Restart the BHM API through the canonical launcher after changing persistent
-environment variables. The canonical launcher imports this explicit,
-non-secret governed allowlist from Windows User scope into its child process,
-so the approved local configuration survives a desktop restart. The adapter accepts only the existing local-only
+environment variables only when that operational change is separately in
+scope. The canonical launcher imports this explicit, non-secret governed
+allowlist from Windows User scope into its child process; these values remain
+configuration visibility, not an approval/apply capability. The adapter accepts only the existing local-only
 gateway boundary. It has a 60-second default timeout and a 180-token compact
 proposal bound; override only through the documented
 `BHM_GOVERNED_SEMANTIC_EDITOR_*` settings. The default is deliberately not a
@@ -140,8 +144,10 @@ before it could finish a foreground proposal.
 4. Re-read the proposal and run explicit apply through the existing privileged
    governed route or MCP tool with an exact proposal confirmation. Apply
    independently rechecks both SQLite revisions and the approval event binding.
-   A future automatic mode requires a separately accepted semantic-entailment/
-   conflict contract and end-to-end operator evidence.
+   A bounded evaluation cannot prove universal factual accuracy, entailment,
+   relevance or absence of hidden conflicts. Automatic semantic apply remains
+   `NO-GO`; see [semantic assurance](semantic-assurance.md) for the evidence
+   contract and its explicit limits.
 
 The MCP equivalents are `bhm_governed_semantic_proposal` and
 `bhm_governed_semantic_shadow_metrics`. They remain operator-scoped, like the
