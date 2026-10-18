@@ -79,9 +79,17 @@ V2 receipt несёт только content-free `partition_risk_counts` и contr
 digest. Он доказывает, что эти declared structural bounds были проверены, но
 не доказывает человеческую идентичность, реальную независимость фактов,
 происхождение источника, factual truth, entailment или relevance. V1 receipt
-не может выдаваться за V6 receipt. Перенос V6 corpus receipt в dual-review и
-readiness требует отдельного versioned label-admission/readiness path; v2 сам
-по себе не разрешает model run или automatic apply.
+не может выдаваться за V6 receipt.
+
+V6 corpus receipt может перейти в dual-review только через
+`bhm.semantic-assurance-human-label-admission.v3`: этот forward-only contract
+принимает только corpus receipt v2, заново сверяет его exact dataset binding,
+`220/220/400` distribution, partition-level risk map и control binding digest.
+Его content-free label receipt сохраняет эти bindings, но всё ещё не
+аутентифицирует reviewers или adjudicator. Existing label-admission v1/v2
+сохраняют исходный смысл и не могут молча повыситься до V6. Отдельный readiness
+v4 должен потреблять именно этот label receipt; до него V6 corpus не даёт
+разрешения model run или automatic apply.
 
 Verifier проверяет opaque non-risk IDs, одинаковый payload set с разными
 позициями в A/B packets, blank ledger в порядке каждого packet, отсутствие
