@@ -34,19 +34,19 @@ $lockExit = $LASTEXITCODE
 $ErrorActionPreference = $previousErrorAction
 Add-Check -Id "uv-lock-check" -Ok ($lockExit -eq 0) -Detail (($lockOutput -join " ").Trim())
 
-$testExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?test\s*=\s*\[.*?pytest==9\.0\.3.*?pytest-cov==7\.1\.0.*?\]'
-$devExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?dev\s*=\s*\[.*?pytest==9\.0\.3.*?pytest-cov==7\.1\.0.*?ruff==0\.15\.10.*?\]'
+$testExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?test\s*=\s*\[.*?pytest==9\.0\.3.*?pytest-cov==7\.1\.0.*?httpx2==2\.13\.1.*?PyQt6==6\.11\.0.*?\]'
+$devExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?dev\s*=\s*\[.*?pytest==9\.0\.3.*?pytest-cov==7\.1\.0.*?httpx2==2\.13\.1.*?PyQt6==6\.11\.0.*?ruff==0\.15\.10.*?\]'
 $buildExtraOk = $pyprojectText -match '(?ms)\[project\.optional-dependencies\].*?build\s*=\s*\[.*?PyQt6==6\.11\.0.*?pyinstaller==6\.21\.0.*?\]'
-Add-Check -Id "test-extra" -Ok $testExtraOk -Detail "pytest and pytest-cov are pinned in [project.optional-dependencies].test"
-Add-Check -Id "dev-extra" -Ok $devExtraOk -Detail "pytest, pytest-cov and ruff are pinned in [project.optional-dependencies].dev"
+Add-Check -Id "test-extra" -Ok $testExtraOk -Detail "pytest, pytest-cov, httpx2 and PyQt6 are pinned in [project.optional-dependencies].test"
+Add-Check -Id "dev-extra" -Ok $devExtraOk -Detail "pytest, pytest-cov, httpx2, PyQt6 and ruff are pinned in [project.optional-dependencies].dev"
 Add-Check -Id "build-extra" -Ok $buildExtraOk -Detail "PyQt6 and pyinstaller are pinned in [project.optional-dependencies].build"
 
 $lockProjectVersion = [regex]::Escape([string]$manifest.components.package)
 $lockProjectOk = $lockText -match ('(?ms)name = "blackholememory".*?version = "' + $lockProjectVersion + '".*?\[package\.optional-dependencies\].*?build = .*?dev = .*?test = ')
-$lockToolsOk = $lockText.Contains('name = "pytest"') -and $lockText.Contains('name = "pytest-cov"') -and $lockText.Contains('name = "ruff"')
+$lockToolsOk = $lockText.Contains('name = "pytest"') -and $lockText.Contains('name = "pytest-cov"') -and $lockText.Contains('name = "httpx2"') -and $lockText.Contains('name = "pyqt6"') -and $lockText.Contains('name = "ruff"')
 $lockBuildOk = $lockText.Contains('name = "pyinstaller"') -and $lockText.Contains('name = "pyqt6"')
 Add-Check -Id "lock-project-extras" -Ok $lockProjectOk -Detail ("uv.lock contains blackholememory {0} with dev/test extras" -f [string]$manifest.components.package)
-Add-Check -Id "lock-tool-entries" -Ok $lockToolsOk -Detail "uv.lock contains pytest, pytest-cov and ruff entries"
+Add-Check -Id "lock-tool-entries" -Ok $lockToolsOk -Detail "uv.lock contains pytest, pytest-cov, httpx2, PyQt6 and ruff entries"
 Add-Check -Id "lock-build-entry" -Ok $lockBuildOk -Detail "uv.lock contains the pinned PyQt6 and pyinstaller build entries"
 
 $failures = @($checks | Where-Object { -not $_.ok })
