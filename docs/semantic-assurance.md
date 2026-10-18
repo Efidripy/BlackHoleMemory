@@ -74,6 +74,15 @@ Admission намеренно отвергает corpus с `fixture_reference_con
 явные source/theme/template/paraphrase isolation identities: к synthetic v1
 нельзя приложить новый manifest задним числом для повышения evidence tier.
 
+До dual review private corpus должен зарегистрировать protocol ID, timestamp,
+digest threshold policy и exact digest sealed holdout. Contract разрешает
+tuning только на `development`, требует frozen `validation` и immutable
+`sealed_holdout`. Он также требует весь adversarial taxonomy: factuality,
+entailment, relevance, direct/temporal/scope/implicit conflict, injection,
+cross-project isolation, retrieval pressure и abstention; все critical classes
+обязательны и в sealed holdout. Изменение labels, risk class или split после
+commitment меняет digest и fail-closed блокирует admission.
+
 ## Метрики и gates
 
 Receipt фиксирует dataset/model/variant/prompt digests, endpoint identity,

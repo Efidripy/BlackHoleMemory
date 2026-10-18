@@ -24,12 +24,27 @@ def _human_dataset(tmp_path: Path) -> dict[str, object]:
     raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
     raw["labeling"] = {"kind": "independent_human_review"}
     raw["label_provenance"] = {"kind": "independent_human_review"}
-    for case in raw["cases"]:
+    all_risks = [
+        "factuality", "entailment", "relevance", "direct_conflict", "temporal_conflict",
+        "scope_conflict", "implicit_conflict", "injection", "cross_project",
+        "retrieval_pressure", "abstention",
+    ]
+    sealed_risks = [
+        "direct_conflict", "temporal_conflict", "scope_conflict", "implicit_conflict",
+        "injection", "cross_project", "retrieval_pressure", "abstention",
+    ]
+    sealed_index = 0
+    for index, case in enumerate(raw["cases"]):
         partition = case["partition"]
         case["source_group_id"] = f"source-{partition}-{case['group_id']}"
         case["source_theme"] = f"theme-{partition}-{case['family_id']}"
         case["prompt_template_id"] = f"template-{partition}-{case['case_id']}"
         case["paraphrase_cluster_id"] = f"paraphrase-{partition}-{case['case_id']}"
+        if partition == "sealed_holdout":
+            case["risk_class"] = sealed_risks[sealed_index]
+            sealed_index += 1
+        else:
+            case["risk_class"] = all_risks[index % len(all_risks)]
     path = tmp_path / "independent-human-labels.json"
     path.write_text(json.dumps(raw), encoding="utf-8")
     return load_semantic_assurance_dataset(path)
@@ -53,6 +68,21 @@ def _manifest(dataset: dict[str, object]) -> dict[str, object]:
             "adjudicator_blinded_to_reviewer_identities": True,
             "holdout_not_used_for_tuning": True,
         },
+        "pre_registration": {
+            "protocol_id": "unit-protocol-v1",
+            "committed_at": "2026-10-18T00:00:00Z",
+            "sealed_holdout_commitment_digest": _sealed_digest(dataset),
+            "threshold_policy_digest": _digest("unit-threshold-policy"),
+            "tuning_scope": "development_only",
+            "validation_is_frozen": True,
+            "sealed_holdout_immutable": True,
+            "labels_excluded_from_model_input": True,
+            "required_risk_classes": [
+                "factuality", "entailment", "relevance", "direct_conflict", "temporal_conflict",
+                "scope_conflict", "implicit_conflict", "injection", "cross_project",
+                "retrieval_pressure", "abstention",
+            ],
+        },
         "reviewers": [
             {"reviewer_id_digest": _digest("reviewer-a"), "labels": label_rows},
             {"reviewer_id_digest": _digest("reviewer-b"), "labels": label_rows},
@@ -62,6 +92,17 @@ def _manifest(dataset: dict[str, object]) -> dict[str, object]:
             for row in label_rows
         ],
     }
+
+
+def _sealed_digest(dataset: dict[str, object]) -> str:
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    sealed = [
+        {"case_id": case["case_id"], "isolation": case["isolation"], "risk_class": case["risk_class"], "expected": case["expected"]}
+        for case in cases
+        if case["partition"] == "sealed_holdout"
+    ]
+    return hashlib.sha256(json.dumps(sorted(sealed, key=lambda item: str(item["case_id"])), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _holdout_predictions(dataset: dict[str, object]) -> list[dict[str, object]]:
@@ -136,3 +177,27 @@ def test_admission_cannot_upgrade_the_public_synthetic_reference_fixture() -> No
     dataset = load_semantic_assurance_dataset(FIXTURE)
     with pytest.raises(SemanticAssuranceLabelAdmissionError, match="cannot upgrade"):
         admit_semantic_assurance_human_labels(_manifest(dataset), dataset)
+
+
+def test_admission_requires_exact_sealed_commitment_and_adversarial_coverage(tmp_path: Path) -> None:
+    dataset = _human_dataset(tmp_path)
+    wrong_commitment = _manifest(dataset)
+    wrong_commitment["pre_registration"]["sealed_holdout_commitment_digest"] = "0" * 64
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="sealed holdout commitment"):
+        admit_semantic_assurance_human_labels(wrong_commitment, dataset)
+
+    missing_critical = _manifest(dataset)
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    next(case for case in cases if case["partition"] == "sealed_holdout")["risk_class"] = "factuality"
+    missing_critical["pre_registration"]["sealed_holdout_commitment_digest"] = _sealed_digest(dataset)
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="adversarial risk coverage"):
+        admit_semantic_assurance_human_labels(missing_critical, dataset)
+
+
+def test_receipt_rejects_tampered_pre_registration(tmp_path: Path) -> None:
+    dataset = _human_dataset(tmp_path)
+    receipt = admit_semantic_assurance_human_labels(_manifest(dataset), dataset)
+    tampered = {**receipt, "pre_registration": {**receipt["pre_registration"], "tuning_scope": "validation_allowed"}}
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="isolation policy"):
+        verify_semantic_assurance_label_admission(tampered)
