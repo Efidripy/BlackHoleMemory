@@ -223,3 +223,39 @@ support-row с ожидаемой меткой, а success — exact prediction 
 обсуждение будущего automatic apply требует отдельного safety/deployment
 charter, независимого review corpus, воспроизводимых holdout results и
 отдельного owner decision; этот контракт сам по себе такого решения не даёт.
+
+## Trusted-runner readiness v3
+
+Readiness v3 добавляет integrity-контур поверх v2, не расширяя его смысл и не
+разрешая lifecycle mutation. Вход имеет схему
+`bhm.semantic-assurance-readiness.v3` и связывает source identity, live receipt
+v3, event chain, v2 evidence, policy и отдельный trusted-runner attestation.
+
+Порядок вычисления намеренно не образует hash-цикл:
+
+1. verifier повторно проверяет v2 evidence и строит content-free
+   `pre-attestation core`;
+2. digest этого core (`pre_attestation_readiness_digest`) связывается с
+   подписью runner;
+3. только после проверки подписи строится финальный v3 receipt.
+
+Live v3 receipt содержит ровно 1200 content-free событий для sealed run:
+   `sequence`, `repeat_number`, `case_id`, `request_digest`,
+   `response_digest`, `event_digest`. Ordered hash-chain связывает каждое
+событие с предыдущим digest и inventory before/after. Verifier дополнительно
+требует три повтора по одному набору из 400 case IDs; missing, duplicate,
+reordered или substituted events fail closed. Prompt, evidence и raw model
+output в receipt не попадают.
+
+Trusted-runner attestation использует purpose-limited Ed25519 registry и exact
+bindings к source revision/tree, runner manifest, frozen model/prompt, corpus,
+labels, policy, live report, pre-attestation digest, event-chain anchors и
+inventory digests. Пустой checked-in registry — намеренный fail-closed default:
+до owner-issued ключа ни одна production-like attestation не может пройти.
+
+Подпись доказывает только то, что доверенный ключ подписал данный bounded
+content-free envelope. Она не доказывает физическое выполнение HTTP-вызовов на
+скомпрометированном хосте, соответствие весов модели заявленному variant,
+универсальную factual truth, полную hidden-conflict detection или open-world
+safety. Даже при успешной механической проверке v3 receipt всегда содержит
+`automatic_apply_ready=false` и `decision=no_go`.

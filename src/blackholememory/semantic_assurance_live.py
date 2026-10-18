@@ -28,7 +28,10 @@ from blackholememory.semantic_assurance_label_admission import SemanticAssurance
 from blackholememory.semantic_assurance_label_admission import verify_semantic_assurance_label_admission
 
 
-LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v1"
+# V3 adds a content-free event ledger.  The generic adapter may still run a
+# small fixture; the readiness gate, not this bounded transport helper,
+# requires the final 3 x 400 = 1200-event sealed measurement.
+LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v3"
 DEFAULT_BASE_URL = "http://127.0.0.1:13666"
 DEFAULT_MODEL_ID = "qwen/qwen3.5-9b"
 DEFAULT_MODEL_VARIANT = "qwen/qwen3.5-9b@q6_k"
@@ -120,6 +123,8 @@ def run_live_semantic_assurance(
     model_load_evidence_available = True
     chat_call_count = 0
     repeat_executions: list[dict[str, Any]] = []
+    event_records: list[dict[str, Any]] = []
+    previous_event_digest: str | None = None
 
     try:
         with httpx.Client(base_url=endpoint, timeout=timeout, trust_env=False, follow_redirects=False) as client:
@@ -128,18 +133,30 @@ def run_live_semantic_assurance(
             except _LiveFailure as exc:
                 failure = _failure("inventory_before", exc.code)
             if failure is None:
+                previous_event_digest = _event_chain_seed(before_inventory)
                 for repeat_number in range(1, repeat_count + 1):
                     repeat_started_calls = chat_call_count
                     predictions: list[dict[str, Any]] = []
                     for case in prompt_cases:
                         try:
-                            response = _chat(client, case, requested_model["model_id"])
+                            request = _chat_payload(case, requested_model["model_id"])
+                            response = _chat(client, request)
                             chat_call_count += 1
                             if response["model_load_event"] is None:
                                 model_load_evidence_available = False
                             else:
                                 model_load_events += int(response["model_load_event"])
                             predictions.append(_parse_classification(response["content"], case))
+                            event = _event_record(
+                                sequence=len(event_records) + 1,
+                                repeat_number=repeat_number,
+                                case_id=str(case["case_id"]),
+                                request_digest=_digest(request),
+                                response_digest=_digest(response["content"]),
+                                previous_event_digest=previous_event_digest,
+                            )
+                            event_records.append(event)
+                            previous_event_digest = event["event_digest"]
                         except _LiveFailure as exc:
                             failure = _failure(exc.stage, exc.code, repeat_number, str(case["case_id"]))
                             break
@@ -197,6 +214,7 @@ def run_live_semantic_assurance(
         model_load_evidence_available=model_load_evidence_available,
         elapsed_ms=(time.perf_counter() - started) * 1000.0,
         repeat_executions=repeat_executions,
+        event_records=event_records,
     )
 
 
@@ -380,9 +398,9 @@ def _inventory(client: httpx.Client, requested_model: Mapping[str, str]) -> dict
     }
 
 
-def _chat(client: httpx.Client, case: Mapping[str, Any], model_id: str) -> dict[str, Any]:
+def _chat(client: httpx.Client, request: Mapping[str, Any]) -> dict[str, Any]:
     try:
-        payload = _response_json(client.post("/api/v1/chat", json=_chat_payload(case, model_id)))
+        payload = _response_json(client.post("/api/v1/chat", json=dict(request)))
     except (httpx.HTTPError, ValueError) as exc:
         raise _LiveFailure("chat", "transport_or_response_failed") from exc
     if not isinstance(payload, Mapping):
@@ -471,6 +489,7 @@ def _receipt(
     model_load_evidence_available: bool,
     elapsed_ms: float,
     repeat_executions: Sequence[Mapping[str, Any]],
+    event_records: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     all_reports_valid = len(reports) == repeats and all(bool(report["gate"]["mechanical_valid"]) for report in reports)
     deterministic = len(reports) == repeats and len({str(report.get("prediction_digest")) for report in reports}) == 1 and len({str(report.get("results_digest")) for report in reports}) == 1
@@ -482,6 +501,8 @@ def _receipt(
         for entry in repeat_executions
     )
     repeat_reports_bound = _repeat_reports_bind_ledger(reports, repeat_executions)
+    event_chain = _event_chain(event_records, before_inventory, after_inventory)
+    event_chain_valid = _event_chain_is_valid(event_chain, chat_call_count)
     model_boundary = (
         before_inventory is not None
         and after_inventory is not None
@@ -496,6 +517,7 @@ def _receipt(
         "offline_mechanical_valid": all_reports_valid,
         "deterministic_repeat_agreement": deterministic,
         "exact_repeat_execution_coverage": repeat_ledger_valid and repeat_reports_bound and sum(int(entry["chat_call_count"]) for entry in repeat_executions) == chat_call_count,
+        "content_free_event_chain_integrity": event_chain_valid,
         "model_boundaries_intact": model_boundary,
     }
     mechanical_valid = all(checks.values())
@@ -519,6 +541,7 @@ def _receipt(
             "repeats_completed": len(reports),
             "chat_call_count": chat_call_count,
             "repeat_executions": list(repeat_executions),
+            "event_chain": event_chain,
             "temperature": 0,
             "reasoning": "off",
             "store": False,
@@ -584,6 +607,160 @@ def _repeat_reports_bind_ledger(
             return False
         report_digests.add(report_digest)
     return True
+
+
+def _event_record(
+    *,
+    sequence: int,
+    repeat_number: int,
+    case_id: str,
+    request_digest: str,
+    response_digest: str,
+    previous_event_digest: str | None,
+) -> dict[str, Any]:
+    """Create one ordered, content-free runner event.
+
+    The predecessor is deliberately not emitted.  It is reconstructed by the
+    verifier from the preceding public event digest, so an individual record
+    has exactly the small public schema promised by the receipt contract.
+    """
+
+    core = {
+        "sequence": sequence,
+        "repeat_number": repeat_number,
+        "case_id": case_id,
+        "request_digest": request_digest,
+        "response_digest": response_digest,
+        "previous_event_digest": previous_event_digest,
+    }
+    return {
+        "sequence": sequence,
+        "repeat_number": repeat_number,
+        "case_id": case_id,
+        "request_digest": request_digest,
+        "response_digest": response_digest,
+        "event_digest": _digest(core),
+    }
+
+
+def _event_chain_seed(before_inventory: Mapping[str, Any] | None) -> str:
+    """Return a domain-separated seed that binds the first event to inventory."""
+
+    before_digest = _digest(before_inventory) if before_inventory is not None else None
+    return _digest({
+        "domain": "bhm.semantic-assurance-live-event-chain.v3",
+        "inventory_before_digest": before_digest,
+    })
+
+
+def _event_chain(
+    events: Sequence[Mapping[str, Any]],
+    before_inventory: Mapping[str, Any] | None,
+    after_inventory: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Return a public event chain bound to model inventories before and after.
+
+    Request and response values never enter the receipt: only SHA-256 values
+    are retained.  ``chain_root`` binds the final linked event to both exact
+    model-inventory snapshots, preventing a ledger from being transplanted to
+    a differently observed model boundary.
+    """
+
+    before_digest = _digest(before_inventory) if before_inventory is not None else None
+    after_digest = _digest(after_inventory) if after_inventory is not None else None
+    copied_events = [dict(event) for event in events]
+    event_count = len(copied_events)
+    first_digest = copied_events[0].get("event_digest") if copied_events else None
+    last_digest = copied_events[-1].get("event_digest") if copied_events else None
+    root_core = {
+        "domain": "bhm.semantic-assurance-live-event-chain.v3",
+        "inventory_before_digest": before_digest,
+        "inventory_after_digest": after_digest,
+        "event_count": event_count,
+        "first_event_digest": first_digest,
+        "last_event_digest": last_digest,
+    }
+    return {
+        "events": copied_events,
+        "event_count": event_count,
+        "first_event_digest": first_digest,
+        "last_event_digest": last_digest,
+        "chain_root": _digest(root_core),
+        "inventory_before_digest": before_digest,
+        "inventory_after_digest": after_digest,
+    }
+
+
+def _event_chain_is_valid(value: object, expected_event_count: int) -> bool:
+    """Verify the event ledger without recovering prompts or model responses."""
+
+    expected_keys = {
+        "events", "event_count", "first_event_digest", "last_event_digest", "chain_root",
+        "inventory_before_digest", "inventory_after_digest",
+    }
+    event_keys = {
+        "sequence", "repeat_number", "case_id", "request_digest", "response_digest", "event_digest",
+    }
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != expected_keys
+        or not isinstance(value.get("events"), list)
+        or not isinstance(value.get("event_count"), int)
+        or isinstance(value.get("event_count"), bool)
+        or value["event_count"] != len(value["events"])
+        or value["event_count"] != expected_event_count
+        or not isinstance(value.get("inventory_before_digest"), str)
+        or not isinstance(value.get("inventory_after_digest"), str)
+        or not _is_sha256(value["inventory_before_digest"])
+        or not _is_sha256(value["inventory_after_digest"])
+    ):
+        return False
+    events = value["events"]
+    if not events:
+        return False
+    if value.get("first_event_digest") != events[0].get("event_digest") or value.get("last_event_digest") != events[-1].get("event_digest"):
+        return False
+    previous_digest = _digest({
+        "domain": "bhm.semantic-assurance-live-event-chain.v3",
+        "inventory_before_digest": value["inventory_before_digest"],
+    })
+    for expected_sequence, event in enumerate(events, start=1):
+        if (
+            not isinstance(event, Mapping)
+            or set(event) != event_keys
+            or event.get("sequence") != expected_sequence
+            or not isinstance(event.get("repeat_number"), int)
+            or isinstance(event.get("repeat_number"), bool)
+            or event["repeat_number"] < 1
+            or not isinstance(event.get("case_id"), str)
+            or not event["case_id"]
+            or any(not isinstance(event.get(key), str) or not _is_sha256(event[key]) for key in ("request_digest", "response_digest", "event_digest"))
+        ):
+            return False
+        expected_digest = _digest({
+            "sequence": event["sequence"],
+            "repeat_number": event["repeat_number"],
+            "case_id": event["case_id"],
+            "request_digest": event["request_digest"],
+            "response_digest": event["response_digest"],
+            "previous_event_digest": previous_digest,
+        })
+        if event["event_digest"] != expected_digest:
+            return False
+        previous_digest = event["event_digest"]
+    expected_root = _digest({
+        "domain": "bhm.semantic-assurance-live-event-chain.v3",
+        "inventory_before_digest": value["inventory_before_digest"],
+        "inventory_after_digest": value["inventory_after_digest"],
+        "event_count": value["event_count"],
+        "first_event_digest": value["first_event_digest"],
+        "last_event_digest": value["last_event_digest"],
+    })
+    return value.get("chain_root") == expected_root
+
+
+def _is_sha256(value: str) -> bool:
+    return len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
 def _loopback_endpoint(value: str) -> str:
