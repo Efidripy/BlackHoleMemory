@@ -18,6 +18,11 @@ from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 
 CHANGE_IMPACT_SCHEMA_VERSION = "bhm.change-impact.v1"
 IMPACT_BINDING_SCHEMA_VERSION = "bhm.change-impact.binding.v1"
+IMPACT_PREVIEW_RESPONSE_BOUNDS_SCHEMA_VERSION = "bhm.change-impact.response-bounds.v1"
+# This leaves deterministic headroom below the shared MCP-to-REST ceiling.
+# The preview route appends several receipts, so item caps alone cannot make a
+# serialized response bridge-safe.
+IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES = 240 * 1024
 MAX_CHANGED_PATHS = 64
 MAX_IMPACT_NODES = 128
 MAX_TEST_PATHS = 32
@@ -44,6 +49,230 @@ def _canonical_json(value: Any) -> str:
 def _sha256(value: Any) -> str:
     payload = value if isinstance(value, bytes) else _canonical_json(value).encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
+
+
+def _serialized_json_bytes(value: Any) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":"), default=str, allow_nan=False).encode("utf-8"))
+
+
+def _bounded_text(value: Any, limit: int) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return f"{text[: max(limit - 1, 0)]}…"
+
+
+def _compact_impact_metadata(
+    value: Any,
+    *,
+    collection_limit: int,
+    mapping_limit: int,
+    text_limit: int,
+    depth_limit: int,
+    _depth: int = 0,
+) -> Any:
+    """Deterministically compact metadata without returning source text."""
+
+    if isinstance(value, str):
+        return _bounded_text(value, text_limit)
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    if isinstance(value, Mapping):
+        if _depth >= depth_limit:
+            return {"truncated": True, "omitted_items": len(value), "omitted_type": "mapping"}
+        items = sorted(((str(key), item) for key, item in value.items()), key=lambda item: item[0])
+        if _depth == 0:
+            required_keys = {
+                "changed_paths",
+                "contract_digest",
+                "execution",
+                "gates",
+                "graph_digest",
+                "graph_snapshot_id",
+                "impact_binding",
+                "low_confidence",
+                "operation",
+                "preview_digest",
+                "project",
+                "provenance",
+                "ready",
+                "risk_receipt",
+                "schema_version",
+                "selectedTests",
+                "stale",
+                "whatWouldHelp",
+            }
+            required = [item for item in items if item[0] in required_keys]
+            extras = [item for item in items if item[0] not in required_keys]
+            items = required + extras
+            mapping_limit = max(mapping_limit, len(required))
+        compacted = {
+            key: _compact_impact_metadata(
+                item,
+                collection_limit=collection_limit,
+                mapping_limit=mapping_limit,
+                text_limit=text_limit,
+                depth_limit=depth_limit,
+                _depth=_depth + 1,
+            )
+            for key, item in items[:mapping_limit]
+        }
+        if len(items) > mapping_limit:
+            compacted["response_omitted_items"] = len(items) - mapping_limit
+        return compacted
+    if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray)):
+        if _depth >= depth_limit:
+            return {"truncated": True, "omitted_items": len(value), "omitted_type": "sequence"}
+        items = [
+            _compact_impact_metadata(
+                item,
+                collection_limit=collection_limit,
+                mapping_limit=mapping_limit,
+                text_limit=text_limit,
+                depth_limit=depth_limit,
+                _depth=_depth + 1,
+            )
+            for item in value[:collection_limit]
+        ]
+        if len(value) > collection_limit:
+            items.append({"truncated": True, "omitted_items": len(value) - collection_limit})
+        return items
+    return _bounded_text(value, text_limit)
+
+
+def _impact_preview_fallback(response: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep review-critical metadata when detailed preview material is too large."""
+
+    binding = response.get("impact_binding") if isinstance(response.get("impact_binding"), Mapping) else {}
+    risk = response.get("risk_receipt") if isinstance(response.get("risk_receipt"), Mapping) else {}
+    gates = response.get("gates") if isinstance(response.get("gates"), Mapping) else {}
+    execution = response.get("execution") if isinstance(response.get("execution"), Mapping) else {}
+    provenance = response.get("provenance") if isinstance(response.get("provenance"), Mapping) else {}
+    return {
+        "schema_version": _bounded_text(response.get("schema_version"), 128),
+        "preview_digest": _bounded_text(response.get("preview_digest"), 128),
+        "operation": _bounded_text(response.get("operation"), 64),
+        "contract_digest": _bounded_text(response.get("contract_digest"), 128),
+        "project": _bounded_text(response.get("project"), 160),
+        "graph_snapshot_id": _bounded_text(response.get("graph_snapshot_id"), 192),
+        "graph_digest": _bounded_text(response.get("graph_digest"), 192),
+        "changed_paths": [_bounded_text(value, 384) for value in list(response.get("changed_paths") or [])[:MAX_CHANGED_PATHS]],
+        "selectedTests": [_bounded_text(value, 384) for value in list(response.get("selectedTests") or [])[:MAX_TEST_PATHS]],
+        "whatWouldHelp": [_bounded_text(value, 384) for value in list(response.get("whatWouldHelp") or [])[:16]],
+        "ready": bool(response.get("ready")),
+        "stale": bool(response.get("stale")),
+        "graph_stale": bool(response.get("graph_stale")),
+        "low_confidence": bool(response.get("low_confidence")),
+        "gates": {
+            "coverage_complete": bool(gates.get("coverage_complete")),
+            "human_review_required": bool(gates.get("human_review_required")),
+            "graph_digest_bound": bool(gates.get("graph_digest_bound")),
+        },
+        "impact_binding": {
+            "schema_version": _bounded_text(binding.get("schema_version"), 128),
+            "status": _bounded_text(binding.get("status"), 64),
+            "ok": bool(binding.get("ok")),
+            "coverage": _compact_impact_metadata(binding.get("coverage") or {}, collection_limit=16, mapping_limit=16, text_limit=160, depth_limit=3),
+            "gaps": [_bounded_text(value, 160) for value in list(binding.get("gaps") or [])[:32]],
+            "failures": [_bounded_text(value, 160) for value in list(binding.get("failures") or [])[:32]],
+            "execution": _compact_impact_metadata(binding.get("execution") or {}, collection_limit=16, mapping_limit=16, text_limit=160, depth_limit=3),
+        },
+        "risk_receipt": {
+            "schema_version": _bounded_text(risk.get("schema_version"), 128),
+            "status": _bounded_text(risk.get("status"), 64),
+            "risk_bucket": _bounded_text(risk.get("risk_bucket"), 64),
+            "disposition": _bounded_text(risk.get("disposition"), 64),
+            "coverage": _compact_impact_metadata(risk.get("coverage") or {}, collection_limit=16, mapping_limit=16, text_limit=160, depth_limit=3),
+            "signals": _compact_impact_metadata(risk.get("signals") or {}, collection_limit=16, mapping_limit=16, text_limit=160, depth_limit=3),
+            "gaps": [_bounded_text(value, 160) for value in list(risk.get("gaps") or [])[:32]],
+            "execution": _compact_impact_metadata(risk.get("execution") or {}, collection_limit=16, mapping_limit=16, text_limit=160, depth_limit=3),
+        },
+        "provenance": {
+            "source": _bounded_text(provenance.get("source"), 160),
+            "graph_snapshot_id": _bounded_text(provenance.get("graph_snapshot_id"), 192),
+            "raw_source_returned": False,
+        },
+        "execution": _compact_impact_metadata(execution, collection_limit=16, mapping_limit=16, text_limit=160, depth_limit=3),
+    }
+
+
+def _with_impact_preview_response_bounds(
+    response: Mapping[str, Any],
+    *,
+    max_serialized_bytes: int,
+    original_serialized_bytes: int,
+    truncated: bool,
+    strategy: str,
+) -> dict[str, Any]:
+    bounded = dict(response)
+    bounded["response_bounds"] = {
+        "schema_version": IMPACT_PREVIEW_RESPONSE_BOUNDS_SCHEMA_VERSION,
+        "max_serialized_bytes": max_serialized_bytes,
+        "original_serialized_bytes": original_serialized_bytes,
+        "serialized_bytes": 0,
+        "truncated": truncated,
+        "strategy": strategy,
+        "reason": "serialized_response_budget" if truncated else "within_serialized_response_budget",
+        "raw_source_returned": False,
+    }
+    return bounded
+
+
+def _finalize_impact_preview_response_bounds(response: dict[str, Any]) -> dict[str, Any]:
+    bounds = response.get("response_bounds")
+    if not isinstance(bounds, dict):
+        raise ValueError("impact preview response bounds are unavailable")
+    for _ in range(3):
+        bounds["serialized_bytes"] = _serialized_json_bytes(response)
+    return response
+
+
+def bound_change_impact_preview_response(
+    response: Mapping[str, Any],
+    *,
+    max_serialized_bytes: int = IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES,
+) -> dict[str, Any]:
+    """Bound a producer response before the unchanged MCP REST transport guard."""
+
+    budget = max(1_024, int(max_serialized_bytes))
+    original = dict(response)
+    original_size = _serialized_json_bytes(original)
+    for strategy, collection_limit, mapping_limit, text_limit, depth_limit in (
+        ("full", None, None, None, None),
+        ("metadata_compact", 16, 32, 384, 8),
+        ("metadata_minimal", 6, 16, 160, 6),
+    ):
+        candidate = (
+            original
+            if collection_limit is None
+            else _compact_impact_metadata(
+                original,
+                collection_limit=collection_limit,
+                mapping_limit=mapping_limit or 1,
+                text_limit=text_limit or 1,
+                depth_limit=depth_limit or 1,
+            )
+        )
+        bounded = _with_impact_preview_response_bounds(
+            candidate,
+            max_serialized_bytes=budget,
+            original_serialized_bytes=original_size,
+            truncated=strategy != "full",
+            strategy=strategy,
+        )
+        if _serialized_json_bytes(bounded) <= budget:
+            return _finalize_impact_preview_response_bounds(bounded)
+
+    bounded = _with_impact_preview_response_bounds(
+        _impact_preview_fallback(original),
+        max_serialized_bytes=budget,
+        original_serialized_bytes=original_size,
+        truncated=True,
+        strategy="metadata_fallback",
+    )
+    if _serialized_json_bytes(bounded) > budget:
+        raise ValueError("impact preview response bounds metadata exceeded its own budget")
+    return _finalize_impact_preview_response_bounds(bounded)
 
 
 def _path(value: Any) -> str:
@@ -1063,4 +1292,4 @@ def build_cross_repo_history_preview(repositories: Sequence[Mapping[str, Any]]) 
     }
 
 
-__all__ = ["CHANGE_IMPACT_SCHEMA_VERSION", "IMPACT_BINDING_SCHEMA_VERSION", "DIFF_HUNK_SUMMARY_SCHEMA_VERSION", "GIT_HISTORY_CORRELATION_SCHEMA_VERSION", "ChangeImpactError", "build_change_impact_preview", "build_impact_binding_receipt", "build_cross_repo_history_preview", "build_git_history_correlation_receipt", "build_git_symbol_impact_evidence", "collect_git_change_paths", "collect_git_diff_hunks", "collect_git_history_stats", "correlate_diff_hunks_to_symbols", "correlate_git_history_to_symbols", "summarize_diff_hunks"]
+__all__ = ["CHANGE_IMPACT_SCHEMA_VERSION", "IMPACT_BINDING_SCHEMA_VERSION", "IMPACT_PREVIEW_RESPONSE_BOUNDS_SCHEMA_VERSION", "IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES", "DIFF_HUNK_SUMMARY_SCHEMA_VERSION", "GIT_HISTORY_CORRELATION_SCHEMA_VERSION", "ChangeImpactError", "bound_change_impact_preview_response", "build_change_impact_preview", "build_impact_binding_receipt", "build_cross_repo_history_preview", "build_git_history_correlation_receipt", "build_git_symbol_impact_evidence", "collect_git_change_paths", "collect_git_diff_hunks", "collect_git_history_stats", "correlate_diff_hunks_to_symbols", "correlate_git_history_to_symbols", "summarize_diff_hunks"]

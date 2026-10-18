@@ -10,7 +10,7 @@ Qdrant/Mem0 retrieval candidate IDs
   -> local model, strict JSON only
   -> deterministic policy validation
   -> governed proposal queue
-  -> queued launcher consent OR default-off deterministic auto review/apply
+  -> governed proposal queue and explicit operator review
   -> SQLite transaction -> outbox -> existing Qdrant projector
 ```
 
@@ -30,9 +30,17 @@ Qdrant/Mem0 retrieval candidate IDs
 - When a local OpenAI-compatible runner supports `response_format=json_schema`,
   the editor supplies its bounded proposal schema. BHM still independently
   parses every response, re-reads its SQLite basis and rejects invalid content.
-- The model does not select or reproduce opaque memory/revision IDs. BHM binds
-  every proposal to its deterministic, already SQLite-revalidated bounded
-  evidence basis before it constructs the external proposal.
+- The model does not select or reproduce opaque memory/revision IDs. For every
+  non-`no_op` proposal it selects bounded one-based `evidence_refs` among the
+  model-visible records; trusted code converts them to exact same-project
+  canonical IDs, revisions and content hashes. Missing, duplicate,
+  out-of-range or ambiguous references become `no_op`.
+- `revise`, `supersede`, `archive` and `link` require exactly one
+  `target_evidence_ref`; BHM binds it to the candidate target. `link` requires
+  exactly two bound endpoints. The policy receipt digest, normalized candidate,
+  support rows and target/source bindings are canonical-JSON SHA-256 values
+  inside the proposal identity. A changed basis, candidate, receipt or target
+  fails validation before storage, decision or apply.
 - If the local model itself is unavailable, BHM emits an explicitly labelled
   deterministic `no_op` preview instead of treating the failure as a memory
   write or a semantic result. The receipt reports a stable redacted
@@ -45,26 +53,42 @@ Qdrant/Mem0 retrieval candidate IDs
   matches.
 - The editor can return only `no_op`, `create`, `revise`, `supersede`,
   `archive`, or `link` proposal types.
-- Conflicts produce `no_op` (or an explicitly reviewed `link`), never a
-  lifecycle suggestion. Low-confidence `create`/`revise` also becomes `no_op`.
+- Any declared conflict produces `no_op`, including `link`; no conflicted
+  semantic lifecycle suggestion reaches the queue. Low-confidence
+  `create`/`revise` also becomes `no_op`.
+- A one-record historical rollover is permitted only when every selected basis
+  row is an explicitly typed historical trace. A mixed historical/current basis
+  is an ordinary consolidation: it cannot bypass duplicate or independent
+  evidence checks, and it may retire only the exact typed trace rows after
+  those checks pass.
 - A model-generated `no_op` keeps only its bounded reason; its candidate is
   replaced with the canonical empty no-op candidate before any operator view.
-- Default mode keeps all operations manual. The separately default-off
-  `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED` policy can decide and apply a stored
-  local-model proposal without the two manual actions. Its thresholds are
-  `0.90` for `create`/`revise`/`link` and `0.97` for `supersede`/`archive`; all
-  conflicts, `no_op`, fallback, missing editor receipt and low-confidence cases
-  are rejected. The event receipt contains only policy version, actor digest
-  and reason codes.
-- If `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` is set, the automatic policy
-  stage only leaves eligible proposals in the queue. The launcher exposes the
-  queue count and its **Apply memory proposals** action performs one verified
-  backup, explicit approve, and exact-ID apply for each eligible item. Degraded
-  results are retried at most three times and need 2-of-3 candidate-digest
-  consensus; disagreement remains `no_op`.
+- Default mode keeps all semantic lifecycle operations manual. A semantic
+  policy receipt must have the current schema/version and consistent
+  `model_operation` / `effective_operation` fields before it can be reviewed;
+  absent, stale or inconsistent receipts fail closed. The current receipt has
+  an immutable record-level support and target map, but it does not prove that
+  the model's language is semantically entailed by those records. A
+  local-model semantic proposal is therefore never automatically approved or
+  applied.
+  `BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED` remains a configured policy signal,
+  while status reports `automatic_apply_enabled=false` and its reason. This
+  keeps configuration visibility without representing an operator-only semantic
+  lifecycle change as automatic.
+- `BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED=1` continues to take priority and is
+  reported as `operator-consent`. Every semantic proposal still requires the
+  existing privileged decision and exact-ID apply route after operator review.
+  A semantic `approve` must carry the current operator-attestation schema in
+  the approval event: exact proposal ID/digest, immutable evidence binding,
+  model and effective operations, explicit target endpoint IDs (an explicit
+  empty list for `create`) and reviewer outcome `approved`. The repository
+  revalidates that event immediately before apply. Missing, stale, altered or
+  mismatched attestation fails closed before lifecycle or outbox work.
+  Non-semantic governed proposals retain their existing decision contract.
 - The editor never calls `Mem0.add/update/delete`, writes Qdrant, starts a
-  worker or polls a provider. Automatic apply, when opted in, is performed by a
-  separate deterministic policy adapter through the existing SQLite transaction.
+  worker or polls a provider. Stored semantic proposals never auto-apply from
+  their request route; a later operator-approved apply uses the existing
+  SQLite-authoritative transaction and outbox path.
 
 ## Activation
 
@@ -100,15 +124,17 @@ before it could finish a foreground proposal.
 1. Call `POST /bhm/governed-consolidation/semantic-proposals` with `project`,
    `query`, and `store_proposal=false` to inspect a non-persisted candidate.
 2. Repeat with `store_proposal=true` only when the proposal belongs in the
-   review queue. With auto-review disabled, this writes a proposal row only.
-3. In manual mode, inspect/validate, decide and run explicit apply through the
-   existing governed routes or MCP tools. With operator consent enabled, open
-   the launcher drawer and press **Apply memory proposals**; the preview count
-   and final receipt show applied and skipped items.
-4. In auto mode, the persisted local-model proposal is reviewed immediately by
-   the deterministic policy and, if eligible, passed to the same transactional
-   apply. The response returns a content-safe policy/apply receipt. Consent
-   mode defers that apply until the launcher action.
+   review queue. It writes a proposal row only; it never invokes semantic
+   automatic review or lifecycle apply from this caller-scoped request.
+3. In manual mode, inspect/validate the policy receipt and every bound support
+   row. An authorized reviewer supplies the exact semantic attestation together
+   with `approve`; it is recorded only in the proposal approval event JSON.
+   Reject remains available without an attestation.
+4. Re-read the proposal and run explicit apply through the existing privileged
+   governed route or MCP tool with an exact proposal confirmation. Apply
+   independently rechecks both SQLite revisions and the approval event binding.
+   A future automatic mode requires a separately accepted semantic-entailment/
+   conflict contract and end-to-end operator evidence.
 
 The MCP equivalents are `bhm_governed_semantic_proposal` and
 `bhm_governed_semantic_shadow_metrics`. They remain operator-scoped, like the
@@ -127,8 +153,13 @@ That label-only corpus proves evaluator mechanics, not local-model usefulness.
 gate: 29 same-project model cases plus one cross-project fail-closed preflight.
 It contains neither production memory, credentials, local paths, nor model
 outputs. The gate cannot persist to SQLite or a queue, write Qdrant/Mem0, or
-approve/apply a proposal. Its result has only case IDs, expected/actual
-operations, boolean checks and redacted failure classes.
+approve/apply a proposal. Its result has only case IDs, raw model and effective
+policy operations, boolean checks and redacted failure classes. It reports
+`raw_model_operation_accuracy` separately from
+`effective_policy_operation_accuracy`, plus policy-correction and false
+positive/negative conflict counts. The compatibility field
+`operation_accuracy` is explicitly the effective-policy metric, never LLM
+accuracy.
 
 Run it only with an explicitly enabled local editor and write its receipt
 under ignored runtime scratch space:
@@ -150,8 +181,8 @@ weaken a failed threshold. A failed run is evidence to improve the
 prompt/model/fixture, not permission to auto-apply or alter the live review
 queue.
 
-With auto-review disabled, `store_proposal=true` creates reviewable proposals
-and metrics only. `GET /bhm/governed-consolidation/semantic-shadow-metrics`
-reports counts and outcomes. Model confidence is never truth by itself: the
-automatic mode adds deterministic policy gates and SQLite revalidation, rather
-than asking the model to approve or apply its own output.
+`store_proposal=true` creates reviewable proposals and metrics only.
+`GET /bhm/governed-consolidation/semantic-shadow-metrics` reports counts and
+outcomes. Model confidence is never truth by itself: the current policy gates
+and SQLite revalidation still require an operator for semantic lifecycle
+changes.

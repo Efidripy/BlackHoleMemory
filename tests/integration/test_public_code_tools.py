@@ -11,6 +11,7 @@ import httpx
 
 from blackholememory import app as bhm_app
 from blackholememory.code_graph import build_code_graph
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
 from blackholememory.repository_index import RepositoryIndexError
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import SQLiteRepositoryIndexStore
@@ -31,6 +32,135 @@ def _prepare(tmp_path: Path) -> tuple[Path, Path]:
     state = probe_repository_state(root, project="demo")
     build_code_graph(database, project="demo", root_id=state.root_id, repository_snapshot_id=indexed["snapshot_id"])
     return root, runtime_dir
+
+
+def _prepare_ambiguous_roots(tmp_path: Path) -> tuple[Path, Path, Path]:
+    repos = tmp_path / "repos"
+    canonical = repos / "canonical"
+    historical = repos / "historical"
+    for root, marker in ((canonical, "canonical"), (historical, "historical")):
+        root.mkdir(parents=True)
+        (root / "module.py").write_text(f"def {marker}():\n    return 1\n", encoding="utf-8")
+    runtime_dir = tmp_path / "runtime"
+    database = runtime_dir / "live-memory" / "memories.sqlite3"
+    source = RepositorySourceProvenance(owner="fixture", source_url="local://root-identity", license="MIT", evidence_class="E0")
+    index_repository(canonical, database, project="demo", source=source)
+    index_repository(historical, database, project="demo", source=source)
+    return canonical, historical, runtime_dir
+
+
+def test_public_code_tools_require_explicit_root_when_project_has_multiple_indexed_roots(monkeypatch, tmp_path: Path) -> None:
+    canonical, historical, runtime_dir = _prepare_ambiguous_roots(tmp_path)
+    monkeypatch.setattr(bhm_app.settings, "repo_root", canonical)
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+    client = TestClient(bhm_app.app)
+
+    ambiguous = client.post("/bhm/code-tools", json={"operation": "status", "project": "demo"})
+    explicit = client.post(
+        "/bhm/code-tools",
+        json={"operation": "status", "project": "demo", "root": str(canonical)},
+    )
+    unrecognized = client.post(
+        "/bhm/code-tools",
+        json={"operation": "status", "project": "demo", "root": str(canonical.parent)},
+    )
+
+    assert ambiguous.status_code == 409
+    assert ambiguous.json()["detail"] == {
+        "error": "repository_root_ambiguous",
+        "project": "demo",
+        "candidate_count": 2,
+        "explicit_root_required": True,
+    }
+    assert explicit.status_code == 200
+    assert explicit.json()["root_id"] == probe_repository_state(canonical, project="demo").root_id
+    assert unrecognized.status_code == 422
+    assert unrecognized.json()["detail"]["error"] == "repository_project_root_unrecognized"
+
+
+def test_public_architecture_response_is_transport_bounded(monkeypatch, tmp_path: Path) -> None:
+    root, runtime_dir = _prepare(tmp_path)
+    monkeypatch.setattr(bhm_app.settings, "repo_root", root)
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+    clusters = [
+        {
+            "cluster_id": f"cluster-{index:03d}",
+            "node_ids": [f"node-{index:03d}-{member:03d}" for member in range(256)],
+            "paths": [f"src/{index:03d}/module-{member:03d}.py" for member in range(64)],
+        }
+        for index in range(32)
+    ]
+    intelligence = {
+        "clusters": clusters,
+        "communities": clusters,
+        "dead_code_candidates": [],
+        "clone_hints": [],
+        "execution": {"authority": "proposal", "raw_source_returned": False},
+    }
+    monkeypatch.setattr(bhm_app, "build_architecture_intelligence", lambda *_args, **_kwargs: dict(intelligence))
+    monkeypatch.setattr(bhm_app, "build_architecture_explain_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
+    monkeypatch.setattr(bhm_app, "build_graph_analysis_quality_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
+    monkeypatch.setattr(
+        bhm_app,
+        "build_architecture_memory",
+        lambda *_args, **_kwargs: {"proposals": {"clusters": clusters}, "execution": {"raw_source_returned": False}},
+    )
+
+    response = TestClient(bhm_app.app).post(
+        "/bhm/code-tools",
+        json={"operation": "architecture", "project": "demo", "root": str(root)},
+    )
+
+    assert response.status_code == 200
+    assert len(response.content) <= MAX_RESPONSE_BYTES
+    bounds = response.json()["architecture"]["response_bounds"]
+    assert bounds["truncated"] is True
+    assert bounds["serialized_bytes"] == len(response.content)
+    assert bounds["original_serialized_bytes"] > MAX_RESPONSE_BYTES
+
+
+def test_public_impact_preview_response_is_transport_bounded(monkeypatch, tmp_path: Path) -> None:
+    root, runtime_dir = _prepare(tmp_path)
+    monkeypatch.setattr(bhm_app.settings, "repo_root", root)
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+    original_builder = bhm_app.build_change_impact_preview
+    metadata = "metadata-only-" * 512
+
+    def oversized_preview(*args, **kwargs):
+        preview = original_builder(*args, **kwargs)
+        preview["impact"] = [
+            {"path": f"src/module-{index:03d}.py", "name": metadata, "stable_key": metadata}
+            for index in range(128)
+        ]
+        preview["decision_card"]["impact"] = list(preview["impact"])
+        return preview
+
+    monkeypatch.setattr(bhm_app, "build_change_impact_preview", oversized_preview)
+    response = TestClient(bhm_app.app).post(
+        "/bhm/code-tools",
+        json={
+            "operation": "impact_preview",
+            "project": "demo",
+            "root": str(root),
+            "changed_paths": ["module.py"],
+            "include_git_history": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(response.content) <= MAX_RESPONSE_BYTES
+    payload = response.json()
+    bounds = payload["response_bounds"]
+    assert bounds["truncated"] is True
+    assert bounds["serialized_bytes"] == len(response.content)
+    assert bounds["original_serialized_bytes"] > MAX_RESPONSE_BYTES
+    assert bounds["reason"] == "serialized_response_budget"
+    assert payload["operation"] == "impact_preview"
+    assert payload["gates"]["human_review_required"] is True
+    assert payload["impact_binding"]["status"] == "gap"
+    assert "diff_hunk_coverage_missing" in payload["impact_binding"]["gaps"]
+    assert payload["risk_receipt"]["status"] == "review_required"
+    assert payload["provenance"]["raw_source_returned"] is False
 
 
 def test_public_code_tools_cover_schema_search_and_coverage_without_source(monkeypatch, tmp_path: Path) -> None:

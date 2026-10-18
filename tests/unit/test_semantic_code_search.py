@@ -162,4 +162,5 @@ def test_public_code_tools_expose_semantic_results_and_fail_closed(monkeypatch: 
         "/bhm/code-tools",
         json={"operation": "code_search", "project": "other", "root": "repo", "semantic_query": ["search"]},
     )
-    assert isolated.status_code == 503
+    assert isolated.status_code == 422
+    assert isolated.json()["detail"]["error"] == "repository_project_root_unrecognized"

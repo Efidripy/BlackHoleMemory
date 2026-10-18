@@ -23,6 +23,7 @@ from .qdrant_projector import build_generation_point_payload
 from .qdrant_projector import deterministic_point_id
 from .qdrant_projector import projection_payload_digest
 from .qdrant_projector import projection_payload_digest_from_payload
+from .qdrant_validation_bounds import ValidationScanBudget
 
 
 QDRANT_QUARANTINE_COLLECTION_PREFIX = "bhm_quarantine_projection_"
@@ -59,7 +60,9 @@ class ProjectionCompatibilityStatus(str, Enum):
 class ProjectionSurface(Protocol):
     def list_collections(self) -> list[str]: ...
 
-    def get_point(self, collection_name: str, point_id: str) -> dict[str, Any] | None: ...
+    def get_point(
+        self, collection_name: str, point_id: str
+    ) -> dict[str, Any] | None: ...
 
     def list_points(self, collection_name: str) -> list[dict[str, Any]]: ...
 
@@ -217,7 +220,9 @@ class ProjectionReconciliationPlan:
             "projection_generation": self.projection_generation,
             "blocking_issues": list(self.blocking_issues),
         }
-        canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        canonical = json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -353,10 +358,18 @@ class ProjectionGenerationApplyResult:
 class QdrantSurfaceAdapter:
     """Read/delete adapter around a Qdrant client; writes stay in projector."""
 
-    def __init__(self, client: Any) -> None:
+    def __init__(
+        self, client: Any, *, validation_budget: ValidationScanBudget | None = None
+    ) -> None:
         self.client = client
+        self.validation_budget = validation_budget
+
+    def _request(self, stage: str) -> None:
+        if self.validation_budget is not None:
+            self.validation_budget.request(stage)
 
     def list_collections(self) -> list[str]:
+        self._request("reconciliation.collections")
         return sorted(
             str(item.name)
             for item in self.client.get_collections().collections
@@ -364,12 +377,15 @@ class QdrantSurfaceAdapter:
         )
 
     def get_point(self, collection_name: str, point_id: str) -> dict[str, Any] | None:
+        self._request("reconciliation.retrieve")
         points = self.client.retrieve(
             collection_name=collection_name,
             ids=[point_id],
             with_payload=True,
             with_vectors=False,
         )
+        if self.validation_budget is not None:
+            self.validation_budget.checkpoint("reconciliation.retrieve")
         if not points:
             return None
         point = points[0]
@@ -382,6 +398,9 @@ class QdrantSurfaceAdapter:
         result: list[dict[str, Any]] = []
         offset: Any = None
         while True:
+            if self.validation_budget is not None:
+                self.validation_budget.page("reconciliation.scroll")
+            self._request("reconciliation.scroll")
             points, offset = self.client.scroll(
                 collection_name=collection_name,
                 limit=256,
@@ -389,6 +408,8 @@ class QdrantSurfaceAdapter:
                 with_payload=True,
                 with_vectors=False,
             )
+            if self.validation_budget is not None:
+                self.validation_budget.checkpoint("reconciliation.scroll")
             result.extend(
                 {"id": str(point.id), "payload": dict(point.payload or {})}
                 for point in points
@@ -405,8 +426,13 @@ class QdrantSurfaceAdapter:
 
     def collection_vector_dimensions(self, collection_name: str) -> int | None:
         exists = getattr(self.client, "collection_exists", None)
-        if callable(exists) and not exists(collection_name):
-            return None
+        if callable(exists):
+            self._request("reconciliation.collection_exists")
+        if callable(exists):
+            if not exists(collection_name):
+                return None
+            if self.validation_budget is not None:
+                self.validation_budget.checkpoint("reconciliation.collection_exists")
         if not callable(exists) and collection_name not in self.list_collections():
             return None
         get_collection = getattr(self.client, "get_collection", None)
@@ -415,7 +441,10 @@ class QdrantSurfaceAdapter:
             # callers that ask for an expected dimension receive an explicit
             # mismatch rather than a guessed collection configuration.
             return None
+        self._request("reconciliation.get_collection")
         details = get_collection(collection_name=collection_name)
+        if self.validation_budget is not None:
+            self.validation_budget.checkpoint("reconciliation.get_collection")
         vectors = getattr(getattr(details, "config", None), "params", None)
         vectors = getattr(vectors, "vectors", None)
         if isinstance(vectors, Mapping):
@@ -449,10 +478,14 @@ def _revalidate_review_delete(
     observed = surface.get_point(entry.collection_name, entry.point_id)
     if not isinstance(observed, Mapping):
         raise RuntimeError("projection disappeared or could not be revalidated")
-    payload = observed.get("payload") if isinstance(observed.get("payload"), Mapping) else {}
+    payload = (
+        observed.get("payload") if isinstance(observed.get("payload"), Mapping) else {}
+    )
     if _payload_digest(payload) != _payload_digest(entry.observed_payload):
         raise RuntimeError("projection changed after reconciliation plan")
-    if plan.project is not None and str(payload.get("project") or "") != str(plan.project):
+    if plan.project is not None and str(payload.get("project") or "") != str(
+        plan.project
+    ):
         raise RuntimeError("projection crossed project boundary")
 
 
@@ -466,12 +499,18 @@ def _revalidate_tombstone_delete(
 
     if getattr(memory, "lifecycle", None) is not Lifecycle.TOMBSTONED:
         raise RuntimeError("authoritative memory is no longer tombstoned")
-    if plan.project is not None and str(getattr(memory, "project", "")) != str(plan.project):
+    if plan.project is not None and str(getattr(memory, "project", "")) != str(
+        plan.project
+    ):
         raise RuntimeError("authoritative memory crossed project boundary")
     observed = surface.get_point(entry.collection_name, entry.point_id)
     if not isinstance(observed, Mapping):
-        raise RuntimeError("tombstone projection disappeared or could not be revalidated")
-    payload = observed.get("payload") if isinstance(observed.get("payload"), Mapping) else {}
+        raise RuntimeError(
+            "tombstone projection disappeared or could not be revalidated"
+        )
+    payload = (
+        observed.get("payload") if isinstance(observed.get("payload"), Mapping) else {}
+    )
     if str(payload.get("source_id") or "") != str(entry.memory_id or ""):
         raise RuntimeError("tombstone projection source changed after plan")
     if str(payload.get("revision_id") or "") != str(entry.observed_revision_id or ""):
@@ -479,7 +518,9 @@ def _revalidate_tombstone_delete(
     expected_lifecycle = str((entry.observed_payload or {}).get("lifecycle") or "")
     if str(payload.get("lifecycle") or "") != expected_lifecycle:
         raise RuntimeError("tombstone projection lifecycle changed after plan")
-    if plan.project is not None and str(payload.get("project") or "") != str(plan.project):
+    if plan.project is not None and str(payload.get("project") or "") != str(
+        plan.project
+    ):
         raise RuntimeError("tombstone projection crossed project boundary")
 
 
@@ -521,7 +562,9 @@ def classify_projection_review_entries(
             source_state = "unknown_source"
             disposition = ProjectionReviewDisposition.RETAIN_REVIEW
             reason = "source id is absent from the canonical SQLite target"
-        elif desired and all(item.action is ReconciliationAction.NOOP for item in desired):
+        elif desired and all(
+            item.action is ReconciliationAction.NOOP for item in desired
+        ):
             source_state = "known_source_canonical_current"
             disposition = ProjectionReviewDisposition.CANDIDATE_DUPLICATE
             reason = "canonical projection is current; orphan can be considered after backup/policy approval"
@@ -555,7 +598,9 @@ def projection_review_classification_digest(
     """Return a stable digest for the read-only orphan decision matrix."""
 
     payload = [item.to_dict() for item in classifications]
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -564,7 +609,9 @@ def _now_iso() -> str:
 
 
 def _digest_payload(payload: Any) -> str:
-    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
@@ -589,7 +636,9 @@ def _source_basis_digest(memories: list[Any]) -> str:
         }
         for memory in memories
     ]
-    return _digest_payload(sorted(basis, key=lambda item: (item["memory_id"], item["project"])))
+    return _digest_payload(
+        sorted(basis, key=lambda item: (item["memory_id"], item["project"]))
+    )
 
 
 def _generation_source_basis_digest(memories: Sequence[Any]) -> str:
@@ -626,7 +675,9 @@ def _target_generation_label(value: str) -> str:
     return label
 
 
-def _generation_collection_name(*, project: str, target_generation: str, generation_id: str) -> str:
+def _generation_collection_name(
+    *, project: str, target_generation: str, generation_id: str
+) -> str:
     """Return an isolated name bound to the exact project and generation digest."""
 
     slug = re.sub(r"[^a-z0-9]+", "_", project.casefold()).strip("_") or "project"
@@ -679,11 +730,17 @@ def build_projection_generation_plan(
             limit=10_000,
         )
         if len(scoped) >= 10_000:
-            raise ValueError(f"generation project exceeds bounded source scope: {project}")
+            raise ValueError(
+                f"generation project exceeds bounded source scope: {project}"
+            )
         if not scoped:
-            raise ValueError(f"generation project has no authoritative SQLite rows: {project}")
+            raise ValueError(
+                f"generation project has no authoritative SQLite rows: {project}"
+            )
         if any(memory.project != project for memory in scoped):
-            raise ValueError(f"repository returned a cross-project row for generation: {project}")
+            raise ValueError(
+                f"repository returned a cross-project row for generation: {project}"
+            )
         memories.extend(scoped)
 
     source_basis_digest = _generation_source_basis_digest(memories)
@@ -711,7 +768,9 @@ def build_projection_generation_plan(
         for project in canonical_projects
     )
     target_by_project = dict(target_collections)
-    active_memories = [memory for memory in memories if memory.lifecycle is not Lifecycle.TOMBSTONED]
+    active_memories = [
+        memory for memory in memories if memory.lifecycle is not Lifecycle.TOMBSTONED
+    ]
     if not active_memories:
         raise ValueError("generation has no non-tombstoned authoritative SQLite rows")
 
@@ -732,7 +791,9 @@ def build_projection_generation_plan(
             memory_id=memory.id,
             project=memory.project,
             collection_name=target_by_project[memory.project],
-            point_id=deterministic_point_id(target_by_project[memory.project], memory.id),
+            point_id=deterministic_point_id(
+                target_by_project[memory.project], memory.id
+            ),
             revision_id=memory.current_revision.revision_id,
             payload_digest=str(
                 build_generation_point_payload(
@@ -807,9 +868,13 @@ def apply_projection_generation_plan(
             plan_digest=plan.digest,
             created_collections=(),
             upserted=0,
-            failed=("authoritative SQLite generation changed after plan; no mutation attempted",),
+            failed=(
+                "authoritative SQLite generation changed after plan; no mutation attempted",
+            ),
         )
-    target_names = tuple(collection_name for _project, collection_name in plan.target_collections)
+    target_names = tuple(
+        collection_name for _project, collection_name in plan.target_collections
+    )
     if any(
         not name.startswith(QDRANT_GENERATION_COLLECTION_PREFIX) or exists(name)
         for name in target_names
@@ -818,7 +883,9 @@ def apply_projection_generation_plan(
             plan_digest=plan.digest,
             created_collections=(),
             upserted=0,
-            failed=("generation target collection already exists or is outside the isolated namespace",),
+            failed=(
+                "generation target collection already exists or is outside the isolated namespace",
+            ),
         )
 
     created: list[str] = []
@@ -835,15 +902,22 @@ def apply_projection_generation_plan(
         for entry in plan.entries:
             memory = memories.get((entry.project, entry.memory_id))
             if memory is None:
-                raise RuntimeError(f"generation source memory disappeared: {entry.memory_id}")
+                raise RuntimeError(
+                    f"generation source memory disappeared: {entry.memory_id}"
+                )
             expected_payload = build_generation_point_payload(
                 f"generation:{plan.generation_id[:24]}:{memory.id}",
                 memory,
                 entry.collection_name,
                 generation_provenance=plan.provenance_for(memory.project),
             )
-            if expected_payload["projection_generation_payload_digest"] != entry.payload_digest:
-                raise RuntimeError(f"generation payload changed after plan: {entry.memory_id}")
+            if (
+                expected_payload["projection_generation_payload_digest"]
+                != entry.payload_digest
+            ):
+                raise RuntimeError(
+                    f"generation payload changed after plan: {entry.memory_id}"
+                )
             outcome = projector.project_memory_to_generation(
                 memory,
                 collection_name=entry.collection_name,
@@ -851,7 +925,9 @@ def apply_projection_generation_plan(
                 generation_provenance=plan.provenance_for(memory.project),
             )
             if outcome.point_ids != (entry.point_id,):
-                raise RuntimeError(f"generation point identity changed: {entry.memory_id}")
+                raise RuntimeError(
+                    f"generation point identity changed: {entry.memory_id}"
+                )
             upserted += 1
     except Exception as exc:
         failures.append(f"generation apply failed: {type(exc).__name__}: {exc}")
@@ -896,7 +972,9 @@ def _collection_compatibility(
     expected_embedding_model: str | None,
 ) -> ProjectionCompatibility:
     dimensions_reader = getattr(surface, "collection_vector_dimensions", None)
-    observed_dimensions = dimensions_reader(collection_name) if callable(dimensions_reader) else None
+    observed_dimensions = (
+        dimensions_reader(collection_name) if callable(dimensions_reader) else None
+    )
     observed_models = tuple(
         sorted(
             {
@@ -914,8 +992,10 @@ def _collection_compatibility(
         status = ProjectionCompatibilityStatus.DIMENSION_MISMATCH
     elif expected_embedding_model is not None and len(observed_models) > 1:
         status = ProjectionCompatibilityStatus.MIXED_MODEL
-    elif expected_embedding_model is not None and observed_models and observed_models != (
-        expected_embedding_model,
+    elif (
+        expected_embedding_model is not None
+        and observed_models
+        and observed_models != (expected_embedding_model,)
     ):
         status = ProjectionCompatibilityStatus.MODEL_MISMATCH
     elif expected_embedding_model is not None and points and not observed_models:
@@ -968,7 +1048,10 @@ def build_projection_reconciliation_plan(
     route_database: str | None = None,
     route_vector_dimensions: int | None = None,
     route_embedding_model: str | None = None,
+    validation_budget: ValidationScanBudget | None = None,
 ) -> ProjectionReconciliationPlan:
+    if validation_budget is not None:
+        validation_budget.request("reconciliation.sqlite_memories")
     memories = repository.list_memories(
         project=project,
         include_archived=True,
@@ -980,7 +1063,9 @@ def build_projection_reconciliation_plan(
         or route_vector_dimensions <= 0
         or not str(route_embedding_model or "").strip()
     ):
-        raise ValueError("bound projection reconciliation requires vector-space evidence")
+        raise ValueError(
+            "bound projection reconciliation requires vector-space evidence"
+        )
 
     entries: list[ReconciliationEntry] = []
     desired_keys: set[tuple[str, str]] = set()
@@ -1000,6 +1085,8 @@ def build_projection_reconciliation_plan(
             for binding in active_projection_generation_bindings(route_database)
         }
     for memory in memories:
+        if validation_budget is not None:
+            validation_budget.target("reconciliation.memory")
         collection_names = QdrantProjector.collection_names(memory)
         if route_database:
             # Import lazily: the binding module derives its source digest from
@@ -1031,7 +1118,8 @@ def build_projection_reconciliation_plan(
             observed_payload = (observed or {}).get("payload") if observed else None
             observed_revision = (
                 str(observed_payload.get("revision_id"))
-                if isinstance(observed_payload, Mapping) and observed_payload.get("revision_id")
+                if isinstance(observed_payload, Mapping)
+                and observed_payload.get("revision_id")
                 else None
             )
             desired_digest = projection_payload_digest(memory, collection_name)
@@ -1047,7 +1135,11 @@ def build_projection_reconciliation_plan(
                 else None
             )
             if memory.lifecycle is Lifecycle.TOMBSTONED:
-                action = ReconciliationAction.DELETE if observed else ReconciliationAction.NOOP
+                action = (
+                    ReconciliationAction.DELETE
+                    if observed
+                    else ReconciliationAction.NOOP
+                )
                 reason = "tombstone cleanup" if observed else "tombstone already absent"
             elif observed is None:
                 action = ReconciliationAction.UPSERT
@@ -1085,6 +1177,8 @@ def build_projection_reconciliation_plan(
     for collection_name in sorted(collections):
         if collection_name.startswith(QDRANT_QUARANTINE_COLLECTION_PREFIX):
             continue
+        if validation_budget is not None:
+            validation_budget.target("reconciliation.collection")
         points = surface.list_points(collection_name)
         points_by_collection[collection_name] = points
         if collection_name in retained_rollback_collections:
@@ -1099,7 +1193,11 @@ def build_projection_reconciliation_plan(
             point_id = str(point.get("id") or "")
             if not point_id or (collection_name, point_id) in desired_keys:
                 continue
-            payload = point.get("payload") if isinstance(point.get("payload"), Mapping) else {}
+            payload = (
+                point.get("payload")
+                if isinstance(point.get("payload"), Mapping)
+                else {}
+            )
             point_project = str(payload.get("project") or "")
             if project is not None and point_project != project:
                 continue
@@ -1117,7 +1215,9 @@ def build_projection_reconciliation_plan(
             )
             blocking.append(f"orphan:{collection_name}:{point_id}")
 
-    entries.sort(key=lambda entry: (entry.collection_name, entry.point_id, entry.action.value))
+    entries.sort(
+        key=lambda entry: (entry.collection_name, entry.point_id, entry.action.value)
+    )
     compatibility = _compatibility_receipt(
         collections=compatibility_collections,
         points_by_collection=points_by_collection,
@@ -1164,7 +1264,9 @@ def apply_projection_reconciliation(
             upserted=0,
             deleted=0,
             reviewed=0,
-            failed=("plan contains blocking projection compatibility mismatch; no mutation attempted",),
+            failed=(
+                "plan contains blocking projection compatibility mismatch; no mutation attempted",
+            ),
         )
     try:
         if plan.source_basis_digest:
@@ -1180,22 +1282,33 @@ def apply_projection_reconciliation(
                     upserted=0,
                     deleted=0,
                     reviewed=0,
-                    failed=("authoritative SQLite generation changed after reconciliation plan; no mutation attempted",),
+                    failed=(
+                        "authoritative SQLite generation changed after reconciliation plan; no mutation attempted",
+                    ),
                 )
         if not plan.compatibility:
             current_compatibility: tuple[ProjectionCompatibility, ...] = ()
         else:
             expected_dimensions = next(
-                (item.expected_dimensions for item in plan.compatibility if item.expected_dimensions is not None),
+                (
+                    item.expected_dimensions
+                    for item in plan.compatibility
+                    if item.expected_dimensions is not None
+                ),
                 None,
             )
             expected_embedding_model = next(
-                (item.expected_embedding_model for item in plan.compatibility if item.expected_embedding_model),
+                (
+                    item.expected_embedding_model
+                    for item in plan.compatibility
+                    if item.expected_embedding_model
+                ),
                 None,
             )
             collections = {item.collection_name for item in plan.compatibility}
             points_by_collection = {
-                collection_name: surface.list_points(collection_name) for collection_name in collections
+                collection_name: surface.list_points(collection_name)
+                for collection_name in collections
             }
             current_compatibility = _compatibility_receipt(
                 collections=collections,
@@ -1210,7 +1323,9 @@ def apply_projection_reconciliation(
             upserted=0,
             deleted=0,
             reviewed=0,
-            failed=(f"projection preflight unavailable; no mutation attempted: {type(exc).__name__}",),
+            failed=(
+                f"projection preflight unavailable; no mutation attempted: {type(exc).__name__}",
+            ),
         )
     if plan.compatibility and [item.to_dict() for item in current_compatibility] != [
         item.to_dict() for item in plan.compatibility
@@ -1220,7 +1335,9 @@ def apply_projection_reconciliation(
             upserted=0,
             deleted=0,
             reviewed=0,
-            failed=("projection compatibility or generation changed after reconciliation plan; no mutation attempted",),
+            failed=(
+                "projection compatibility or generation changed after reconciliation plan; no mutation attempted",
+            ),
         )
     for entry in plan.entries:
         try:
@@ -1235,18 +1352,24 @@ def apply_projection_reconciliation(
                 deleted += 1
                 continue
             if entry.memory_id is None:
-                failures.append(f"{entry.collection_name}:{entry.point_id}:missing-memory-id")
+                failures.append(
+                    f"{entry.collection_name}:{entry.point_id}:missing-memory-id"
+                )
                 continue
             memory = repository.get_memory(entry.memory_id, project=plan.project)
             if memory is None:
-                failures.append(f"{entry.collection_name}:{entry.point_id}:memory-not-found")
+                failures.append(
+                    f"{entry.collection_name}:{entry.point_id}:memory-not-found"
+                )
                 continue
             if entry.action is ReconciliationAction.DELETE:
                 # Re-read authority immediately before deleting the projection;
                 # the first lookup only proves the plan had a source row.
                 memory = repository.get_memory(entry.memory_id, project=plan.project)
                 if memory is None:
-                    failures.append(f"{entry.collection_name}:{entry.point_id}:memory-not-found")
+                    failures.append(
+                        f"{entry.collection_name}:{entry.point_id}:memory-not-found"
+                    )
                     continue
                 _revalidate_tombstone_delete(plan, entry, memory, surface)
                 surface.delete_point(entry.collection_name, entry.point_id)
@@ -1258,7 +1381,9 @@ def apply_projection_reconciliation(
                 )
                 upserted += 1
         except Exception as exc:
-            failures.append(f"{entry.collection_name}:{entry.point_id}:{type(exc).__name__}:{exc}")
+            failures.append(
+                f"{entry.collection_name}:{entry.point_id}:{type(exc).__name__}:{exc}"
+            )
     return ProjectionApplyResult(
         plan_digest=plan.digest,
         upserted=upserted,

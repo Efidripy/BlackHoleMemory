@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import json
 import shutil
 import sqlite3
 from dataclasses import dataclass
@@ -23,6 +25,7 @@ from blackholememory.governed_consolidation import validate_proposal_current
 from blackholememory.governed_consolidation_migration import apply_governed_consolidation_migration
 from blackholememory.governed_consolidation_migration import build_governed_consolidation_migration_plan
 from blackholememory.governed_consolidation_migration import governed_consolidation_migration_status
+from blackholememory.governed_semantic_editor import build_semantic_proposal
 from blackholememory.freshness_migration import apply_migration
 from blackholememory.freshness_migration import build_migration_plan
 from blackholememory.memory_repository import MemoryRepositoryError
@@ -137,6 +140,52 @@ def _proposal(
     )
 
 
+class _SemanticCompletion:
+    def complete(self, **_kwargs: object) -> dict:
+        return {
+            "operation": "create",
+            "candidate": {
+                "title": "Installer safety",
+                "content": "Uninstall remains project-scoped and requires an install-state log.",
+                "memory_type": "decision",
+                "concepts": ["uninstall"],
+                "files": [],
+                "evidence_refs": [1, 2],
+            },
+            "confidence": 0.95,
+            "conflicts": [],
+            "reason": "same-project facts agree",
+        }
+
+
+def _semantic_proposal(repository: SQLiteMemoryRepository) -> dict:
+    return build_semantic_proposal(
+        project="multiserversubgen",
+        query="installer safety",
+        retrieved_records=_records(repository),
+        completion=_SemanticCompletion(),
+    )
+
+
+def _semantic_attestation(proposal: dict) -> dict:
+    binding = proposal["identity_binding"]
+    policy = proposal["semantic_editor"]["policy"]
+    return {
+        "schema_version": "bhm.governed-semantic-operator-attestation.v1",
+        "proposal_id": proposal["proposal_id"],
+        "proposal_digest": proposal["proposal_digest"],
+        "identity_binding": copy.deepcopy(binding),
+        "model_operation": policy["model_operation"],
+        "effective_operation": policy["effective_operation"],
+        "target_memory_ids": [
+            item["memory_id"]
+            for item in (binding["source"], binding["target"])
+            if item is not None
+        ],
+        "reviewer_outcome": "approved",
+    }
+
+
 def test_migration_is_explicit_and_keeps_canonical_tables_untouched(tmp_path: Path) -> None:
     database = tmp_path / "memory.sqlite3"
     SQLiteMemoryRepository(database).save_memory(_memory("mem_bhm_seed", "seed"))
@@ -242,6 +291,167 @@ def test_unapproved_proposal_cannot_apply_and_dry_run_is_read_only(tmp_path: Pat
     assert plan["execution"]["sqlite_mutation"] is False
     with pytest.raises(GovernedConsolidationApprovalRequired):
         apply_approved_proposal(database_path=database, proposal_id=stored["proposal_id"], project="multiserversubgen", apply=True, confirmation=stored["proposal_id"])
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda attestation: attestation.update({"proposal_digest": "0" * 64}),
+        lambda attestation: attestation["identity_binding"].update({"policy_sha256": "0" * 64}),
+        lambda attestation: attestation.update({"model_operation": "archive"}),
+        lambda attestation: attestation.update({"target_memory_ids": ["mem_bhm_wrong"]}),
+        lambda attestation: attestation.update({"reviewer_outcome": "rejected"}),
+    ],
+)
+def test_semantic_approve_requires_exact_operator_attestation(tmp_path: Path, mutate) -> None:
+    repository, database = _migrated_repository(tmp_path)
+    store = GovernedConsolidationRepository(database)
+    stored, _ = store.create(_semantic_proposal(repository))
+
+    with pytest.raises(GovernedConsolidationApprovalRequired, match="semantic operator attestation invalid"):
+        store.decide(
+            proposal_id=stored["proposal_id"],
+            project="multiserversubgen",
+            decision="approve",
+            actor="operator-a",
+        )
+    attestation = _semantic_attestation(stored)
+    mutate(attestation)
+    with pytest.raises(GovernedConsolidationApprovalRequired, match="semantic operator attestation invalid"):
+        store.decide(
+            proposal_id=stored["proposal_id"],
+            project="multiserversubgen",
+            decision="approve",
+            actor="operator-a",
+            semantic_attestation=attestation,
+        )
+    assert store.get(stored["proposal_id"], project="multiserversubgen")["status"] == "proposed"
+
+
+def test_exact_semantic_attestation_approves_idempotently_and_allows_fixture_apply(tmp_path: Path) -> None:
+    repository, database = _migrated_repository(tmp_path)
+    store = GovernedConsolidationRepository(database)
+    stored, _ = store.create(_semantic_proposal(repository))
+    attestation = _semantic_attestation(stored)
+
+    approved = store.decide(
+        proposal_id=stored["proposal_id"],
+        project="multiserversubgen",
+        decision="approve",
+        actor="operator-a",
+        semantic_attestation=attestation,
+    )
+    replayed = store.decide(
+        proposal_id=stored["proposal_id"],
+        project="multiserversubgen",
+        decision="approve",
+        actor="operator-a",
+        semantic_attestation=attestation,
+    )
+    assert approved["status"] == replayed["status"] == "approved"
+    with pytest.raises(GovernedConsolidationApprovalRequired, match="semantic operator attestation invalid"):
+        store.decide(
+            proposal_id=stored["proposal_id"],
+            project="multiserversubgen",
+            decision="approve",
+            actor="operator-a",
+        )
+
+    result = apply_approved_proposal(
+        database_path=database,
+        proposal_id=approved["proposal_id"],
+        project="multiserversubgen",
+        apply=True,
+        confirmation=approved["proposal_id"],
+    )
+    assert result.status == "applied"
+    assert len(result.memory_ids) == 1
+
+
+@pytest.mark.parametrize("tamper", ["proposal", "attestation"])
+def test_tampered_semantic_proposal_or_approval_event_blocks_apply(tmp_path: Path, tamper: str) -> None:
+    repository, database = _migrated_repository(tmp_path)
+    store = GovernedConsolidationRepository(database)
+    stored, _ = store.create(_semantic_proposal(repository))
+    approved = store.decide(
+        proposal_id=stored["proposal_id"],
+        project="multiserversubgen",
+        decision="approve",
+        actor="operator-a",
+        semantic_attestation=_semantic_attestation(stored),
+    )
+    before = (len(repository.list_memories(include_archived=True)), len(repository.list_outbox()))
+    with sqlite3.connect(database) as connection:
+        if tamper == "proposal":
+            payload = connection.execute(
+                "SELECT proposal_json FROM governed_consolidation_proposals WHERE proposal_id = ?",
+                (approved["proposal_id"],),
+            ).fetchone()[0]
+            changed = json.loads(payload)
+            changed["candidate"]["content"] = "tampered semantic candidate"
+            connection.execute(
+                "UPDATE governed_consolidation_proposals SET proposal_json = ? WHERE proposal_id = ?",
+                (json.dumps(changed, sort_keys=True, separators=(",", ":")), approved["proposal_id"]),
+            )
+        else:
+            connection.execute(
+                "UPDATE governed_consolidation_events SET details_json = ? WHERE proposal_id = ? AND action = 'approved'",
+                ('{"semantic_operator_attestation":{"reviewer_outcome":"approved"}}', approved["proposal_id"]),
+            )
+    with pytest.raises(GovernedConsolidationError):
+        apply_approved_proposal(
+            database_path=database,
+            proposal_id=approved["proposal_id"],
+            project="multiserversubgen",
+            apply=True,
+            confirmation=approved["proposal_id"],
+        )
+    assert (len(repository.list_memories(include_archived=True)), len(repository.list_outbox())) == before
+
+
+def test_non_semantic_approval_remains_backward_compatible(tmp_path: Path) -> None:
+    repository, database = _migrated_repository(tmp_path)
+    store = GovernedConsolidationRepository(database)
+    stored, _ = store.create(_proposal(repository))
+
+    approved = store.decide(
+        proposal_id=stored["proposal_id"],
+        project="multiserversubgen",
+        decision="approve",
+        actor="operator-a",
+    )
+    assert approved["status"] == "approved"
+
+
+def test_semantic_reject_remains_compatible_without_attestation(tmp_path: Path) -> None:
+    repository, database = _migrated_repository(tmp_path)
+    store = GovernedConsolidationRepository(database)
+    stored, _ = store.create(_semantic_proposal(repository))
+
+    rejected = store.decide(
+        proposal_id=stored["proposal_id"],
+        project="multiserversubgen",
+        decision="reject",
+        actor="operator-a",
+    )
+    assert rejected["status"] == "rejected"
+
+
+def test_automatic_semantic_approval_is_refused_before_event_write(tmp_path: Path) -> None:
+    repository, database = _migrated_repository(tmp_path)
+    store = GovernedConsolidationRepository(database)
+    stored, _ = store.create(_semantic_proposal(repository))
+
+    with pytest.raises(GovernedConsolidationApprovalRequired, match="privileged operator attestation"):
+        store.decide_automatically(
+            proposal_id=stored["proposal_id"],
+            project="multiserversubgen",
+            decision="approve",
+            actor="policy",
+            policy_version="test/v1",
+            reason_codes=["eligible"],
+        )
+    assert store.get(stored["proposal_id"], project="multiserversubgen")["status"] == "proposed"
 
 
 def test_approved_apply_writes_authority_revision_outbox_without_vector_writer(tmp_path: Path) -> None:

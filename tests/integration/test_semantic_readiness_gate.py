@@ -217,7 +217,7 @@ def test_code_tools_rejects_unregistered_project_before_readiness_or_provider(mo
         },
     )
 
-    assert response.status_code == 503
-    assert response.json()["detail"]["error"] == "repository_snapshot_unavailable"
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "repository_project_root_unrecognized"
     assert readiness_calls["count"] == 0
     assert provider_calls["count"] == 0

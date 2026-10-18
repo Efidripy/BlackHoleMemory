@@ -1,7 +1,61 @@
+import json
+
+from blackholememory.architecture_intelligence import ARCHITECTURE_RESPONSE_MAX_SERIALIZED_BYTES
+from blackholememory.architecture_intelligence import bound_architecture_response
 from blackholememory.architecture_intelligence import build_architecture_intelligence
 from blackholememory.architecture_intelligence import build_architecture_explain_receipt
 from blackholememory.architecture_intelligence import build_architecture_memory
 from blackholememory.architecture_intelligence import build_graph_analysis_quality_receipt
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
+
+
+def test_architecture_response_is_deterministically_bounded_with_honest_metadata() -> None:
+    oversized = {
+        "schema_version": "bhm.public-code-tools.v1",
+        "contract_digest": "d" * 64,
+        "operation": "architecture",
+        "project": "demo",
+        "root_id": "root-demo",
+        "graph_snapshot_id": "graph-demo",
+        "architecture": {
+            "intelligence": {
+                "clusters": [
+                    {
+                        "cluster_id": f"cluster-{index:03d}",
+                        "node_ids": [f"node-{index:03d}-{member:03d}" for member in range(256)],
+                        "paths": [f"src/{index:03d}/module-{member:03d}.py" for member in range(64)],
+                    }
+                    for index in range(32)
+                ]
+            },
+            "architecture_memory": {
+                "proposals": {
+                    "clusters": [
+                        {
+                            "cluster_id": f"duplicate-{index:03d}",
+                            "node_ids": [f"node-{index:03d}-{member:03d}" for member in range(256)],
+                        }
+                        for index in range(32)
+                    ]
+                }
+            },
+        },
+        "provenance": {"source": "code-graph-summary", "raw_source_returned": False},
+        "execution": {"writes_sqlite_state": False, "raw_source_returned": False},
+    }
+
+    first = bound_architecture_response(oversized)
+    second = bound_architecture_response(oversized)
+    serialized = json.dumps(first, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    bounds = first["architecture"]["response_bounds"]
+
+    assert first == second
+    assert len(serialized) <= ARCHITECTURE_RESPONSE_MAX_SERIALIZED_BYTES <= MAX_RESPONSE_BYTES
+    assert bounds["truncated"] is True
+    assert bounds["serialized_bytes"] == len(serialized)
+    assert bounds["original_serialized_bytes"] > MAX_RESPONSE_BYTES
+    assert bounds["reason"] == "serialized_response_budget"
+    assert first["execution"] == {"writes_sqlite_state": False, "raw_source_returned": False}
 
 
 def test_architecture_intelligence_is_bounded_and_proposal_only() -> None:

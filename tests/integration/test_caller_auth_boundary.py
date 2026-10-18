@@ -1020,6 +1020,28 @@ def test_scoped_code_tools_cannot_cross_project_root(monkeypatch, tmp_path) -> N
     assert response.json()["detail"]["error"] == "caller_project_root_forbidden"
 
 
+def test_scoped_code_tools_reject_omitted_root_before_root_index_probe(monkeypatch, tmp_path) -> None:
+    canonical = tmp_path / "blackholememory"
+    canonical.mkdir()
+    monkeypatch.setattr(bhm_app.settings, "repo_root", canonical)
+    monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
+    probes: list[tuple[object, ...]] = []
+
+    def record_root_index_probe(*args):
+        probes.append(args)
+        return ()
+
+    monkeypatch.setattr(bhm_app, "_public_code_indexed_root_paths", record_root_index_probe)
+    response = _client().post(
+        "/bhm/code-tools",
+        json={"operation": "status", "project": "blackholememory"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"] == "caller_project_root_required"
+    assert probes == []
+
+
 def test_scoped_code_tools_authorize_root_before_repository_probe(monkeypatch, tmp_path) -> None:
     canonical = tmp_path / "blackholememory"
     sibling = tmp_path / "project-b"

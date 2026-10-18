@@ -227,14 +227,19 @@ def _proposal_result(case: Mapping[str, Any], proposal: Mapping[str, Any], *, mo
     execution = proposal.get("execution") if isinstance(proposal.get("execution"), Mapping) else {}
     conflicts = proposal.get("conflicts") if isinstance(proposal.get("conflicts"), list) else []
     policy = ((proposal.get("semantic_editor") or {}).get("policy") or {}) if isinstance(proposal.get("semantic_editor"), Mapping) else {}
+    model_operation = str(policy.get("model_operation") or "")
     candidate = proposal.get("candidate") if isinstance(proposal.get("candidate"), Mapping) else {}
     candidate_text = " ".join((str(candidate.get("title") or ""), str(candidate.get("content") or ""), " ".join(candidate.get("concepts") or ()), " ".join(candidate.get("files") or ()))).casefold()
     expected = case["expected"]
     candidate_required = expected["candidate_required_terms"]
     checks = {
+        # Existing quality gate semantics remain effective-policy correctness.
+        # Raw model correctness is deliberately recorded separately below.
         "expected_operation": operation == case["expected_operation"],
+        "raw_expected_operation": model_operation == case["expected_operation"],
         "forbidden_operation": operation not in case["forbidden_operations"],
         "required_conflict": not expected["conflict_required"] or bool(conflicts),
+        "false_positive_conflict": not expected["conflict_required"] and bool(conflicts),
         "policy_decision": not expected["policy_decision"] or policy.get("decision") == expected["policy_decision"],
         "candidate_coverage": operation == "no_op" or all(term in candidate_text for term in candidate_required),
         "model_called": model_called and execution.get("local_model_called") is True,
@@ -248,6 +253,8 @@ def _proposal_result(case: Mapping[str, Any], proposal: Mapping[str, Any], *, mo
         "case_id": case["case_id"],
         "kind": case["kind"],
         "expected_operation": case["expected_operation"],
+        "model_operation": model_operation,
+        "effective_operation": operation,
         "actual_operation": operation,
         "passed": all(checks.values()),
         "failure_class": "" if all(checks.values()) else "quality_gate_failed",
@@ -260,13 +267,17 @@ def _failed_result(case: Mapping[str, Any], failure_class: str, *, model_called:
         "case_id": case["case_id"],
         "kind": case["kind"],
         "expected_operation": case["expected_operation"],
+        "model_operation": "",
+        "effective_operation": "",
         "actual_operation": "",
         "passed": False,
         "failure_class": failure_class,
         "checks": {
             "expected_operation": False,
+            "raw_expected_operation": False,
             "forbidden_operation": False,
             "required_conflict": False,
+            "false_positive_conflict": False,
             "policy_decision": False,
             "candidate_coverage": False,
             "model_called": model_called,
@@ -301,15 +312,24 @@ def _build_report(gate: Mapping[str, Any], results: Sequence[Mapping[str, Any]])
     model_results = [item for item in results if item["kind"] == "model"]
     total = len(model_results)
     operation_correct = sum(1 for item in model_results if item["checks"]["expected_operation"])
+    raw_operation_correct = sum(1 for item in model_results if item["checks"]["raw_expected_operation"])
+    policy_corrections = sum(
+        1
+        for item in model_results
+        if item.get("model_operation") and item.get("model_operation") != item.get("effective_operation")
+    )
     forbidden_operations = sum(1 for item in model_results if not item["checks"]["forbidden_operation"])
     conflict_failures = sum(1 for item in model_results if not item["checks"]["required_conflict"] or not item["checks"]["policy_decision"])
+    false_positive_conflicts = sum(1 for item in model_results if item["checks"]["false_positive_conflict"])
+    false_negative_conflicts = sum(1 for item in model_results if not item["checks"]["required_conflict"])
     authority_keys = ("proposal_only", "no_sqlite_mutation", "no_direct_mem0", "no_direct_qdrant", "no_auto_apply")
     authority_failures = sum(1 for item in model_results if not all(item["checks"][key] for key in authority_keys))
     observed_families = {item["actual_operation"] for item in model_results if item["checks"]["expected_operation"]}
-    operation_accuracy = round(operation_correct / total, 6) if total else 0.0
+    effective_operation_accuracy = round(operation_correct / total, 6) if total else 0.0
+    raw_model_operation_accuracy = round(raw_operation_correct / total, 6) if total else 0.0
     preflight_passed = all(item["passed"] for item in results if item["kind"] == "cross_project_preflight")
     gate_checks = {
-        "operation_accuracy": operation_accuracy >= gate["min_operation_accuracy"],
+        "operation_accuracy": effective_operation_accuracy >= gate["min_operation_accuracy"],
         "forbidden_operations": forbidden_operations <= gate["max_forbidden_operations"],
         "authority_boundaries": authority_failures == 0 if gate["require_authority_boundaries"] else True,
         "conflict_routing": conflict_failures == 0 if gate["require_conflict_routing"] else True,
@@ -323,9 +343,17 @@ def _build_report(gate: Mapping[str, Any], results: Sequence[Mapping[str, Any]])
         "preflight_case_count": len(results) - total,
         "passed": sum(1 for item in results if item["passed"]),
         "failed": sum(1 for item in results if not item["passed"]),
-        "operation_accuracy": operation_accuracy,
+        # Compatibility alias: this is explicitly policy-effective accuracy,
+        # never a claim about standalone LLM accuracy.
+        "operation_accuracy": effective_operation_accuracy,
+        "effective_policy_operation_accuracy": effective_operation_accuracy,
+        "raw_model_operation_accuracy": raw_model_operation_accuracy,
+        "policy_correction_count": policy_corrections,
+        "policy_correction_rate": round(policy_corrections / total, 6) if total else 0.0,
         "forbidden_operations": forbidden_operations,
         "conflict_failures": conflict_failures,
+        "false_positive_conflicts": false_positive_conflicts,
+        "false_negative_conflicts": false_negative_conflicts,
         "authority_failures": authority_failures,
         "quality_gate": dict(gate),
         "gate_checks": gate_checks,

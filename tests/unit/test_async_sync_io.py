@@ -106,6 +106,7 @@ def test_code_tools_status_does_not_run_index_reads_on_event_loop(
         "_public_code_request_scope",
         lambda request: (Path("repo"), "demo"),
     )
+    monkeypatch.setattr(bhm_app, "_validate_explicit_public_code_root", lambda *args: None)
     monkeypatch.setattr(bhm_app, "_public_code_root_id", lambda *args, **kwargs: "root-id")
 
     def blocking_index_status(*args, **kwargs) -> dict:

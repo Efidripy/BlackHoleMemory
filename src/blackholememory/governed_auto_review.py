@@ -13,11 +13,12 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .governed_consolidation import GovernedConsolidationError
 from .governed_consolidation import GovernedConsolidationRepository
-from .governed_consolidation import GovernedConsolidationStale
-from .governed_consolidation import apply_approved_proposal
+from .governed_consolidation import GovernedConsolidationError
+from .governed_consolidation import validate_proposal_identity
 from .governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_ANALYZER
+from .governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_POLICY_VERSION
+from .governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_SCHEMA_VERSION
 
 
 GOVERNED_AUTO_REVIEW_APPLY_POLICY_VERSION = "bhm-governed-auto-review/v1"
@@ -61,15 +62,26 @@ def operator_consent_required() -> bool:
 
 
 def policy_status() -> dict[str, Any]:
+    configured = runtime_enabled()
+    consent_required = operator_consent_required()
     return {
-        "enabled": runtime_enabled(),
-        "mode": "operator-consent" if operator_consent_required() else ("policy-auto-reviewed" if runtime_enabled() else "approval-gated"),
+        # ``enabled`` retains its existing meaning: the operator enabled the
+        # policy adapter.  It is deliberately separate from effective apply.
+        "enabled": configured,
+        "configured_enabled": configured,
+        "mode": "operator-consent" if consent_required else "approval-gated",
+        "automatic_apply_enabled": False,
+        "automatic_apply_reason": (
+            "operator_consent_required"
+            if consent_required
+            else "semantic_evidence_requires_operator_review"
+        ),
         "policy_version": GOVERNED_AUTO_REVIEW_APPLY_POLICY_VERSION,
         "actor": GOVERNED_AUTO_REVIEW_APPLY_ACTOR,
         "minimum_confidence_by_operation": dict(_AUTO_CONFIDENCE_BY_OPERATION),
         "direct_mem0_writes": False,
         "direct_qdrant_writes": False,
-        "operator_consent_required": operator_consent_required(),
+        "operator_consent_required": consent_required,
     }
 
 
@@ -93,8 +105,35 @@ def review_proposal(proposal: Mapping[str, Any], *, allow_operator_consent: bool
     if analyzer != GOVERNED_SEMANTIC_EDITOR_ANALYZER:
         reasons.append("semantic_editor_analyzer_required")
     semantic_editor = proposal.get("semantic_editor") if isinstance(proposal.get("semantic_editor"), Mapping) else {}
-    if semantic_editor.get("shadow_safe") is not True:
+    if semantic_editor.get("shadow_safe") is not True or semantic_editor.get("schema_version") != GOVERNED_SEMANTIC_EDITOR_SCHEMA_VERSION:
         reasons.append("semantic_editor_receipt_required")
+    policy = semantic_editor.get("policy") if isinstance(semantic_editor.get("policy"), Mapping) else None
+    if policy is None:
+        reasons.append("semantic_policy_receipt_required")
+    else:
+        model_operation = str(policy.get("model_operation") or "")
+        effective_operation = str(policy.get("effective_operation") or "")
+        if policy.get("policy_version") != GOVERNED_SEMANTIC_EDITOR_POLICY_VERSION:
+            reasons.append("semantic_policy_receipt_stale")
+        if model_operation not in _AUTO_CONFIDENCE_BY_OPERATION or effective_operation != operation:
+            reasons.append("semantic_policy_receipt_inconsistent")
+        if policy.get("manual_approval_required") is not True or policy.get("auto_apply") is not False:
+            reasons.append("semantic_policy_receipt_inconsistent")
+        if policy.get("direct_mem0_writes") is not False or policy.get("direct_qdrant_writes") is not False:
+            reasons.append("semantic_policy_receipt_inconsistent")
+        if policy.get("conflicts_present") is not False:
+            reasons.append("semantic_policy_conflicts_present")
+    legacy_rollover = semantic_editor.get("legacy_rollover") if isinstance(semantic_editor.get("legacy_rollover"), Mapping) else {}
+    if legacy_rollover.get("requested") is True:
+        reasons.append("historical_rollover_requires_operator_review")
+    if analyzer == GOVERNED_SEMANTIC_EDITOR_ANALYZER:
+        try:
+            validate_proposal_identity(proposal)
+        except GovernedConsolidationError:
+            # The exact identity covers candidate, basis, target and the policy
+            # receipt.  Do not reveal the malformed field through this content-free
+            # automatic-review surface.
+            reasons.append("semantic_evidence_binding_invalid")
     try:
         confidence = float(proposal.get("confidence"))
     except (TypeError, ValueError):
@@ -134,20 +173,17 @@ def auto_review_and_apply_proposal(*, database_path: Path | str, proposal_id: st
     if proposal["status"] == "applied":
         return _receipt(proposal_id, "applied", decision=None, apply_result=None, idempotent=True)
     if proposal["status"] == "approved":
-        try:
-            result = apply_approved_proposal(
-                database_path=database_path,
-                proposal_id=proposal_id,
-                project=project,
-                apply=True,
-                confirmation=proposal_id,
-            )
-        except GovernedConsolidationStale:
-            current = store.get(proposal_id, project=project)
-            if current["status"] == "applied":
-                return _receipt(proposal_id, "applied", decision=None, apply_result=None, idempotent=True)
-            return _receipt(proposal_id, "stale", decision=None, apply_result=None, idempotent=False)
-        return _receipt(proposal_id, result.status, decision=None, apply_result=result, idempotent=False)
+        # Approval is durable operator evidence.  Semantic evidence is not yet
+        # independently support-mapped, so an internal auto-review call must
+        # never turn that evidence into a lifecycle mutation.
+        return _receipt(
+            proposal_id,
+            "approved",
+            decision=None,
+            apply_result=None,
+            idempotent=False,
+            deferred_reason="semantic_evidence_requires_operator_review",
+        )
     if proposal["status"] != "proposed":
         return _receipt(proposal_id, str(proposal["status"]), decision=None, apply_result=None, idempotent=False)
 
@@ -163,29 +199,17 @@ def auto_review_and_apply_proposal(*, database_path: Path | str, proposal_id: st
         )
         return _receipt(proposal_id, "rejected", decision=decision, apply_result=None, idempotent=False)
 
-    approved = store.decide_automatically(
-        proposal_id=proposal_id,
-        project=project,
-        decision="approve",
-        actor=GOVERNED_AUTO_REVIEW_APPLY_ACTOR,
-        policy_version=GOVERNED_AUTO_REVIEW_APPLY_POLICY_VERSION,
-        reason_codes=decision.reason_codes,
+    # A valid receipt only permits an operator review.  Automatic semantic
+    # lifecycle apply remains disabled until a separately governed, immutable
+    # evidence-support contract exists.
+    return _receipt(
+        proposal_id,
+        "proposed",
+        decision=decision,
+        apply_result=None,
+        idempotent=False,
+        deferred_reason="semantic_evidence_requires_operator_review",
     )
-    try:
-        result = apply_approved_proposal(
-            database_path=database_path,
-            proposal_id=proposal_id,
-            project=project,
-            apply=True,
-            confirmation=proposal_id,
-        )
-    except GovernedConsolidationStale:
-        return _receipt(proposal_id, "stale", decision=decision, apply_result=None, idempotent=False)
-    except GovernedConsolidationError:
-        # The stored status/event remains evidence of the policy decision. The
-        # caller receives the original controlled error from the canonical path.
-        raise
-    return _receipt(proposal_id, result.status, decision=decision, apply_result=result, idempotent=False, proposal=approved)
 
 
 def _receipt(

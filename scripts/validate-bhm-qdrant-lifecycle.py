@@ -23,39 +23,58 @@ from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.qdrant_lifecycle import LIFECYCLE_DECISIONS
 from blackholememory.qdrant_lifecycle import build_qdrant_lifecycle_report
+from blackholememory.qdrant_validation_bounds import ValidationScanBudget
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--report", type=Path, help="Write the full bounded lifecycle report.")
-    parser.add_argument("--summary-only", action="store_true", help="Print only the compact summary.")
+    parser.add_argument(
+        "--report", type=Path, help="Write the full bounded lifecycle report."
+    )
+    parser.add_argument(
+        "--summary-only", action="store_true", help="Print only the compact summary."
+    )
+    parser.add_argument("--deadline-seconds", type=float, default=45.0)
+    parser.add_argument("--max-requests", type=int, default=512)
+    parser.add_argument("--max-pages", type=int, default=384)
+    parser.add_argument("--max-targets", type=int, default=20_000)
     return parser.parse_args()
 
 
 def _write_report(path: Path, report: dict[str, Any]) -> None:
-    replace_bytes_safely(path, (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
+    replace_bytes_safely(
+        path, (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    )
 
 
 def _summary(report: dict[str, Any]) -> dict[str, Any]:
     inventory = report["inventory"]
     collections = report["collections"]
-    quarantine = [item for item in collections if item["classification"] == "quarantine"]
+    quarantine = [
+        item for item in collections if item["classification"] == "quarantine"
+    ]
     large = [item for item in quarantine if (item["point_count"] or 0) >= 1000]
     success = (
-        report["read_only"] is True
-        and report["mutations"] == {"qdrant": False, "filesystem": False, "sqlite": False}
+        report.get("complete") is True
+        and report["read_only"] is True
+        and report["mutations"]
+        == {"qdrant": False, "filesystem": False, "sqlite": False}
         and not report["inspection_errors"]
         and report["reconciliation"]["blocking_issues"] == 0
         and inventory["unknown_decisions"] == 0
         and inventory["unbacked_destructive_candidates"] == 0
-        and inventory["large_quarantine_collections"] == 2
-        and inventory["large_quarantine_points"] == 5092
+        and inventory["quarantine_collections"] == 0
+        and inventory["large_quarantine_collections"] == 0
+        and inventory["large_quarantine_points"] == 0
         and all(item["decision"] in LIFECYCLE_DECISIONS for item in collections)
-        and all(item["backup_status"] == "verified_completed" for item in quarantine)
-        and all(item["decision"] == "retain" for item in quarantine)
+        and not quarantine
     )
     return {
         "success": success,
+        "complete": report.get("complete", False),
+        "status": report.get("status", "incomplete"),
+        "incomplete": report.get("incomplete"),
+        "validation": report.get("validation", {}),
         "source": report["source"],
         "read_only": report["read_only"],
         "mutations": report["mutations"],
@@ -73,7 +92,9 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
                 "restore_status": item["restore_status"],
                 "known_source_points": item["observed"]["known_source_points"],
                 "unknown_source_points": item["observed"]["unknown_source_points"],
-                "canonical_current_points": item["observed"]["canonical_current_points"],
+                "canonical_current_points": item["observed"][
+                    "canonical_current_points"
+                ],
                 "repair_first_points": item["observed"]["repair_first_points"],
             }
             for item in large
@@ -86,14 +107,29 @@ def main() -> int:
     try:
         report = build_qdrant_lifecycle_report(
             get_qdrant_client(),
-            SQLiteMemoryRepository(settings.runtime_dir / "live-memory" / "memories.sqlite3"),
-            backup_root=settings.runtime_dir / "live-memory" / "qdrant-quarantine-backups",
+            SQLiteMemoryRepository(
+                settings.runtime_dir / "live-memory" / "memories.sqlite3"
+            ),
+            backup_root=settings.runtime_dir
+            / "live-memory"
+            / "qdrant-quarantine-backups",
             qdrant_url=settings.qdrant_url,
+            validation_budget=ValidationScanBudget(
+                deadline_seconds=args.deadline_seconds,
+                max_requests=args.max_requests,
+                max_pages=args.max_pages,
+                max_targets=args.max_targets,
+            ),
+            include_collection_details=not args.summary_only,
         )
         if args.report:
             _write_report(args.report, report)
         summary = _summary(report)
-        output = summary if args.summary_only else {**summary, "collections": report["collections"]}
+        output = (
+            summary
+            if args.summary_only
+            else {**summary, "collections": report["collections"]}
+        )
         print(json.dumps(output, ensure_ascii=False, indent=2))
         return 0 if summary["success"] else 1
     except Exception as exc:

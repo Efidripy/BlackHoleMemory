@@ -17,6 +17,8 @@ from .projection_reconciliation import QdrantSurfaceAdapter
 from .projection_reconciliation import ReconciliationAction
 from .projection_reconciliation import build_projection_reconciliation_plan
 from .qdrant_catalog import build_qdrant_catalog
+from .qdrant_validation_bounds import ValidationBudgetExceeded
+from .qdrant_validation_bounds import ValidationScanBudget
 
 
 LIFECYCLE_DECISIONS = frozenset({"retain", "rebuild", "review", "purge"})
@@ -26,7 +28,14 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
-def _scan_collection(client: Any, name: str, known_memory_ids: set[str], current_by_memory: dict[str, bool]) -> dict[str, Any]:
+def _scan_collection(
+    client: Any,
+    name: str,
+    known_memory_ids: set[str],
+    current_by_memory: dict[str, bool],
+    *,
+    validation_budget: ValidationScanBudget,
+) -> dict[str, Any]:
     point_count = 0
     unique_source_ids: set[str] = set()
     source_id_empty = 0
@@ -41,6 +50,9 @@ def _scan_collection(client: Any, name: str, known_memory_ids: set[str], current
     errors: list[str] = []
     offset: Any = None
     while True:
+        validation_budget.target("collection_scan.collection")
+        validation_budget.page("collection_scan.scroll")
+        validation_budget.request("collection_scan.scroll")
         try:
             page, offset = client.scroll(
                 collection_name=name,
@@ -49,6 +61,7 @@ def _scan_collection(client: Any, name: str, known_memory_ids: set[str], current
                 with_payload=True,
                 with_vectors=False,
             )
+            validation_budget.checkpoint("collection_scan.scroll")
         except Exception as exc:
             errors.append(f"{type(exc).__name__}: {exc}")
             break
@@ -102,11 +115,18 @@ def _decision_for_collection(item: Mapping[str, Any]) -> tuple[str, list[str]]:
     if classification == "active":
         return "retain", ["canonical_active", "authoritative_sqlite_rebuildable"]
     if classification == "quarantine" and backup_status == "verified_completed":
-        return "retain", ["quarantine_manifest_completed", "backup_sha256_verified", "restore_available"]
+        return "retain", [
+            "quarantine_manifest_completed",
+            "backup_sha256_verified",
+            "restore_available",
+        ]
     if classification == "quarantine":
         return "review", ["quarantine_backup_not_verified"]
     if classification in {"smoke", "demo", "review"}:
-        return "review", [f"classification_{classification}", "no_destructive_authorization"]
+        return "review", [
+            f"classification_{classification}",
+            "no_destructive_authorization",
+        ]
     return "review", ["unclassified_surface", "no_destructive_authorization"]
 
 
@@ -116,29 +136,48 @@ def build_qdrant_lifecycle_report(
     *,
     backup_root=None,
     qdrant_url: str | None = None,
+    validation_budget: ValidationScanBudget | None = None,
+    include_collection_details: bool = True,
 ) -> dict[str, Any]:
     """Build a bounded, read-only collection lifecycle decision matrix."""
-
-    catalog = build_qdrant_catalog(
-        client,
-        backup_root=backup_root,
-        qdrant_url=qdrant_url,
-    )
-    memories = repository.list_memories(include_archived=True, include_tombstoned=True, limit=10_000)
-    known_memory_ids = {memory.id for memory in memories}
-    reconciliation = build_projection_reconciliation_plan(
-        repository,
-        QdrantSurfaceAdapter(client),
-        route_database=str(getattr(repository, "path", "") or "") or None,
-        route_vector_dimensions=settings.mem0_embedding_dims,
-        route_embedding_model=settings.mem0_embedding_model,
-    )
+    budget = validation_budget or ValidationScanBudget()
+    catalog: dict[str, Any] = {"collections": [], "inspection_errors": []}
+    memories: list[Any] = []
+    try:
+        with budget.stage("catalog"):
+            catalog = build_qdrant_catalog(
+                client,
+                backup_root=backup_root,
+                qdrant_url=qdrant_url,
+                validation_budget=budget,
+            )
+        with budget.stage("sqlite_memories"):
+            budget.request("sqlite.lifecycle_memories")
+            memories = repository.list_memories(
+                include_archived=True, include_tombstoned=True, limit=10_000
+            )
+            budget.checkpoint("sqlite.lifecycle_memories")
+            for _memory in memories:
+                budget.target("sqlite.lifecycle_memory")
+        known_memory_ids = {memory.id for memory in memories}
+        with budget.stage("reconciliation"):
+            reconciliation = build_projection_reconciliation_plan(
+                repository,
+                QdrantSurfaceAdapter(client, validation_budget=budget),
+                route_database=str(getattr(repository, "path", "") or None) or None,
+                route_vector_dimensions=settings.mem0_embedding_dims,
+                route_embedding_model=settings.mem0_embedding_model,
+                validation_budget=budget,
+            )
+    except ValidationBudgetExceeded as exc:
+        return _incomplete_report(catalog, len(memories), budget, exc)
     desired_by_memory: dict[str, list[Any]] = {}
     for entry in reconciliation.entries:
         if entry.action is not ReconciliationAction.REVIEW and entry.memory_id:
             desired_by_memory.setdefault(entry.memory_id, []).append(entry)
     current_by_memory = {
-        memory_id: bool(entries) and all(entry.action is ReconciliationAction.NOOP for entry in entries)
+        memory_id: bool(entries)
+        and all(entry.action is ReconciliationAction.NOOP for entry in entries)
         for memory_id, entries in desired_by_memory.items()
     }
 
@@ -146,58 +185,87 @@ def build_qdrant_lifecycle_report(
     inspection_errors: list[dict[str, str]] = list(catalog["inspection_errors"])
     decision_counts: Counter[str] = Counter()
     destructive_candidates = 0
-    for item in catalog["collections"]:
-        classification = _text(item["classification"])
-        if classification in {"review", "smoke", "demo", "quarantine"}:
-            scan = _scan_collection(client, item["name"], known_memory_ids, current_by_memory)
-            for error in scan["inspection_errors"]:
-                inspection_errors.append({"collection": item["name"], "error": error})
-        else:
-            scan = {
-                "point_count_observed": None,
-                "unique_source_ids": None,
-                "source_id_empty": None,
-                "known_source_points": None,
-                "unknown_source_points": None,
-                "canonical_current_points": None,
-                "repair_first_points": None,
-                "source_systems": {},
-                "projects": {},
-                "lifecycles": {},
-                "quarantine_marker_points": None,
-                "inspection_errors": [],
-            }
-        decision, reasons = _decision_for_collection(item)
-        if decision not in LIFECYCLE_DECISIONS:
-            decision = "review"
-            reasons = ["invalid_decision_fail_closed"]
-        if decision == "purge":
-            destructive_candidates += 1
-        decision_counts[decision] += 1
-        collections.append(
-            {
-                "name": item["name"],
-                "owner": item["owner"],
-                "project": item["project"],
-                "role": item["role"],
-                "point_count": item["point_count"],
-                "classification": classification,
-                "labels": list(item["labels"]),
-                "rebuildability": item["rebuildability"],
-                "decision": decision,
-                "decision_reasons": reasons,
-                "backup_status": item["backup_status"],
-                "restore_status": item["restore_status"],
-                "observed": scan,
-            }
+    collection_count = 0
+    quarantine_count = 0
+    large_quarantine_count = 0
+    large_quarantine_points = 0
+    unknown_decisions: list[str] = []
+    unresolved_review: list[str] = []
+    try:
+        with budget.stage("collection_scan"):
+            for item in catalog["collections"]:
+                collection_count += 1
+                classification = _text(item["classification"])
+                if classification in {"review", "smoke", "demo", "quarantine"}:
+                    scan = _scan_collection(
+                        client,
+                        item["name"],
+                        known_memory_ids,
+                        current_by_memory,
+                        validation_budget=budget,
+                    )
+                    for error in scan["inspection_errors"]:
+                        inspection_errors.append(
+                            {"collection": item["name"], "error": error}
+                        )
+                else:
+                    scan = {
+                        "point_count_observed": None,
+                        "unique_source_ids": None,
+                        "source_id_empty": None,
+                        "known_source_points": None,
+                        "unknown_source_points": None,
+                        "canonical_current_points": None,
+                        "repair_first_points": None,
+                        "source_systems": {},
+                        "projects": {},
+                        "lifecycles": {},
+                        "quarantine_marker_points": None,
+                        "inspection_errors": [],
+                    }
+                decision, reasons = _decision_for_collection(item)
+                if decision not in LIFECYCLE_DECISIONS:
+                    decision = "review"
+                    reasons = ["invalid_decision_fail_closed"]
+                if decision == "purge":
+                    destructive_candidates += 1
+                decision_counts[decision] += 1
+                if classification == "quarantine":
+                    quarantine_count += 1
+                    if (item["point_count"] or 0) >= 1000:
+                        large_quarantine_count += 1
+                        large_quarantine_points += item["point_count"] or 0
+                if decision not in LIFECYCLE_DECISIONS:
+                    unknown_decisions.append(item["name"])
+                if decision == "review":
+                    unresolved_review.append(item["name"])
+                detail = {
+                    "name": item["name"],
+                    "owner": item["owner"],
+                    "project": item["project"],
+                    "role": item["role"],
+                    "point_count": item["point_count"],
+                    "classification": classification,
+                    "labels": list(item["labels"]),
+                    "rebuildability": item["rebuildability"],
+                    "decision": decision,
+                    "decision_reasons": reasons,
+                    "backup_status": item["backup_status"],
+                    "restore_status": item["restore_status"],
+                    "observed": scan,
+                }
+                if include_collection_details:
+                    collections.append(detail)
+    except ValidationBudgetExceeded as exc:
+        return _incomplete_report(
+            catalog, len(memories), budget, exc, collections=collections
         )
 
-    quarantine = [item for item in collections if item["classification"] == "quarantine"]
-    large_quarantine = [item for item in quarantine if (item["point_count"] or 0) >= 1000]
-    unknown_decisions = [item["name"] for item in collections if item["decision"] not in LIFECYCLE_DECISIONS]
-    unresolved_review = [item["name"] for item in collections if item["decision"] == "review"]
     return {
         "schema_version": "1.0",
+        "complete": True,
+        "status": "complete",
+        "validation": budget.snapshot(),
         "source": "qdrant-live-read-only-lifecycle",
         "qdrant_url": qdrant_url,
         "read_only": True,
@@ -208,16 +276,52 @@ def build_qdrant_lifecycle_report(
             "blocking_issues": len(reconciliation.blocking_issues),
         },
         "inventory": {
-            "collection_count": len(collections),
+            "collection_count": collection_count,
             "decision_counts": dict(sorted(decision_counts.items())),
             "review_collections": len(unresolved_review),
-            "quarantine_collections": len(quarantine),
-            "large_quarantine_collections": len(large_quarantine),
-            "large_quarantine_points": sum(item["point_count"] or 0 for item in large_quarantine),
+            "quarantine_collections": quarantine_count,
+            "large_quarantine_collections": large_quarantine_count,
+            "large_quarantine_points": large_quarantine_points,
             "unknown_decisions": len(unknown_decisions),
             "unbacked_destructive_candidates": destructive_candidates,
         },
         "inspection_errors": inspection_errors,
         "review_collections": unresolved_review,
-        "collections": collections,
+        "collections": collections if include_collection_details else [],
+    }
+
+
+def _incomplete_report(
+    catalog: dict[str, Any],
+    known_sqlite_memories: int,
+    budget: ValidationScanBudget,
+    exc: ValidationBudgetExceeded,
+    *,
+    collections: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Return diagnostic metadata without treating a partial read as a pass."""
+    return {
+        "schema_version": "1.0",
+        "complete": False,
+        "status": exc.status,
+        "incomplete": exc.to_dict(),
+        "validation": budget.snapshot(),
+        "source": "qdrant-live-read-only-lifecycle",
+        "read_only": True,
+        "mutations": {"qdrant": False, "filesystem": False, "sqlite": False},
+        "known_sqlite_memories": known_sqlite_memories,
+        "reconciliation": {"counts": {}, "blocking_issues": 1, "incomplete": True},
+        "inventory": {
+            "collection_count": None,
+            "unknown_decisions": None,
+            "unbacked_destructive_candidates": None,
+            "quarantine_collections": None,
+            "large_quarantine_collections": None,
+            "large_quarantine_points": None,
+            "review_collections": None,
+            "decision_counts": {},
+        },
+        "inspection_errors": list(catalog.get("inspection_errors") or []),
+        "review_collections": [],
+        "collections": collections or [],
     }

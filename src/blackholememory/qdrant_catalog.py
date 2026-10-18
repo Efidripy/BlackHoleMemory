@@ -16,6 +16,7 @@ from .mem0_adapter import global_collection_name
 from .mem0_adapter import local_collection_name
 from .project_registry import ProjectRegistry
 from .project_registry import get_default_project_registry
+from .qdrant_validation_bounds import ValidationScanBudget
 
 
 CATALOG_SCHEMA_VERSION = "1.0"
@@ -30,17 +31,31 @@ def _value(item: Any, key: str, default: Any = None) -> Any:
     return getattr(item, key, default)
 
 
-def _collection_names(client: Any) -> list[str]:
+def _collection_names(
+    client: Any, *, validation_budget: ValidationScanBudget | None = None
+) -> list[str]:
+    if validation_budget is not None:
+        validation_budget.request("catalog.get_collections")
     response = client.get_collections()
+    if validation_budget is not None:
+        validation_budget.checkpoint("catalog.get_collections")
     entries = _value(response, "collections", ()) or ()
     names = {_value(entry, "name") for entry in entries}
     return sorted(str(name) for name in names if str(name or "").strip())
 
 
-def _point_count(client: Any, name: str) -> tuple[int | None, str | None]:
+def _point_count(
+    client: Any, name: str, *, validation_budget: ValidationScanBudget | None = None
+) -> tuple[int | None, str | None]:
     try:
+        if validation_budget is not None:
+            validation_budget.request("catalog.get_collection")
         response = client.get_collection(collection_name=name)
-    except Exception:  # A catalog must expose an inspection failure without backend details.
+        if validation_budget is not None:
+            validation_budget.checkpoint("catalog.get_collection")
+    except (
+        Exception
+    ):  # A catalog must expose an inspection failure without backend details.
         return None, "qdrant_inspection_failed"
     raw = _value(response, "points_count")
     if raw is None:
@@ -59,7 +74,9 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _manifest_path(raw_path: str, manifest_path: Path, approved_root: Path | None = None) -> Path | None:
+def _manifest_path(
+    raw_path: str, manifest_path: Path, approved_root: Path | None = None
+) -> Path | None:
     raw = str(raw_path or "").strip()
     if not raw:
         return None
@@ -87,16 +104,21 @@ def _manifest_path(raw_path: str, manifest_path: Path, approved_root: Path | Non
     return resolved
 
 
-def _load_quarantine_manifests(backup_root: Path | None) -> dict[str, dict[str, Any]]:
+def _load_quarantine_manifests(
+    backup_root: Path | None, *, validation_budget: ValidationScanBudget | None = None
+) -> dict[str, dict[str, Any]]:
     if backup_root is None or not backup_root.exists():
         return {}
     result: dict[str, dict[str, Any]] = {}
     approved_root = backup_root.resolve()
     try:
-        paths = sorted(backup_root.rglob(_BACKUP_MANIFEST_NAME))
+        paths = backup_root.rglob(_BACKUP_MANIFEST_NAME)
     except OSError:
         return {}
     for manifest_path in paths:
+        if validation_budget is not None:
+            validation_budget.target("catalog.manifest")
+            validation_budget.request("catalog.manifest_read")
         try:
             payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
@@ -111,16 +133,25 @@ def _load_quarantine_manifests(backup_root: Path | None) -> dict[str, dict[str, 
         # because that turns a traversal into an arbitrary readable-file sink.
         try:
             manifest_path = manifest_path.resolve()
-            if manifest_path == approved_root or approved_root not in manifest_path.parents:
+            if (
+                manifest_path == approved_root
+                or approved_root not in manifest_path.parents
+            ):
                 continue
         except OSError:
             continue
-        backup_path = _manifest_path(str(payload.get("backupPath") or ""), manifest_path, approved_root)
+        backup_path = _manifest_path(
+            str(payload.get("backupPath") or ""), manifest_path, approved_root
+        )
         expected_hash = str(payload.get("backupSha256") or "").strip().lower()
         actual_hash = None
         if backup_path is not None:
             try:
+                if validation_budget is not None:
+                    validation_budget.request("catalog.backup_hash")
                 actual_hash = _sha256(backup_path)
+                if validation_budget is not None:
+                    validation_budget.checkpoint("catalog.backup_hash")
             except OSError:
                 actual_hash = None
         status = str(payload.get("status") or "unknown").strip().lower()
@@ -136,7 +167,9 @@ def _load_quarantine_manifests(backup_root: Path | None) -> dict[str, dict[str, 
             "backup_verified": bool(verified),
             "candidate_count": payload.get("candidateCount"),
             "deleted_original_points": payload.get("deletedOriginalPoints"),
-            "post_plan": payload.get("postPlan") if isinstance(payload.get("postPlan"), dict) else None,
+            "post_plan": payload.get("postPlan")
+            if isinstance(payload.get("postPlan"), dict)
+            else None,
         }
     return result
 
@@ -197,13 +230,28 @@ def _classify_collection(
     if lowered.startswith(_LOCAL_PREFIX):
         project = _project_from_local_name(name)
         if "demo" in lowered:
-            classification, role, rebuildability, decision = "demo", "demo-fixture", "regenerable-fixture", "review"
+            classification, role, rebuildability, decision = (
+                "demo",
+                "demo-fixture",
+                "regenerable-fixture",
+                "review",
+            )
             labels = ["demo"]
         elif "smoke" in lowered or "debug" in lowered or "trace_link" in lowered:
-            classification, role, rebuildability, decision = "smoke", "smoke-fixture", "regenerable-fixture", "review"
+            classification, role, rebuildability, decision = (
+                "smoke",
+                "smoke-fixture",
+                "regenerable-fixture",
+                "review",
+            )
             labels = ["smoke"]
         else:
-            classification, role, rebuildability, decision = "review", "unregistered-project-projection", "manual-review", "review"
+            classification, role, rebuildability, decision = (
+                "review",
+                "unregistered-project-projection",
+                "manual-review",
+                "review",
+            )
             labels = ["review"]
         if point_count == 0:
             labels.append("empty")
@@ -289,19 +337,28 @@ def build_qdrant_catalog(
     backup_root: Path | None = None,
     registry: ProjectRegistry | None = None,
     qdrant_url: str | None = None,
+    validation_budget: ValidationScanBudget | None = None,
 ) -> dict[str, Any]:
     """Return a deterministic, read-only catalog for every live collection."""
 
     resolved_registry = registry or get_default_project_registry()
-    names = _collection_names(client)
-    manifests = _load_quarantine_manifests(backup_root)
+    names = _collection_names(client, validation_budget=validation_budget)
+    manifests = _load_quarantine_manifests(
+        backup_root, validation_budget=validation_budget
+    )
     collections: list[dict[str, Any]] = []
     inspection_errors: list[dict[str, str]] = []
     for name in names:
-        point_count, inspection_error = _point_count(client, name)
+        if validation_budget is not None:
+            validation_budget.target("catalog.collection")
+        point_count, inspection_error = _point_count(
+            client, name, validation_budget=validation_budget
+        )
         if inspection_error:
             inspection_errors.append({"collection": name, "error": inspection_error})
-        classification = _classify_collection(name, point_count, registry=resolved_registry)
+        classification = _classify_collection(
+            name, point_count, registry=resolved_registry
+        )
         backup = _backup_state(
             name,
             manifests.get(name),
@@ -337,7 +394,9 @@ def build_qdrant_catalog(
         "mutations": {"qdrant": False, "filesystem": False, "sqlite": False},
         "inventory": {
             "collection_count": len(collections),
-            "point_count_known": sum(item["point_count"] is not None for item in collections),
+            "point_count_known": sum(
+                item["point_count"] is not None for item in collections
+            ),
             "total_points": sum(item["point_count"] or 0 for item in collections),
             "classification_counts": dict(sorted(counts.items())),
             "label_counts": dict(sorted(label_counts.items())),
