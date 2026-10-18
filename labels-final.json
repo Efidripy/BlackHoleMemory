@@ -1,0 +1,385 @@
+[
+  {
+    "case_id": "pilot-001-create-install-safety",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g01a": "relevant",
+        "support-g01b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-002-create-retry-budget",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g02a": "relevant",
+        "support-g02b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-003-create-config-scope",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g03a": "relevant",
+        "support-g03b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-004-create-backup-order",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g04a": "relevant",
+        "support-g04b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-005-create-log-redaction",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g05a": "relevant",
+        "support-g05b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-006-create-migration-guard",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g06a": "relevant",
+        "support-g06b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-007-create-projection-rule",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g07a": "relevant",
+        "support-g07b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-008-create-operator-approval",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g08a": "relevant",
+        "support-g08b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-009-create-worker-recovery",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "create",
+      "support_relevance": {
+        "support-g09a": "relevant",
+        "support-g09b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-010-no-op-duplicate-install",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g10a": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-011-no-op-duplicate-retry",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g11a": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-012-no-op-paraphrase-config",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g12a": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-013-no-op-weak-incident",
+    "labels": {
+      "conflict": "none",
+      "entailment": "insufficient",
+      "factuality": "insufficient",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g13a": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-014-no-op-unverified-assumption",
+    "labels": {
+      "conflict": "none",
+      "entailment": "insufficient",
+      "factuality": "insufficient",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g14a": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-015-no-op-incomplete-note",
+    "labels": {
+      "conflict": "none",
+      "entailment": "insufficient",
+      "factuality": "insufficient",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g15a": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-016-no-op-non-actionable-observation",
+    "labels": {
+      "conflict": "none",
+      "entailment": "insufficient",
+      "factuality": "insufficient",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g16a": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-017-conflict-retry",
+    "labels": {
+      "conflict": "direct",
+      "entailment": "insufficient",
+      "factuality": "ambiguous",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g17a": "relevant",
+        "support-g17b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-018-conflict-owner",
+    "labels": {
+      "conflict": "direct",
+      "entailment": "insufficient",
+      "factuality": "ambiguous",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g18a": "relevant",
+        "support-g18b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-019-conflict-config",
+    "labels": {
+      "conflict": "direct",
+      "entailment": "insufficient",
+      "factuality": "ambiguous",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g19a": "relevant",
+        "support-g19b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-020-conflict-release",
+    "labels": {
+      "conflict": "direct",
+      "entailment": "insufficient",
+      "factuality": "ambiguous",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g20a": "relevant",
+        "support-g20b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-021-conflict-cleanup",
+    "labels": {
+      "conflict": "scope",
+      "entailment": "insufficient",
+      "factuality": "ambiguous",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g21a": "relevant",
+        "support-g21b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-022-link-supporting-rule",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "link",
+      "support_relevance": {
+        "support-g22a": "relevant",
+        "support-g22b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-023-link-dependency",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "link",
+      "support_relevance": {
+        "support-g23a": "relevant",
+        "support-g23b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-024-revise-retry-clarification",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "revise",
+      "support_relevance": {
+        "support-g24a": "relevant",
+        "support-g24b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-025-revise-health-clarification",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "revise",
+      "support_relevance": {
+        "support-g25a": "relevant",
+        "support-g25b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-026-supersede-old-config",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "supersede",
+      "support_relevance": {
+        "support-g26a": "relevant",
+        "support-g26b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-027-supersede-old-projection",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "supersede",
+      "support_relevance": {
+        "support-g27a": "relevant",
+        "support-g27b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-028-archive-expired-runbook",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "archive",
+      "support_relevance": {
+        "support-g28a": "relevant",
+        "support-g28b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-029-archive-expired-policy",
+    "labels": {
+      "conflict": "none",
+      "entailment": "supported",
+      "factuality": "true",
+      "operation": "archive",
+      "support_relevance": {
+        "support-g29a": "relevant",
+        "support-g29b": "relevant"
+      }
+    }
+  },
+  {
+    "case_id": "pilot-030-cross-project-rejected",
+    "labels": {
+      "conflict": "scope",
+      "entailment": "insufficient",
+      "factuality": "insufficient",
+      "operation": "no_op",
+      "support_relevance": {
+        "support-g30a": "relevant",
+        "support-g30b": "relevant"
+      }
+    }
+  }
+]
