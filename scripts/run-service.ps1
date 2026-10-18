@@ -15,6 +15,12 @@ $repoRoot = if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 }
 $repoRoot = [System.IO.Path]::GetFullPath($repoRoot)
 $srcPath = Join-Path $repoRoot "src"
+if ($Authoritative) {
+  $sourceRevision = [string]$env:BHM_SOURCE_REVISION
+  if ($sourceRevision -notmatch '^[0-9a-f]{40}$' -or [string]$env:BHM_SOURCE_DIRTY -ne 'false') {
+    throw 'authoritative service requires a verified clean launcher source identity'
+  }
+}
 . (Join-Path $repoRoot "scripts\runtime-endpoints.ps1")
 . (Join-Path $repoRoot "scripts\bhm-caller-credential.ps1")
 $localLlmModelsProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'local_llm_models'

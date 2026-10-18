@@ -662,6 +662,7 @@ _CUSTOM_REDACTION_MAX_PATTERNS = 16
 _CUSTOM_REDACTION_MAX_PATTERN_LENGTH = 120
 _CUSTOM_REDACTION_MAX_INPUT_CHARS = 64 * 1024
 _BOOT_REPORT_PATH = settings.runtime_dir / "infra" / "boot_report.json"
+_SOURCE_REVISION_RE = re.compile(r"[0-9a-f]{40}")
 _BOOT_REPORT_QDRANT_POLL_SECONDS = 0.25
 _WINDOWS_DETACHED_PROCESS = 0x00000008
 _WINDOWS_CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -15881,6 +15882,7 @@ def _health_runtime_dependencies() -> HealthRuntimeDependencies:
         configured_fallback_mode=_configured_fallback_mode,
         fallback_grace_active=_fallback_grace_active,
         mem0_runtime_plan=mem0_runtime_plan,
+        source_identity=_runtime_source_identity,
         provider_warmup_status=_get_provider_warmup_status,
         utc_now=_utc_now_iso,
         transport_snapshot=lambda: _MCP_STREAMABLE_HTTP.contract_snapshot()["sessions"],
@@ -15891,6 +15893,25 @@ def _health_runtime_dependencies() -> HealthRuntimeDependencies:
         memory_service_not_ready=MemoryServiceNotReady,
         projection_required_for_core=qdrant_required_for_core,
     )
+
+
+def _runtime_source_identity() -> dict[str, str]:
+    """Return the launcher-bound source revision without re-reading Git.
+
+    The authoritative launcher attests a clean checkout immediately before it
+    spawns this process. The runtime reports that inherited identity or an
+    explicit unverified state; it never infers a revision from a mutable tree.
+    """
+
+    revision = str(os.environ.get("BHM_SOURCE_REVISION") or "").strip().lower()
+    tree_state = str(os.environ.get("BHM_SOURCE_DIRTY") or "").strip().lower()
+    if _SOURCE_REVISION_RE.fullmatch(revision) and tree_state == "false":
+        return {
+            "status": "verified",
+            "revision": revision,
+            "tree_state": "clean",
+        }
+    return {"status": "unverified", "reason": "launcher_identity_missing"}
 
 
 def health_ready() -> dict:

@@ -46,6 +46,9 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
         "rolled-back",
         "Resolve-LocalLmStudioEndpoint",
         "Assert-BhmApiLoopbackHost",
+        "Set-AuthoritativeSourceIdentity",
+        "BHM_SOURCE_REVISION",
+        "BHM_SOURCE_DIRTY",
         "Test-OpenAiBaseUrl",
         "Get-BhmRuntimeEndpoint -Name 'lm_studio'",
         "Get-BhmRuntimeEndpointParts -Name 'lm_studio'",
@@ -153,6 +156,8 @@ def test_service_authoritative_switch_sets_complete_writer_gate_contract():
         'BHM_TYPED_MEMORY_PROJECTION_READY = "false"',
     ):
         assert marker in authoritative_block
+
+    assert "verified clean launcher source identity" in text
 
 
 def test_service_inherits_operator_capability_from_user_scope_without_logging_it():
