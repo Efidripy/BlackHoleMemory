@@ -116,6 +116,8 @@ The checked-in [BHM Value Benchmark](docs/benchmarks/bhm-value-benchmark.md) is 
 
 The separate local-model replay uses 111 cases × 3 repetitions for `file-only` and `bhm-full` (666 calls) with frozen prompts and `temperature=0`. Its receipt is local operational evidence, not a hosted-service benchmark.
 
+The separate [local-model quality gate](docs/local-model-quality.md) checks one already-loaded exact LM Studio model against a frozen synthetic answer contract. A passing 100% score is scoped to that model, prompt, fixture and local invocation; it is not a claim of universal model accuracy.
+
 An operator may run the offline LoCoMo retrieval smoke only against a separately admitted local corpus. It caps a run at 50 cases and uses disposable in-memory lexical retrieval; it neither fetches data nor calls a model or judge, and it does not mutate SQLite, Qdrant, Mem0, or the runtime. Its receipt contains only IDs, digests, and aggregate metrics, so it is retrieval-boundary evidence rather than a production-quality claim.
 
 ### Security and data boundaries
@@ -147,7 +149,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health/ready
 
 Точки доступа: API — `http://127.0.0.1:8000/bhm/`, MCP — `http://127.0.0.1:8000/mcp`, Galaxy — `http://127.0.0.1:8000/bhm/galaxy`, Atlas — `http://127.0.0.1:8000/bhm/atlas` через доверенный launcher. Galaxy — прежний Night Sky; Atlas — отдельная read-only AntV G6 3D knowledge map: локальные сферы, 3D-линии, свет и perspective camera. Project territories вычисляются только для читаемого разнесения существующих SQLite-записей, а не утверждают семантическое расстояние. Подробности: [`docs/getting-started.md`](docs/getting-started.md), [`docs/usage.md`](docs/usage.md), [`docs/mcp-caller-token-runbook.md`](docs/mcp-caller-token-runbook.md).
 
-Benchmark в репозитории — frozen-fixture evidence, а не telemetry реальных пользователей. Основной прогон: 1,000 кейсов × 10 повторов; отдельный local-model replay: 111 × 3 для двух режимов, всего 666 вызовов. Секреты, базы, `.runtime`, `.docs`, `.src` и ключи подписи не публикуются.
+Benchmark в репозитории — frozen-fixture evidence, а не telemetry реальных пользователей. Основной прогон: 1,000 кейсов × 10 повторов; отдельный local-model replay: 111 × 3 для двух режимов, всего 666 вызовов. Отдельный [local-model quality gate](docs/local-model-quality.md) проверяет только уже загруженную точную модель на синтетическом answer-contract; `100%` в нём не является утверждением о всеобщей точности. Секреты, базы, `.runtime`, `.docs`, `.src` и ключи подписи не публикуются.
 
 Операторский LoCoMo smoke запускается только по отдельно принятому локальному корпусу: максимум 50 кейсов, disposable in-memory lexical retrieval. Он не скачивает данные, не вызывает модель или judge и не меняет SQLite, Qdrant, Mem0 либо runtime. В receipt сохраняются только IDs, digests и агрегированные метрики: это evidence границы retrieval, а не заявление о production-качестве.
 
