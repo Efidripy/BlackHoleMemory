@@ -332,6 +332,9 @@ def main() -> int:
                     as_of=_utc_iso(as_of),
                     expected_dimensions=settings.mem0_embedding_dims,
                     expected_embedding_model=settings.mem0_embedding_model,
+                    route_database=str(repository_path),
+                    route_vector_dimensions=settings.mem0_embedding_dims,
+                    route_embedding_model=settings.mem0_embedding_model,
                 )
             report: dict[str, Any] = {
                 "success": True,

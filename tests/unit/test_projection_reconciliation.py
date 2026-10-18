@@ -20,6 +20,7 @@ from blackholememory.projection_reconciliation import ProjectionReviewDispositio
 from blackholememory.projection_reconciliation import QDRANT_QUARANTINE_COLLECTION_PREFIX
 from blackholememory.projection_reconciliation import apply_projection_generation_plan
 from blackholememory.projection_reconciliation import build_projection_generation_plan
+from blackholememory.projection_generation_binding import ProjectionCollectionRoute
 
 
 @dataclass
@@ -34,6 +35,7 @@ class _Surface:
         self.points: dict[tuple[str, str], _Point] = {}
         self.collection_dimensions: dict[str, int] = {}
         self.fail_reads = False
+        self.batch_reads: list[tuple[str, tuple[str, ...]]] = []
 
     def list_collections(self) -> list[str]:
         return sorted({collection for collection, _point_id in self.points})
@@ -41,6 +43,14 @@ class _Surface:
     def get_point(self, collection_name: str, point_id: str):
         point = self.points.get((collection_name, point_id))
         return {"id": point.id, "payload": dict(point.payload)} if point else None
+
+    def get_points(self, collection_name: str, point_ids: list[str]):
+        self.batch_reads.append((collection_name, tuple(point_ids)))
+        return {
+            point_id: {"id": point.id, "payload": dict(point.payload)}
+            for point_id in point_ids
+            if (point := self.points.get((collection_name, point_id))) is not None
+        }
 
     def list_points(self, collection_name: str):
         if self.fail_reads:
@@ -144,6 +154,7 @@ def test_reconciliation_plan_is_deterministic_and_apply_reaches_noop(tmp_path):
     clean = build_projection_reconciliation_plan(repository, surface, as_of="2026-07-13T14:10:00Z")
     assert clean.counts[ReconciliationAction.NOOP.value] == 2
     assert clean.blocking_issues == ()
+    assert len(surface.batch_reads) >= 2
 
     for point in surface.points.values():
         point.payload.update(
@@ -159,6 +170,48 @@ def test_reconciliation_plan_is_deterministic_and_apply_reaches_noop(tmp_path):
         as_of="2026-07-13T14:10:00Z",
     )
     assert with_volatile_payload.digest == clean.digest
+
+
+def test_reconciliation_resolves_each_project_route_once(tmp_path, monkeypatch):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    first = _memory()
+    second_metadata = dict(first.to_record()["metadata"])
+    second_metadata.pop("revision_id", None)
+    second = Memory.from_record(
+        {
+            **first.to_record(),
+            "source_id": "mem_bhm_reconcile_002",
+            "content": "another memory using the same projection route",
+            "metadata": second_metadata,
+        }
+    )
+    repository.save_memory(first)
+    repository.save_memory(second)
+    calls: list[tuple[str, str]] = []
+
+    def resolve_route(**kwargs):
+        calls.append((kwargs["project"], kwargs["legacy_collection"]))
+        return ProjectionCollectionRoute(
+            collection_name=kwargs["legacy_collection"],
+            reason="binding_unavailable",
+            legacy_allowed=True,
+        )
+
+    monkeypatch.setattr(
+        "blackholememory.projection_generation_binding.resolve_projection_route",
+        resolve_route,
+    )
+
+    plan = build_projection_reconciliation_plan(
+        repository,
+        _Surface(),
+        route_database=tmp_path / "memory.sqlite3",
+        route_vector_dimensions=2,
+        route_embedding_model="test-model",
+    )
+
+    assert len(plan.entries) == 4
+    assert calls == [("blackholememory", local_collection_name("blackholememory"))]
 
 
 def test_reconciliation_detects_tombstone_delete_and_orphan_review(tmp_path):

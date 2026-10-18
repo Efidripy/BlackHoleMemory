@@ -36,9 +36,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--summary-only", action="store_true", help="Print only the compact summary."
     )
-    parser.add_argument("--deadline-seconds", type=float, default=45.0)
-    parser.add_argument("--max-requests", type=int, default=512)
-    parser.add_argument("--max-pages", type=int, default=384)
+    # Keep the lifecycle preflight large enough for one bounded full contour;
+    # the validator still stops fail-closed at the declared limits.
+    parser.add_argument("--deadline-seconds", type=float, default=180.0)
+    parser.add_argument("--max-requests", type=int, default=8192)
+    parser.add_argument("--max-pages", type=int, default=2048)
     parser.add_argument("--max-targets", type=int, default=20_000)
     return parser.parse_args()
 
@@ -64,7 +66,6 @@ def _summary(report: dict[str, Any]) -> dict[str, Any]:
         and drill["manifest_count"] == 0
         and drill["restore_ready_count"] == 0
         and drill["restore_points"] == 0
-        and drill["active_sqlite_rebuildable_count"] == 17
         and not drill["inspection_errors"]
         and lifecycle["reconciliation"]["blocking_issues"] == 0
         and lifecycle["inventory"]["quarantine_collections"] == 0

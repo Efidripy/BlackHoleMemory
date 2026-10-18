@@ -171,7 +171,7 @@ def _semantic_attestation(proposal: dict) -> dict:
     binding = proposal["identity_binding"]
     policy = proposal["semantic_editor"]["policy"]
     return {
-        "schema_version": "bhm.governed-semantic-operator-attestation.v1",
+        "schema_version": "bhm.governed-semantic-operator-attestation.v2",
         "proposal_id": proposal["proposal_id"],
         "proposal_digest": proposal["proposal_digest"],
         "identity_binding": copy.deepcopy(binding),
@@ -182,6 +182,13 @@ def _semantic_attestation(proposal: dict) -> dict:
             for item in (binding["source"], binding["target"])
             if item is not None
         ],
+        "semantic_review": {
+            "schema_version": "bhm.governed-semantic-review.v1",
+            "reviewed_support_memory_ids": [item["memory_id"] for item in binding["support"]],
+            "candidate_entailment": "supported",
+            "relevance_assessment": "all_support_relevant",
+            "hidden_conflict_assessment": "none_observed",
+        },
         "reviewer_outcome": "approved",
     }
 
@@ -300,6 +307,10 @@ def test_unapproved_proposal_cannot_apply_and_dry_run_is_read_only(tmp_path: Pat
         lambda attestation: attestation["identity_binding"].update({"policy_sha256": "0" * 64}),
         lambda attestation: attestation.update({"model_operation": "archive"}),
         lambda attestation: attestation.update({"target_memory_ids": ["mem_bhm_wrong"]}),
+        lambda attestation: attestation["semantic_review"].update({"candidate_entailment": "insufficient"}),
+        lambda attestation: attestation["semantic_review"].update({"relevance_assessment": "mixed"}),
+        lambda attestation: attestation["semantic_review"].update({"hidden_conflict_assessment": "conflict_observed"}),
+        lambda attestation: attestation["semantic_review"].update({"reviewed_support_memory_ids": ["mem_bhm_wrong"]}),
         lambda attestation: attestation.update({"reviewer_outcome": "rejected"}),
     ],
 )

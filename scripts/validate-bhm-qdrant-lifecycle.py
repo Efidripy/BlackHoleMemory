@@ -34,9 +34,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--summary-only", action="store_true", help="Print only the compact summary."
     )
-    parser.add_argument("--deadline-seconds", type=float, default=45.0)
-    parser.add_argument("--max-requests", type=int, default=512)
-    parser.add_argument("--max-pages", type=int, default=384)
+    # A full live reconciliation retrieves one deterministic point per
+    # authoritative memory.  The historic 512-request default became smaller
+    # than the accepted SQLite contour, making the validator fail before it
+    # could inspect any assertion.  These remain explicit finite fail-closed
+    # limits while allowing the current bounded contour to complete.
+    parser.add_argument("--deadline-seconds", type=float, default=180.0)
+    parser.add_argument("--max-requests", type=int, default=8192)
+    parser.add_argument("--max-pages", type=int, default=2048)
     parser.add_argument("--max-targets", type=int, default=20_000)
     return parser.parse_args()
 

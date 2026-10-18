@@ -29,6 +29,7 @@ from .qdrant_validation_bounds import ValidationScanBudget
 QDRANT_QUARANTINE_COLLECTION_PREFIX = "bhm_quarantine_projection_"
 QDRANT_GENERATION_COLLECTION_PREFIX = "bhm_projection_generation_"
 _TARGET_GENERATION_LABEL_RE = re.compile(r"[a-z][a-z0-9-]{2,31}")
+_QDRANT_RETRIEVE_BATCH_SIZE = 256
 
 
 class ReconciliationAction(str, Enum):
@@ -393,6 +394,39 @@ class QdrantSurfaceAdapter:
             "id": str(point.id),
             "payload": dict(point.payload or {}),
         }
+
+    def get_points(
+        self, collection_name: str, point_ids: Sequence[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Read a bounded group of points without requesting vectors.
+
+        A full authority-to-projection validation may contain thousands of
+        SQLite memories.  Fetching each point separately makes the read-only
+        validator O(N) remote round trips and causes a false incomplete result
+        before any lifecycle assertion can be evaluated.  This keeps the same
+        exact point identity checks while bounding each Qdrant request to 256
+        IDs and preserving a per-request budget receipt.
+        """
+
+        unique_ids = list(dict.fromkeys(str(item) for item in point_ids if str(item)))
+        result: dict[str, dict[str, Any]] = {}
+        for start in range(0, len(unique_ids), _QDRANT_RETRIEVE_BATCH_SIZE):
+            batch = unique_ids[start : start + _QDRANT_RETRIEVE_BATCH_SIZE]
+            self._request("reconciliation.retrieve_batch")
+            points = self.client.retrieve(
+                collection_name=collection_name,
+                ids=batch,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if self.validation_budget is not None:
+                self.validation_budget.checkpoint("reconciliation.retrieve_batch")
+            for point in points:
+                result[str(point.id)] = {
+                    "id": str(point.id),
+                    "payload": dict(point.payload or {}),
+                }
+        return result
 
     def list_points(self, collection_name: str) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -1084,6 +1118,9 @@ def build_projection_reconciliation_plan(
             local_collection_name(binding.project)
             for binding in active_projection_generation_bindings(route_database)
         }
+    routed_memories: list[tuple[Any, tuple[str, ...]]] = []
+    requested_ids: dict[str, list[str]] = {}
+    routes_by_project: dict[tuple[str, str], Any] = {}
     for memory in memories:
         if validation_budget is not None:
             validation_budget.target("reconciliation.memory")
@@ -1094,14 +1131,25 @@ def build_projection_reconciliation_plan(
             # route decision.
             from .projection_generation_binding import resolve_projection_route
 
-            route = resolve_projection_route(
-                project=memory.project,
-                legacy_collection=collection_names[0],
-                database=route_database,
-                embedding_model=str(route_embedding_model),
-                vector_dimensions=int(route_vector_dimensions),
-                distance="Cosine",
-            )
+            # A projection route is scoped to a project and its deterministic
+            # legacy collection, never to an individual memory.  Resolving the
+            # binding re-reads and verifies SQLite authority; repeating that
+            # same proof for every row makes a read-only lifecycle validator
+            # quadratic enough to exhaust its deadline before it can inspect
+            # the actual Qdrant assertion.  Cache only within this invocation
+            # so no route evidence survives the plan that consumed it.
+            route_key = (memory.project, collection_names[0])
+            route = routes_by_project.get(route_key)
+            if route is None:
+                route = resolve_projection_route(
+                    project=memory.project,
+                    legacy_collection=collection_names[0],
+                    database=route_database,
+                    embedding_model=str(route_embedding_model),
+                    vector_dimensions=int(route_vector_dimensions),
+                    distance="Cosine",
+                )
+                routes_by_project[route_key] = route
             if route.collection_name is None:
                 # A project with retired/bound routing must never be silently
                 # reconciled against its legacy collection.  Preserve any
@@ -1111,10 +1159,32 @@ def build_projection_reconciliation_plan(
                 collection_names = collection_names[1:]
             else:
                 collection_names = (route.collection_name, *collection_names[1:])
+        routed_memories.append((memory, tuple(collection_names)))
+        for collection_name in collection_names:
+            point_id = deterministic_point_id(collection_name, memory.id)
+            requested_ids.setdefault(collection_name, []).append(point_id)
+
+    observed_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    batch_reader = getattr(surface, "get_points", None)
+    for collection_name, point_ids in sorted(requested_ids.items()):
+        if callable(batch_reader):
+            batch = batch_reader(collection_name, point_ids)
+            if not isinstance(batch, Mapping):
+                raise RuntimeError("projection batch reader returned an invalid result")
+            for point_id, point in batch.items():
+                if isinstance(point, Mapping):
+                    observed_by_key[(collection_name, str(point_id))] = dict(point)
+        else:
+            for point_id in point_ids:
+                observed = surface.get_point(collection_name, point_id)
+                if observed is not None:
+                    observed_by_key[(collection_name, point_id)] = observed
+
+    for memory, collection_names in routed_memories:
         for collection_name in collection_names:
             point_id = deterministic_point_id(collection_name, memory.id)
             desired_keys.add((collection_name, point_id))
-            observed = surface.get_point(collection_name, point_id)
+            observed = observed_by_key.get((collection_name, point_id))
             observed_payload = (observed or {}).get("payload") if observed else None
             observed_revision = (
                 str(observed_payload.get("revision_id"))
