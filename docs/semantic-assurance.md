@@ -57,10 +57,31 @@ paraphrase cluster не могут пересекать partitions. Sealed holdo
 Он читает один owner-controlled JSON, не делает сетевых вызовов, не открывает
 SQLite/Mem0/Qdrant и печатает либо отказ, либо content-free receipt.
 
-Минимум structural admission: `80` cases в `development`, `80` в
-`validation`, `400` в `sealed_holdout`, не менее `800` sealed support-row и по
-`50` cases в каждом direct/temporal/scope/implicit conflict bucket. Это
-минимум формы corpus, не статистическое доказательство универсальной точности.
+`bhm.semantic-assurance-corpus-admission.v1` сохраняется для historical/parser
+compatibility: минимум `80` cases в `development`, `80` в `validation`, `400`
+в `sealed_holdout`, не менее `800` sealed support-row и по `50` cases в каждом
+direct/temporal/scope/implicit conflict bucket. Это минимум формы corpus, не
+статистическое доказательство универсальной точности.
+
+Для V6 human-curation path нужен только отдельный forward-only contract
+`bhm.semantic-assurance-corpus-admission.v2` с
+`admission_profile=v6_independent_human_curation`. Его hard-coded floor:
+
+- `development >= 220`, `validation >= 220`, `sealed_holdout >= 400`;
+- все 11 risk classes присутствуют в каждой из трёх partitions;
+- каждый sealed conflict bucket содержит не менее `50` cases, всего не менее
+  `200` sealed conflict-positive cases;
+- private `v6_curation_controls` дают one-to-one declared binding
+  `case_id -> atomic_fact_id`, neutral control cells и closed-vocabulary
+  surfaces; controls не уходят в reviewer packets или public receipt.
+
+V2 receipt несёт только content-free `partition_risk_counts` и control binding
+digest. Он доказывает, что эти declared structural bounds были проверены, но
+не доказывает человеческую идентичность, реальную независимость фактов,
+происхождение источника, factual truth, entailment или relevance. V1 receipt
+не может выдаваться за V6 receipt. Перенос V6 corpus receipt в dual-review и
+readiness требует отдельного versioned label-admission/readiness path; v2 сам
+по себе не разрешает model run или automatic apply.
 
 Verifier проверяет opaque non-risk IDs, одинаковый payload set с разными
 позициями в A/B packets, blank ledger в порядке каждого packet, отсутствие
