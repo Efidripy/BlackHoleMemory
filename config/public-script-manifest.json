@@ -94,6 +94,11 @@
       "release": true
     },
     {
+      "path": "scripts/run-bhm-local-llm-quality.py",
+      "role": "quality-gate",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_semantic_diagnose.py",
       "role": "quality-gate",
       "release": true
