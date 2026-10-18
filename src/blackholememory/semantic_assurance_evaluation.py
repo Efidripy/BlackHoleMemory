@@ -20,6 +20,23 @@ from typing import Any
 SCHEMA_VERSION = "bhm.semantic-assurance.v1"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-receipt.v1"
 PREDICTION_SCHEMA_VERSION = "bhm.semantic-assurance-predictions.v1"
+_LABEL_ADMISSION_RECEIPT_V1 = "bhm.semantic-assurance-human-label-admission-receipt.v1"
+_LABEL_ADMISSION_RECEIPT_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
+_V2_CORPUS_ADMISSION_KEYS = frozenset({
+    "receipt_schema_version",
+    "admission_digest",
+    "case_count",
+    "partition_counts",
+    "sealed_support_count",
+    "packet_payload_set_digest",
+    "curator_ledger_digest",
+    "curator_attestation_digest",
+    "dataset_binding_digest",
+    "sealed_case_binding_digest",
+    "sealed_support_binding_digest",
+    "risk_counts",
+    "sealed_risk_counts",
+})
 PARTITIONS = frozenset({"development", "validation", "sealed_holdout"})
 FACTUALITY_LABELS = ("true", "false", "insufficient", "ambiguous")
 ENTAILMENT_LABELS = ("supported", "contradicted", "insufficient")
@@ -116,7 +133,17 @@ def evaluate_semantic_assurance(
     # upgrades only the evidence tier, never silently rewrites v1 history.
     mechanical_valid = all(value for key, value in gate_checks.items() if key != "independent_human_labels_admitted")
     normalized_invocation = _validate_invocation(invocation)
-    prediction_digest = _digest(normalized_predictions)
+    prediction_digest = _digest(sorted(normalized_predictions, key=lambda item: str(item["case_id"])))
+    results_digest = _digest([
+        {
+            "case_id": item["case_id"],
+            "risk_class": item["risk_class"],
+            "support_ids": item["support_ids"],
+            "expected": item["expected"],
+            "prediction": item["prediction"],
+        }
+        for item in sorted(results, key=lambda row: str(row["case_id"]))
+    ])
     report_core = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "mode": "offline-content-free-classification-evaluation",
@@ -126,9 +153,12 @@ def evaluate_semantic_assurance(
             "label_digest": normalized_dataset["label_digest"],
             "partition": selected_partition,
             "label_independence": admitted_labels["status"],
+            "label_admission_version": admitted_labels["version"],
             "human_label_admission_digest": admitted_labels["admission_digest"],
+            "corpus_pre_admission_digest": admitted_labels["corpus_pre_admission_digest"],
         },
         "prediction_digest": prediction_digest,
+        "results_digest": results_digest,
         "invocation": normalized_invocation,
         "counts": {
             "case_count": len(expected_cases),
@@ -144,8 +174,8 @@ def evaluate_semantic_assurance(
             "mechanical_valid": mechanical_valid,
             # This is a fixture-mechanics acceptance only, never deployment approval.
             "accepted": mechanical_valid,
-            "acceptance_scope": "proposal_only_human_labelled_measurement" if admitted_labels["admitted"] else "proposal_only_fixture_measurement",
-            "safety_case_eligible": mechanical_valid and admitted_labels["admitted"],
+            "acceptance_scope": admitted_labels["acceptance_scope"],
+            "safety_case_eligible": mechanical_valid and admitted_labels["safety_case_eligible"],
             "automatic_apply_ready": False,
             "automatic_apply_decision": "no_go",
         },
@@ -166,7 +196,7 @@ def evaluate_semantic_assurance(
         "limitations": [
             "the evaluator verifies only supplied labels and content-free predictions",
             "label provenance and reviewer independence are not verified by this evaluator",
-            "a verified admission structurally binds attested reviewer evidence but cannot authenticate human identity or prove semantic truth",
+            "a v2 corpus-pre-admission binding structurally binds attested reviewer evidence but cannot authenticate human identity or prove semantic truth",
             "a passing mechanical gate is not universal factuality, entailment, relevance, or hidden-conflict proof",
             "automatic semantic apply remains no_go",
         ],
@@ -388,8 +418,26 @@ def _evaluate_case(case: Mapping[str, Any], prediction: Mapping[str, Any]) -> di
     )
     labels_match = all(expected[key] == prediction[key] for key in ("factuality", "entailment", "conflict", "operation"))
     relevance_match = expected["support_relevance"] == prediction["support_relevance"]
+    canonical_expected = {
+        "factuality": str(expected["factuality"]),
+        "entailment": str(expected["entailment"]),
+        "conflict": str(expected["conflict"]),
+        "operation": str(expected["operation"]),
+        "support_relevance": dict(sorted(expected["support_relevance"].items())),
+    }
+    canonical_prediction = {
+        "factuality": str(prediction["factuality"]),
+        "entailment": str(prediction["entailment"]),
+        "conflict": str(prediction["conflict"]),
+        "operation": str(prediction["operation"]),
+        "support_relevance": dict(sorted(prediction["support_relevance"].items())),
+    }
     return {
         "case_id": case["case_id"],
+        "risk_class": str(case["risk_class"]),
+        "support_ids": sorted(str(item) for item in case["support_ids"]),
+        "expected": canonical_expected,
+        "prediction": canonical_prediction,
         "exact_match": labels_match and relevance_match,
         "factuality_correct": expected["factuality"] == prediction["factuality"],
         "entailment_correct": expected["entailment"] == prediction["entailment"],
@@ -487,15 +535,90 @@ def _safety_summary(results: Sequence[Mapping[str, Any]]) -> dict[str, int]:
     return {f"{flag}_count": sum(bool(result[flag]) for result in results) for flag in flags}
 
 
+def recompute_semantic_assurance_results(results: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Rebuild content-free aggregates from canonical result rows.
+
+    Readiness verification uses this single derivation path instead of trusting
+    caller-supplied counts, metrics, safety flags, or prediction digests.  The
+    rows contain labels and opaque identities only; prompts and evidence never
+    enter this function.
+    """
+
+    if not isinstance(results, Sequence) or isinstance(results, (str, bytes)) or not results:
+        raise SemanticAssuranceEvaluationError("semantic assurance result rows are invalid")
+    canonical_rows: list[dict[str, Any]] = []
+    pseudo_cases: list[dict[str, Any]] = []
+    predictions: dict[str, dict[str, Any]] = {}
+    for raw in results:
+        if not isinstance(raw, Mapping):
+            raise SemanticAssuranceEvaluationError("semantic assurance result row is invalid")
+        required = {"case_id", "risk_class", "support_ids", "expected", "prediction"}
+        if not required.issubset(raw):
+            raise SemanticAssuranceEvaluationError("semantic assurance result row lacks canonical labels")
+        case_id = _text(raw.get("case_id"), "semantic assurance result case id", 120)
+        if case_id in predictions:
+            raise SemanticAssuranceEvaluationError("semantic assurance result case ids must be unique")
+        risk_class = _text(raw.get("risk_class"), "semantic assurance result risk class", 120)
+        support_ids = raw.get("support_ids")
+        if not isinstance(support_ids, list) or not support_ids or any(not isinstance(item, str) or not item for item in support_ids) or len(set(support_ids)) != len(support_ids):
+            raise SemanticAssuranceEvaluationError("semantic assurance result support identities are invalid")
+        expected = _validate_labels(raw.get("expected"), support_ids, field="result expected")
+        prediction = _validate_labels(raw.get("prediction"), None, field="result prediction")
+        if set(prediction["support_relevance"]) != set(support_ids):
+            raise SemanticAssuranceEvaluationError("semantic assurance result prediction supports are invalid")
+        canonical = {
+            "case_id": case_id,
+            "risk_class": risk_class,
+            "support_ids": sorted(support_ids),
+            "expected": expected,
+            "prediction": prediction,
+        }
+        canonical_rows.append(canonical)
+        pseudo_cases.append({"case_id": case_id, "risk_class": risk_class, "support_ids": tuple(sorted(support_ids)), "expected": expected})
+        predictions[case_id] = prediction
+    canonical_rows.sort(key=lambda item: item["case_id"])
+    pseudo_cases.sort(key=lambda item: item["case_id"])
+    derived_rows = [_evaluate_case(case, predictions[case["case_id"]]) for case in pseudo_cases]
+    metrics = _metrics(pseudo_cases, predictions)
+    safety = _safety_summary(derived_rows)
+    prediction_rows = [{"case_id": row["case_id"], **row["prediction"]} for row in canonical_rows]
+    return {
+        "results": derived_rows,
+        "canonical_results": canonical_rows,
+        "prediction_digest": _digest(prediction_rows),
+        "results_digest": _digest(canonical_rows),
+        "case_count": len(canonical_rows),
+        "support_row_count": sum(len(row["support_ids"]) for row in canonical_rows),
+        "metrics": metrics,
+        "safety": safety,
+        "case_id_set_digest": _digest([{"case_id": row["case_id"], "partition": "sealed_holdout", "risk_class": row["risk_class"], "support_ids": row["support_ids"]} for row in canonical_rows]),
+        "risk_counts": {
+            risk: sum(row["risk_class"] == risk for row in canonical_rows)
+            for risk in sorted({row["risk_class"] for row in canonical_rows})
+        },
+    }
+
+
 def _validate_invocation(raw: Mapping[str, Any] | None) -> dict[str, str]:
     if raw is None:
         return {"model_id": "not_provided", "model_variant": "not_provided", "prompt_digest": "not_provided", "endpoint": "not_provided"}
     if not isinstance(raw, Mapping):
         raise SemanticAssuranceEvaluationError("semantic assurance invocation is invalid")
-    allowed = {"model_id", "model_variant", "prompt_digest", "endpoint"}
+    allowed = {"model_id", "model_variant", "prompt_digest", "endpoint", "repeat_number", "case_count", "case_id_set_digest"}
     if set(raw) - allowed:
         raise SemanticAssuranceEvaluationError("semantic assurance invocation contains unsupported fields")
-    return {key: _text(raw.get(key) or "not_provided", f"semantic assurance {key}", 256) for key in sorted(allowed)}
+    result = {key: _text(raw.get(key) or "not_provided", f"semantic assurance {key}", 256) for key in sorted({"model_id", "model_variant", "prompt_digest", "endpoint"})}
+    if "repeat_number" in raw:
+        if not isinstance(raw["repeat_number"], int) or raw["repeat_number"] < 1:
+            raise SemanticAssuranceEvaluationError("semantic assurance repeat number is invalid")
+        result["repeat_number"] = str(raw["repeat_number"])
+    if "case_count" in raw:
+        if not isinstance(raw["case_count"], int) or raw["case_count"] < 1:
+            raise SemanticAssuranceEvaluationError("semantic assurance invocation case count is invalid")
+        result["case_count"] = str(raw["case_count"])
+    if "case_id_set_digest" in raw:
+        result["case_id_set_digest"] = _sha256_digest(raw["case_id_set_digest"], "semantic assurance case id set digest")
+    return result
 
 
 def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[str, Any]) -> dict[str, Any]:
@@ -508,7 +631,15 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
     """
 
     if raw is None:
-        return {"admitted": False, "status": "not_verified_by_evaluator", "admission_digest": "not_provided"}
+        return {
+            "admitted": False,
+            "status": "not_verified_by_evaluator",
+            "version": "none",
+            "admission_digest": "not_provided",
+            "corpus_pre_admission_digest": "not_provided",
+            "safety_case_eligible": False,
+            "acceptance_scope": "proposal_only_fixture_measurement",
+        }
     try:
         from .semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
         from .semantic_assurance_label_admission import verify_semantic_assurance_label_admission
@@ -522,12 +653,61 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
         "fixture_digest": dataset["fixture_digest"],
         "label_digest": dataset["label_digest"],
     }
-    if corpus != expected:
+    if not isinstance(corpus, Mapping) or any(corpus.get(key) != value for key, value in expected.items()):
         raise SemanticAssuranceEvaluationError("semantic assurance human-label admission does not bind this exact dataset")
+    schema_version = receipt.get("schema_version")
+    if schema_version == _LABEL_ADMISSION_RECEIPT_V1:
+        if set(corpus) != set(expected):
+            raise SemanticAssuranceEvaluationError("semantic assurance v1 human-label admission corpus is invalid")
+        return {
+            "admitted": True,
+            "status": "attested_structurally_bound_not_identity_authenticated",
+            "version": "v1_fixture_mechanics_only",
+            "admission_digest": receipt["admission_digest"],
+            "corpus_pre_admission_digest": "not_provided",
+            "safety_case_eligible": False,
+            "acceptance_scope": "proposal_only_structural_label_measurement",
+        }
+    if schema_version != _LABEL_ADMISSION_RECEIPT_V2:
+        raise SemanticAssuranceEvaluationError("semantic assurance human-label admission receipt version is unsupported")
+    corpus_pre_admission_digest = _sha256_digest(
+        corpus.get("corpus_pre_admission_digest"),
+        "semantic assurance corpus pre-admission digest",
+    )
+    corpus_admission = receipt.get("corpus_admission")
+    if not isinstance(corpus_admission, Mapping) or set(corpus_admission) != _V2_CORPUS_ADMISSION_KEYS:
+        raise SemanticAssuranceEvaluationError("semantic assurance v2 corpus pre-admission binding is invalid")
+    _sha256_digest(
+        corpus_admission.get("curator_attestation_digest"),
+        "semantic assurance v2 curator attestation binding",
+    )
+    for key in ("dataset_binding_digest", "sealed_case_binding_digest", "sealed_support_binding_digest"):
+        _sha256_digest(corpus_admission.get(key), f"semantic assurance v2 {key}")
+    if not isinstance(corpus_admission.get("risk_counts"), Mapping) or not isinstance(corpus_admission.get("sealed_risk_counts"), Mapping):
+        raise SemanticAssuranceEvaluationError("semantic assurance v2 corpus risk binding is invalid")
+    rows = [
+        {"case_id": str(case["case_id"]), "partition": str(case["partition"]), "risk_class": str(case["risk_class"]), "support_ids": sorted(str(item) for item in case["support_ids"])}
+        for case in dataset["cases"]
+    ]
+    rows.sort(key=lambda row: row["case_id"])
+    sealed_rows = [row for row in rows if row["partition"] == "sealed_holdout"]
+    risk_counts = {risk: sum(row["risk_class"] == risk for row in rows) for risk in sorted(corpus_admission["risk_counts"])}
+    sealed_risk_counts = {risk: sum(row["risk_class"] == risk for row in sealed_rows) for risk in sorted(corpus_admission["sealed_risk_counts"])}
+    if corpus_admission.get("dataset_binding_digest") != _digest(rows) or corpus_admission.get("sealed_case_binding_digest") != _digest(sealed_rows) or corpus_admission.get("sealed_support_binding_digest") != _digest([{"case_id": row["case_id"], "support_ids": row["support_ids"]} for row in sealed_rows]) or corpus_admission.get("risk_counts") != risk_counts or corpus_admission.get("sealed_risk_counts") != sealed_risk_counts:
+        raise SemanticAssuranceEvaluationError("semantic assurance v2 corpus dataset binding does not match this dataset")
+    if _sha256_digest(
+        corpus_admission.get("admission_digest"),
+        "semantic assurance v2 corpus admission binding",
+    ) != corpus_pre_admission_digest:
+        raise SemanticAssuranceEvaluationError("semantic assurance v2 corpus pre-admission digest does not bind the receipt")
     return {
         "admitted": True,
-        "status": "attested_structurally_bound_not_identity_authenticated",
+        "status": "attested_structurally_bound_with_corpus_pre_admission_not_identity_authenticated",
+        "version": "v2_corpus_pre_admitted",
         "admission_digest": receipt["admission_digest"],
+        "corpus_pre_admission_digest": corpus_pre_admission_digest,
+        "safety_case_eligible": True,
+        "acceptance_scope": "proposal_only_corpus_pre_admitted_human_labelled_measurement",
     }
 
 
@@ -549,6 +729,13 @@ def _text(value: Any, field: str, limit: int) -> str:
     return text
 
 
+def _sha256_digest(value: Any, field: str) -> str:
+    text = _text(value, field, 64).casefold()
+    if len(text) != 64 or any(character not in "0123456789abcdef" for character in text):
+        raise SemanticAssuranceEvaluationError(f"{field} must be a SHA-256 digest")
+    return text
+
+
 def _digest(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
@@ -562,6 +749,7 @@ __all__ = [
     "evaluate_semantic_assurance",
     "load_semantic_assurance_dataset",
     "load_semantic_assurance_predictions",
+    "recompute_semantic_assurance_results",
     "wilson_interval",
     "write_semantic_assurance_receipt",
 ]

@@ -8,6 +8,7 @@ import pytest
 
 from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
 from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_dataset
+from blackholememory.semantic_assurance_corpus_admission import verify_semantic_assurance_corpus_admission
 from blackholememory.semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
 from blackholememory.semantic_assurance_label_admission import admit_semantic_assurance_human_labels
 from blackholememory.semantic_assurance_label_admission import verify_semantic_assurance_label_admission
@@ -115,6 +116,136 @@ def _holdout_predictions(dataset: dict[str, object]) -> list[dict[str, object]]:
     ]
 
 
+def _canonical_digest(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def _v2_dataset() -> dict[str, object]:
+    cases: list[dict[str, object]] = []
+    all_risks = [
+        "factuality", "entailment", "relevance", "direct_conflict", "temporal_conflict",
+        "scope_conflict", "implicit_conflict", "injection", "cross_project",
+        "retrieval_pressure", "abstention",
+    ]
+    sealed_risks = [risk for risk in (
+        "direct_conflict", "temporal_conflict", "scope_conflict", "implicit_conflict",
+        "injection", "cross_project", "retrieval_pressure", "abstention",
+    ) for _ in range(50)]
+    sequence = 0
+    for partition, count in (("development", 80), ("validation", 80), ("sealed_holdout", 400)):
+        for offset in range(count):
+            case_id = f"opaque-{sequence:04d}"
+            support_ids = (f"support-{sequence:04d}-a", f"support-{sequence:04d}-b") if partition == "sealed_holdout" else (f"support-{sequence:04d}",)
+            expected = {
+                "factuality": "true",
+                "entailment": "supported",
+                "conflict": "none",
+                "operation": "no_op",
+                "support_relevance": {support_id: "relevant" for support_id in support_ids},
+            }
+            cases.append({
+                "case_id": case_id,
+                "partition": partition,
+                "support_ids": support_ids,
+                "risk_class": sealed_risks[offset] if partition == "sealed_holdout" else all_risks[offset % len(all_risks)],
+                "expected": expected,
+                "isolation": {
+                    "family_id": f"family-{sequence}",
+                    "group_id": f"group-{sequence}",
+                    "source_group_id": f"source-group-{sequence}",
+                    "source_theme": f"source-theme-{sequence}",
+                    "prompt_template_id": f"template-{sequence}",
+                    "paraphrase_cluster_id": f"paraphrase-{sequence}",
+                },
+            })
+            sequence += 1
+    return {
+        "_semantic_assurance_normalized": True,
+        "dataset_id": "private-v2-structural-test",
+        "fixture_digest": _digest("private-v2-fixture"),
+        "label_digest": _digest("private-v2-labels"),
+        "labeling_kind": "independent_human_review",
+        "label_provenance_kind": "independent_human_review",
+        "cases": cases,
+    }
+
+
+def _corpus_admission_receipt(dataset: dict[str, object]) -> dict[str, object]:
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    partition_counts = {
+        partition: sum(case["partition"] == partition for case in cases)
+        for partition in ("development", "sealed_holdout", "validation")
+    }
+    sealed_support_count = sum(
+        len(case["support_ids"])
+        for case in cases
+        if case["partition"] == "sealed_holdout"
+    )
+    rows = sorted([
+        {"case_id": case["case_id"], "partition": case["partition"], "risk_class": case["risk_class"], "support_ids": sorted(case["support_ids"])}
+        for case in cases
+    ], key=lambda item: str(item["case_id"]))
+    sealed_rows = [item for item in rows if item["partition"] == "sealed_holdout"]
+    risks = [
+        "factuality", "entailment", "relevance", "direct_conflict", "temporal_conflict",
+        "scope_conflict", "implicit_conflict", "injection", "cross_project",
+        "retrieval_pressure", "abstention",
+    ]
+    core = {
+        "schema_version": "bhm.semantic-assurance-corpus-admission-receipt.v1",
+        "ok": True,
+        "corpus": {
+            "case_count": len(cases),
+            "partition_counts": partition_counts,
+            "sealed_support_count": sealed_support_count,
+            "dataset_binding_digest": _canonical_digest(rows),
+            "sealed_case_binding_digest": _canonical_digest(sealed_rows),
+            "sealed_support_binding_digest": _canonical_digest([{"case_id": item["case_id"], "support_ids": item["support_ids"]} for item in sealed_rows]),
+            "risk_counts": {risk: sum(item["risk_class"] == risk for item in rows) for risk in risks},
+            "sealed_risk_counts": {risk: sum(item["risk_class"] == risk for item in sealed_rows) for risk in risks},
+            "packet_payload_set_digest": _digest("private-v2-packet-payload-set"),
+            "curator_ledger_digest": _digest("private-v2-curator-ledger"),
+            "curator_attestation_digest": _digest("private-v2-curator-attestation"),
+        },
+        "review": {
+            "reviewer_packet_count": 2,
+            "packet_case_count": len(cases),
+            "same_payload_digest_set": True,
+            "same_packet_positions": 0,
+            "blank_ledger_coverage": True,
+        },
+        "assurance": {
+            "status": "structurally_admitted_for_human_review_not_semantic_independence_proven",
+            "curator_claimed_attestation": True,
+            "curator_attestation_bound_to_corpus": True,
+            "curator_identity_externally_authenticated": False,
+            "semantic_independence_proven": False,
+            "semantic_truth_proven": False,
+            "automatic_apply_ready": False,
+            "automatic_apply_decision": "no_go",
+        },
+        "execution": {
+            "network_used": False,
+            "model_called": False,
+            "sqlite_mutation": False,
+            "mem0_mutation": False,
+            "qdrant_mutation": False,
+            "automatic_apply": False,
+        },
+    }
+    receipt = {**core, "admission_digest": _canonical_digest(core)}
+    assert verify_semantic_assurance_corpus_admission(receipt) == receipt
+    return receipt
+
+
+def _v2_manifest(dataset: dict[str, object]) -> dict[str, object]:
+    manifest = _manifest(dataset)
+    manifest["schema_version"] = "bhm.semantic-assurance-human-label-admission.v2"
+    manifest["corpus_admission"] = _corpus_admission_receipt(dataset)
+    return manifest
+
+
 def test_dual_review_admission_is_content_free_and_binds_exact_dataset(tmp_path: Path) -> None:
     dataset = _human_dataset(tmp_path)
     receipt = admit_semantic_assurance_human_labels(_manifest(dataset), dataset)
@@ -159,7 +290,7 @@ def test_evaluator_marks_only_admitted_labels_safety_case_eligible(tmp_path: Pat
     assert baseline["gate"]["mechanical_valid"] is True
     assert baseline["gate"]["safety_case_eligible"] is False
     assert admitted["gate"]["mechanical_valid"] is True
-    assert admitted["gate"]["safety_case_eligible"] is True
+    assert admitted["gate"]["safety_case_eligible"] is False
     assert admitted["gate"]["automatic_apply_ready"] is False
     assert admitted["dataset"]["label_independence"] == "attested_structurally_bound_not_identity_authenticated"
 
@@ -201,3 +332,58 @@ def test_receipt_rejects_tampered_pre_registration(tmp_path: Path) -> None:
     tampered = {**receipt, "pre_registration": {**receipt["pre_registration"], "tuning_scope": "validation_allowed"}}
     with pytest.raises(SemanticAssuranceLabelAdmissionError, match="isolation policy"):
         verify_semantic_assurance_label_admission(tampered)
+
+
+def test_v2_admission_binds_a_verified_content_free_corpus_pre_admission() -> None:
+    dataset = _v2_dataset()
+    receipt = admit_semantic_assurance_human_labels(_v2_manifest(dataset), dataset)
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v2"
+    assert receipt["corpus"]["corpus_pre_admission_digest"] == _corpus_admission_receipt(dataset)["admission_digest"]
+    binding = _corpus_admission_receipt(dataset)["corpus"]
+    assert receipt["corpus_admission"]["dataset_binding_digest"] == binding["dataset_binding_digest"]
+    assert receipt["corpus_admission"]["sealed_case_binding_digest"] == binding["sealed_case_binding_digest"]
+    assert receipt["corpus_admission"]["sealed_support_binding_digest"] == binding["sealed_support_binding_digest"]
+    assert receipt["corpus_admission"]["risk_counts"] == binding["risk_counts"]
+    assert receipt["corpus_admission"]["sealed_risk_counts"] == binding["sealed_risk_counts"]
+    assert verify_semantic_assurance_label_admission(receipt) == receipt
+
+
+def test_v1_cannot_masquerade_as_corpus_admitted_v2() -> None:
+    dataset = _v2_dataset()
+    v1_receipt = admit_semantic_assurance_human_labels(_manifest(dataset), dataset)
+    assert v1_receipt["schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v1"
+    assert "corpus_admission" not in v1_receipt
+
+    fake_v2 = {**v1_receipt, "schema_version": "bhm.semantic-assurance-human-label-admission-receipt.v2"}
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="receipt schema"):
+        verify_semantic_assurance_label_admission(fake_v2)
+
+
+def test_v2_rejects_missing_tampered_or_cardinality_mismatched_corpus_admission() -> None:
+    dataset = _v2_dataset()
+    missing = _manifest(dataset)
+    missing["schema_version"] = "bhm.semantic-assurance-human-label-admission.v2"
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="unexpected fields"):
+        admit_semantic_assurance_human_labels(missing, dataset)
+
+    tampered = _v2_manifest(dataset)
+    corpus_admission = tampered["corpus_admission"]
+    assert isinstance(corpus_admission, dict)
+    corpus_admission["corpus"] = {**corpus_admission["corpus"], "case_count": 559}
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="corpus admission receipt"):
+        admit_semantic_assurance_human_labels(tampered, dataset)
+
+    mismatched = _v2_manifest(dataset)
+    mismatched_receipt = mismatched["corpus_admission"]
+    assert isinstance(mismatched_receipt, dict)
+    mismatched_core = {key: value for key, value in mismatched_receipt.items() if key != "admission_digest"}
+    mismatched_core["corpus"] = {
+        **mismatched_core["corpus"],
+        "case_count": 561,
+        "partition_counts": {"development": 80, "sealed_holdout": 400, "validation": 81},
+    }
+    mismatched_core["review"] = {**mismatched_core["review"], "packet_case_count": 561}
+    mismatched["corpus_admission"] = {**mismatched_core, "admission_digest": _canonical_digest(mismatched_core)}
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="corpus admission receipt"):
+        admit_semantic_assurance_human_labels(mismatched, dataset)

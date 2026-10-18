@@ -49,13 +49,58 @@ Public baseline v1 — синтетический, redacted и source-only на�
 paraphrase cluster не могут пересекать partitions. Sealed holdout не меняют по
 результатам теста.
 
+## Pre-admission private corpus до human review
+
+До передачи private corpus reviewers запускается local-only pure verifier
+`bhm.semantic-assurance-corpus-admission.v1`:
+`scripts/validate-bhm-semantic-assurance-corpus.py --input <private-json>`.
+Он читает один owner-controlled JSON, не делает сетевых вызовов, не открывает
+SQLite/Mem0/Qdrant и печатает либо отказ, либо content-free receipt.
+
+Минимум structural admission: `80` cases в `development`, `80` в
+`validation`, `400` в `sealed_holdout`, не менее `800` sealed support-row и по
+`50` cases в каждом direct/temporal/scope/implicit conflict bucket. Это
+минимум формы corpus, не статистическое доказательство универсальной точности.
+
+Verifier проверяет opaque non-risk IDs, одинаковый payload set с разными
+позициями в A/B packets, blank ledger в порядке каждого packet, отсутствие
+visible source/anchor locators, exact packet-to-corpus binding,
+NFKC/casefold/whitespace text-collision между partitions и declared isolation
+для family/group/source/theme/template/paraphrase identities. Reviewer видит
+только `case_id`, `prompt`, `candidate` и `supports` в форме
+`{support_id, evidence}`; partition, risk и curator metadata исключены.
+
+Curator ledger содержит уникальные `semantic_id`, `proposition_id`,
+`mechanism_id` и только SHA-256 identities source fragments. Входное claimed
+attestation связывает opaque `curator_identity_sha256` с digest exact private
+corpus + curator ledger. Это не аутентифицирует личность, не доказывает
+происхождение фрагментов, их semantic independence, factual truth или
+relevance. Receipt остаётся content-free и не публикует identity или source.
+Он содержит только digest этого binding, чтобы later-stage verifier мог
+fail-closed проверить наличие curator-to-corpus attestation.
+
+Последовательность: **corpus pre-admission → независимые A/B reviewers →
+freeze ledger/hashes → identity-neutral adjudication → final-label admission →
+freeze sealed commitment/pre-registration → read-only local-model run**.
+Отказ на любом шаге запрещает distribution или следующий шаг; receipt не
+разрешает lifecycle mutation.
+
 ## Admission dual human review
 
-Для private corpus добавлен локальный contract
-`bhm.semantic-assurance-human-label-admission.v1`. Он принимает только exact
+Для private corpus readiness-path требует локальный contract
+`bhm.semantic-assurance-human-label-admission.v2`. Он принимает только exact
 binding к уже загруженному dataset: два различных opaque reviewer digest,
 полное покрытие одинакового набора case/support IDs, один отличный от них
 adjudicator digest и final labels, точно совпадающие с dataset labels.
+
+V2 принимает только отдельно проверенный corpus pre-admission receipt и
+переносит его content-free binding: digest полного набора
+`case_id/partition/risk_class/support_ids`, digest sealed case set, digest
+sealed support associations и counts всех 11 risk classes. Label admission
+пересчитывает эти bindings из final dataset и отвергает замену case, support,
+risk class или partition даже при тех же aggregate cardinality. V1 остаётся
+только structural/parser compatibility и не является evidence tier для
+readiness.
 
 Manifest и raw review ledgers должны оставаться в owner-controlled ignored
 location; public Git и receipt содержат только digests, counts и declared
@@ -63,6 +108,12 @@ protocol assertions. Команда
 `scripts/validate-bhm-semantic-assurance-human-labels.py` выдаёт content-free
 receipt. Его можно передать offline runner через `--label-admission`; mismatch
 dataset/labels/digest или неполный review блокируют evaluation до scoring.
+
+Dual-label admission не заменяет corpus pre-admission: он не подтверждает, что
+packets были blind до distribution или что split isolation/source-fragment
+independence уже проверены. Public synthetic v1 fixture годится только для
+parser/structural tests и никогда не повышает tier до human corpus или
+readiness evidence.
 
 Это проверяет structural binding заявленного dual-review процесса, но не
 аутентифицирует личности reviewers, не доказывает, что blind process реально
@@ -97,8 +148,18 @@ evidence, disposable SQLite fault/rollback rehearsal, architecture invariants
 
 Каждая вложенная schema и digest проверяются точно; неизвестное поле, weak
 lower bound, неполный риск-класс, mismatch corpus/run/policy или side effect в
-shadow/rehearsal блокируют receipt. В public result намеренно нет corpus,
-prompt, model answer, local path или reviewer/operator identity.
+shadow/rehearsal блокируют receipt. Для sealed measurement нужны минимум `400`
+cases, `800` support rows и ровно `3` repeat. Каждый repeat обязан покрыть
+точный sealed case digest и иметь ровно `400` chat calls; aggregate обязан
+содержать ровно `1200` calls. Reports и execution ledger привязаны к
+repeat-number, result/prediction digest и exact frozen identity
+`qwen/qwen3.5-9b@q6_k` на `http://127.0.0.1:13666`. Это ловит обычную
+подмену, агрегатный forgery и копирование одного report в три repeat, но
+самосогласованный JSON не доказывает физическое выполнение HTTP/LLM calls
+против сознательно подделывающего evidence производителя.
+
+В public result намеренно нет corpus, prompt, model answer, local path или
+reviewer/operator identity.
 
 Даже если все эти механические prerequisite выполнены, единственный успех
 verifier — `status=evidence_complete_but_release_not_authorized` с
@@ -112,6 +173,11 @@ Receipt фиксирует dataset/model/variant/prompt digests, endpoint identi
 время, repeat agreement при `temperature=0`, partitions и агрегаты — без
 содержимого case. Метрики публикуются раздельно, с Wilson confidence interval:
 
+Live adapter допускает не более `512` cases в одной выбранной partition. Этот
+предел остаётся транспортной защитой, но допускает sealed-holdout минимум из
+`400` cases для readiness policy; он не ослабляет exact-model, loopback-only,
+read-only или `NO-GO` ограничения.
+
 - factuality accuracy;
 - entailment precision/recall;
 - relevance precision/recall по support rows;
@@ -124,6 +190,13 @@ Receipt фиксирует dataset/model/variant/prompt digests, endpoint identi
 наблюдаемый budget: любой такой пример закрывает gate. Наблюдаемые 100% conflict
 recall и безопасные abstentions всё равно сопровождаются интервалами, а не
 трактуются как гарантия.
+
+Минимальные aggregate gates readiness: Wilson lower-95 не ниже `0.95` для
+factuality, entailment, support relevance и conflict recall; `0` unsafe
+non-`no_op` и `0` missed conflict. Эти aggregate gates необходимы, но сами по
+себе не доказывают качество по редкому label или отдельному conflict bucket.
+Stratified per-label/per-bucket admission остаётся отдельным обязательным
+follow-up до любых более сильных safety assertions.
 
 Прохождение evaluator подтверждает только его объявленный bounded scope. Любое
 обсуждение будущего automatic apply требует отдельного safety/deployment
