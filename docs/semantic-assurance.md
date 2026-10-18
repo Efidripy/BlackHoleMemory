@@ -288,3 +288,35 @@ content-free envelope. Она не доказывает физическое в�
 универсальную factual truth, полную hidden-conflict detection или open-world
 safety. Даже при успешной механической проверке v3 receipt всегда содержит
 `automatic_apply_ready=false` и `decision=no_go`.
+
+## V6 propagation: evaluator, live v4 и readiness v4
+
+V6 evidence идёт только по отдельной forward-only цепочке:
+`corpus-admission receipt.v2 → human-label-admission receipt.v3 →`
+`evaluator report → live receipt.v4 → readiness receipt.v4`. Старые
+evaluator reports, live v1/v2/v3 и readiness v2/v3 не меняют смысл и не могут
+молча стать V6 evidence.
+
+До scoring evaluator повторно сверяет corpus receipt.v2,
+`admission_profile=v6_independent_human_curation`, exact
+`partition_risk_counts`, `v6_control_binding_digest` и link к
+`corpus_pre_admission_digest`. Эти content-free bindings попадают в dataset
+раздел evaluator report. Live adapter повторяет проверку до создания HTTP
+client и выпускает `bhm.semantic-assurance-live-receipt.v4` только для
+label receipt.v3; он несёт те же exact bindings без prompt, evidence или raw
+model output.
+
+Readiness v4 принимает только пару label receipt.v3 и live receipt.v4,
+сверяет их byte-for-byte нормализованные V6 bindings, включает их в
+`pre-attestation core.v2` и финальный receipt. Подпись runner остаётся
+attestation v2 и подписывает только pre-attestation digest, поэтому hash-цикл
+не возникает. V6 floors являются минимумами (`development >=220`,
+`validation >=220`, `sealed_holdout >=400`), а не требованием ровно 840 cases.
+
+Это сохраняет declared structural continuity, но не доказывает identity или
+независимость humans, factual truth, entailment, relevance, полноту hidden
+conflicts, фактическое HTTP/model execution либо универсальную безопасность.
+Даже сформированный v4 receipt неизменно возвращает
+`automatic_apply_ready=false` и `decision=no_go`; реальный V6 corpus,
+dual-review/adjudication, sealed model run и owner safety/deployment decision
+остаются отдельными обязательными gates.

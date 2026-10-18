@@ -16,6 +16,7 @@ from blackholememory.semantic_assurance_label_admission import admit_semantic_as
 from blackholememory.semantic_assurance_readiness import SemanticAssuranceReadinessError
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v3
+from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v4
 from blackholememory.semantic_assurance_readiness import load_semantic_assurance_readiness
 from blackholememory.semantic_assurance_runner_attestation import runner_attestation_payload_digest
 from blackholememory.semantic_assurance_runner_attestation import runner_trust_registry_digest
@@ -37,13 +38,18 @@ def _digest(value: object) -> str:
     return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def _structural_unit_dataset() -> dict[str, object]:
+def _structural_unit_dataset(*, v6: bool = False) -> dict[str, object]:
     """Build only a synthetic structural fixture, never human/model evidence."""
 
     cases: list[dict[str, object]] = []
-    sealed_risks = [risk for risk in SEALED_RISKS for _ in range(50)]
+    sealed_risks = (
+        [risk for risk in ("direct_conflict", "temporal_conflict", "scope_conflict", "implicit_conflict") for _ in range(50)]
+        + [ALL_RISKS[index % len(ALL_RISKS)] for index in range(200)]
+        if v6
+        else [risk for risk in SEALED_RISKS for _ in range(50)]
+    )
     sequence = 0
-    for partition, count in (("development", 80), ("validation", 80), ("sealed_holdout", 400)):
+    for partition, count in (("development", 220 if v6 else 80), ("validation", 220 if v6 else 80), ("sealed_holdout", 400)):
         for offset in range(count):
             case_id = f"opaque-{sequence:04d}"
             support_ids = (
@@ -155,12 +161,17 @@ def _admission(
     policy: dict[str, object],
     *,
     corpus_admitted: bool = True,
+    v6: bool = False,
 ) -> dict[str, object]:
     cases = dataset["cases"]
     assert isinstance(cases, list)
     labels = [{"case_id": case["case_id"], "labels": case["expected"]} for case in cases]
     manifest = {
-        "schema_version": "bhm.semantic-assurance-human-label-admission.v2" if corpus_admitted else "bhm.semantic-assurance-human-label-admission.v1",
+        "schema_version": (
+            "bhm.semantic-assurance-human-label-admission.v3" if v6
+            else "bhm.semantic-assurance-human-label-admission.v2" if corpus_admitted
+            else "bhm.semantic-assurance-human-label-admission.v1"
+        ),
         "corpus": {
             "dataset_id": dataset["dataset_id"],
             "fixture_digest": dataset["fixture_digest"],
@@ -194,11 +205,11 @@ def _admission(
         ],
     }
     if corpus_admitted:
-        manifest["corpus_admission"] = _corpus_admission_receipt(dataset)
+        manifest["corpus_admission"] = _corpus_admission_receipt(dataset, v6=v6)
     return admit_semantic_assurance_human_labels(manifest, dataset)
 
 
-def _corpus_admission_receipt(dataset: dict[str, object]) -> dict[str, object]:
+def _corpus_admission_receipt(dataset: dict[str, object], *, v6: bool = False) -> dict[str, object]:
     cases = dataset["cases"]
     assert isinstance(cases, list)
     partition_counts = {
@@ -217,22 +228,46 @@ def _corpus_admission_receipt(dataset: dict[str, object]) -> dict[str, object]:
     sealed_rows = [item for item in rows if item["partition"] == "sealed_holdout"]
     risk_counts = {risk: sum(item["risk_class"] == risk for item in rows) for risk in set(ALL_RISKS)}
     sealed_risk_counts = {risk: sum(item["risk_class"] == risk for item in sealed_rows) for risk in set(ALL_RISKS)}
-    core = {
-        "schema_version": "bhm.semantic-assurance-corpus-admission-receipt.v1",
+    corpus: dict[str, object] = {
+        "case_count": len(cases),
+        "partition_counts": partition_counts,
+        "sealed_support_count": sealed_support_count,
+        "dataset_binding_digest": _digest(rows),
+        "sealed_case_binding_digest": _digest(sealed_rows),
+        "sealed_support_binding_digest": _digest([{"case_id": item["case_id"], "support_ids": item["support_ids"]} for item in sealed_rows]),
+        "risk_counts": risk_counts,
+        "sealed_risk_counts": sealed_risk_counts,
+        "packet_payload_set_digest": _digest("synthetic-v2-packet-payload-set"),
+        "curator_ledger_digest": _digest("synthetic-v2-curator-ledger"),
+        "curator_attestation_digest": _digest("synthetic-v2-curator-attestation"),
+    }
+    assurance: dict[str, object] = {
+        "status": "structurally_admitted_for_human_review_not_semantic_independence_proven",
+        "curator_claimed_attestation": True,
+        "curator_attestation_bound_to_corpus": True,
+        "curator_identity_externally_authenticated": False,
+        "semantic_independence_proven": False,
+        "semantic_truth_proven": False,
+        "automatic_apply_ready": False,
+        "automatic_apply_decision": "no_go",
+    }
+    if v6:
+        corpus.update({
+            "partition_risk_counts": {
+                partition: {risk: sum(item["partition"] == partition and item["risk_class"] == risk for item in rows) for risk in sorted(ALL_RISKS)}
+                for partition in ("development", "validation", "sealed_holdout")
+            },
+            "v6_control_binding_digest": _digest("synthetic-v6-control-binding"),
+        })
+        assurance.update({
+            "status": "v6_structurally_admitted_for_human_review_not_semantic_independence_proven",
+            "v6_partition_distribution_bound": True,
+            "atomic_fact_case_one_to_one_declared": True,
+        })
+    core: dict[str, object] = {
+        "schema_version": "bhm.semantic-assurance-corpus-admission-receipt.v2" if v6 else "bhm.semantic-assurance-corpus-admission-receipt.v1",
         "ok": True,
-        "corpus": {
-            "case_count": len(cases),
-            "partition_counts": partition_counts,
-            "sealed_support_count": sealed_support_count,
-            "dataset_binding_digest": _digest(rows),
-            "sealed_case_binding_digest": _digest(sealed_rows),
-            "sealed_support_binding_digest": _digest([{"case_id": item["case_id"], "support_ids": item["support_ids"]} for item in sealed_rows]),
-            "risk_counts": risk_counts,
-            "sealed_risk_counts": sealed_risk_counts,
-            "packet_payload_set_digest": _digest("synthetic-v2-packet-payload-set"),
-            "curator_ledger_digest": _digest("synthetic-v2-curator-ledger"),
-            "curator_attestation_digest": _digest("synthetic-v2-curator-attestation"),
-        },
+        "corpus": corpus,
         "review": {
             "reviewer_packet_count": 2,
             "packet_case_count": len(cases),
@@ -240,16 +275,7 @@ def _corpus_admission_receipt(dataset: dict[str, object]) -> dict[str, object]:
             "same_packet_positions": 0,
             "blank_ledger_coverage": True,
         },
-        "assurance": {
-            "status": "structurally_admitted_for_human_review_not_semantic_independence_proven",
-            "curator_claimed_attestation": True,
-            "curator_attestation_bound_to_corpus": True,
-            "curator_identity_externally_authenticated": False,
-            "semantic_independence_proven": False,
-            "semantic_truth_proven": False,
-            "automatic_apply_ready": False,
-            "automatic_apply_decision": "no_go",
-        },
+        "assurance": assurance,
         "execution": {
             "network_used": False,
             "model_called": False,
@@ -259,6 +285,8 @@ def _corpus_admission_receipt(dataset: dict[str, object]) -> dict[str, object]:
             "automatic_apply": False,
         },
     }
+    if v6:
+        core["admission_profile"] = "v6_independent_human_curation"
     receipt = {**core, "admission_digest": _digest(core)}
     assert verify_semantic_assurance_corpus_admission(receipt) == receipt
     return receipt
@@ -321,11 +349,11 @@ def _live_receipt(dataset: dict[str, object], admission: dict[str, object]) -> d
     return {**core, "report_digest": _digest(core)}
 
 
-def _evidence(tmp_path: Path) -> dict[str, object]:
+def _evidence(tmp_path: Path, *, v6: bool = False) -> dict[str, object]:
     del tmp_path
-    dataset = _structural_unit_dataset()
+    dataset = _structural_unit_dataset(v6=v6)
     policy = _policy()
-    admission = _admission(dataset, policy)
+    admission = _admission(dataset, policy, v6=v6)
     live = _live_receipt(dataset, admission)
     evaluated_run_digest = _evaluated_run_digest(live, admission)
     model_run_identity_digest = _digest({
@@ -460,6 +488,33 @@ def _v3_live(evidence: dict[str, object]) -> None:
     _rebind_dependents(evidence)
 
 
+def _v4_live(evidence: dict[str, object]) -> None:
+    _v3_live(evidence)
+    admission = evidence["admission_receipt"]
+    live = evidence["live_receipt"]
+    assert isinstance(admission, dict) and isinstance(live, dict)
+    corpus = admission["corpus"]
+    corpus_admission = admission["corpus_admission"]
+    assert isinstance(corpus, dict) and isinstance(corpus_admission, dict)
+    live["schema_version"] = "bhm.semantic-assurance-live-receipt.v4"
+    live["label_admission"] = {
+        "receipt_schema_version": "bhm.semantic-assurance-human-label-admission-receipt.v3",
+        "admission_digest": admission["admission_digest"],
+        "corpus_pre_admission_digest": corpus["corpus_pre_admission_digest"],
+        "corpus_admission_digest": corpus_admission["admission_digest"],
+        "admission_profile": corpus_admission["admission_profile"],
+        "partition_risk_counts": corpus_admission["partition_risk_counts"],
+        "v6_control_binding_digest": corpus_admission["v6_control_binding_digest"],
+    }
+    gate = live["gate"]
+    assert isinstance(gate, dict)
+    checks = gate["checks"]
+    assert isinstance(checks, dict)
+    checks["v6_label_admission_bound"] = True
+    _refresh_live_digest(live)
+    _rebind_dependents(evidence)
+
+
 def _runner_registry(private: Ed25519PrivateKey) -> dict[str, object]:
     public_key = private.public_key().public_bytes_raw()
     registry: dict[str, object] = {
@@ -500,6 +555,39 @@ def _v3_pre_digest(evidence: dict[str, object], source: dict[str, str]) -> str:
         "schema_version": "bhm.semantic-assurance-pre-attestation-core.v1",
         "source_identity": source,
         "readiness_v2": {key: value for key, value in v2.items() if key != "readiness_digest"},
+        "live_report_digest": live["report_digest"],
+        "event_chain": chain_summary,
+        "inventory_before_digest": _digest(inventory["before"]),
+        "inventory_after_digest": _digest(inventory["after"]),
+    }
+    return _digest(core)
+
+
+def _v4_pre_digest(evidence: dict[str, object], source: dict[str, str]) -> str:
+    v2 = assess_semantic_assurance_readiness({
+        "schema_version": "bhm.semantic-assurance-readiness.v2",
+        **{key: evidence[key] for key in (
+            "admission_receipt", "live_receipt", "threshold_policy", "risk_coverage",
+            "shadow_human_oracle", "sqlite_rehearsal", "architecture_invariants", "owner_charter",
+        )},
+    }, _allow_live_v4=True, _required_label_admission_schema="bhm.semantic-assurance-human-label-admission-receipt.v3")
+    live = evidence["live_receipt"]
+    assert isinstance(live, dict)
+    execution = live["execution"]
+    inventory = live["inventory"]
+    label_admission = live["label_admission"]
+    assert isinstance(execution, dict) and isinstance(inventory, dict) and isinstance(label_admission, dict)
+    chain = execution["event_chain"]
+    assert isinstance(chain, dict)
+    chain_summary = {key: chain[key] for key in (
+        "event_count", "first_event_digest", "last_event_digest", "chain_root",
+        "inventory_before_digest", "inventory_after_digest",
+    )}
+    core = {
+        "schema_version": "bhm.semantic-assurance-pre-attestation-core.v2",
+        "source_identity": source,
+        "readiness_v2": {key: value for key, value in v2.items() if key != "readiness_digest"},
+        "v6_label_admission": label_admission,
         "live_report_digest": live["report_digest"],
         "event_chain": chain_summary,
         "inventory_before_digest": _digest(inventory["before"]),
@@ -556,6 +644,60 @@ def _v3_evidence(tmp_path: Path) -> tuple[dict[str, object], dict[str, object]]:
     evidence = {
         **evidence,
         "schema_version": "bhm.semantic-assurance-readiness.v3",
+        "source_identity": source,
+        "runner_attestation": runner,
+    }
+    return evidence, registry
+
+
+def _v4_evidence(tmp_path: Path) -> tuple[dict[str, object], dict[str, object]]:
+    evidence = _evidence(tmp_path, v6=True)
+    _v4_live(evidence)
+    source = _source_identity()
+    private = Ed25519PrivateKey.generate()
+    registry = _runner_registry(private)
+    admission = evidence["admission_receipt"]
+    live = evidence["live_receipt"]
+    policy = evidence["threshold_policy"]
+    assert isinstance(admission, dict) and isinstance(live, dict) and isinstance(policy, dict)
+    corpus_admission = admission["corpus_admission"]
+    execution = live["execution"]
+    inventory = live["inventory"]
+    assert isinstance(corpus_admission, dict) and isinstance(execution, dict) and isinstance(inventory, dict)
+    chain = execution["event_chain"]
+    assert isinstance(chain, dict)
+    public_key_b64 = base64.b64encode(private.public_key().public_bytes_raw()).decode("ascii")
+    runner: dict[str, object] = {
+        "schema_version": "bhm.semantic-assurance-runner-attestation.v2",
+        **{key: value for key, value in source.items() if key != "schema_version"},
+        "model": {"model_id": DEFAULT_MODEL_ID, "model_variant": DEFAULT_MODEL_VARIANT, "endpoint": DEFAULT_BASE_URL},
+        "prompt_contract_digest": hashlib.sha256(PROMPT_CONTRACT.encode("utf-8")).hexdigest(),
+        "corpus_admission_digest": corpus_admission["admission_digest"],
+        "label_admission_digest": admission["admission_digest"],
+        "threshold_policy_digest": _digest(policy),
+        "live_report_digest": live["report_digest"],
+        "pre_attestation_readiness_digest": _v4_pre_digest(evidence, source),
+        "event_chain": {
+            "event_count": chain["event_count"],
+            "first_event_digest": chain["first_event_digest"],
+            "last_event_digest": chain["last_event_digest"],
+            "chain_root": chain["chain_root"],
+        },
+        "inventory_before_digest": _digest(inventory["before"]),
+        "inventory_after_digest": _digest(inventory["after"]),
+        "execution": {
+            "read_only": True, "automatic_apply": False, "sqlite_mutation": False,
+            "mem0_mutation": False, "qdrant_mutation": False, "model_load_requested": False,
+            "model_unload_requested": False, "model_download_requested": False,
+            "model_configuration_requested": False,
+        },
+        "signer": {"signer_id": "readiness-v3-runner", "public_key_b64": public_key_b64, "signature_b64": ""},
+        "trust_registry_digest": registry["registry_digest"],
+    }
+    runner["signer"]["signature_b64"] = base64.b64encode(private.sign(bytes.fromhex(runner_attestation_payload_digest(runner)))).decode("ascii")  # type: ignore[index]
+    evidence = {
+        **evidence,
+        "schema_version": "bhm.semantic-assurance-readiness.v4",
         "source_identity": source,
         "runner_attestation": runner,
     }
@@ -627,6 +769,105 @@ def test_v3_rejects_event_chain_substitution_even_with_recomputed_live_digest(tm
     _rebind_dependents(evidence)
 
     with pytest.raises(SemanticAssuranceReadinessError, match="event chain"):
+        assess_semantic_assurance_readiness_v3(evidence, trust_registry=registry)
+
+
+def test_v4_preserves_v6_bindings_in_signed_readiness_path(tmp_path: Path) -> None:
+    evidence, registry = _v4_evidence(tmp_path)
+
+    receipt = assess_semantic_assurance_readiness_v4(evidence, trust_registry=registry)
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-readiness-receipt.v4"
+    assert receipt["bindings"]["admission_profile"] == "v6_independent_human_curation"
+    assert set(receipt["bindings"]["partition_risk_counts"]) == {"development", "validation", "sealed_holdout"}
+    assert len(receipt["bindings"]["v6_control_binding_digest"]) == 64
+    assert receipt["checks"]["v6_label_admission_binding"] is True
+    assert receipt["checks"]["v6_live_binding"] is True
+    assert receipt["decision"]["automatic_apply_ready"] is False
+    assert receipt["decision"]["decision"] == "no_go"
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda evidence: evidence["admission_receipt"]["corpus_admission"].__setitem__("admission_profile", "ordinary_curation"),
+            "human-label admission receipt",
+        ),
+        (
+            lambda evidence: evidence["live_receipt"].__setitem__("schema_version", "bhm.semantic-assurance-live-receipt.v3"),
+                "requires a V6 live receipt",
+        ),
+        (
+            lambda evidence: evidence["live_receipt"]["label_admission"].__setitem__("v6_control_binding_digest", "f" * 64),
+            "live V6 label binding",
+        ),
+    ],
+)
+def test_v4_rejects_tier_downgrade_and_substituted_v6_bindings(tmp_path: Path, mutate, match: str) -> None:
+    evidence, registry = _v4_evidence(tmp_path)
+    mutate(evidence)
+    live = evidence["live_receipt"]
+    assert isinstance(live, dict)
+    _refresh_live_digest(live)
+
+    with pytest.raises(SemanticAssuranceReadinessError, match=match):
+        assess_semantic_assurance_readiness_v4(evidence, trust_registry=registry)
+
+
+@pytest.mark.parametrize("field", ("admission_profile", "partition_risk_counts", "v6_control_binding_digest"))
+def test_v4_rejects_rebound_v6_label_tampering(tmp_path: Path, field: str) -> None:
+    evidence, registry = _v4_evidence(tmp_path)
+    admission = evidence["admission_receipt"]
+    assert isinstance(admission, dict)
+    corpus_admission = admission["corpus_admission"]
+    assert isinstance(corpus_admission, dict)
+    if field == "admission_profile":
+        corpus_admission[field] = "ordinary_curation"
+    elif field == "partition_risk_counts":
+        counts = corpus_admission[field]
+        assert isinstance(counts, dict)
+        counts["development"]["factuality"] += 1
+        counts["development"]["entailment"] -= 1
+    else:
+        corpus_admission[field] = "f" * 64
+    admission["admission_digest"] = _digest({key: value for key, value in admission.items() if key != "admission_digest"})
+    _rebind_admission_in_live(evidence)
+    _rebind_dependents(evidence)
+
+    with pytest.raises(SemanticAssuranceReadinessError):
+        assess_semantic_assurance_readiness_v4(evidence, trust_registry=registry)
+
+
+@pytest.mark.parametrize("schema", (
+    "bhm.semantic-assurance-human-label-admission-receipt.v1",
+    "bhm.semantic-assurance-human-label-admission-receipt.v2",
+))
+def test_v4_rejects_legacy_label_receipts_before_measurement(tmp_path: Path, schema: str) -> None:
+    evidence, registry = _v4_evidence(tmp_path)
+    admission = evidence["admission_receipt"]
+    assert isinstance(admission, dict)
+    admission["schema_version"] = schema
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="exact declared human-label receipt version|human-label admission receipt"):
+        assess_semantic_assurance_readiness_v4(evidence, trust_registry=registry)
+
+
+def test_v4_rejects_legacy_live_receipt_before_measurement(tmp_path: Path) -> None:
+    evidence, registry = _v4_evidence(tmp_path)
+    live = evidence["live_receipt"]
+    assert isinstance(live, dict)
+    live["schema_version"] = "bhm.semantic-assurance-live-receipt.v1"
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="requires a V6 live receipt"):
+        assess_semantic_assurance_readiness_v4(evidence, trust_registry=registry)
+
+
+def test_v3_remains_closed_to_forward_only_v6_label_receipt(tmp_path: Path) -> None:
+    evidence, registry = _v4_evidence(tmp_path)
+    evidence["schema_version"] = "bhm.semantic-assurance-readiness.v3"
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="v2 corpus-admitted"):
         assess_semantic_assurance_readiness_v3(evidence, trust_registry=registry)
 
 
