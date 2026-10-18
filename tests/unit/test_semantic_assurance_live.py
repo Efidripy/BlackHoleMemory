@@ -324,6 +324,112 @@ def test_live_adapter_rejects_invalid_v2_curator_attestation_binding_before_http
         live.run_live_semantic_assurance(FIXTURE, label_admission=receipt)
 
 
+def test_live_adapter_emits_forward_only_v4_receipt_with_exact_v6_label_binding() -> None:
+    dataset = _v6_dataset()
+    label_admission = _v3_label_admission(dataset)
+    receipt = live._receipt(
+        dataset=dataset,
+        partition="sealed_holdout",
+        endpoint=live.DEFAULT_BASE_URL,
+        requested_model={"model_id": live.DEFAULT_MODEL_ID, "model_variant": live.DEFAULT_MODEL_VARIANT},
+        repeats=1,
+        reports=[],
+        before_inventory=None,
+        after_inventory=None,
+        failure={"stage": "unit", "code": "not_run"},
+        chat_call_count=0,
+        model_load_events=0,
+        model_load_evidence_available=True,
+        elapsed_ms=0.0,
+        repeat_executions=[],
+        event_records=[],
+        label_admission=label_admission,
+    )
+
+    assert receipt["schema_version"] == live.LIVE_RECEIPT_SCHEMA_VERSION_V4
+    assert receipt["label_admission"] == {
+        "receipt_schema_version": "bhm.semantic-assurance-human-label-admission-receipt.v3",
+        "admission_digest": "c" * 64,
+        "corpus_pre_admission_digest": "a" * 64,
+        "corpus_admission_digest": "a" * 64,
+        "admission_profile": "v6_independent_human_curation",
+        "partition_risk_counts": live._partition_risk_counts(dataset),
+        "v6_control_binding_digest": "b" * 64,
+    }
+    assert receipt["report_digest"] == _digest({key: value for key, value in receipt.items() if key != "report_digest"})
+
+
+def test_live_adapter_v4_rejects_offline_report_with_substituted_v6_binding() -> None:
+    dataset = _v6_dataset()
+    binding = live._v6_label_admission_binding(_v3_label_admission(dataset), dataset)
+    report = {
+        "dataset": {
+            "label_admission_version": "v3_v6_corpus_pre_admitted",
+            "human_label_admission_digest": binding["admission_digest"],
+            "corpus_pre_admission_digest": binding["corpus_pre_admission_digest"],
+            "admission_profile": binding["admission_profile"],
+            "partition_risk_counts": binding["partition_risk_counts"],
+            "v6_control_binding_digest": binding["v6_control_binding_digest"],
+        },
+    }
+
+    assert live._v6_reports_bind_label([report], binding, expected_count=1) is True
+    report["dataset"]["v6_control_binding_digest"] = "f" * 64
+    assert live._v6_reports_bind_label([report], binding, expected_count=1) is False
+
+
+@pytest.mark.parametrize(
+    ("mutate", "error"),
+    [
+        (lambda receipt: receipt["corpus_admission"].pop("admission_profile"), "corpus pre-admission binding"),
+        (lambda receipt: receipt["corpus_admission"].__setitem__("admission_profile", "ordinary_curation"), "V6 label admission binding"),
+        (lambda receipt: receipt["corpus_admission"]["partition_risk_counts"]["development"].__setitem__("factuality", 999), "partition risk binding"),
+        (lambda receipt: receipt["corpus_admission"].__setitem__("v6_control_binding_digest", "substituted-not-a-digest"), "V6 control binding"),
+        (lambda receipt: receipt["corpus"].__setitem__("corpus_pre_admission_digest", "d" * 64), "corpus pre-admission digest"),
+    ],
+)
+def test_live_adapter_rejects_absent_tampered_or_substituted_v6_binding_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+    mutate: Any,
+    error: str,
+) -> None:
+    dataset = _v6_dataset()
+    receipt = _v3_label_admission(dataset)
+    mutate(receipt)
+
+    class ForbiddenClient:
+        def __init__(self, **kwargs: Any) -> None:
+            raise AssertionError("V6 label evidence must be validated before HTTP client creation")
+
+    # The receipt verifier is independently tested in its own module.  This
+    # focused test exercises the second, dataset-local live-boundary check.
+    monkeypatch.setattr(live, "verify_semantic_assurance_label_admission", lambda value: value)
+    monkeypatch.setattr(live, "_load_prompt_cases", lambda *_args: (dataset, []))
+    monkeypatch.setattr(live.httpx, "Client", ForbiddenClient)
+
+    with pytest.raises(live.SemanticAssuranceLiveError, match=error):
+        live.run_live_semantic_assurance(FIXTURE, label_admission=receipt)
+
+
+def test_live_adapter_legacy_v2_path_rejects_v3_binding_shape_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _v6_dataset()
+    receipt = _v3_label_admission(dataset)
+    receipt["schema_version"] = "bhm.semantic-assurance-human-label-admission-receipt.v2"
+
+    class ForbiddenClient:
+        def __init__(self, **kwargs: Any) -> None:
+            raise AssertionError("legacy receipt shape must fail before HTTP client creation")
+
+    monkeypatch.setattr(live, "verify_semantic_assurance_label_admission", lambda value: value)
+    monkeypatch.setattr(live, "_load_prompt_cases", lambda *_args: (dataset, []))
+    monkeypatch.setattr(live.httpx, "Client", ForbiddenClient)
+
+    with pytest.raises(live.SemanticAssuranceLiveError, match="corpus pre-admission binding"):
+        live.run_live_semantic_assurance(FIXTURE, label_admission=receipt)
+
+
 @pytest.mark.parametrize(("case_count", "accepted"), [(400, True), (513, False)])
 def test_live_adapter_partition_case_bound_supports_readiness_scale(
     tmp_path: Path,
@@ -397,6 +503,60 @@ def _v2_corpus_admission(dataset: dict[str, object], admission_digest: str) -> d
         "sealed_support_binding_digest": _digest([{"case_id": row["case_id"], "support_ids": row["support_ids"]} for row in sealed_rows]),
         "risk_counts": risk_counts,
         "sealed_risk_counts": sealed_risk_counts,
+    }
+
+
+def _v3_label_admission(dataset: dict[str, object]) -> dict[str, object]:
+    corpus_admission_digest = "a" * 64
+    return {
+        "schema_version": "bhm.semantic-assurance-human-label-admission-receipt.v3",
+        "ok": True,
+        "corpus": {
+            "dataset_id": dataset["dataset_id"],
+            "fixture_digest": dataset["fixture_digest"],
+            "label_digest": dataset["label_digest"],
+            "corpus_pre_admission_digest": corpus_admission_digest,
+        },
+        "corpus_admission": {
+            **_v2_corpus_admission(dataset, corpus_admission_digest),
+            "receipt_schema_version": "bhm.semantic-assurance-corpus-admission-receipt.v2",
+            "admission_profile": "v6_independent_human_curation",
+            "partition_risk_counts": live._partition_risk_counts(dataset),
+            "v6_control_binding_digest": "b" * 64,
+        },
+        "assurance": {"v6_corpus_structurally_bound": True},
+        "admission_digest": "c" * 64,
+    }
+
+
+def _v6_dataset() -> dict[str, object]:
+    risks = (
+        "factuality", "entailment", "relevance", "direct_conflict", "temporal_conflict",
+        "scope_conflict", "implicit_conflict", "injection", "cross_project",
+        "retrieval_pressure", "abstention",
+    )
+    cases: list[dict[str, object]] = []
+    sealed_conflicts = [
+        risk
+        for risk in ("direct_conflict", "temporal_conflict", "scope_conflict", "implicit_conflict")
+        for _ in range(50)
+    ]
+    for partition, count in (("development", 220), ("validation", 220), ("sealed_holdout", 400)):
+        for index in range(count):
+            risk = sealed_conflicts[index] if partition == "sealed_holdout" and index < len(sealed_conflicts) else risks[index % len(risks)]
+            case_id = f"{partition}-{index:03d}"
+            cases.append({
+                "case_id": case_id,
+                "partition": partition,
+                "risk_class": risk,
+                "support_ids": [f"support-{case_id}"],
+                "expected": {"support_relevance": {f"support-{case_id}": "relevant"}},
+            })
+    return {
+        "dataset_id": "v6-live-unit-contract",
+        "fixture_digest": "d" * 64,
+        "label_digest": "e" * 64,
+        "cases": cases,
     }
 
 

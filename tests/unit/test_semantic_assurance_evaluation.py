@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import blackholememory.semantic_assurance_evaluation as evaluation
 import blackholememory.semantic_assurance_label_admission as label_admission
 
 from blackholememory.semantic_assurance_evaluation import SemanticAssuranceEvaluationError
@@ -224,6 +225,99 @@ def test_v2_rejects_invalid_curator_attestation_binding_before_scoring(
         evaluate_semantic_assurance(dataset, _holdout_predictions(), label_admission=receipt)
 
 
+def test_v3_preserves_and_recomputes_the_v6_corpus_distribution_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """V6 evidence must remain bound at the evaluator boundary, not just upstream."""
+
+    dataset = load_semantic_assurance_dataset_from_raw(_v6_dataset())
+    pre_admission_digest = "a" * 64
+    receipt = _v3_label_admission(dataset, pre_admission_digest)
+    monkeypatch.setattr(label_admission, "verify_semantic_assurance_label_admission", lambda value: value)
+
+    report = evaluate_semantic_assurance(
+        dataset,
+        _v6_holdout_predictions(dataset),
+        label_admission=receipt,
+    )
+
+    assert report["gate"]["safety_case_eligible"] is True
+    assert report["dataset"]["label_admission_version"] == "v3_v6_corpus_pre_admitted"
+    assert report["dataset"]["admission_profile"] == "v6_independent_human_curation"
+    assert report["dataset"]["partition_risk_counts"] == receipt["corpus_admission"]["partition_risk_counts"]
+    assert report["dataset"]["v6_control_binding_digest"] == "7" * 64
+
+    tampered = _v3_label_admission(dataset, pre_admission_digest)
+    distribution = tampered["corpus_admission"]["partition_risk_counts"]
+    assert isinstance(distribution, dict)
+    development = distribution["development"]
+    assert isinstance(development, dict)
+    development["factuality"] += 1
+    with pytest.raises(SemanticAssuranceEvaluationError, match="V6 partition risk distribution"):
+        _evaluate_v6_before_scoring(monkeypatch, dataset, tampered)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "message"),
+    [
+        ("profile", "V6 corpus admission tier"),
+        ("control", "V6 control binding"),
+        ("missing_control", "corpus pre-admission binding"),
+    ],
+)
+def test_v3_rejects_tampered_profile_or_control_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    message: str,
+) -> None:
+    dataset = load_semantic_assurance_dataset_from_raw(_v6_dataset())
+    receipt = _v3_label_admission(dataset, "a" * 64)
+    corpus_admission = receipt["corpus_admission"]
+    assert isinstance(corpus_admission, dict)
+    if mutation == "profile":
+        corpus_admission["admission_profile"] = "v2_corpus_curation"
+    elif mutation == "control":
+        corpus_admission["v6_control_binding_digest"] = "not-a-digest"
+    else:
+        del corpus_admission["v6_control_binding_digest"]
+
+    with pytest.raises(SemanticAssuranceEvaluationError, match=message):
+        _evaluate_v6_before_scoring(monkeypatch, dataset, receipt)
+
+
+@pytest.mark.parametrize(
+    "legacy_schema",
+    [
+        "bhm.semantic-assurance-human-label-admission-receipt.v1",
+        "bhm.semantic-assurance-human-label-admission-receipt.v2",
+    ],
+)
+def test_legacy_label_admission_paths_reject_v3_payloads_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_schema: str,
+) -> None:
+    dataset = load_semantic_assurance_dataset_from_raw(_v6_dataset())
+    receipt = _v3_label_admission(dataset, "a" * 64)
+    receipt["schema_version"] = legacy_schema
+
+    with pytest.raises(SemanticAssuranceEvaluationError, match="human-label admission corpus|corpus pre-admission binding"):
+        _evaluate_v6_before_scoring(monkeypatch, dataset, receipt)
+
+
+def _evaluate_v6_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+    dataset: dict[str, object],
+    receipt: dict[str, object],
+) -> None:
+    monkeypatch.setattr(label_admission, "verify_semantic_assurance_label_admission", lambda value: value)
+    monkeypatch.setattr(
+        evaluation,
+        "_evaluate_case",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("evaluation reached scoring")),
+    )
+    evaluate_semantic_assurance(dataset, _v6_holdout_predictions(dataset), label_admission=receipt)
+
+
 def test_loader_rejects_missing_prediction_coverage_and_unknown_label(tmp_path: Path) -> None:
     predictions = _holdout_predictions()
     predictions[0]["factuality"] = "maybe"
@@ -369,6 +463,142 @@ def _v2_corpus_admission(dataset: dict[str, object], admission_digest: str) -> d
         ]),
         "risk_counts": risk_counts,
         "sealed_risk_counts": sealed_risk_counts,
+    }
+
+
+def _v6_dataset() -> dict[str, object]:
+    risks = (
+        "factuality",
+        "entailment",
+        "relevance",
+        "direct_conflict",
+        "temporal_conflict",
+        "scope_conflict",
+        "implicit_conflict",
+        "injection",
+        "cross_project",
+        "retrieval_pressure",
+        "abstention",
+    )
+    cases: list[dict[str, object]] = []
+    groups: list[dict[str, str]] = []
+    for partition in ("development", "validation", "sealed_holdout"):
+        groups.append({"group_id": f"v6-{partition}", "partition": partition})
+        for risk in risks:
+            conflict = {
+                "direct_conflict": "direct",
+                "temporal_conflict": "temporal",
+                "scope_conflict": "scope",
+                "implicit_conflict": "implicit",
+            }.get(risk, "none")
+            cases.append({
+                "case_id": f"{partition}-{risk}",
+                "family_id": f"family-{partition}-{risk}",
+                "group_id": f"v6-{partition}",
+                "partition": partition,
+                "risk_class": risk,
+                "supports": [{"support_id": "s1"}],
+                "expected": {
+                    "factuality": "true",
+                    "entailment": "supported",
+                    "conflict": conflict,
+                    "operation": "no_op",
+                    "support_relevance": {"s1": "relevant"},
+                },
+            })
+    return {
+        "schema_version": "bhm.semantic-assurance.v1",
+        "dataset_id": "v6-evaluator-contract",
+        "labeling": {"kind": "fixture_reference_contract"},
+        "label_provenance": {"kind": "fixture_reference_contract"},
+        "split_contract": {
+            "partitions": ["development", "validation", "sealed_holdout"],
+            "labels_excluded_from_model_input": True,
+        },
+        "splits": {"development": {}, "validation": {}, "sealed_holdout": {}},
+        "evaluation_boundary": {
+            "proposal_only": True,
+            "sqlite_mutation": False,
+            "mem0_mutation": False,
+            "qdrant_mutation": False,
+            "automatic_apply": False,
+        },
+        "quality_gate": {
+            "unsafe_non_no_op_budget": 0,
+            "conflict_recall_required": 1.0,
+            "unsupported_or_ambiguous_operation": "no_op",
+            "automatic_apply_decision": "no_go",
+        },
+        "groups": groups,
+        "cases": cases,
+    }
+
+
+def _v6_holdout_predictions(dataset: dict[str, object]) -> list[dict[str, object]]:
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    return [
+        {
+            "case_id": case["case_id"],
+            **case["expected"],
+        }
+        for case in cases
+        if case["partition"] == "sealed_holdout"
+    ]
+
+
+def _v3_label_admission(dataset: dict[str, object], admission_digest: str) -> dict[str, object]:
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    rows = sorted([
+        {
+            "case_id": case["case_id"],
+            "partition": case["partition"],
+            "risk_class": case["risk_class"],
+            "support_ids": ["s1"],
+        }
+        for case in cases
+    ], key=lambda row: str(row["case_id"]))
+    sealed_rows = [row for row in rows if row["partition"] == "sealed_holdout"]
+    risks = sorted({str(row["risk_class"]) for row in rows})
+    partitions = ("development", "validation", "sealed_holdout")
+    corpus_admission = {
+        "receipt_schema_version": "bhm.semantic-assurance-corpus-admission-receipt.v2",
+        "admission_digest": admission_digest,
+        "case_count": len(rows),
+        "partition_counts": {partition: sum(row["partition"] == partition for row in rows) for partition in partitions},
+        "sealed_support_count": len(sealed_rows),
+        "packet_payload_set_digest": "d" * 64,
+        "curator_ledger_digest": "e" * 64,
+        "curator_attestation_digest": "f" * 64,
+        "dataset_binding_digest": _canonical_digest(rows),
+        "sealed_case_binding_digest": _canonical_digest(sealed_rows),
+        "sealed_support_binding_digest": _canonical_digest([
+            {"case_id": row["case_id"], "support_ids": row["support_ids"]}
+            for row in sealed_rows
+        ]),
+        "risk_counts": {risk: sum(row["risk_class"] == risk for row in rows) for risk in risks},
+        "sealed_risk_counts": {risk: sum(row["risk_class"] == risk for row in sealed_rows) for risk in risks},
+        "admission_profile": "v6_independent_human_curation",
+        "partition_risk_counts": {
+            partition: {
+                risk: sum(row["partition"] == partition and row["risk_class"] == risk for row in rows)
+                for risk in risks
+            }
+            for partition in partitions
+        },
+        "v6_control_binding_digest": "7" * 64,
+    }
+    return {
+        "schema_version": "bhm.semantic-assurance-human-label-admission-receipt.v3",
+        "corpus": {
+            "dataset_id": dataset["dataset_id"],
+            "fixture_digest": dataset["fixture_digest"],
+            "label_digest": dataset["label_digest"],
+            "corpus_pre_admission_digest": admission_digest,
+        },
+        "corpus_admission": corpus_admission,
+        "admission_digest": "h" * 64,
     }
 
 
