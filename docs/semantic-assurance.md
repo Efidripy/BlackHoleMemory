@@ -83,6 +83,29 @@ cross-project isolation, retrieval pressure и abstention; все critical class
 обязательны и в sealed holdout. Изменение labels, risk class или split после
 commitment меняет digest и fail-closed блокирует admission.
 
+## Readiness receipt: механическая полнота не есть release
+
+Локальный verifier `bhm.semantic-assurance-readiness.v1` читает только один
+content-free JSON evidence package и возвращает content-free aggregate receipt.
+Его CLI — `scripts/validate-bhm-semantic-assurance-readiness.py`. Он
+fail-closed связывает exact verified human-label admission, exact evaluated
+model/run + prompt/dataset identity, pre-registered threshold policy, metrics
+и Wilson lower bounds, sample minima, риск-таксономию, нулевые unsafe и
+missed-conflict outcomes, repeat agreement, read-only shadow/human-oracle
+evidence, disposable SQLite fault/rollback rehearsal, architecture invariants
+и отдельный owner charter binding.
+
+Каждая вложенная schema и digest проверяются точно; неизвестное поле, weak
+lower bound, неполный риск-класс, mismatch corpus/run/policy или side effect в
+shadow/rehearsal блокируют receipt. В public result намеренно нет corpus,
+prompt, model answer, local path или reviewer/operator identity.
+
+Даже если все эти механические prerequisite выполнены, единственный успех
+verifier — `status=evidence_complete_but_release_not_authorized` с
+`automatic_apply_ready=false` и `decision=no_go`. Это агрегатор evidence, не
+admission, не lifecycle mutation и не owner release authorisation. Отдельный
+owner safety/deployment decision остаётся внешним обязательным gate.
+
 ## Метрики и gates
 
 Receipt фиксирует dataset/model/variant/prompt digests, endpoint identity,
