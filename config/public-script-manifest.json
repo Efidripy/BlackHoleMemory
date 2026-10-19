@@ -104,6 +104,11 @@
       "release": true
     },
     {
+      "path": "scripts/prepare-bhm-semantic-assurance-curator-workpack.py",
+      "role": "quality-gate",
+      "release": true
+    },
+    {
       "path": "scripts/run-bhm-semantic-assurance.py",
       "role": "quality-gate",
       "release": true
