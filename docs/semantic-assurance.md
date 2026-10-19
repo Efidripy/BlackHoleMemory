@@ -82,6 +82,15 @@ digest. Он доказывает, что эти declared structural bounds бы
 происхождение источника, factual truth, entailment или relevance. V1 receipt
 не может выдаваться за V6 receipt, а V2 — за source-audited V3 receipt.
 
+Curator-audited V4 human-label admission остаётся historical compatibility
+contract. Forward-only V5 human-label admission проверяет пригодность sealed
+corpus к заранее объявленному readiness experiment: для каждого из десяти
+mandatory exact-label strata требуется минимум `80` observations. Набор без
+`false`/`ambiguous`/`insufficient`, `contradicted`, `irrelevant` или четырёх
+conflict labels больше не может формально пройти V5, а затем неизбежно
+провалиться в readiness. Эта проверка structural и content-free: она не
+превращает labels в semantic truth и не аутентифицирует human process.
+
 ### V6 curator-source audit до построения corpus
 
 До того как человек вручную создаёт reviewer-visible case, private ledger
@@ -244,6 +253,20 @@ Receipt фиксирует dataset/model/variant/prompt digests, endpoint identi
 время, repeat agreement при `temperature=0`, partitions и агрегаты — без
 содержимого case. Метрики публикуются раздельно, с Wilson confidence interval:
 
+Live classifier требует ровно один JSON object. Все labels обязаны быть JSON
+strings в двойных кавычках; bare label token, Python-style dictionary, code
+fence и любой текст за пределами JSON отклоняются fail-closed. Формат задаёт
+portable prompt contract, а server-side `response_format` не участвует в
+execution contract: любой transport failure остаётся fail-closed. Это сохраняет
+строгий parser contract: исправление format-following модели не подменяет
+семантическую оценку и не допускает ослабления schema validation.
+
+Чтобы модель не искажала opaque support IDs, prompt передаёт evidence только с
+ephemeral references `support_1`, `support_2` и так далее. Ответ обязан
+содержать ровно это множество references; parser детерминированно отображает
+их обратно в canonical support IDs до evaluation. Missing, extra или renamed
+reference fail-closed отклоняется — это не эвристика и не снижение покрытия.
+
 Live adapter допускает не более `512` cases в одной выбранной partition. Этот
 предел остаётся транспортной защитой, но допускает sealed-holdout минимум из
 `400` cases для readiness policy; он не ослабляет exact-model, loopback-only,
@@ -331,12 +354,12 @@ content-free envelope. Она не доказывает физическое в�
 safety. Даже при успешной механической проверке v3 receipt всегда содержит
 `automatic_apply_ready=false` и `decision=no_go`.
 
-## V6 forward-only propagation: curator audit, evaluator, live v5 и readiness v5
+## V6 forward-only propagation: curator audit, evaluator, live v5, privacy split и readiness v6
 
 Для source-audited V6 действует отдельная forward-only цепочка:
 
 `curator-audit receipt.v1 → corpus-admission receipt.v3 →`
-`human-label-admission receipt.v4 → evaluator report → live receipt.v5 →`
+`human-label-admission receipt.v5 → evaluator report → live receipt.v5 →`
 `readiness receipt.v5 (pre-attestation core.v3)`.
 
 Историческая цепочка `corpus-admission receipt.v2 → label receipt.v3 → live
@@ -372,11 +395,46 @@ independence, factual truth, entailment, relevance или полноту hidden
 conflicts. Автоматическое построение reviewer cases из private propositions
 запрещено.
 
-### Label V4, evaluator binding и live V5
+### Label V4/V5, evaluator binding и live V5
 
 `bhm.semantic-assurance-human-label-admission.v4` принимает только exact
 corpus receipt V3 и повторяет его curator binding byte-for-byte. V1/V2/V3
-label contracts не меняются и остаются historical/compatibility paths.
+label contracts не меняются и остаются historical/compatibility paths. V4
+сохраняет своё исходное значение и не утверждает readiness-eligible coverage
+exact labels.
+
+Forward-only `bhm.semantic-assurance-human-label-admission.v5` дополнительно
+пересчитывает только из final blind-adjudicated labels sealed populations
+десяти readiness strata: factuality `false`/`ambiguous`/`insufficient`,
+entailment `contradicted`/`insufficient`, support relevance `irrelevant` и
+conflict `direct`/`temporal`/`scope`/`implicit`. Первые, вторые и conflict
+strata считаются по cases; relevance — по support rows. Каждый требует не
+менее `80` observations. V5 receipt сохраняет только fixed floor, boolean и
+SHA-256 canonical count-map; raw labels, counts, case IDs, supports, prompts
+и evidence не публикуются. Недобор любого stratum fail-closed отклоняет V5.
+Это исключает structurally V5-admitted, но математически readiness-impossible
+corpus; V4 receipts остаются допустимы лишь в своей historical границе.
+
+До повторной human-curation owner может получить content-free gap diagnosis,
+не меняя dataset, manifest или labels:
+
+```powershell
+uv run python scripts\diagnose-bhm-semantic-assurance-v5-strata.py `
+  --dataset <owner-only-final-dataset.json> `
+  --manifest <owner-only-label-admission-manifest.v4.json> `
+  --output <owner-only-v5-strata-diagnostic.json>
+```
+
+Результат имеет схему
+`bhm.semantic-assurance-v5-readiness-strata-diagnostic.v1`: для каждого из
+десяти закрытых stratum он печатает только aggregate `population` и `deficit`
+от fixed floor `80`, плюс exact dataset/manifest/corpus bindings. В нём нет
+case IDs, support IDs, reviewer/adjudicator identities, prompts, source text
+или raw labels. Код возврата `2` означает `readiness_eligible=false`; это
+диагностика composition gap, не V5 admission и не разрешение переписывать
+метки или выполнять lifecycle mutation. Даже `readiness_eligible=true`
+покрывает только один prerequisite V5 и неизменно сохраняет
+`automatic_apply_ready=false`, `automatic_apply_decision=no_go`.
 
 До scoring evaluator повторно проверяет receipt V3, exact dataset binding,
 `partition_risk_counts`, `v6_control_binding_digest`, `curator_audit` и link к
@@ -385,15 +443,53 @@ label contracts не меняются и остаются historical/compatibili
 V6 evidence.
 
 Live adapter выпускает
-`bhm.semantic-assurance-live-receipt.v5` только для label receipt V4 и только
+`bhm.semantic-assurance-live-receipt.v5` только для strata-bound label receipt V5 и только
 после той же проверки; проверка выполняется до создания HTTP client. Receipt
 V5 переносит exact curator binding без prompt, evidence или raw model output.
 Это read-only transport evidence, а не доказательство фактического запуска
 модели или качества ответа.
 
+### Privacy-split live V6 и readiness V6
+
+Legacy live receipts V1–V5 остаются restricted owner artifacts: в них есть
+`offline_reports` с per-case evaluation rows. Они не должны становиться
+public/checked-in receipt. Forward-only helper строит из уже проверенного V5
+receipt два exact-bound файла без hash-cycle:
+
+```text
+public-live-receipt.v6              # content-free: aggregates, identities and commitments only
+owner-only-private-evaluation.v6    # exact offline_reports; required for recomputation
+```
+
+Public receipt коммитит exact legacy receipt digest и ordered
+`offline_reports_commitment`, но не содержит case IDs, predictions, labels,
+support IDs или evidence. Private bundle коммитит digest уже построенного
+public receipt и тот же reports commitment. V6 readiness требует оба: сначала
+проверяет public/private cryptographic join, затем заново выводит metrics,
+strata, safety counts, repeat coverage и case binding из owner-only reports.
+Таким образом public aggregate нельзя подменить без private evidence, а private
+report нельзя присоединить к другому public run. Финальный readiness receipt
+снова остаётся content-free.
+
+Для запуска с split-output используются оба явных пути; обычный `--output`
+совместим, но пишет restricted legacy receipt:
+
+```powershell
+uv run python scripts\run-bhm-semantic-assurance-live.py `
+  --dataset <owner-only-final-dataset.json> `
+  --label-admission <label-admission-receipt.v5.json> `
+  --partition sealed_holdout --repeats 3 `
+  --public-output <public-live-receipt.v6.json> `
+  --private-evaluation-output <owner-only-private-evaluation.v6.json>
+```
+
+Эта команда не загружает, не выгружает и не переключает модель: она сохраняет
+только already-loaded exact model contract. Public и private V6 outputs не
+являются разрешением на lifecycle mutation.
+
 ### Readiness V5 и trusted-runner boundary
 
-Readiness V5 принимает только согласованные label receipt V4, evaluator report
+Readiness V5 принимает только согласованные strata-bound label receipt V5, evaluator report
 и live receipt V5. Он сверяет byte-for-byte curator bindings, включает их в
 `pre-attestation core.v3`, а затем в финальный readiness receipt. Existing
 runner attestation envelope не расширяется: подписывается digest core после

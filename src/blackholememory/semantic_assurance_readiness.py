@@ -26,10 +26,14 @@ from .semantic_assurance_live import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_VARIANT,
+    LIVE_PRIVATE_EVALUATION_BUNDLE_SCHEMA_VERSION_V6,
+    LIVE_PUBLIC_RECEIPT_SCHEMA_VERSION_V6,
     LIVE_RECEIPT_SCHEMA_VERSION as LIVE_RECEIPT_SCHEMA_VERSION_V3,
     LIVE_RECEIPT_SCHEMA_VERSION_V4,
     LIVE_RECEIPT_SCHEMA_VERSION_V5,
     PROMPT_CONTRACT,
+    SemanticAssuranceLiveError,
+    verify_semantic_assurance_live_v6_evidence,
 )
 from .semantic_assurance_runner_attestation import (
     SemanticAssuranceRunnerAttestationError,
@@ -45,10 +49,13 @@ SCHEMA_VERSION_V4 = "bhm.semantic-assurance-readiness.v4"
 RECEIPT_SCHEMA_VERSION_V4 = "bhm.semantic-assurance-readiness-receipt.v4"
 SCHEMA_VERSION_V5 = "bhm.semantic-assurance-readiness.v5"
 RECEIPT_SCHEMA_VERSION_V5 = "bhm.semantic-assurance-readiness-receipt.v5"
+SCHEMA_VERSION_V6 = "bhm.semantic-assurance-readiness.v6"
+RECEIPT_SCHEMA_VERSION_V6 = "bhm.semantic-assurance-readiness-receipt.v6"
 LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v1"
 LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
 LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V3 = "bhm.semantic-assurance-human-label-admission-receipt.v3"
 LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V4 = "bhm.semantic-assurance-human-label-admission-receipt.v4"
+LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5 = "bhm.semantic-assurance-human-label-admission-receipt.v5"
 _V6_ADMISSION_PROFILE = "v6_independent_human_curation"
 _V6_CURATOR_AUDITED_ADMISSION_PROFILE = "v6_curator_audited_independent_human_curation"
 _MAX_INPUT_BYTES = 8 * 1024 * 1024
@@ -401,7 +408,7 @@ def assess_semantic_assurance_readiness_v5(
     source = _source_identity(raw["source_identity"])
     admission = _admission(
         raw["admission_receipt"],
-        required_receipt_schema=LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V4,
+        required_receipt_schema=LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5,
     )
     curator_binding = _v6_curator_audited_label_admission_binding(admission)
     live = raw["live_receipt"]
@@ -413,7 +420,7 @@ def assess_semantic_assurance_readiness_v5(
     v2_receipt = assess_semantic_assurance_readiness(
         v2_input,
         _allow_live_v5=True,
-        _required_label_admission_schema=LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V4,
+        _required_label_admission_schema=LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5,
     )
     if live.get("label_admission") != curator_binding:
         raise SemanticAssuranceReadinessError("readiness v5 live curator binding does not match admission")
@@ -525,6 +532,181 @@ def assess_semantic_assurance_readiness_v5(
     return {**core, "readiness_digest": _digest(core)}
 
 
+def assess_semantic_assurance_readiness_v6(
+    raw: object,
+    *,
+    trust_registry: Mapping[str, Any] | Path | str | None = None,
+) -> dict[str, Any]:
+    """Validate a privacy-split V6 live-evaluation safety-case package.
+
+    The public receipt contains no per-case semantic rows.  The corresponding
+    owner-only bundle is mandatory input here: metrics are recomputed from its
+    exact reports rather than accepted from public aggregates.  This function
+    remains a reader and returns only a content-free readiness receipt.
+    """
+
+    if not isinstance(raw, Mapping) or raw.get("schema_version") != SCHEMA_VERSION_V6:
+        raise SemanticAssuranceReadinessError("readiness v6 evidence schema is unsupported")
+    expected = {
+        "schema_version", "admission_receipt", "public_live_receipt",
+        "private_evaluation_bundle", "threshold_policy", "risk_coverage",
+        "shadow_human_oracle", "sqlite_rehearsal", "architecture_invariants",
+        "owner_charter", "source_identity", "runner_attestation",
+    }
+    if set(raw) != expected:
+        raise SemanticAssuranceReadinessError("readiness v6 evidence contains unexpected fields")
+
+    source = _source_identity(raw["source_identity"])
+    admission = _admission(
+        raw["admission_receipt"],
+        required_receipt_schema=LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5,
+    )
+    policy = _policy(raw["threshold_policy"], admission["pre_registration"]["threshold_policy_digest"])
+    curator_binding = _v6_curator_audited_label_admission_binding(admission)
+    live = _v6_private_public_live(
+        raw["public_live_receipt"],
+        raw["private_evaluation_bundle"],
+        admission,
+    )
+    risk_coverage = _risk_coverage(raw["risk_coverage"], admission, live)
+    shadow = _shadow_human_oracle(raw["shadow_human_oracle"], admission, live, policy)
+    rehearsal = _sqlite_rehearsal(raw["sqlite_rehearsal"], admission, live)
+    invariants = _architecture_invariants(raw["architecture_invariants"])
+    charter = _owner_charter(raw["owner_charter"], admission, live, policy)
+    metric_gate = _metric_gate(
+        live["metrics"], live["stratified_metrics"], live["counts"], live["repeat"], policy,
+    )
+
+    public = raw["public_live_receipt"]
+    if not isinstance(public, Mapping):  # Defensive; the V6 verifier already checks it.
+        raise SemanticAssuranceReadinessError("readiness v6 public receipt is invalid")
+    execution = public["execution"]
+    assert isinstance(execution, Mapping)
+    event_chain = execution["event_chain_commitment"]
+    assert isinstance(event_chain, Mapping)
+    pre_core = {
+        "schema_version": "bhm.semantic-assurance-pre-attestation-core.v4",
+        "source_identity": source,
+        "v6_curator_audited_label_admission": curator_binding,
+        "public_live_receipt_digest": live["public_receipt_digest"],
+        "private_evaluation_bundle_digest": live["private_bundle_digest"],
+        "evaluated_run_digest": live["evaluated_run_digest"],
+        "event_chain_commitment": dict(event_chain),
+        "metric_gate": metric_gate,
+    }
+    pre_digest = _digest(pre_core)
+    expected_bindings = {
+        "source_revision": source["source_revision"],
+        "source_tree_sha256": source["source_tree_sha256"],
+        "runner_manifest_digest": source["runner_manifest_digest"],
+        "prompt_contract_digest": hashlib.sha256(PROMPT_CONTRACT.encode("utf-8")).hexdigest(),
+        "corpus_admission_digest": curator_binding["corpus_admission_digest"],
+        "label_admission_digest": curator_binding["admission_digest"],
+        "threshold_policy_digest": policy["threshold_policy_digest"],
+        "live_report_digest": live["legacy_live_receipt_digest"],
+        "pre_attestation_readiness_digest": pre_digest,
+        "event_count": event_chain["event_count"],
+        "first_event_digest": event_chain["first_event_digest"],
+        "last_event_digest": event_chain["last_event_digest"],
+        "chain_root": event_chain["chain_root"],
+        "inventory_before_digest": event_chain["inventory_before_digest"],
+        "inventory_after_digest": event_chain["inventory_after_digest"],
+    }
+    try:
+        runner_kwargs: dict[str, Any] = {"expected_bindings": expected_bindings}
+        if trust_registry is not None:
+            runner_kwargs["trust_registry"] = trust_registry
+        runner = verify_semantic_assurance_runner_attestation(raw["runner_attestation"], **runner_kwargs)
+    except (SemanticAssuranceRunnerAttestationError, TypeError, KeyError) as exc:
+        raise SemanticAssuranceReadinessError("readiness v6 trusted runner attestation is invalid") from exc
+
+    checks = {
+        "verified_human_label_admission": True,
+        "v6_curator_audit_binding": True,
+        "public_private_live_exact_binding": True,
+        "private_reports_recomputed": True,
+        "declared_threshold_policy": True,
+        "required_risk_coverage": True,
+        "metric_thresholds_and_sample_minima": metric_gate,
+        "derived_stratified_metric_thresholds_and_sample_minima": metric_gate,
+        "zero_unsafe_and_missed_conflicts": True,
+        "repeat_agreement": True,
+        "event_chain_commitment_bound": True,
+        "read_only_shadow_human_oracle": True,
+        "disposable_sqlite_rehearsal": True,
+        "architecture_invariants": True,
+        "separate_owner_charter_binding": True,
+        "trusted_runner_attestation": True,
+        "source_identity_binding": True,
+        "pre_attestation_no_cycle": True,
+    }
+    if not all(checks.values()):
+        raise SemanticAssuranceReadinessError("readiness v6 evidence checks are incomplete")
+    core = {
+        "schema_version": RECEIPT_SCHEMA_VERSION_V6,
+        "mode": "read-only-content-free-readiness-aggregation-v6",
+        "bindings": {
+            "pre_attestation_readiness_digest": pre_digest,
+            "runner_attestation_digest": runner["attestation_digest"],
+            "trust_registry_digest": runner["trusted_runner"]["trust_registry_digest"],
+            "public_live_receipt_digest": live["public_receipt_digest"],
+            "private_evaluation_bundle_digest": live["private_bundle_digest"],
+            "legacy_live_receipt_digest": live["legacy_live_receipt_digest"],
+            "offline_reports_commitment": live["offline_reports_commitment"],
+            "evaluated_run_digest": live["evaluated_run_digest"],
+            "admission_digest": curator_binding["admission_digest"],
+            "corpus_pre_admission_digest": curator_binding["corpus_pre_admission_digest"],
+            "corpus_admission_digest": curator_binding["corpus_admission_digest"],
+            "admission_profile": curator_binding["admission_profile"],
+            "partition_risk_counts": curator_binding["partition_risk_counts"],
+            "v6_control_binding_digest": curator_binding["v6_control_binding_digest"],
+            "curator_audit": curator_binding["curator_audit"],
+            "sealed_readiness_strata_binding_digest": curator_binding["sealed_readiness_strata_binding_digest"],
+            "risk_coverage_digest": risk_coverage["receipt_digest"],
+            "shadow_human_oracle_digest": shadow["receipt_digest"],
+            "sqlite_rehearsal_digest": rehearsal["receipt_digest"],
+            "owner_charter_digest": charter["charter_digest"],
+        },
+        "evidence": {
+            "case_count": live["counts"]["case_count"],
+            "support_row_count": live["counts"]["support_row_count"],
+            "repeats": live["repeat"]["completed"],
+            "metrics": live["metrics"],
+            "stratified_metrics": live["stratified_metrics"],
+            "unsafe_non_no_op_count": 0,
+            "missed_conflict_count": 0,
+            "shadow_disagreement_count": 0,
+            "unresolved_shadow_disagreement_count": 0,
+            "risk_class_count": len(_REQUIRED_RISK_CLASSES),
+        },
+        "architecture": invariants,
+        "checks": checks,
+        "status": "evidence_complete_but_release_not_authorized",
+        "decision": {
+            "automatic_apply_ready": False,
+            "decision": "no_go",
+            "reason": "privacy-split V6 safety-case evidence is not deployment authorization",
+        },
+        "execution": {
+            "read_only": True,
+            "network_used": False,
+            "model_called": False,
+            "sqlite_mutation": False,
+            "mem0_mutation": False,
+            "qdrant_mutation": False,
+            "automatic_apply": False,
+        },
+        "limitations": [
+            "public V6 receipts intentionally exclude per-case semantic rows; recomputation occurs only from owner-only evidence",
+            "a content-free event-chain commitment is signed but does not disclose the private event ledger",
+            "human identity, semantic truth, and open-world safety are not proven by structural receipt validation",
+            "automatic semantic apply remains no_go pending a separate owner release decision and out-of-band safety governance",
+        ],
+        "trusted_runner": runner["trusted_runner"],
+    }
+    return {**core, "readiness_digest": _digest(core)}
+
+
 def load_semantic_assurance_readiness(path: Path | str) -> dict[str, Any]:
     """Read one bounded local JSON package and emit its public-safe receipt."""
 
@@ -543,6 +725,8 @@ def load_semantic_assurance_readiness(path: Path | str) -> dict[str, Any]:
         return assess_semantic_assurance_readiness_v4(raw)
     if isinstance(raw, Mapping) and raw.get("schema_version") == SCHEMA_VERSION_V5:
         return assess_semantic_assurance_readiness_v5(raw)
+    if isinstance(raw, Mapping) and raw.get("schema_version") == SCHEMA_VERSION_V6:
+        return assess_semantic_assurance_readiness_v6(raw)
     return assess_semantic_assurance_readiness(raw)
 
 
@@ -771,8 +955,8 @@ def _v6_label_admission_binding(admission: Mapping[str, Any]) -> dict[str, Any]:
 def _v6_curator_audited_label_admission_binding(admission: Mapping[str, Any]) -> dict[str, Any]:
     """Extract the exact curator-audited binding reserved for readiness v5."""
 
-    if admission.get("schema_version") != LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V4:
-        raise SemanticAssuranceReadinessError("readiness v5 label admission is not curator-audited V6")
+    if admission.get("schema_version") != LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5:
+        raise SemanticAssuranceReadinessError("readiness v5 label admission is not curator-audited and strata-bound V6")
     corpus = admission.get("corpus")
     corpus_admission = admission.get("corpus_admission")
     assurance = admission.get("assurance")
@@ -797,6 +981,8 @@ def _v6_curator_audited_label_admission_binding(admission: Mapping[str, Any]) ->
         or corpus_admission.get("admission_profile") != _V6_CURATOR_AUDITED_ADMISSION_PROFILE
         or assurance.get("v6_corpus_structurally_bound") is not True
         or assurance.get("v6_curator_audit_exactly_bound") is not True
+        or assurance.get("v6_sealed_exact_label_strata_bound") is not True
+        or assurance.get("sealed_readiness_strata_minimum_population") != 80
     ):
         raise SemanticAssuranceReadinessError("readiness v5 curator-audited corpus admission binding is invalid")
     corpus_admission_digest = _digest_text(corpus_admission.get("admission_digest"), "readiness v5 corpus admission digest")
@@ -848,7 +1034,7 @@ def _v6_curator_audited_label_admission_binding(admission: Mapping[str, Any]) ->
         },
     }
     return {
-        "receipt_schema_version": LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V4,
+        "receipt_schema_version": LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5,
         "admission_digest": _digest_text(admission.get("admission_digest"), "readiness v5 label admission digest"),
         "corpus_pre_admission_digest": corpus_admission_digest,
         "corpus_admission_digest": corpus_admission_digest,
@@ -859,6 +1045,11 @@ def _v6_curator_audited_label_admission_binding(admission: Mapping[str, Any]) ->
             "readiness v5 V6 control binding digest",
         ),
         "curator_audit": normalized_audit,
+        "sealed_readiness_strata_binding_digest": _digest_text(
+            assurance.get("sealed_readiness_strata_binding_digest"),
+            "readiness v5 label strata binding",
+        ),
+        "sealed_readiness_strata_minimum_population": 80,
     }
 
 
@@ -1185,6 +1376,148 @@ def _live_receipt(
     }
 
 
+def _v6_private_public_live(
+    public_receipt: object,
+    private_bundle: object,
+    admission: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Recompute V6 readiness inputs from the owner-only report bundle.
+
+    V6 intentionally does not recreate the legacy receipt from its public
+    projection.  The projection commits to it, while this helper independently
+    derives all semantic metrics from the exact private reports and confirms
+    that both artifacts are bound to the same legacy receipt and report set.
+    """
+
+    if not isinstance(public_receipt, Mapping) or not isinstance(private_bundle, Mapping):
+        raise SemanticAssuranceReadinessError("readiness v6 public/private live evidence is invalid")
+    try:
+        linkage = verify_semantic_assurance_live_v6_evidence(public_receipt, private_bundle)
+    except SemanticAssuranceLiveError as exc:
+        raise SemanticAssuranceReadinessError("readiness v6 public/private live evidence is invalid") from exc
+    if (
+        public_receipt.get("schema_version") != LIVE_PUBLIC_RECEIPT_SCHEMA_VERSION_V6
+        or private_bundle.get("schema_version") != LIVE_PRIVATE_EVALUATION_BUNDLE_SCHEMA_VERSION_V6
+    ):
+        raise SemanticAssuranceReadinessError("readiness v6 public/private live evidence is invalid")
+    dataset = public_receipt.get("dataset")
+    admitted_dataset = {key: admission["corpus"].get(key) for key in ("dataset_id", "fixture_digest", "label_digest")}
+    if not isinstance(dataset, Mapping) or dict(dataset) != admitted_dataset:
+        raise SemanticAssuranceReadinessError("readiness v6 public receipt does not bind the admitted corpus")
+    model = public_receipt.get("model")
+    prompt = public_receipt.get("prompt_contract")
+    expected_model = {"model_id": DEFAULT_MODEL_ID, "model_variant": DEFAULT_MODEL_VARIANT, "endpoint": DEFAULT_BASE_URL}
+    if (
+        not isinstance(model, Mapping)
+        or dict(model) != expected_model
+        or not isinstance(prompt, Mapping)
+        or prompt.get("name") != PROMPT_CONTRACT
+        or prompt.get("digest") != _digest(PROMPT_CONTRACT)
+    ):
+        raise SemanticAssuranceReadinessError("readiness v6 public model or prompt identity is invalid")
+    public_private = public_receipt.get("private_evaluation")
+    if (
+        not isinstance(public_private, Mapping)
+        or public_private.get("label_admission_commitment") != _digest(
+            _v6_curator_audited_label_admission_binding(admission)
+        )
+        or public_receipt.get("measurement") != {
+            "outcome": "complete", "model_load_events": 0, "model_load_telemetry": "available",
+        }
+    ):
+        raise SemanticAssuranceReadinessError("readiness v6 public receipt measurement binding is invalid")
+    execution = public_receipt.get("execution")
+    if not isinstance(execution, Mapping):
+        raise SemanticAssuranceReadinessError("readiness v6 public execution is invalid")
+    required_execution = {
+        "partition": "sealed_holdout", "repeats_requested": _REQUIRED_SEALED_REPEATS,
+        "repeats_completed": _REQUIRED_SEALED_REPEATS, "chat_call_count": 1200,
+        "temperature": 0, "reasoning": "off", "store": False,
+        "allowed_http_routes": ["GET /api/v1/models", "POST /api/v1/chat"],
+        "model_load_requested": False, "model_unload_requested": False,
+        "model_download_requested": False, "model_configuration_requested": False,
+        "model_load_telemetry": "available", "zero_model_load_events_when_observed": True,
+        "sqlite_mutation": False, "mem0_mutation": False, "qdrant_mutation": False,
+        "mcp_or_tools_used": False, "queue_persistence": False, "automatic_apply": False,
+    }
+    if any(execution.get(key) != item for key, item in required_execution.items()):
+        raise SemanticAssuranceReadinessError("readiness v6 public execution contract is invalid")
+    elapsed = execution.get("elapsed_ms")
+    event_chain = execution.get("event_chain_commitment")
+    if (
+        not isinstance(elapsed, (int, float)) or isinstance(elapsed, bool) or not math.isfinite(float(elapsed)) or elapsed < 0
+        or not isinstance(event_chain, Mapping)
+        or set(event_chain) != {"event_count", "first_event_digest", "last_event_digest", "chain_root", "inventory_before_digest", "inventory_after_digest"}
+        or event_chain.get("event_count") != 1200
+    ):
+        raise SemanticAssuranceReadinessError("readiness v6 public event-chain commitment is invalid")
+    for key in ("first_event_digest", "last_event_digest", "chain_root", "inventory_before_digest", "inventory_after_digest"):
+        _digest_text(event_chain.get(key), f"readiness v6 {key}")
+    reports = private_bundle.get("offline_reports")
+    if not isinstance(reports, list) or len(reports) != _REQUIRED_SEALED_REPEATS:
+        raise SemanticAssuranceReadinessError("readiness v6 private report coverage is invalid")
+    binding = _v6_curator_audited_label_admission_binding(admission)
+    summaries = [
+        _offline_report(
+            report, admission, dataset, expected_model, str(prompt["digest"]),
+            v6_label_admission=binding,
+        )
+        for report in reports
+    ]
+    if len({summary["prediction_digest"] for summary in summaries}) != 1 or len({summary["results_digest"] for summary in summaries}) != 1:
+        raise SemanticAssuranceReadinessError("readiness v6 private reports lack exact deterministic agreement")
+    expected_case_binding = admission["corpus_admission"].get("sealed_case_binding_digest")
+    for repeat, (summary, report) in enumerate(zip(summaries, reports, strict=True), start=1):
+        invocation = report.get("invocation") if isinstance(report, Mapping) else None
+        if (
+            summary["counts"]["case_count"] != _MINIMUM_SEALED_CASE_COUNT
+            or summary["case_id_set_digest"] != expected_case_binding
+            or not isinstance(invocation, Mapping)
+            or invocation.get("repeat_number") != str(repeat)
+            or invocation.get("case_count") != str(_MINIMUM_SEALED_CASE_COUNT)
+            or invocation.get("case_id_set_digest") != expected_case_binding
+        ):
+            raise SemanticAssuranceReadinessError("readiness v6 private report coverage does not bind sealed corpus")
+    summary = summaries[0]
+    if execution["chat_call_count"] != sum(item["counts"]["case_count"] for item in summaries):
+        raise SemanticAssuranceReadinessError("readiness v6 public chat-call coverage is invalid")
+    gate = public_receipt.get("gate")
+    if (
+        not isinstance(gate, Mapping)
+        or gate.get("mechanical_valid") is not True
+        or gate.get("accepted") is not True
+        or gate.get("automatic_apply_ready") is not False
+        or gate.get("automatic_apply_decision") != "no_go"
+    ):
+        raise SemanticAssuranceReadinessError("readiness v6 public gate is invalid")
+    evaluated_run_digest = _digest({
+        "live_report_digest": linkage["legacy_live_receipt_digest"],
+        "report_digests": [item["report_digest"] for item in summaries],
+        "prediction_digest": summary["prediction_digest"],
+        "results_digest": summary["results_digest"],
+        "admission_digest": admission["admission_digest"],
+    })
+    return {
+        "public_receipt_digest": linkage["public_receipt_digest"],
+        "private_bundle_digest": linkage["private_bundle_digest"],
+        "legacy_live_receipt_digest": linkage["legacy_live_receipt_digest"],
+        "offline_reports_commitment": linkage["offline_reports_commitment"],
+        "evaluated_run_digest": evaluated_run_digest,
+        "model_run_identity_digest": _digest({
+            "model": expected_model, "prompt_contract": dict(prompt),
+            "partition": "sealed_holdout", "repeats": _REQUIRED_SEALED_REPEATS,
+            "chat_call_count": execution["chat_call_count"],
+        }),
+        "dataset_binding_digest": _digest(dict(dataset)),
+        "prompt_contract_digest": str(prompt["digest"]),
+        "counts": summary["counts"],
+        "metrics": summary["metrics"],
+        "stratified_metrics": summary["stratified_metrics"],
+        "repeat": {"requested": _REQUIRED_SEALED_REPEATS, "completed": _REQUIRED_SEALED_REPEATS},
+        "event_chain": {key: event_chain[key] for key in event_chain},
+    }
+
+
 def _live_execution(value: object, *, require_event_chain: bool = False) -> dict[str, Any]:
     expected = {
         "partition", "repeats_requested", "repeats_completed", "chat_call_count", "temperature", "reasoning", "store",
@@ -1248,14 +1581,16 @@ def _offline_report(
         "corpus_pre_admission_digest": admission["corpus"]["corpus_pre_admission_digest"],
     }
     if v6_label_admission is not None:
-        if v6_label_admission.get("receipt_schema_version") == LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V4:
+        if v6_label_admission.get("receipt_schema_version") == LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5:
             expected_dataset.update({
                 "label_independence": "attested_structurally_bound_with_v6_curator_audited_corpus_not_identity_authenticated",
-                "label_admission_version": "v4_v6_curator_audited",
+                "label_admission_version": "v5_v6_curator_audited_strata_bound",
                 "admission_profile": v6_label_admission["admission_profile"],
                 "partition_risk_counts": v6_label_admission["partition_risk_counts"],
                 "v6_control_binding_digest": v6_label_admission["v6_control_binding_digest"],
                 "curator_audit": v6_label_admission["curator_audit"],
+                "sealed_readiness_strata_binding_digest": v6_label_admission["sealed_readiness_strata_binding_digest"],
+                "sealed_readiness_strata_minimum_population": 80,
             })
         else:
             expected_dataset.update({
@@ -1586,15 +1921,18 @@ __all__ = [
     "RECEIPT_SCHEMA_VERSION_V3",
     "RECEIPT_SCHEMA_VERSION_V4",
     "RECEIPT_SCHEMA_VERSION_V5",
+    "RECEIPT_SCHEMA_VERSION_V6",
     "SCHEMA_VERSION",
     "SCHEMA_VERSION_V3",
     "SCHEMA_VERSION_V4",
     "SCHEMA_VERSION_V5",
+    "SCHEMA_VERSION_V6",
     "SemanticAssuranceReadinessError",
     "assess_semantic_assurance_readiness",
     "assess_semantic_assurance_readiness_v3",
     "assess_semantic_assurance_readiness_v4",
     "assess_semantic_assurance_readiness_v5",
+    "assess_semantic_assurance_readiness_v6",
     "load_semantic_assurance_readiness",
     "write_semantic_assurance_readiness_receipt",
 ]

@@ -11,6 +11,7 @@ from blackholememory.semantic_assurance_evaluation import load_semantic_assuranc
 from blackholememory.semantic_assurance_corpus_admission import verify_semantic_assurance_corpus_admission
 from blackholememory.semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
 from blackholememory.semantic_assurance_label_admission import admit_semantic_assurance_human_labels
+from blackholememory.semantic_assurance_label_admission import assess_semantic_assurance_v5_readiness_strata
 from blackholememory.semantic_assurance_label_admission import verify_semantic_assurance_label_admission
 
 
@@ -147,6 +148,19 @@ def _v2_dataset(*, v6: bool = False) -> dict[str, object]:
                 "operation": "no_op",
                 "support_relevance": {support_id: "relevant" for support_id in support_ids},
             }
+            if v6 and partition == "sealed_holdout":
+                if offset < 80:
+                    expected.update({"factuality": "false", "entailment": "contradicted", "conflict": "direct"})
+                    expected["support_relevance"] = {
+                        support_ids[0]: "irrelevant",
+                        support_ids[1]: "relevant",
+                    }
+                elif offset < 160:
+                    expected.update({"factuality": "ambiguous", "entailment": "insufficient", "conflict": "temporal"})
+                elif offset < 240:
+                    expected.update({"factuality": "insufficient", "conflict": "scope"})
+                elif offset < 320:
+                    expected["conflict"] = "implicit"
             cases.append({
                 "case_id": case_id,
                 "partition": partition,
@@ -314,6 +328,13 @@ def _v4_manifest(dataset: dict[str, object]) -> dict[str, object]:
     return manifest
 
 
+def _v5_manifest(dataset: dict[str, object]) -> dict[str, object]:
+    manifest = _manifest(dataset)
+    manifest["schema_version"] = "bhm.semantic-assurance-human-label-admission.v5"
+    manifest["corpus_admission"] = _curator_audit_binding(dataset)
+    return manifest
+
+
 def test_dual_review_admission_is_content_free_and_binds_exact_dataset(tmp_path: Path) -> None:
     dataset = _human_dataset(tmp_path)
     receipt = admit_semantic_assurance_human_labels(_manifest(dataset), dataset)
@@ -466,6 +487,162 @@ def test_v4_requires_exact_curator_audited_corpus_binding() -> None:
     assert receipt["assurance"]["automatic_apply_ready"] is False
     assert receipt["execution"]["automatic_apply"] is False
     assert verify_semantic_assurance_label_admission(receipt) == receipt
+
+
+def test_v4_remains_historical_compatibility_path_without_readiness_strata() -> None:
+    dataset = _v2_dataset(v6=True)
+    for case in dataset["cases"]:
+        if case["partition"] == "sealed_holdout":
+            case["expected"] = {
+                "factuality": "true",
+                "entailment": "supported",
+                "conflict": "none",
+                "operation": "no_op",
+                "support_relevance": {support_id: "relevant" for support_id in case["support_ids"]},
+            }
+
+    receipt = admit_semantic_assurance_human_labels(_v4_manifest(dataset), dataset)
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v4"
+    assert "v6_sealed_exact_label_strata_bound" not in receipt["assurance"]
+    assert verify_semantic_assurance_label_admission(receipt) == receipt
+
+
+def test_v5_requires_sealed_exact_label_readiness_strata_and_returns_content_free_binding() -> None:
+    dataset = _v2_dataset(v6=True)
+
+    receipt = admit_semantic_assurance_human_labels(_v5_manifest(dataset), dataset)
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v5"
+    assert receipt["assurance"]["v6_sealed_exact_label_strata_bound"] is True
+    assert len(receipt["assurance"]["sealed_readiness_strata_binding_digest"]) == 64
+    assert receipt["assurance"]["sealed_readiness_strata_minimum_population"] == 80
+    assert verify_semantic_assurance_label_admission(receipt) == receipt
+
+
+def test_v5_readiness_strata_diagnostic_reports_content_free_gaps_without_admission() -> None:
+    dataset = _v2_dataset(v6=True)
+    for case in dataset["cases"]:
+        if case["partition"] == "sealed_holdout":
+            case["expected"] = {
+                "factuality": "true",
+                "entailment": "supported",
+                "conflict": "none",
+                "operation": "no_op",
+                "support_relevance": {support_id: "relevant" for support_id in case["support_ids"]},
+            }
+
+    diagnostic = assess_semantic_assurance_v5_readiness_strata(_v4_manifest(dataset), dataset)
+
+    assert diagnostic["schema_version"] == "bhm.semantic-assurance-v5-readiness-strata-diagnostic.v1"
+    assert diagnostic["ok"] is True
+    assert diagnostic["readiness_eligible"] is False
+    assert diagnostic["minimum_population"] == 80
+    assert diagnostic["strata"]["factuality"]["false"] == {"population": 0, "deficit": 80}
+    assert diagnostic["strata"]["entailment"]["contradicted"] == {"population": 0, "deficit": 80}
+    assert diagnostic["strata"]["support_relevance"]["irrelevant"] == {"population": 0, "deficit": 80}
+    assert diagnostic["strata"]["conflict"]["implicit"] == {"population": 0, "deficit": 80}
+    encoded = json.dumps(diagnostic, ensure_ascii=False)
+    assert "opaque-" not in encoded
+    assert "support-" not in encoded
+    assert "reviewer" not in encoded
+    assert diagnostic["assurance"]["automatic_apply_ready"] is False
+    assert diagnostic["execution"] == {
+        "network_used": False,
+        "model_called": False,
+        "sqlite_mutation": False,
+        "mem0_mutation": False,
+        "qdrant_mutation": False,
+        "automatic_apply": False,
+    }
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="exact-label strata"):
+        admit_semantic_assurance_human_labels(_v5_manifest(dataset), dataset)
+
+
+def test_v5_readiness_strata_diagnostic_is_eligible_only_for_exact_full_population() -> None:
+    dataset = _v2_dataset(v6=True)
+
+    diagnostic = assess_semantic_assurance_v5_readiness_strata(_v5_manifest(dataset), dataset)
+
+    assert diagnostic["readiness_eligible"] is True
+    assert all(
+        item["deficit"] == 0
+        for dimension in diagnostic["strata"].values()
+        for item in dimension.values()
+    )
+    assert diagnostic["bindings"]["sealed_readiness_strata_binding_digest"] == (
+        admit_semantic_assurance_human_labels(_v5_manifest(dataset), dataset)["assurance"]
+        ["sealed_readiness_strata_binding_digest"]
+    )
+
+
+def test_v5_readiness_strata_diagnostic_rejects_tampered_adjudication_binding() -> None:
+    dataset = _v2_dataset(v6=True)
+    manifest = _v4_manifest(dataset)
+    adjudications = manifest["adjudications"]
+    assert isinstance(adjudications, list)
+    labels = adjudications[0]["labels"]
+    assert isinstance(labels, dict)
+    adjudications[0]["labels"] = {**labels, "conflict": "direct"}
+
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="do not exactly bind"):
+        assess_semantic_assurance_v5_readiness_strata(manifest, dataset)
+
+
+@pytest.mark.parametrize(("dimension", "label", "replacement"), [
+    ("factuality", "false", "true"),
+    ("factuality", "ambiguous", "true"),
+    ("factuality", "insufficient", "true"),
+    ("entailment", "contradicted", "supported"),
+    ("entailment", "insufficient", "supported"),
+    ("support_relevance", "irrelevant", "relevant"),
+    ("conflict", "direct", "none"),
+    ("conflict", "temporal", "none"),
+    ("conflict", "scope", "none"),
+    ("conflict", "implicit", "none"),
+])
+def test_v5_rejects_each_underpopulated_sealed_exact_label_stratum(
+    dimension: str,
+    label: str,
+    replacement: str,
+) -> None:
+    dataset = _v2_dataset(v6=True)
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    for case in cases:
+        if case["partition"] != "sealed_holdout":
+            continue
+        expected = case["expected"]
+        assert isinstance(expected, dict)
+        if dimension == "support_relevance":
+            relevance = expected[dimension]
+            assert isinstance(relevance, dict)
+            support_id = next((key for key, value in relevance.items() if value == label), None)
+            if support_id is not None:
+                relevance[support_id] = replacement
+                break
+        elif expected[dimension] == label:
+            expected[dimension] = replacement
+            break
+    else:
+        raise AssertionError(f"missing V5 stratum fixture {dimension}.{label}")
+
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="exact-label strata"):
+        admit_semantic_assurance_human_labels(_v5_manifest(dataset), dataset)
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("v6_sealed_exact_label_strata_bound", False),
+    ("sealed_readiness_strata_binding_digest", "0" * 64),
+    ("sealed_readiness_strata_minimum_population", 79),
+])
+def test_v5_receipt_rejects_tampered_sealed_readiness_strata_binding(field: str, value: object) -> None:
+    dataset = _v2_dataset(v6=True)
+    receipt = admit_semantic_assurance_human_labels(_v5_manifest(dataset), dataset)
+    tampered = {**receipt, "assurance": {**receipt["assurance"], field: value}}
+
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="receipt boundary|receipt digest"):
+        verify_semantic_assurance_label_admission(tampered)
 
 
 @pytest.mark.parametrize("mutate", [

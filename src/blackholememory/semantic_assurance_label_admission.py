@@ -29,10 +29,13 @@ SCHEMA_VERSION = "bhm.semantic-assurance-human-label-admission.v1"
 SCHEMA_VERSION_V2 = "bhm.semantic-assurance-human-label-admission.v2"
 SCHEMA_VERSION_V3 = "bhm.semantic-assurance-human-label-admission.v3"
 SCHEMA_VERSION_V4 = "bhm.semantic-assurance-human-label-admission.v4"
+SCHEMA_VERSION_V5 = "bhm.semantic-assurance-human-label-admission.v5"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-human-label-admission-receipt.v1"
 RECEIPT_SCHEMA_VERSION_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
 RECEIPT_SCHEMA_VERSION_V3 = "bhm.semantic-assurance-human-label-admission-receipt.v3"
 RECEIPT_SCHEMA_VERSION_V4 = "bhm.semantic-assurance-human-label-admission-receipt.v4"
+RECEIPT_SCHEMA_VERSION_V5 = "bhm.semantic-assurance-human-label-admission-receipt.v5"
+V5_READINESS_STRATA_DIAGNOSTIC_SCHEMA_VERSION = "bhm.semantic-assurance-v5-readiness-strata-diagnostic.v1"
 _V6_ADMISSION_PROFILE = "v6_independent_human_curation"
 _V6_CURATOR_AUDITED_ADMISSION_PROFILE = "v6_curator_audited_independent_human_curation"
 _MAX_MANIFEST_BYTES = 4 * 1024 * 1024
@@ -47,6 +50,19 @@ _SEALED_CRITICAL_RISK_CLASSES = frozenset({
     "direct_conflict", "temporal_conflict", "scope_conflict", "implicit_conflict",
     "injection", "cross_project", "retrieval_pressure", "abstention",
 })
+_V6_SEALED_EXACT_LABEL_STRATA = (
+    ("factuality", "false"),
+    ("factuality", "ambiguous"),
+    ("factuality", "insufficient"),
+    ("entailment", "contradicted"),
+    ("entailment", "insufficient"),
+    ("support_relevance", "irrelevant"),
+    ("conflict", "direct"),
+    ("conflict", "temporal"),
+    ("conflict", "scope"),
+    ("conflict", "implicit"),
+)
+_V6_SEALED_EXACT_LABEL_STRATUM_MINIMUM = 80
 
 
 class SemanticAssuranceLabelAdmissionError(ValueError):
@@ -88,11 +104,11 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
         isolation = case.get("isolation")
         if not isinstance(isolation, Mapping) or set(isolation) != _REQUIRED_HUMAN_ISOLATION_KEYS:
             raise SemanticAssuranceLabelAdmissionError("human-label corpus lacks required split-isolation identities")
-    if not isinstance(raw, Mapping) or raw.get("schema_version") not in {SCHEMA_VERSION, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
+    if not isinstance(raw, Mapping) or raw.get("schema_version") not in {SCHEMA_VERSION, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4, SCHEMA_VERSION_V5}:
         raise SemanticAssuranceLabelAdmissionError("human-label manifest schema is unsupported")
     manifest_schema = raw["schema_version"]
     expected_fields = {"schema_version", "corpus", "protocol", "pre_registration", "reviewers", "adjudications"}
-    if manifest_schema in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
+    if manifest_schema in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4, SCHEMA_VERSION_V5}:
         expected_fields.add("corpus_admission")
     if set(raw) != expected_fields:
         raise SemanticAssuranceLabelAdmissionError("human-label manifest has unexpected fields")
@@ -101,10 +117,10 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
         _validate_corpus_admission(
             raw.get("corpus_admission"),
             dataset,
-            require_v6=manifest_schema in {SCHEMA_VERSION_V3, SCHEMA_VERSION_V4},
-            require_curator_audit=manifest_schema == SCHEMA_VERSION_V4,
+            require_v6=manifest_schema in {SCHEMA_VERSION_V3, SCHEMA_VERSION_V4, SCHEMA_VERSION_V5},
+            require_curator_audit=manifest_schema in {SCHEMA_VERSION_V4, SCHEMA_VERSION_V5},
         )
-        if manifest_schema in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}
+        if manifest_schema in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4, SCHEMA_VERSION_V5}
         else None
     )
     _validate_protocol(raw.get("protocol"))
@@ -120,6 +136,11 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
     expected_labels = {str(case["case_id"]): dict(case["expected"]) for case in dataset_cases}
     if {case_id: entry["labels"] for case_id, entry in adjudications.items()} != expected_labels:
         raise SemanticAssuranceLabelAdmissionError("adjudicated labels do not exactly bind the supplied corpus")
+    label_strata = (
+        _v6_sealed_exact_label_strata_binding(dataset_cases, adjudications)
+        if manifest_schema == SCHEMA_VERSION_V5
+        else None
+    )
 
     agreement_count = sum(
         reviewers[0]["labels"][case_id] == reviewers[1]["labels"][case_id]
@@ -127,7 +148,8 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
     )
     core = {
         "schema_version": (
-            RECEIPT_SCHEMA_VERSION_V4 if manifest_schema == SCHEMA_VERSION_V4
+            RECEIPT_SCHEMA_VERSION_V5 if manifest_schema == SCHEMA_VERSION_V5
+            else RECEIPT_SCHEMA_VERSION_V4 if manifest_schema == SCHEMA_VERSION_V4
             else RECEIPT_SCHEMA_VERSION_V3 if manifest_schema == SCHEMA_VERSION_V3
             else RECEIPT_SCHEMA_VERSION_V2 if manifest_schema == SCHEMA_VERSION_V2
             else RECEIPT_SCHEMA_VERSION
@@ -172,7 +194,7 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
     }
     if corpus_admission is not None:
         core["corpus_admission"] = corpus_admission
-    if manifest_schema in {SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
+    if manifest_schema in {SCHEMA_VERSION_V3, SCHEMA_VERSION_V4, SCHEMA_VERSION_V5}:
         core["assurance"] = {
             **core["assurance"],
             "v6_corpus_structurally_bound": True,
@@ -182,7 +204,123 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
             **core["assurance"],
             "v6_curator_audit_exactly_bound": True,
         }
+    if manifest_schema == SCHEMA_VERSION_V5:
+        assert label_strata is not None
+        core["assurance"] = {
+            **core["assurance"],
+            "v6_curator_audit_exactly_bound": True,
+            "v6_sealed_exact_label_strata_bound": True,
+            **label_strata,
+        }
     return {**core, "admission_digest": _digest(core)}
+
+
+def assess_semantic_assurance_v5_readiness_strata(
+    raw: object,
+    dataset: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Diagnose V5 sealed-label coverage without admitting or changing a corpus.
+
+    This is an owner-only, content-free gap report for a curator-audited V4
+    or V5 manifest.  It validates the same exact final-adjudication binding
+    that V5 relies on, then reports only the closed stratum vocabulary and
+    aggregate populations/deficits.  It deliberately does *not* turn a V4
+    corpus into V5 evidence, repair a label, call a model, or permit apply.
+    """
+
+    normalized_dataset = _dataset_binding(dataset)
+    if (
+        dataset.get("labeling_kind") != "independent_human_review"
+        or dataset.get("label_provenance_kind") != "independent_human_review"
+    ):
+        raise SemanticAssuranceLabelAdmissionError(
+            "V5 readiness diagnostic cannot upgrade a non-human reference fixture"
+        )
+    for case in dataset["cases"]:
+        isolation = case.get("isolation")
+        if not isinstance(isolation, Mapping) or set(isolation) != _REQUIRED_HUMAN_ISOLATION_KEYS:
+            raise SemanticAssuranceLabelAdmissionError(
+                "V5 readiness diagnostic corpus lacks required split-isolation identities"
+            )
+    if not isinstance(raw, Mapping) or raw.get("schema_version") not in {
+        SCHEMA_VERSION_V4,
+        SCHEMA_VERSION_V5,
+    }:
+        raise SemanticAssuranceLabelAdmissionError(
+            "V5 readiness diagnostic requires a curator-audited V4 or V5 manifest"
+        )
+    if set(raw) != {
+        "schema_version", "corpus", "corpus_admission", "protocol",
+        "pre_registration", "reviewers", "adjudications",
+    }:
+        raise SemanticAssuranceLabelAdmissionError("V5 readiness diagnostic manifest has unexpected fields")
+
+    _validate_corpus(raw.get("corpus"), normalized_dataset)
+    corpus_admission = _validate_corpus_admission(
+        raw.get("corpus_admission"),
+        dataset,
+        require_v6=True,
+        require_curator_audit=True,
+    )
+    _validate_protocol(raw.get("protocol"))
+    _validate_pre_registration(raw.get("pre_registration"), dataset)
+    dataset_cases = dataset["cases"]
+    case_support_ids = {
+        str(case["case_id"]): tuple(str(item) for item in case["support_ids"])
+        for case in dataset_cases
+    }
+    reviewers = _validate_reviewers(raw.get("reviewers"), set(case_support_ids), case_support_ids)
+    adjudications = _validate_adjudications(
+        raw.get("adjudications"), set(case_support_ids), case_support_ids, reviewers
+    )
+    expected_labels = {str(case["case_id"]): dict(case["expected"]) for case in dataset_cases}
+    if {case_id: entry["labels"] for case_id, entry in adjudications.items()} != expected_labels:
+        raise SemanticAssuranceLabelAdmissionError(
+            "V5 readiness diagnostic adjudicated labels do not exactly bind the supplied corpus"
+        )
+
+    counts = _v6_sealed_exact_label_strata_counts(dataset_cases, adjudications)
+    strata = _v6_sealed_exact_label_strata_report(counts)
+    binding = _v6_sealed_exact_label_strata_binding_from_counts(counts)
+    readiness_eligible = all(
+        entry["deficit"] == 0
+        for dimensions in strata.values()
+        for entry in dimensions.values()
+    )
+    return {
+        "schema_version": V5_READINESS_STRATA_DIAGNOSTIC_SCHEMA_VERSION,
+        "ok": True,
+        "readiness_eligible": readiness_eligible,
+        "minimum_population": _V6_SEALED_EXACT_LABEL_STRATUM_MINIMUM,
+        "strata": strata,
+        "bindings": {
+            "dataset_id": normalized_dataset["dataset_id"],
+            "fixture_digest": normalized_dataset["fixture_digest"],
+            "label_digest": normalized_dataset["label_digest"],
+            "dataset_binding_digest": _final_dataset_binding(dataset_cases)["dataset_binding_digest"],
+            "sealed_readiness_strata_binding_digest": binding[
+                "sealed_readiness_strata_binding_digest"
+            ],
+            "manifest_binding_digest": _digest(raw),
+            "corpus_admission_digest": corpus_admission["admission_digest"],
+            "curator_audit_digest": corpus_admission["curator_audit"]["audit_digest"],
+        },
+        "assurance": {
+            "status": "structural_v5_readiness_gap_diagnostic_not_admission",
+            "human_identity_authenticated": False,
+            "semantic_truth_proven": False,
+            "automatic_apply_ready": False,
+            "automatic_apply_decision": "no_go",
+        },
+        "execution": {
+            "network_used": False,
+            "model_called": False,
+            "sqlite_mutation": False,
+            "mem0_mutation": False,
+            "qdrant_mutation": False,
+            "automatic_apply": False,
+        },
+    }
 
 
 def verify_semantic_assurance_label_admission(value: object) -> dict[str, Any]:
@@ -192,20 +330,20 @@ def verify_semantic_assurance_label_admission(value: object) -> dict[str, Any]:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt is invalid")
     receipt_schema = value.get("schema_version") if isinstance(value, Mapping) else None
     expected = {"schema_version", "ok", "corpus", "review", "protocol", "pre_registration", "execution", "assurance", "admission_digest"}
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5}:
         expected.add("corpus_admission")
-    if set(value) != expected or receipt_schema not in {RECEIPT_SCHEMA_VERSION, RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4} or value.get("ok") is not True:
+    if set(value) != expected or receipt_schema not in {RECEIPT_SCHEMA_VERSION, RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5} or value.get("ok") is not True:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt schema is invalid")
     corpus = value.get("corpus")
     expected_corpus_fields = {"dataset_id", "fixture_digest", "label_digest"}
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5}:
         expected_corpus_fields.add("corpus_pre_admission_digest")
     if not isinstance(corpus, Mapping) or set(corpus) != expected_corpus_fields:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt corpus is invalid")
     normalized_corpus = {key: _text(corpus.get(key), f"human-label receipt corpus.{key}", 160) for key in corpus}
     for key in ("fixture_digest", "label_digest"):
         _digest_text(normalized_corpus[key], f"human-label receipt corpus.{key}")
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5}:
         normalized_corpus["corpus_pre_admission_digest"] = _digest_text(
             normalized_corpus["corpus_pre_admission_digest"],
             "human-label receipt corpus pre-admission digest",
@@ -244,18 +382,28 @@ def verify_semantic_assurance_label_admission(value: object) -> dict[str, Any]:
     pre_registration = _validate_receipt_pre_registration(value.get("pre_registration"))
     expected_execution = {"network_used": False, "model_called": False, "sqlite_mutation": False, "mem0_mutation": False, "qdrant_mutation": False, "automatic_apply": False}
     expected_assurance = {"status": "attested_structurally_bound_not_identity_authenticated", "human_identity_authenticated": False, "semantic_truth_proven": False, "automatic_apply_ready": False}
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5}:
         expected_assurance["v6_corpus_structurally_bound"] = True
-    if receipt_schema == RECEIPT_SCHEMA_VERSION_V4:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5}:
         expected_assurance["v6_curator_audit_exactly_bound"] = True
+    if receipt_schema == RECEIPT_SCHEMA_VERSION_V5:
+        expected_assurance.update({
+            "v6_sealed_exact_label_strata_bound": True,
+            "sealed_readiness_strata_binding_digest": _digest_text(
+                value.get("assurance", {}).get("sealed_readiness_strata_binding_digest")
+                if isinstance(value.get("assurance"), Mapping) else None,
+                "human-label admission receipt sealed readiness strata binding",
+            ),
+            "sealed_readiness_strata_minimum_population": _V6_SEALED_EXACT_LABEL_STRATUM_MINIMUM,
+        })
     if value.get("protocol") != expected_protocol or value.get("execution") != expected_execution or value.get("assurance") != expected_assurance:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt boundary is invalid")
     core = {"schema_version": receipt_schema, "ok": True, "corpus": normalized_corpus, "review": dict(review), "protocol": expected_protocol, "pre_registration": pre_registration, "execution": expected_execution, "assurance": expected_assurance}
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5}:
         core["corpus_admission"] = _validate_receipt_corpus_admission(
             value.get("corpus_admission"),
-            require_v6=receipt_schema in {RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4},
-            require_curator_audit=receipt_schema == RECEIPT_SCHEMA_VERSION_V4,
+            require_v6=receipt_schema in {RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5},
+            require_curator_audit=receipt_schema in {RECEIPT_SCHEMA_VERSION_V4, RECEIPT_SCHEMA_VERSION_V5},
         )
         if core["corpus"]["corpus_pre_admission_digest"] != core["corpus_admission"]["admission_digest"]:
             raise SemanticAssuranceLabelAdmissionError("human-label v2 corpus pre-admission digest does not match binding")
@@ -594,6 +742,90 @@ def _validate_pre_registration(raw: object, dataset: Mapping[str, Any]) -> dict[
     }
 
 
+def _v6_sealed_exact_label_strata_binding(
+    cases: Sequence[Mapping[str, Any]],
+    adjudications: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Bind V5 to the final sealed human-label population without disclosure.
+
+    V5 is forward-only.  V1--V4 receipts retain their historical structural
+    meaning, while a V5 receipt can assert that a subsequently measured
+    readiness experiment has enough exact-label observations for every
+    mandatory stratum.  The receipt contains one digest and the fixed floor,
+    never counts, labels, case IDs, or support IDs.
+    """
+
+    counts = _v6_sealed_exact_label_strata_counts(cases, adjudications)
+    if any(count < _V6_SEALED_EXACT_LABEL_STRATUM_MINIMUM for count in counts.values()):
+        raise SemanticAssuranceLabelAdmissionError("human-label sealed corpus lacks required exact-label strata")
+    return _v6_sealed_exact_label_strata_binding_from_counts(counts)
+
+
+def _v6_sealed_exact_label_strata_counts(
+    cases: Sequence[Mapping[str, Any]],
+    adjudications: Mapping[str, Mapping[str, Any]],
+) -> dict[tuple[str, str], int]:
+    """Count the fixed V5 strata from exact final adjudications only."""
+
+    counts = {(dimension, label): 0 for dimension, label in _V6_SEALED_EXACT_LABEL_STRATA}
+    for case in cases:
+        if case.get("partition") != "sealed_holdout":
+            continue
+        case_id = str(case.get("case_id"))
+        entry = adjudications.get(case_id)
+        labels = entry.get("labels") if isinstance(entry, Mapping) else None
+        if not isinstance(labels, Mapping):
+            raise SemanticAssuranceLabelAdmissionError("human-label sealed adjudications are invalid")
+        for dimension, label in _V6_SEALED_EXACT_LABEL_STRATA:
+            if dimension == "support_relevance":
+                relevance = labels.get(dimension)
+                if not isinstance(relevance, Mapping):
+                    raise SemanticAssuranceLabelAdmissionError("human-label sealed relevance is invalid")
+                counts[(dimension, label)] += sum(value == label for value in relevance.values())
+            elif labels.get(dimension) == label:
+                counts[(dimension, label)] += 1
+    return counts
+
+
+def _v6_sealed_exact_label_strata_binding_from_counts(
+    counts: Mapping[tuple[str, str], int],
+) -> dict[str, Any]:
+    if set(counts) != set(_V6_SEALED_EXACT_LABEL_STRATA) or any(
+        not isinstance(count, int) or isinstance(count, bool) or count < 0
+        for count in counts.values()
+    ):
+        raise SemanticAssuranceLabelAdmissionError("human-label sealed strata counts are invalid")
+    binding = [
+        {"dimension": dimension, "label": label, "population": counts[(dimension, label)]}
+        for dimension, label in _V6_SEALED_EXACT_LABEL_STRATA
+    ]
+    return {
+        "sealed_readiness_strata_binding_digest": _digest(binding),
+        "sealed_readiness_strata_minimum_population": _V6_SEALED_EXACT_LABEL_STRATUM_MINIMUM,
+    }
+
+
+def _v6_sealed_exact_label_strata_report(
+    counts: Mapping[tuple[str, str], int],
+) -> dict[str, dict[str, dict[str, int]]]:
+    """Render only aggregate closed-vocabulary gap information for owners."""
+
+    binding = _v6_sealed_exact_label_strata_binding_from_counts(counts)
+    minimum = binding["sealed_readiness_strata_minimum_population"]
+    assert isinstance(minimum, int)
+    return {
+        dimension: {
+            label: {
+                "population": counts[(dimension, label)],
+                "deficit": max(0, minimum - counts[(dimension, label)]),
+            }
+            for candidate_dimension, label in _V6_SEALED_EXACT_LABEL_STRATA
+            if candidate_dimension == dimension
+        }
+        for dimension in dict.fromkeys(dimension for dimension, _ in _V6_SEALED_EXACT_LABEL_STRATA)
+    }
+
+
 def _validate_receipt_pre_registration(raw: object) -> dict[str, Any]:
     expected_fields = {
         "protocol_id", "committed_at", "sealed_holdout_commitment_digest", "threshold_policy_digest",
@@ -744,12 +976,16 @@ __all__ = [
     "RECEIPT_SCHEMA_VERSION_V2",
     "RECEIPT_SCHEMA_VERSION_V3",
     "RECEIPT_SCHEMA_VERSION_V4",
+    "RECEIPT_SCHEMA_VERSION_V5",
     "SCHEMA_VERSION",
     "SCHEMA_VERSION_V2",
     "SCHEMA_VERSION_V3",
     "SCHEMA_VERSION_V4",
+    "SCHEMA_VERSION_V5",
     "SemanticAssuranceLabelAdmissionError",
+    "V5_READINESS_STRATA_DIAGNOSTIC_SCHEMA_VERSION",
     "admit_semantic_assurance_human_labels",
+    "assess_semantic_assurance_v5_readiness_strata",
     "load_semantic_assurance_label_admission",
     "verify_semantic_assurance_label_admission",
 ]
