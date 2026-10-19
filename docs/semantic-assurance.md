@@ -122,6 +122,26 @@ risk class и closed-vocabulary surface profile. Audit требует миним
 `220/220/400`, все 11 risks в каждой partition и sealed direct/temporal/scope/
 implicit buckets по `>=50`.
 
+Для передачи кураторам без доступа к checkout используется отдельный
+non-overwriting workpack builder. Он делает snapshot только разрешённых
+Markdown sources, копирует portable read-only validator и создаёт **пустые**
+working ledgers — он не выбирает fragments, не создаёт rows, cases или labels:
+
+```powershell
+uv run python scripts/prepare-bhm-semantic-assurance-curator-workpack.py `
+  --canonical-root E:\GitHub\repos\BlackHoleMemory `
+  --output E:\BHM-private-evidence\semantic-assurance-v2\V6-CURATOR-RECOVERY-<date>
+```
+
+Builder требует clean Git checkout и записывает `git_head` плюс digest snapshot
+в `SOURCE-SNAPSHOT-MANIFEST.json`. Сначала куратор вручную создаёт несколько
+реальных source bindings и запускает `RUN-ROW-CHECKPOINT.cmd`: этот checkpoint
+проверяет только уже введённые bindings и ожидаемо сообщает
+`coverage_complete=false`. Полный `RUN-FULL-AUDIT.cmd` допустим лишь после
+реального набора floor. Перед дальнейшей admission цепочкой owner повторяет
+audit against current clean canonical root at that exact `git_head`: snapshot
+удобен для authoring, но не заменяет final source revalidation.
+
 Receipt содержит только counts и three content-free bindings: atomic-fact,
 control и canonical-fragment. В нём нет proposition, mechanism, source text,
 path, heading, line range, identity, prompt, candidate, support или labels.
