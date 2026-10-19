@@ -138,7 +138,10 @@ Builder требует clean Git checkout и записывает `git_head` п�
 реальных source bindings и запускает `RUN-ROW-CHECKPOINT.cmd`: этот checkpoint
 проверяет только уже введённые bindings и ожидаемо сообщает
 `coverage_complete=false`. Полный `RUN-FULL-AUDIT.cmd` допустим лишь после
-реального набора floor. Перед дальнейшей admission цепочкой owner повторяет
+реального набора floor. Внутри workpack `SEALED-LABEL-QUOTA-PLAN-RU.md`
+отделяет заранее объявленный sampling intent от final blind labels: он не
+допускает relabel/retrofitting sealed rows после результата. Перед дальнейшей
+admission цепочкой owner повторяет
 audit against current clean canonical root at that exact `git_head`: snapshot
 удобен для authoring, но не заменяет final source revalidation.
 

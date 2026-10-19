@@ -49,6 +49,7 @@ def test_workpack_snapshot_and_partial_row_checkpoint(tmp_path: Path) -> None:
     result = module.build_workpack(source, workpack)
     assert result["canonical_source_file_count"] == 1
     assert (workpack / "canonical-source" / "docs" / "contract.md").read_text(encoding="utf-8") == markdown
+    assert "80 each" in (workpack / "SEALED-LABEL-QUOTA-PLAN-RU.md").read_text(encoding="utf-8")
 
     fact_id = _sha("fact")
     facts = {

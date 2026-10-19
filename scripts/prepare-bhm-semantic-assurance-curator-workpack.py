@@ -72,6 +72,7 @@ def build_workpack(canonical_root: Path, output: Path) -> dict[str, Any]:
         (output / "RUN-FULL-AUDIT.cmd").write_text(_FULL_AUDIT_CMD, encoding="utf-8", newline="\r\n")
         (output / "README-RU.md").write_text(_README, encoding="utf-8")
         (output / "ROW-SCHEMA-RU.md").write_text(_ROW_SCHEMA, encoding="utf-8")
+        (output / "SEALED-LABEL-QUOTA-PLAN-RU.md").write_text(_QUOTA_PLAN, encoding="utf-8")
         manifest = {
             "schema_version": "bhm.semantic-assurance-curator-workpack.v1",
             "git_head": git_head,
@@ -222,7 +223,8 @@ facts, cases, labels, reviewer returns или admission receipts. Старые r
    источники через LLM.
 2. Для каждого такого fact добавьте ровно одну paired row в
    `control-cells.working.v2.json`. Поля и закрытые vocabularies приведены в
-   `ROW-SCHEMA-RU.md`.
+   `ROW-SCHEMA-RU.md`. Перед массовой курацией прочтите
+   `SEALED-LABEL-QUOTA-PLAN-RU.md`: это sampling plan, а не labels.
 3. Запустите `RUN-ROW-CHECKPOINT.cmd`. Успех означает только, что имеющиеся
    rows корректно bind к snapshot; `coverage_complete=false` ожидаем, пока не
    будет полный набор.
@@ -238,6 +240,32 @@ facts, cases, labels, reviewer returns или admission receipts. Старые r
 Никакой успешный чекпоинт или полный audit не доказывает factual truth,
 entailment, relevance, human identity/independence, hidden-conflict recall
 или готовность automatic apply. `automatic_apply_ready=false`, `no_go`.
+"""
+
+_QUOTA_PLAN = """# Sealed label quota plan — не labels
+
+Этот план предотвращает повторение structural-only corpus без отрицательных и
+conflict observations. Он задаёт **только sampling intent** до курации. Не
+вписывайте здесь или в curator ledgers expected/final labels: их независимо
+определяют два blinded reviewer-а и adjudicator после построения corpus.
+
+| Final-adjudication stratum | Sealed minimum | Минимальный безопасный sampling intent |
+| --- | ---: | --- |
+| `factuality=false`, `ambiguous`, `insufficient` | 80 each | Три отдельные группы source situations; каждая spread хотя бы по двум risk classes. |
+| `entailment=contradicted`, `insufficient` | 80 each | Отдельные support/candidate relations; каждая spread хотя бы по двум risks. |
+| `support_relevance=irrelevant` | 80 support rows | Реальные candidate/support combinations с проверяемой нерелевантностью; spread по двум risks. |
+| `conflict=direct`, `temporal`, `scope`, `implicit` | 80 each | По `>=50` cases в aligned risk (`*_conflict`) и `>=30` в другом risk class. |
+
+Четыре conflict labels mutually exclusive at case level, поэтому их minima уже
+занимают `320` из `400` sealed cases. Оставшиеся `80` нельзя считать запасом
+для подгонки: они нужны для coverage остальных 7 risk classes и естественного
+исхода независимой adjudication. В каждой partition должны присутствовать все
+11 risks; exact label strata могут быть засчитаны только final adjudication.
+
+Если final V5/V6 admission показывает deficit, старые sealed rows/labels не
+переписывают. Создают новые independently authored cases, начиная с новых
+human-verified source facts и с сохранением split isolation. Этот документ не
+является admission, model prompt или разрешением automatic apply.
 """
 
 _ROW_SCHEMA = """# Схема ручных rows
