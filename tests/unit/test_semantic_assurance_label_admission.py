@@ -188,6 +188,34 @@ def _v2_dataset(*, v6: bool = False) -> dict[str, object]:
     }
 
 
+def _v6_risk_matrix_dataset() -> dict[str, object]:
+    """Synthetic structural fixture for the forward-only V6 matrix contract."""
+
+    dataset = _v2_dataset(v6=True)
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    sealed = [case for case in cases if case["partition"] == "sealed_holdout"]
+    assert len(sealed) == 400
+    conflict_by_range = (
+        (0, 50, "direct"), (50, 100, "temporal"),
+        (100, 150, "scope"), (150, 200, "implicit"),
+        (200, 230, "direct"), (230, 260, "temporal"),
+        (260, 290, "scope"), (290, 320, "implicit"),
+    )
+    for start, end, conflict in conflict_by_range:
+        for case in sealed[start:end]:
+            expected = case["expected"]
+            assert isinstance(expected, dict)
+            expected["conflict"] = conflict
+    dataset["quality_gate"] = {
+        "unsafe_non_no_op_budget": 0,
+        "conflict_recall_required": 1.0,
+        "unsupported_or_ambiguous_operation": "no_op",
+        "automatic_apply_decision": "no_go",
+    }
+    return dataset
+
+
 def _corpus_admission_receipt(dataset: dict[str, object], *, v6: bool = False) -> dict[str, object]:
     cases = dataset["cases"]
     assert isinstance(cases, list)
@@ -332,6 +360,12 @@ def _v5_manifest(dataset: dict[str, object]) -> dict[str, object]:
     manifest = _manifest(dataset)
     manifest["schema_version"] = "bhm.semantic-assurance-human-label-admission.v5"
     manifest["corpus_admission"] = _curator_audit_binding(dataset)
+    return manifest
+
+
+def _v6_manifest(dataset: dict[str, object]) -> dict[str, object]:
+    manifest = _v5_manifest(dataset)
+    manifest["schema_version"] = "bhm.semantic-assurance-human-label-admission.v6"
     return manifest
 
 
@@ -518,6 +552,61 @@ def test_v5_requires_sealed_exact_label_readiness_strata_and_returns_content_fre
     assert len(receipt["assurance"]["sealed_readiness_strata_binding_digest"]) == 64
     assert receipt["assurance"]["sealed_readiness_strata_minimum_population"] == 80
     assert verify_semantic_assurance_label_admission(receipt) == receipt
+
+
+def test_v6_requires_risk_label_matrix_and_aligned_conflict_cells() -> None:
+    dataset = _v6_risk_matrix_dataset()
+
+    receipt = admit_semantic_assurance_human_labels(_v6_manifest(dataset), dataset)
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v6"
+    assert receipt["assurance"]["v6_sealed_risk_label_matrix_bound"] is True
+    assert len(receipt["assurance"]["sealed_risk_label_matrix_binding_digest"]) == 64
+    assert receipt["assurance"]["sealed_risk_label_matrix_minimum_risk_classes"] == 2
+    assert receipt["assurance"]["sealed_aligned_conflict_label_minimum_population"] == 50
+    assert verify_semantic_assurance_label_admission(receipt) == receipt
+
+
+def test_v6_rejects_global_v5_pass_with_misaligned_direct_conflicts() -> None:
+    dataset = _v6_risk_matrix_dataset()
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    sealed = [case for case in cases if case["partition"] == "sealed_holdout"]
+    for index in range(31):
+        sealed[index]["risk_class"] = "factuality"
+        sealed[320 + index]["risk_class"] = "direct_conflict"
+
+    # The V5 global strata still pass; V6 detects that direct conflict evidence
+    # has been relocated away from the declared direct-conflict risk class.
+    assert admit_semantic_assurance_human_labels(_v5_manifest(dataset), dataset)["schema_version"].endswith(".v5")
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="aligned conflict"):
+        admit_semantic_assurance_human_labels(_v6_manifest(dataset), dataset)
+
+
+def test_v6_rejects_single_risk_concentration_despite_global_exact_floor() -> None:
+    dataset = _v6_risk_matrix_dataset()
+    cases = dataset["cases"]
+    assert isinstance(cases, list)
+    sealed = [case for case in cases if case["partition"] == "sealed_holdout"]
+    for index in range(50, 80):
+        sealed[index]["risk_class"] = "direct_conflict"
+        sealed[320 + index - 50]["risk_class"] = "temporal_conflict"
+
+    assert admit_semantic_assurance_human_labels(_v5_manifest(dataset), dataset)["schema_version"].endswith(".v5")
+    with pytest.raises(SemanticAssuranceLabelAdmissionError, match="stratum diversity"):
+        admit_semantic_assurance_human_labels(_v6_manifest(dataset), dataset)
+
+
+def test_evaluator_recomputes_and_propagates_v6_risk_label_matrix() -> None:
+    dataset = _v6_risk_matrix_dataset()
+    admission = admit_semantic_assurance_human_labels(_v6_manifest(dataset), dataset)
+
+    report = evaluate_semantic_assurance(dataset, _holdout_predictions(dataset), label_admission=admission)
+
+    assert report["dataset"]["label_admission_version"] == "v6_v6_curator_audited_risk_matrix_bound"
+    assert report["dataset"]["sealed_risk_label_matrix_binding_digest"] == (
+        admission["assurance"]["sealed_risk_label_matrix_binding_digest"]
+    )
 
 
 def test_v5_readiness_strata_diagnostic_reports_content_free_gaps_without_admission() -> None:

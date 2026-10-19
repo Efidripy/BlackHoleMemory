@@ -35,8 +35,9 @@ from blackholememory.semantic_assurance_label_admission import verify_semantic_a
 LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v3"
 LIVE_RECEIPT_SCHEMA_VERSION_V4 = "bhm.semantic-assurance-live-receipt.v4"
 LIVE_RECEIPT_SCHEMA_VERSION_V5 = "bhm.semantic-assurance-live-receipt.v5"
-# V6 does not replace the established live receipts.  It is a one-way public
-# projection of a verified V3/V4/V5 receipt: per-case evaluator reports stay
+LIVE_RECEIPT_SCHEMA_VERSION_V6 = "bhm.semantic-assurance-live-receipt.v6"
+# Public V6 is a one-way projection of a verified legacy V3--V6 receipt:
+# per-case evaluator reports stay
 # in an explicitly owner-only bundle that is cryptographically bound back to
 # the public projection.
 LIVE_PUBLIC_RECEIPT_SCHEMA_VERSION_V6 = "bhm.semantic-assurance-public-live-receipt.v6"
@@ -64,6 +65,7 @@ _LABEL_ADMISSION_RECEIPT_V2 = "bhm.semantic-assurance-human-label-admission-rece
 _LABEL_ADMISSION_RECEIPT_V3 = "bhm.semantic-assurance-human-label-admission-receipt.v3"
 _LABEL_ADMISSION_RECEIPT_V4 = "bhm.semantic-assurance-human-label-admission-receipt.v4"
 _LABEL_ADMISSION_RECEIPT_V5 = "bhm.semantic-assurance-human-label-admission-receipt.v5"
+_LABEL_ADMISSION_RECEIPT_V6 = "bhm.semantic-assurance-human-label-admission-receipt.v6"
 _V2_CORPUS_ADMISSION_KEYS = frozenset({
     "receipt_schema_version",
     "admission_digest",
@@ -384,6 +386,7 @@ def _validate_label_admission(
         _LABEL_ADMISSION_RECEIPT_V3,
         _LABEL_ADMISSION_RECEIPT_V4,
         _LABEL_ADMISSION_RECEIPT_V5,
+        _LABEL_ADMISSION_RECEIPT_V6,
     }:
         raise SemanticAssuranceLiveError("semantic assurance human-label admission receipt version is unsupported")
     corpus_pre_admission_digest = _sha256_digest(
@@ -393,7 +396,7 @@ def _validate_label_admission(
     corpus_admission = receipt.get("corpus_admission")
     expected_corpus_admission_keys = (
         _V4_CORPUS_ADMISSION_KEYS
-        if schema_version in {_LABEL_ADMISSION_RECEIPT_V4, _LABEL_ADMISSION_RECEIPT_V5}
+        if schema_version in {_LABEL_ADMISSION_RECEIPT_V4, _LABEL_ADMISSION_RECEIPT_V5, _LABEL_ADMISSION_RECEIPT_V6}
         else _V3_CORPUS_ADMISSION_KEYS
         if schema_version == _LABEL_ADMISSION_RECEIPT_V3
         else _V2_CORPUS_ADMISSION_KEYS
@@ -437,7 +440,7 @@ def _validate_label_admission(
         raise SemanticAssuranceLiveError("semantic assurance v2 corpus pre-admission digest does not bind the receipt")
     if schema_version == _LABEL_ADMISSION_RECEIPT_V3:
         _v6_label_admission_binding(receipt, dataset)
-    if schema_version == _LABEL_ADMISSION_RECEIPT_V5:
+    if schema_version in {_LABEL_ADMISSION_RECEIPT_V5, _LABEL_ADMISSION_RECEIPT_V6}:
         _v6_curator_audited_label_admission_binding(receipt, dataset)
     return receipt
 
@@ -504,7 +507,8 @@ def _v6_curator_audited_label_admission_binding(
 ) -> dict[str, Any]:
     """Return the V5 strata-bound curator-audited binding for live receipt v5."""
 
-    if receipt.get("schema_version") != _LABEL_ADMISSION_RECEIPT_V5:
+    schema_version = receipt.get("schema_version")
+    if schema_version not in {_LABEL_ADMISSION_RECEIPT_V5, _LABEL_ADMISSION_RECEIPT_V6}:
         raise SemanticAssuranceLiveError("semantic assurance curator-audited label receipt version is invalid")
     corpus = receipt.get("corpus")
     corpus_admission = receipt.get("corpus_admission")
@@ -538,8 +542,8 @@ def _v6_curator_audited_label_admission_binding(
         key: _sha256_digest(audit.get(key), f"curator audit {key}")
         for key in sorted(_CURATOR_AUDIT_KEYS - {"receipt_schema_version"})
     }
-    return {
-        "receipt_schema_version": _LABEL_ADMISSION_RECEIPT_V5,
+    result = {
+        "receipt_schema_version": schema_version,
         "admission_digest": _sha256_digest(receipt.get("admission_digest"), "curator-audited label admission digest"),
         "corpus_pre_admission_digest": corpus_pre_admission_digest,
         "corpus_admission_digest": corpus_admission_digest,
@@ -553,6 +557,22 @@ def _v6_curator_audited_label_admission_binding(
         ),
         "sealed_readiness_strata_minimum_population": 80,
     }
+    if schema_version == _LABEL_ADMISSION_RECEIPT_V6:
+        from .semantic_assurance_label_admission import _v6_sealed_risk_label_matrix_binding
+
+        expected_matrix = _v6_sealed_risk_label_matrix_binding(
+            dataset["cases"],
+            {str(case["case_id"]): {"labels": case["expected"]} for case in dataset["cases"]},
+        )
+        if (
+            assurance.get("v6_sealed_risk_label_matrix_bound") is not True
+            or assurance.get("sealed_risk_label_matrix_binding_digest") != expected_matrix["sealed_risk_label_matrix_binding_digest"]
+            or assurance.get("sealed_risk_label_matrix_minimum_risk_classes") != 2
+            or assurance.get("sealed_aligned_conflict_label_minimum_population") != 50
+        ):
+            raise SemanticAssuranceLiveError("semantic assurance risk-label matrix binding is invalid")
+        result.update(expected_matrix)
+    return result
 
 
 def _canonical_dataset_rows(dataset: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -746,7 +766,7 @@ def _receipt(
     )
     curator_audited_label_binding = (
         _v6_curator_audited_label_admission_binding(label_admission, dataset)
-        if label_admission is not None and label_admission.get("schema_version") == _LABEL_ADMISSION_RECEIPT_V5
+        if label_admission is not None and label_admission.get("schema_version") in {_LABEL_ADMISSION_RECEIPT_V5, _LABEL_ADMISSION_RECEIPT_V6}
         else None
     )
     forward_label_binding = curator_audited_label_binding or v6_label_binding
@@ -776,7 +796,9 @@ def _receipt(
     mechanical_valid = all(checks.values())
     core = {
         "schema_version": (
-            LIVE_RECEIPT_SCHEMA_VERSION_V5
+            LIVE_RECEIPT_SCHEMA_VERSION_V6
+            if curator_audited_label_binding is not None and curator_audited_label_binding["receipt_schema_version"] == _LABEL_ADMISSION_RECEIPT_V6
+            else LIVE_RECEIPT_SCHEMA_VERSION_V5
             if curator_audited_label_binding is not None
             else LIVE_RECEIPT_SCHEMA_VERSION_V4 if v6_label_binding is not None else LIVE_RECEIPT_SCHEMA_VERSION
         ),
@@ -913,6 +935,7 @@ def _verified_legacy_live_receipt(
         LIVE_RECEIPT_SCHEMA_VERSION,
         LIVE_RECEIPT_SCHEMA_VERSION_V4,
         LIVE_RECEIPT_SCHEMA_VERSION_V5,
+        LIVE_RECEIPT_SCHEMA_VERSION_V6,
     }:
         raise SemanticAssuranceLiveError("semantic assurance legacy live receipt version is unsupported")
     report_digest = _sha256_digest(value.get("report_digest"), "legacy live receipt digest")
@@ -1069,7 +1092,7 @@ def _verify_public_live_receipt_v6(value: Mapping[str, Any]) -> dict[str, Any]:
         or (private["label_admission_commitment"] is not None and not _is_sha256(private["label_admission_commitment"]))
         or not isinstance(legacy, Mapping)
         or set(legacy) != {"schema_version", "report_digest"}
-        or legacy.get("schema_version") not in {LIVE_RECEIPT_SCHEMA_VERSION, LIVE_RECEIPT_SCHEMA_VERSION_V4, LIVE_RECEIPT_SCHEMA_VERSION_V5}
+        or legacy.get("schema_version") not in {LIVE_RECEIPT_SCHEMA_VERSION, LIVE_RECEIPT_SCHEMA_VERSION_V4, LIVE_RECEIPT_SCHEMA_VERSION_V5, LIVE_RECEIPT_SCHEMA_VERSION_V6}
         or not _is_sha256(legacy.get("report_digest"))
         or not isinstance(dataset, Mapping)
         or set(dataset) != {"dataset_id", "fixture_digest", "label_digest"}
@@ -1140,7 +1163,7 @@ def _verify_private_evaluation_bundle_v6(
         or not _is_sha256(anchor.get("public_receipt_digest"))
         or not isinstance(legacy, Mapping)
         or set(legacy) != {"schema_version", "report_digest"}
-        or legacy.get("schema_version") not in {LIVE_RECEIPT_SCHEMA_VERSION, LIVE_RECEIPT_SCHEMA_VERSION_V4, LIVE_RECEIPT_SCHEMA_VERSION_V5}
+        or legacy.get("schema_version") not in {LIVE_RECEIPT_SCHEMA_VERSION, LIVE_RECEIPT_SCHEMA_VERSION_V4, LIVE_RECEIPT_SCHEMA_VERSION_V5, LIVE_RECEIPT_SCHEMA_VERSION_V6}
         or not _is_sha256(legacy.get("report_digest"))
         or not _is_sha256(core.get("offline_reports_commitment"))
         or _offline_reports_commitment(reports) != core["offline_reports_commitment"]
@@ -1182,6 +1205,7 @@ def _v6_reports_bind_label(
         _LABEL_ADMISSION_RECEIPT_V3: "v3_v6_corpus_pre_admitted",
         _LABEL_ADMISSION_RECEIPT_V4: "v4_v6_curator_audited",
         _LABEL_ADMISSION_RECEIPT_V5: "v5_v6_curator_audited_strata_bound",
+        _LABEL_ADMISSION_RECEIPT_V6: "v6_v6_curator_audited_risk_matrix_bound",
     }.get(binding.get("receipt_schema_version"))
     if label_version is None:
         return False
@@ -1193,11 +1217,15 @@ def _v6_reports_bind_label(
         "partition_risk_counts": binding["partition_risk_counts"],
         "v6_control_binding_digest": binding["v6_control_binding_digest"],
     }
-    if label_version in {"v4_v6_curator_audited", "v5_v6_curator_audited_strata_bound"}:
+    if label_version in {"v4_v6_curator_audited", "v5_v6_curator_audited_strata_bound", "v6_v6_curator_audited_risk_matrix_bound"}:
         expected["curator_audit"] = binding["curator_audit"]
-    if label_version == "v5_v6_curator_audited_strata_bound":
+    if label_version in {"v5_v6_curator_audited_strata_bound", "v6_v6_curator_audited_risk_matrix_bound"}:
         expected["sealed_readiness_strata_binding_digest"] = binding["sealed_readiness_strata_binding_digest"]
         expected["sealed_readiness_strata_minimum_population"] = 80
+    if label_version == "v6_v6_curator_audited_risk_matrix_bound":
+        expected["sealed_risk_label_matrix_binding_digest"] = binding["sealed_risk_label_matrix_binding_digest"]
+        expected["sealed_risk_label_matrix_minimum_risk_classes"] = 2
+        expected["sealed_aligned_conflict_label_minimum_population"] = 50
     return all(
         isinstance(report.get("dataset"), Mapping)
         and all(report["dataset"].get(key) == value for key, value in expected.items())
@@ -1478,6 +1506,7 @@ __all__ = [
     "LIVE_RECEIPT_SCHEMA_VERSION",
     "LIVE_RECEIPT_SCHEMA_VERSION_V4",
     "LIVE_RECEIPT_SCHEMA_VERSION_V5",
+    "LIVE_RECEIPT_SCHEMA_VERSION_V6",
     "PROMPT_CONTRACT",
     "SemanticAssuranceLiveError",
     "build_semantic_assurance_live_v6_evidence",

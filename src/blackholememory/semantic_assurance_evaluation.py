@@ -25,6 +25,7 @@ _LABEL_ADMISSION_RECEIPT_V2 = "bhm.semantic-assurance-human-label-admission-rece
 _LABEL_ADMISSION_RECEIPT_V3 = "bhm.semantic-assurance-human-label-admission-receipt.v3"
 _LABEL_ADMISSION_RECEIPT_V4 = "bhm.semantic-assurance-human-label-admission-receipt.v4"
 _LABEL_ADMISSION_RECEIPT_V5 = "bhm.semantic-assurance-human-label-admission-receipt.v5"
+_LABEL_ADMISSION_RECEIPT_V6 = "bhm.semantic-assurance-human-label-admission-receipt.v6"
 _V2_CORPUS_ADMISSION_KEYS = frozenset({
     "receipt_schema_version",
     "admission_digest",
@@ -191,14 +192,29 @@ def evaluate_semantic_assurance(
     if admitted_labels["version"] in {
         "v3_v6_corpus_pre_admitted",
         "v4_v6_curator_audited",
+        "v5_v6_curator_audited_strata_bound",
+        "v6_v6_curator_audited_risk_matrix_bound",
     }:
         dataset_receipt.update({
             "admission_profile": admitted_labels["admission_profile"],
             "partition_risk_counts": admitted_labels["partition_risk_counts"],
             "v6_control_binding_digest": admitted_labels["v6_control_binding_digest"],
         })
-    if admitted_labels["version"] == "v4_v6_curator_audited":
+    if admitted_labels["version"] in {"v4_v6_curator_audited", "v5_v6_curator_audited_strata_bound", "v6_v6_curator_audited_risk_matrix_bound"}:
         dataset_receipt["curator_audit"] = admitted_labels["curator_audit"]
+    if admitted_labels["version"] == "v5_v6_curator_audited_strata_bound":
+        dataset_receipt.update({
+            "sealed_readiness_strata_binding_digest": admitted_labels["sealed_readiness_strata_binding_digest"],
+            "sealed_readiness_strata_minimum_population": 80,
+        })
+    if admitted_labels["version"] == "v6_v6_curator_audited_risk_matrix_bound":
+        dataset_receipt.update({
+            "sealed_readiness_strata_binding_digest": admitted_labels["sealed_readiness_strata_binding_digest"],
+            "sealed_readiness_strata_minimum_population": 80,
+            "sealed_risk_label_matrix_binding_digest": admitted_labels["sealed_risk_label_matrix_binding_digest"],
+            "sealed_risk_label_matrix_minimum_risk_classes": 2,
+            "sealed_aligned_conflict_label_minimum_population": 50,
+        })
     report_core = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "mode": "offline-content-free-classification-evaluation",
@@ -719,11 +735,13 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
         _LABEL_ADMISSION_RECEIPT_V3,
         _LABEL_ADMISSION_RECEIPT_V4,
         _LABEL_ADMISSION_RECEIPT_V5,
+        _LABEL_ADMISSION_RECEIPT_V6,
     }:
         raise SemanticAssuranceEvaluationError("semantic assurance human-label admission receipt version is unsupported")
-    is_v6 = schema_version in {_LABEL_ADMISSION_RECEIPT_V3, _LABEL_ADMISSION_RECEIPT_V4, _LABEL_ADMISSION_RECEIPT_V5}
-    is_v6_curator_audited = schema_version in {_LABEL_ADMISSION_RECEIPT_V4, _LABEL_ADMISSION_RECEIPT_V5}
-    is_v6_strata_bound = schema_version == _LABEL_ADMISSION_RECEIPT_V5
+    is_v6 = schema_version in {_LABEL_ADMISSION_RECEIPT_V3, _LABEL_ADMISSION_RECEIPT_V4, _LABEL_ADMISSION_RECEIPT_V5, _LABEL_ADMISSION_RECEIPT_V6}
+    is_v6_curator_audited = schema_version in {_LABEL_ADMISSION_RECEIPT_V4, _LABEL_ADMISSION_RECEIPT_V5, _LABEL_ADMISSION_RECEIPT_V6}
+    is_v6_strata_bound = schema_version in {_LABEL_ADMISSION_RECEIPT_V5, _LABEL_ADMISSION_RECEIPT_V6}
+    is_v6_risk_matrix_bound = schema_version == _LABEL_ADMISSION_RECEIPT_V6
     corpus_pre_admission_digest = _sha256_digest(
         corpus.get("corpus_pre_admission_digest"),
         "semantic assurance corpus pre-admission digest",
@@ -775,7 +793,7 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
         curator_result = {
             **result,
             "status": "attested_structurally_bound_with_v6_curator_audited_corpus_not_identity_authenticated",
-            "version": "v5_v6_curator_audited_strata_bound" if is_v6_strata_bound else "v4_v6_curator_audited",
+            "version": "v6_v6_curator_audited_risk_matrix_bound" if is_v6_risk_matrix_bound else "v5_v6_curator_audited_strata_bound" if is_v6_strata_bound else "v4_v6_curator_audited",
             "acceptance_scope": "proposal_only_v6_curator_audited_human_labelled_measurement",
             "admission_profile": "v6_curator_audited_independent_human_curation",
             "partition_risk_counts": {
@@ -801,6 +819,21 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
                 "semantic assurance V5 strata binding",
             )
             curator_result["sealed_readiness_strata_minimum_population"] = 80
+        if is_v6_risk_matrix_bound:
+            from .semantic_assurance_label_admission import _v6_sealed_risk_label_matrix_binding
+
+            expected_matrix = _v6_sealed_risk_label_matrix_binding(
+                dataset["cases"],
+                {str(case["case_id"]): {"labels": case["expected"]} for case in dataset["cases"]},
+            )
+            if (
+                assurance.get("v6_sealed_risk_label_matrix_bound") is not True
+                or assurance.get("sealed_risk_label_matrix_binding_digest") != expected_matrix["sealed_risk_label_matrix_binding_digest"]
+                or assurance.get("sealed_risk_label_matrix_minimum_risk_classes") != 2
+                or assurance.get("sealed_aligned_conflict_label_minimum_population") != 50
+            ):
+                raise SemanticAssuranceEvaluationError("semantic assurance V6 risk-label matrix binding is invalid")
+            curator_result.update(expected_matrix)
         return curator_result
     _validate_v6_corpus_admission_binding(corpus_admission, rows)
     return {
