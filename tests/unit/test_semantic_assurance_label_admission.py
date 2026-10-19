@@ -273,6 +273,47 @@ def _v3_manifest(dataset: dict[str, object]) -> dict[str, object]:
     return manifest
 
 
+def _curator_audit_binding(dataset: dict[str, object]) -> dict[str, object]:
+    """Minimal content-free corpus.v3 binding for label-admission coverage."""
+
+    admission = _corpus_admission_receipt(dataset, v6=True)
+    binding = {
+        "receipt_schema_version": "bhm.semantic-assurance-curator-audit-receipt.v1",
+        "audit_digest": _digest("private-v6-curator-audit"),
+        "atomic_fact_binding_digest": _digest("private-v6-atomic-facts"),
+        "control_binding_digest": _digest("private-v6-controls"),
+        "canonical_fragment_binding_digest": _digest("private-v6-fragments"),
+    }
+    core = {
+        **admission,
+        "schema_version": "bhm.semantic-assurance-corpus-admission-receipt.v3",
+        "admission_profile": "v6_curator_audited_independent_human_curation",
+        "curator_audit": binding,
+        "assurance": {
+            "status": "v6_curator_audited_structurally_admitted_for_human_review_not_semantic_independence_proven",
+            "curator_claimed_attestation": True,
+            "curator_attestation_bound_to_corpus": True,
+            "curator_identity_externally_authenticated": False,
+            "semantic_independence_proven": False,
+            "semantic_truth_proven": False,
+            "automatic_apply_ready": False,
+            "automatic_apply_decision": "no_go",
+            "v6_partition_distribution_bound": True,
+            "atomic_fact_case_one_to_one_declared": True,
+            "curator_audit_exactly_joined": True,
+        },
+    }
+    core["admission_digest"] = _canonical_digest({key: value for key, value in core.items() if key != "admission_digest"})
+    return core
+
+
+def _v4_manifest(dataset: dict[str, object]) -> dict[str, object]:
+    manifest = _manifest(dataset)
+    manifest["schema_version"] = "bhm.semantic-assurance-human-label-admission.v4"
+    manifest["corpus_admission"] = _curator_audit_binding(dataset)
+    return manifest
+
+
 def test_dual_review_admission_is_content_free_and_binds_exact_dataset(tmp_path: Path) -> None:
     dataset = _human_dataset(tmp_path)
     receipt = admit_semantic_assurance_human_labels(_manifest(dataset), dataset)
@@ -408,6 +449,37 @@ def test_v3_rejects_v1_v2_corpus_admission_or_tampered_v6_distribution() -> None
     partition_risks["development"]["factuality"] += 1
     with pytest.raises(SemanticAssuranceLabelAdmissionError, match="receipt"):
         admit_semantic_assurance_human_labels(tampered, dataset)
+
+
+def test_v4_requires_exact_curator_audited_corpus_binding() -> None:
+    dataset = _v2_dataset(v6=True)
+    receipt = admit_semantic_assurance_human_labels(_v4_manifest(dataset), dataset)
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v4"
+    assert receipt["corpus_admission"]["receipt_schema_version"] == "bhm.semantic-assurance-corpus-admission-receipt.v3"
+    assert receipt["corpus_admission"]["admission_profile"] == "v6_curator_audited_independent_human_curation"
+    assert set(receipt["corpus_admission"]["curator_audit"]) == {
+        "receipt_schema_version", "audit_digest", "atomic_fact_binding_digest",
+        "control_binding_digest", "canonical_fragment_binding_digest",
+    }
+    assert receipt["assurance"]["v6_curator_audit_exactly_bound"] is True
+    assert receipt["assurance"]["automatic_apply_ready"] is False
+    assert receipt["execution"]["automatic_apply"] is False
+    assert verify_semantic_assurance_label_admission(receipt) == receipt
+
+
+@pytest.mark.parametrize("mutate", [
+    lambda manifest: manifest["corpus_admission"].__setitem__("schema_version", "bhm.semantic-assurance-corpus-admission-receipt.v2"),
+    lambda manifest: manifest["corpus_admission"].__setitem__("admission_profile", "v6_independent_human_curation"),
+    lambda manifest: manifest["corpus_admission"]["curator_audit"].__setitem__("audit_digest", "0" * 64),
+    lambda manifest: manifest["corpus_admission"]["curator_audit"].__setitem__("unexpected", "0" * 64),
+])
+def test_v4_rejects_downgrade_or_tampered_curator_binding(mutate) -> None:
+    dataset = _v2_dataset(v6=True)
+    manifest = _v4_manifest(dataset)
+    mutate(manifest)
+    with pytest.raises(SemanticAssuranceLabelAdmissionError):
+        admit_semantic_assurance_human_labels(manifest, dataset)
 
 
 def test_v1_cannot_masquerade_as_corpus_admitted_v2() -> None:

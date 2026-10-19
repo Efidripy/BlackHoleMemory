@@ -179,6 +179,100 @@ def _raw_v6() -> dict[str, object]:
     return raw
 
 
+def _digest_json(value: object) -> str:
+    return _opaque(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+
+
+def _raw_v3() -> dict[str, object]:
+    """Structural-only synthetic fixture; never human or source evidence."""
+
+    raw = _raw_v6()
+    raw["schema_version"] = "bhm.semantic-assurance-corpus-admission.v3"
+    raw["admission_profile"] = "v6_curator_audited_independent_human_curation"
+    cases = {case["case_id"]: case for case in raw["corpus"]["cases"]}
+    bindings = []
+    for control in raw["v6_curation_controls"]["case_controls"]:
+        bindings.append({
+            **control,
+            "canonical_fragment_sha256": _opaque(f"canonical-fragment:{control['atomic_fact_id']}"),
+            "source_kind": "public_docs",
+        })
+    raw["curator_case_bindings"] = {
+        "schema_version": "bhm.semantic-assurance-v6-curator-case-bindings.v1",
+        "rows": bindings,
+    }
+    fact_rows = sorted((
+        {"atomic_fact_id": row["atomic_fact_id"], "partition": cases[row["case_id"]]["partition"]}
+        for row in bindings
+    ), key=lambda row: row["atomic_fact_id"])
+    control_rows = sorted((
+        {
+            "atomic_fact_id": row["atomic_fact_id"],
+            "risk_class": cases[row["case_id"]]["risk_class"],
+            "support_count_bucket": row["support_count_bucket"],
+            "approximate_length_bucket": row["approximate_length_bucket"],
+            "document_genre": row["document_genre"],
+            "relation_form": row["relation_form"],
+            "adversarial_form": row["adversarial_form"],
+            "dimension_surfaces": sorted(row["dimension_surfaces"]),
+        }
+        for row in bindings
+    ), key=lambda row: row["atomic_fact_id"])
+    fragment_rows = sorted((
+        {
+            "atomic_fact_id": row["atomic_fact_id"],
+            "canonical_fragment_sha256": row["canonical_fragment_sha256"],
+            "source_kind": row["source_kind"],
+        }
+        for row in bindings
+    ), key=lambda row: row["atomic_fact_id"])
+    partition_counts = {
+        partition: sum(case["partition"] == partition for case in cases.values())
+        for partition in ("development", "sealed_holdout", "validation")
+    }
+    partition_risk_counts = {
+        partition: {risk: sum(case["partition"] == partition and case["risk_class"] == risk for case in cases.values()) for risk in RISKS}
+        for partition in ("development", "sealed_holdout", "validation")
+    }
+    audit = {
+        "atomic_fact_count": len(bindings),
+        "partition_counts": partition_counts,
+        "partition_risk_counts": partition_risk_counts,
+        "sealed_conflict_counts": {risk: partition_risk_counts["sealed_holdout"][risk] for risk in CONFLICTS},
+        "atomic_fact_binding_digest": _digest_json(fact_rows),
+        "control_binding_digest": _digest_json(control_rows),
+        "canonical_fragment_binding_digest": _digest_json(fragment_rows),
+        "source_kind_counts": {"local_adr": 0, "public_docs": len(bindings)},
+    }
+    assurance = {
+        "canonical_fragments_revalidated": True,
+        "source_fragment_provenance_proven": False,
+        "curator_identity_authenticated": False,
+        "semantic_independence_proven": False,
+        "semantic_truth_proven": False,
+        "reviewer_cases_constructed": False,
+        "automatic_apply_ready": False,
+        "decision": "no_go",
+    }
+    execution = {
+        "network_used": False,
+        "model_called": False,
+        "sqlite_mutation": False,
+        "mem0_mutation": False,
+        "qdrant_mutation": False,
+        "automatic_apply": False,
+    }
+    audit_core = {
+        "schema_version": "bhm.semantic-assurance-curator-audit-receipt.v1",
+        "ok": True,
+        "audit": audit,
+        "assurance": assurance,
+        "execution": execution,
+    }
+    raw["curator_audit"] = {**audit_core, "audit_digest": _digest_json(audit_core)}
+    return raw
+
+
 def _reduce_sealed_direct_conflicts_to_49(raw: dict[str, object]) -> None:
     corpus = raw["corpus"]
     assert isinstance(corpus, dict)
@@ -234,6 +328,61 @@ def test_v6_admits_exact_840_case_floor_all_partition_risk_cells_and_private_con
     rendered = json.dumps(receipt, sort_keys=True)
     assert "atomic-fact" not in rendered
     assert "governance" not in rendered
+
+
+def test_v3_exactly_joins_verified_curator_audit_without_exposing_private_evidence() -> None:
+    receipt = admit_semantic_assurance_corpus_for_human_review(_raw_v3())
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-corpus-admission-receipt.v3"
+    assert receipt["admission_profile"] == "v6_curator_audited_independent_human_curation"
+    assert receipt["assurance"]["curator_audit_exactly_joined"] is True
+    assert set(receipt["curator_audit"]) == {
+        "receipt_schema_version", "audit_digest", "atomic_fact_binding_digest",
+        "control_binding_digest", "canonical_fragment_binding_digest",
+    }
+    assert verify_semantic_assurance_corpus_admission(receipt) == receipt
+    rendered = json.dumps(receipt, ensure_ascii=False, sort_keys=True)
+    assert "canonical-fragment" not in rendered
+    assert "governance" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("mutate", "match"),
+    [
+        (
+            lambda raw: raw["curator_case_bindings"]["rows"][0].__setitem__("canonical_fragment_sha256", "0" * 64),
+            "does not exactly bind",
+        ),
+        (
+            lambda raw: raw["curator_case_bindings"]["rows"][0].__setitem__("source_kind", "local_adr"),
+            "does not exactly bind",
+        ),
+        (
+            lambda raw: raw["curator_case_bindings"]["rows"][0].__setitem__("relation_form", "absence"),
+            "does not exactly match",
+        ),
+        (
+            lambda raw: raw["curator_audit"]["audit"].__setitem__("canonical_fragment_binding_digest", "0" * 64),
+            "invalid",
+        ),
+        (
+            lambda raw: raw["curator_case_bindings"]["rows"].pop(),
+            "cover every",
+        ),
+    ],
+)
+def test_v3_rejects_transplanted_or_mismatched_curator_audit_bindings(mutate, match: str) -> None:
+    raw = _raw_v3()
+    mutate(raw)
+    with pytest.raises(SemanticAssuranceCorpusAdmissionError, match=match):
+        admit_semantic_assurance_corpus_for_human_review(raw)
+
+
+def test_v3_receipt_rejects_tampered_compact_curator_audit_binding() -> None:
+    receipt = admit_semantic_assurance_corpus_for_human_review(_raw_v3())
+    receipt["curator_audit"]["audit_digest"] = "0" * 64
+    with pytest.raises(SemanticAssuranceCorpusAdmissionError, match="digest mismatch"):
+        verify_semantic_assurance_corpus_admission(receipt)
 
 
 @pytest.mark.parametrize(

@@ -28,9 +28,13 @@ from .semantic_assurance_evaluation import RELEVANCE_LABELS
 SCHEMA_VERSION = "bhm.semantic-assurance-human-label-admission.v1"
 SCHEMA_VERSION_V2 = "bhm.semantic-assurance-human-label-admission.v2"
 SCHEMA_VERSION_V3 = "bhm.semantic-assurance-human-label-admission.v3"
+SCHEMA_VERSION_V4 = "bhm.semantic-assurance-human-label-admission.v4"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-human-label-admission-receipt.v1"
 RECEIPT_SCHEMA_VERSION_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
 RECEIPT_SCHEMA_VERSION_V3 = "bhm.semantic-assurance-human-label-admission-receipt.v3"
+RECEIPT_SCHEMA_VERSION_V4 = "bhm.semantic-assurance-human-label-admission-receipt.v4"
+_V6_ADMISSION_PROFILE = "v6_independent_human_curation"
+_V6_CURATOR_AUDITED_ADMISSION_PROFILE = "v6_curator_audited_independent_human_curation"
 _MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 _LABEL_KEYS = frozenset({"factuality", "entailment", "conflict", "support_relevance", "operation"})
 _REQUIRED_HUMAN_ISOLATION_KEYS = frozenset({"family_id", "group_id", "source_group_id", "source_theme", "prompt_template_id", "paraphrase_cluster_id"})
@@ -84,18 +88,23 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
         isolation = case.get("isolation")
         if not isinstance(isolation, Mapping) or set(isolation) != _REQUIRED_HUMAN_ISOLATION_KEYS:
             raise SemanticAssuranceLabelAdmissionError("human-label corpus lacks required split-isolation identities")
-    if not isinstance(raw, Mapping) or raw.get("schema_version") not in {SCHEMA_VERSION, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}:
+    if not isinstance(raw, Mapping) or raw.get("schema_version") not in {SCHEMA_VERSION, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
         raise SemanticAssuranceLabelAdmissionError("human-label manifest schema is unsupported")
     manifest_schema = raw["schema_version"]
     expected_fields = {"schema_version", "corpus", "protocol", "pre_registration", "reviewers", "adjudications"}
-    if manifest_schema in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}:
+    if manifest_schema in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
         expected_fields.add("corpus_admission")
     if set(raw) != expected_fields:
         raise SemanticAssuranceLabelAdmissionError("human-label manifest has unexpected fields")
     _validate_corpus(raw.get("corpus"), normalized_dataset)
     corpus_admission = (
-        _validate_corpus_admission(raw.get("corpus_admission"), dataset, require_v6=manifest_schema == SCHEMA_VERSION_V3)
-        if manifest_schema in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}
+        _validate_corpus_admission(
+            raw.get("corpus_admission"),
+            dataset,
+            require_v6=manifest_schema in {SCHEMA_VERSION_V3, SCHEMA_VERSION_V4},
+            require_curator_audit=manifest_schema == SCHEMA_VERSION_V4,
+        )
+        if manifest_schema in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}
         else None
     )
     _validate_protocol(raw.get("protocol"))
@@ -118,7 +127,8 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
     )
     core = {
         "schema_version": (
-            RECEIPT_SCHEMA_VERSION_V3 if manifest_schema == SCHEMA_VERSION_V3
+            RECEIPT_SCHEMA_VERSION_V4 if manifest_schema == SCHEMA_VERSION_V4
+            else RECEIPT_SCHEMA_VERSION_V3 if manifest_schema == SCHEMA_VERSION_V3
             else RECEIPT_SCHEMA_VERSION_V2 if manifest_schema == SCHEMA_VERSION_V2
             else RECEIPT_SCHEMA_VERSION
         ),
@@ -162,10 +172,15 @@ def admit_semantic_assurance_human_labels(raw: object, dataset: Mapping[str, Any
     }
     if corpus_admission is not None:
         core["corpus_admission"] = corpus_admission
-    if manifest_schema == SCHEMA_VERSION_V3:
+    if manifest_schema in {SCHEMA_VERSION_V3, SCHEMA_VERSION_V4}:
         core["assurance"] = {
             **core["assurance"],
             "v6_corpus_structurally_bound": True,
+        }
+    if manifest_schema == SCHEMA_VERSION_V4:
+        core["assurance"] = {
+            **core["assurance"],
+            "v6_curator_audit_exactly_bound": True,
         }
     return {**core, "admission_digest": _digest(core)}
 
@@ -177,20 +192,20 @@ def verify_semantic_assurance_label_admission(value: object) -> dict[str, Any]:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt is invalid")
     receipt_schema = value.get("schema_version") if isinstance(value, Mapping) else None
     expected = {"schema_version", "ok", "corpus", "review", "protocol", "pre_registration", "execution", "assurance", "admission_digest"}
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3}:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
         expected.add("corpus_admission")
-    if set(value) != expected or receipt_schema not in {RECEIPT_SCHEMA_VERSION, RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3} or value.get("ok") is not True:
+    if set(value) != expected or receipt_schema not in {RECEIPT_SCHEMA_VERSION, RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4} or value.get("ok") is not True:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt schema is invalid")
     corpus = value.get("corpus")
     expected_corpus_fields = {"dataset_id", "fixture_digest", "label_digest"}
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3}:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
         expected_corpus_fields.add("corpus_pre_admission_digest")
     if not isinstance(corpus, Mapping) or set(corpus) != expected_corpus_fields:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt corpus is invalid")
     normalized_corpus = {key: _text(corpus.get(key), f"human-label receipt corpus.{key}", 160) for key in corpus}
     for key in ("fixture_digest", "label_digest"):
         _digest_text(normalized_corpus[key], f"human-label receipt corpus.{key}")
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3}:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
         normalized_corpus["corpus_pre_admission_digest"] = _digest_text(
             normalized_corpus["corpus_pre_admission_digest"],
             "human-label receipt corpus pre-admission digest",
@@ -229,13 +244,19 @@ def verify_semantic_assurance_label_admission(value: object) -> dict[str, Any]:
     pre_registration = _validate_receipt_pre_registration(value.get("pre_registration"))
     expected_execution = {"network_used": False, "model_called": False, "sqlite_mutation": False, "mem0_mutation": False, "qdrant_mutation": False, "automatic_apply": False}
     expected_assurance = {"status": "attested_structurally_bound_not_identity_authenticated", "human_identity_authenticated": False, "semantic_truth_proven": False, "automatic_apply_ready": False}
-    if receipt_schema == RECEIPT_SCHEMA_VERSION_V3:
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
         expected_assurance["v6_corpus_structurally_bound"] = True
+    if receipt_schema == RECEIPT_SCHEMA_VERSION_V4:
+        expected_assurance["v6_curator_audit_exactly_bound"] = True
     if value.get("protocol") != expected_protocol or value.get("execution") != expected_execution or value.get("assurance") != expected_assurance:
         raise SemanticAssuranceLabelAdmissionError("human-label admission receipt boundary is invalid")
     core = {"schema_version": receipt_schema, "ok": True, "corpus": normalized_corpus, "review": dict(review), "protocol": expected_protocol, "pre_registration": pre_registration, "execution": expected_execution, "assurance": expected_assurance}
-    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3}:
-        core["corpus_admission"] = _validate_receipt_corpus_admission(value.get("corpus_admission"), require_v6=receipt_schema == RECEIPT_SCHEMA_VERSION_V3)
+    if receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4}:
+        core["corpus_admission"] = _validate_receipt_corpus_admission(
+            value.get("corpus_admission"),
+            require_v6=receipt_schema in {RECEIPT_SCHEMA_VERSION_V3, RECEIPT_SCHEMA_VERSION_V4},
+            require_curator_audit=receipt_schema == RECEIPT_SCHEMA_VERSION_V4,
+        )
         if core["corpus"]["corpus_pre_admission_digest"] != core["corpus_admission"]["admission_digest"]:
             raise SemanticAssuranceLabelAdmissionError("human-label v2 corpus pre-admission digest does not match binding")
     digest = value.get("admission_digest")
@@ -277,6 +298,7 @@ def _validate_corpus_admission(
     dataset: Mapping[str, Any],
     *,
     require_v6: bool = False,
+    require_curator_audit: bool = False,
 ) -> dict[str, Any]:
     """Bind a v2 label manifest to an independently verified pre-admission.
 
@@ -297,9 +319,15 @@ def _validate_corpus_admission(
         raise SemanticAssuranceLabelAdmissionError("human-label v2 corpus admission receipt is invalid") from exc
 
     corpus = receipt["corpus"]
-    is_v6 = receipt["schema_version"] == "bhm.semantic-assurance-corpus-admission-receipt.v2"
+    is_v6 = receipt["schema_version"] in {
+        "bhm.semantic-assurance-corpus-admission-receipt.v2",
+        "bhm.semantic-assurance-corpus-admission-receipt.v3",
+    }
     if require_v6 != is_v6:
         raise SemanticAssuranceLabelAdmissionError("human-label corpus admission tier is invalid")
+    is_curator_audited = receipt["schema_version"] == "bhm.semantic-assurance-corpus-admission-receipt.v3"
+    if require_curator_audit != is_curator_audited:
+        raise SemanticAssuranceLabelAdmissionError("human-label curator-audited corpus admission tier is invalid")
     expected_partitions = {
         partition: sum(case.get("partition") == partition for case in dataset["cases"])
         for partition in ("development", "validation", "sealed_holdout")
@@ -339,20 +367,29 @@ def _validate_corpus_admission(
     if is_v6:
         partition_risk_counts = _partition_risk_counts(dataset["cases"])
         if (
-            receipt.get("admission_profile") != "v6_independent_human_curation"
+            receipt.get("admission_profile") != (
+                _V6_CURATOR_AUDITED_ADMISSION_PROFILE if is_curator_audited else _V6_ADMISSION_PROFILE
+            )
             or corpus.get("partition_risk_counts") != partition_risk_counts
             or not _digest_text(corpus.get("v6_control_binding_digest"), "human-label V6 control binding digest")
         ):
             raise SemanticAssuranceLabelAdmissionError("human-label V6 corpus admission does not bind exact dataset distribution")
         result.update({
-            "admission_profile": "v6_independent_human_curation",
+            "admission_profile": receipt["admission_profile"],
             "partition_risk_counts": partition_risk_counts,
             "v6_control_binding_digest": corpus["v6_control_binding_digest"],
         })
+    if is_curator_audited:
+        result["curator_audit"] = _curator_audit_binding(receipt.get("curator_audit"))
     return result
 
 
-def _validate_receipt_corpus_admission(raw: object, *, require_v6: bool = False) -> dict[str, Any]:
+def _validate_receipt_corpus_admission(
+    raw: object,
+    *,
+    require_v6: bool = False,
+    require_curator_audit: bool = False,
+) -> dict[str, Any]:
     expected_fields = {
         "receipt_schema_version", "admission_digest", "case_count", "partition_counts",
         "sealed_support_count", "dataset_binding_digest", "sealed_case_binding_digest",
@@ -362,9 +399,15 @@ def _validate_receipt_corpus_admission(raw: object, *, require_v6: bool = False)
     }
     if require_v6:
         expected_fields.update({"admission_profile", "partition_risk_counts", "v6_control_binding_digest"})
+    if require_curator_audit:
+        expected_fields.add("curator_audit")
     if not isinstance(raw, Mapping) or set(raw) != expected_fields:
         raise SemanticAssuranceLabelAdmissionError("human-label v2 corpus admission binding is invalid")
-    expected_schema = "bhm.semantic-assurance-corpus-admission-receipt.v2" if require_v6 else "bhm.semantic-assurance-corpus-admission-receipt.v1"
+    expected_schema = (
+        "bhm.semantic-assurance-corpus-admission-receipt.v3" if require_curator_audit
+        else "bhm.semantic-assurance-corpus-admission-receipt.v2" if require_v6
+        else "bhm.semantic-assurance-corpus-admission-receipt.v1"
+    )
     if raw.get("receipt_schema_version") != expected_schema:
         raise SemanticAssuranceLabelAdmissionError("human-label v2 corpus admission receipt schema is invalid")
     partition_counts = raw.get("partition_counts")
@@ -409,17 +452,46 @@ def _validate_receipt_corpus_admission(raw: object, *, require_v6: bool = False)
         partition_risk_counts = raw.get("partition_risk_counts")
         if not _partition_risk_count_map(partition_risk_counts, partition_counts):
             raise SemanticAssuranceLabelAdmissionError("human-label V6 corpus admission partition risk counts are invalid")
-        if raw.get("admission_profile") != "v6_independent_human_curation":
+        expected_profile = _V6_CURATOR_AUDITED_ADMISSION_PROFILE if require_curator_audit else _V6_ADMISSION_PROFILE
+        if raw.get("admission_profile") != expected_profile:
             raise SemanticAssuranceLabelAdmissionError("human-label V6 corpus admission profile is invalid")
         result.update({
-            "admission_profile": "v6_independent_human_curation",
+            "admission_profile": expected_profile,
             "partition_risk_counts": {
                 partition: dict(sorted(partition_risk_counts[partition].items()))
                 for partition in sorted(partition_risk_counts)
             },
             "v6_control_binding_digest": _digest_text(raw.get("v6_control_binding_digest"), "human-label V6 control binding digest"),
         })
+    if require_curator_audit:
+        result["curator_audit"] = _curator_audit_binding(raw.get("curator_audit"))
     return result
+
+
+def _curator_audit_binding(raw: object) -> dict[str, Any]:
+    """Validate the content-free V6 canonical-source audit link.
+
+    A later corpus-admission v3 receipt must preserve exactly these receipt
+    fields.  This module deliberately neither loads private curator inputs nor
+    interprets their source fragments.
+    """
+
+    expected = {
+        "receipt_schema_version", "audit_digest", "atomic_fact_binding_digest",
+        "control_binding_digest", "canonical_fragment_binding_digest",
+    }
+    if not isinstance(raw, Mapping) or set(raw) != expected:
+        raise SemanticAssuranceLabelAdmissionError("human-label curator audit binding is invalid")
+    if raw.get("receipt_schema_version") != "bhm.semantic-assurance-curator-audit-receipt.v1":
+        raise SemanticAssuranceLabelAdmissionError("human-label curator audit receipt schema is invalid")
+    return {
+        key: (
+            raw["receipt_schema_version"]
+            if key == "receipt_schema_version"
+            else _digest_text(raw.get(key), f"human-label curator audit {key.replace('_', ' ')}")
+        )
+        for key in sorted(expected)
+    }
 
 
 def _final_dataset_binding(cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -669,7 +741,13 @@ def _digest(value: Any) -> str:
 
 __all__ = [
     "RECEIPT_SCHEMA_VERSION",
+    "RECEIPT_SCHEMA_VERSION_V2",
+    "RECEIPT_SCHEMA_VERSION_V3",
+    "RECEIPT_SCHEMA_VERSION_V4",
     "SCHEMA_VERSION",
+    "SCHEMA_VERSION_V2",
+    "SCHEMA_VERSION_V3",
+    "SCHEMA_VERSION_V4",
     "SemanticAssuranceLabelAdmissionError",
     "admit_semantic_assurance_human_labels",
     "load_semantic_assurance_label_admission",

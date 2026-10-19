@@ -378,6 +378,57 @@ def test_live_adapter_v4_rejects_offline_report_with_substituted_v6_binding() ->
     assert live._v6_reports_bind_label([report], binding, expected_count=1) is False
 
 
+def test_live_adapter_emits_forward_only_v5_receipt_with_exact_curator_audit_binding() -> None:
+    dataset = _v6_dataset()
+    label_admission = _v4_label_admission(dataset)
+    receipt = live._receipt(
+        dataset=dataset,
+        partition="sealed_holdout",
+        endpoint=live.DEFAULT_BASE_URL,
+        requested_model={"model_id": live.DEFAULT_MODEL_ID, "model_variant": live.DEFAULT_MODEL_VARIANT},
+        repeats=1,
+        reports=[],
+        before_inventory=None,
+        after_inventory=None,
+        failure={"stage": "unit", "code": "not_run"},
+        chat_call_count=0,
+        model_load_events=0,
+        model_load_evidence_available=True,
+        elapsed_ms=0.0,
+        repeat_executions=[],
+        event_records=[],
+        label_admission=label_admission,
+    )
+
+    assert receipt["schema_version"] == live.LIVE_RECEIPT_SCHEMA_VERSION_V5
+    binding = receipt["label_admission"]
+    assert binding["receipt_schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v4"
+    assert binding["admission_profile"] == "v6_curator_audited_independent_human_curation"
+    assert binding["curator_audit"]["canonical_fragment_binding_digest"] == "4" * 64
+    assert receipt["gate"]["automatic_apply_ready"] is False
+    assert receipt["gate"]["automatic_apply_decision"] == "no_go"
+
+
+def test_live_adapter_v5_rejects_tampered_curator_audit_before_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = _v6_dataset()
+    receipt = _v4_label_admission(dataset)
+    audit = receipt["corpus_admission"]["curator_audit"]
+    assert isinstance(audit, dict)
+    audit["atomic_fact_binding_digest"] = "not-a-digest"
+
+    class ForbiddenClient:
+        def __init__(self, **kwargs: Any) -> None:
+            raise AssertionError("curator-audited evidence must be validated before HTTP client creation")
+
+    monkeypatch.setattr(live, "verify_semantic_assurance_label_admission", lambda value: value)
+    monkeypatch.setattr(live, "_load_prompt_cases", lambda *_args: (dataset, []))
+    monkeypatch.setattr(live.httpx, "Client", ForbiddenClient)
+    with pytest.raises(live.SemanticAssuranceLiveError, match="curator audit atomic_fact_binding_digest"):
+        live.run_live_semantic_assurance(FIXTURE, label_admission=receipt)
+
+
 @pytest.mark.parametrize(
     ("mutate", "error"),
     [
@@ -527,6 +578,26 @@ def _v3_label_admission(dataset: dict[str, object]) -> dict[str, object]:
         "assurance": {"v6_corpus_structurally_bound": True},
         "admission_digest": "c" * 64,
     }
+
+
+def _v4_label_admission(dataset: dict[str, object]) -> dict[str, object]:
+    receipt = _v3_label_admission(dataset)
+    corpus_admission = receipt["corpus_admission"]
+    assert isinstance(corpus_admission, dict)
+    corpus_admission["receipt_schema_version"] = "bhm.semantic-assurance-corpus-admission-receipt.v3"
+    corpus_admission["admission_profile"] = "v6_curator_audited_independent_human_curation"
+    corpus_admission["curator_audit"] = {
+        "receipt_schema_version": "bhm.semantic-assurance-curator-audit-receipt.v1",
+        "audit_digest": "1" * 64,
+        "atomic_fact_binding_digest": "2" * 64,
+        "control_binding_digest": "3" * 64,
+        "canonical_fragment_binding_digest": "4" * 64,
+    }
+    receipt["schema_version"] = "bhm.semantic-assurance-human-label-admission-receipt.v4"
+    assurance = receipt["assurance"]
+    assert isinstance(assurance, dict)
+    assurance["v6_curator_audit_exactly_bound"] = True
+    return receipt
 
 
 def _v6_dataset() -> dict[str, object]:

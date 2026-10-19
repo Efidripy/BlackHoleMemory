@@ -16,13 +16,20 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from .semantic_assurance_curator_audit import SemanticAssuranceCuratorAuditError
+from .semantic_assurance_curator_audit import verify_v6_curator_audit_receipt
+
 
 SCHEMA_VERSION = "bhm.semantic-assurance-corpus-admission.v1"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-corpus-admission-receipt.v1"
 SCHEMA_VERSION_V2 = "bhm.semantic-assurance-corpus-admission.v2"
 RECEIPT_SCHEMA_VERSION_V2 = "bhm.semantic-assurance-corpus-admission-receipt.v2"
+SCHEMA_VERSION_V3 = "bhm.semantic-assurance-corpus-admission.v3"
+RECEIPT_SCHEMA_VERSION_V3 = "bhm.semantic-assurance-corpus-admission-receipt.v3"
 V6_ADMISSION_PROFILE = "v6_independent_human_curation"
+V6_AUDITED_ADMISSION_PROFILE = "v6_curator_audited_independent_human_curation"
 V6_CURATION_CONTROLS_SCHEMA_VERSION = "bhm.semantic-assurance-v6-curation-controls.v1"
+V6_CURATOR_CASE_BINDINGS_SCHEMA_VERSION = "bhm.semantic-assurance-v6-curator-case-bindings.v1"
 _PARTITIONS = frozenset({"development", "validation", "sealed_holdout"})
 _ISOLATION_KEYS = frozenset({
     "family_id", "group_id", "source_group_id", "source_theme",
@@ -68,12 +75,16 @@ def admit_semantic_assurance_corpus_for_human_review(raw: object) -> dict[str, A
         "curator_ledger", "distribution",
     }
     schema_version = raw.get("schema_version") if isinstance(raw, Mapping) else None
-    if schema_version == SCHEMA_VERSION_V2:
+    if schema_version in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}:
         expected.update({"admission_profile", "v6_curation_controls"})
-    if not isinstance(raw, Mapping) or set(raw) != expected or schema_version not in {SCHEMA_VERSION, SCHEMA_VERSION_V2}:
+    if schema_version == SCHEMA_VERSION_V3:
+        expected.update({"curator_audit", "curator_case_bindings"})
+    if not isinstance(raw, Mapping) or set(raw) != expected or schema_version not in {SCHEMA_VERSION, SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}:
         raise SemanticAssuranceCorpusAdmissionError("corpus admission schema is invalid")
-    is_v6 = schema_version == SCHEMA_VERSION_V2
-    if is_v6 and raw.get("admission_profile") != V6_ADMISSION_PROFILE:
+    is_v6 = schema_version in {SCHEMA_VERSION_V2, SCHEMA_VERSION_V3}
+    is_v3 = schema_version == SCHEMA_VERSION_V3
+    expected_profile = V6_AUDITED_ADMISSION_PROFILE if is_v3 else V6_ADMISSION_PROFILE
+    if is_v6 and raw.get("admission_profile") != expected_profile:
         raise SemanticAssuranceCorpusAdmissionError("V6 corpus admission profile is invalid")
     curator_attestation = _curator_attestation(
         raw.get("curator_attestation"), raw.get("corpus"), raw.get("curator_ledger")
@@ -89,7 +100,13 @@ def admit_semantic_assurance_corpus_for_human_review(raw: object) -> dict[str, A
     packet_rows = _packets(raw.get("packets"), by_id)
     _blank_ledgers(raw.get("ledgers"), packet_rows)
     _curator_ledger(raw.get("curator_ledger"), cases)
-    v6_control_binding_digest = _v6_curation_controls(raw.get("v6_curation_controls"), cases) if is_v6 else None
+    v6_controls = _v6_curation_controls(raw.get("v6_curation_controls"), cases) if is_v6 else None
+    v6_control_binding_digest = v6_controls["binding_digest"] if v6_controls is not None else None
+    curator_audit = (
+        _curator_audit_binding(raw.get("curator_audit"), raw.get("curator_case_bindings"), cases, v6_controls)
+        if is_v3
+        else None
+    )
 
     packet_digests = {name: [_digest(case) for case in rows] for name, rows in packet_rows.items()}
     dataset_binding = _dataset_binding(cases)
@@ -121,12 +138,22 @@ def admit_semantic_assurance_corpus_for_human_review(raw: object) -> dict[str, A
         corpus["v6_control_binding_digest"] = v6_control_binding_digest
         assurance = {
             **assurance,
-            "status": "v6_structurally_admitted_for_human_review_not_semantic_independence_proven",
+            "status": (
+                "v6_curator_audited_structurally_admitted_for_human_review_not_semantic_independence_proven"
+                if is_v3
+                else "v6_structurally_admitted_for_human_review_not_semantic_independence_proven"
+            ),
             "v6_partition_distribution_bound": True,
             "atomic_fact_case_one_to_one_declared": True,
         }
+        if is_v3:
+            assurance["curator_audit_exactly_joined"] = True
     core = {
-        "schema_version": RECEIPT_SCHEMA_VERSION_V2 if is_v6 else RECEIPT_SCHEMA_VERSION,
+        "schema_version": (
+            RECEIPT_SCHEMA_VERSION_V3 if is_v3
+            else RECEIPT_SCHEMA_VERSION_V2 if is_v6
+            else RECEIPT_SCHEMA_VERSION
+        ),
         "ok": True,
         "corpus": corpus,
         "review": {
@@ -147,7 +174,9 @@ def admit_semantic_assurance_corpus_for_human_review(raw: object) -> dict[str, A
         },
     }
     if is_v6:
-        core["admission_profile"] = V6_ADMISSION_PROFILE
+        core["admission_profile"] = expected_profile
+    if curator_audit is not None:
+        core["curator_audit"] = curator_audit
     return {**core, "admission_digest": _digest(core)}
 
 
@@ -162,10 +191,13 @@ def verify_semantic_assurance_corpus_admission(value: object) -> dict[str, Any]:
 
     expected = {"schema_version", "ok", "corpus", "review", "assurance", "execution", "admission_digest"}
     receipt_schema = value.get("schema_version") if isinstance(value, Mapping) else None
-    is_v6 = receipt_schema == RECEIPT_SCHEMA_VERSION_V2
+    is_v6 = receipt_schema in {RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3}
+    is_v3 = receipt_schema == RECEIPT_SCHEMA_VERSION_V3
     if is_v6:
         expected.add("admission_profile")
-    if not isinstance(value, Mapping) or set(value) != expected or receipt_schema not in {RECEIPT_SCHEMA_VERSION, RECEIPT_SCHEMA_VERSION_V2} or value.get("ok") is not True:
+    if is_v3:
+        expected.add("curator_audit")
+    if not isinstance(value, Mapping) or set(value) != expected or receipt_schema not in {RECEIPT_SCHEMA_VERSION, RECEIPT_SCHEMA_VERSION_V2, RECEIPT_SCHEMA_VERSION_V3} or value.get("ok") is not True:
         raise SemanticAssuranceCorpusAdmissionError("corpus admission receipt schema is invalid")
     corpus = value.get("corpus")
     review = value.get("review")
@@ -205,7 +237,8 @@ def verify_semantic_assurance_corpus_admission(value: object) -> dict[str, Any]:
     if any(sealed_risk_counts[risk] > risk_counts[risk] for risk in _REQUIRED_RISKS):
         raise SemanticAssuranceCorpusAdmissionError("corpus admission receipt sealed risk counts exceed corpus counts")
     if is_v6:
-        if value.get("admission_profile") != V6_ADMISSION_PROFILE:
+        expected_profile = V6_AUDITED_ADMISSION_PROFILE if is_v3 else V6_ADMISSION_PROFILE
+        if value.get("admission_profile") != expected_profile:
             raise SemanticAssuranceCorpusAdmissionError("V6 corpus admission receipt profile is invalid")
         if not _partition_risk_count_map(corpus.get("partition_risk_counts"), counts):
             raise SemanticAssuranceCorpusAdmissionError("V6 corpus admission receipt partition risk coverage is invalid")
@@ -230,16 +263,24 @@ def verify_semantic_assurance_corpus_admission(value: object) -> dict[str, Any]:
     if is_v6:
         assurance = {
             **assurance,
-            "status": "v6_structurally_admitted_for_human_review_not_semantic_independence_proven",
+            "status": (
+                "v6_curator_audited_structurally_admitted_for_human_review_not_semantic_independence_proven"
+                if is_v3
+                else "v6_structurally_admitted_for_human_review_not_semantic_independence_proven"
+            ),
             "v6_partition_distribution_bound": True,
             "atomic_fact_case_one_to_one_declared": True,
         }
+        if is_v3:
+            assurance = {**assurance, "curator_audit_exactly_joined": True}
     execution = {"network_used": False, "model_called": False, "sqlite_mutation": False, "mem0_mutation": False, "qdrant_mutation": False, "automatic_apply": False}
     if value.get("assurance") != assurance or value.get("execution") != execution:
         raise SemanticAssuranceCorpusAdmissionError("corpus admission receipt safety boundary is invalid")
     core = {"schema_version": receipt_schema, "ok": True, "corpus": dict(corpus), "review": dict(review), "assurance": assurance, "execution": execution}
     if is_v6:
-        core["admission_profile"] = V6_ADMISSION_PROFILE
+        core["admission_profile"] = V6_AUDITED_ADMISSION_PROFILE if is_v3 else V6_ADMISSION_PROFILE
+    if is_v3:
+        core["curator_audit"] = _verify_curator_audit_binding(value.get("curator_audit"))
     if value.get("admission_digest") != _digest(core):
         raise SemanticAssuranceCorpusAdmissionError("corpus admission receipt digest mismatch")
     return {**core, "admission_digest": value["admission_digest"]}
@@ -375,7 +416,7 @@ def _coverage(cases: Sequence[Mapping[str, Any]], *, require_v6: bool = False) -
         raise SemanticAssuranceCorpusAdmissionError("V6 corpus risk coverage is incomplete in one or more partitions")
 
 
-def _v6_curation_controls(raw: object, cases: Sequence[Mapping[str, Any]]) -> str:
+def _v6_curation_controls(raw: object, cases: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Validate private one-case/one-atomic-fact control cells and return a safe binding.
 
     The controls are curator declarations, not evidence that a human performed
@@ -431,7 +472,178 @@ def _v6_curation_controls(raw: object, cases: Sequence[Mapping[str, Any]]) -> st
     if seen_cases != known_cases:
         raise SemanticAssuranceCorpusAdmissionError("V6 curation controls do not cover every corpus case")
     controls.sort(key=lambda item: item["case_id"])
-    return _digest(controls)
+    return {"binding_digest": _digest(controls), "rows": controls}
+
+
+def _curator_audit_binding(
+    raw_audit: object,
+    raw_case_bindings: object,
+    cases: Sequence[Mapping[str, Any]],
+    v6_controls: Mapping[str, Any] | None,
+) -> dict[str, str]:
+    """Join a V6 corpus exactly to a verified curator audit receipt.
+
+    A curator audit receipt is intentionally content-free, so its digest alone
+    is insufficient: it could be transplanted from another corpus with the
+    same aggregate counts.  This private join rebuilds each audit digest from
+    case partition/risk metadata and the declared case-to-fact source/control
+    bindings before retaining only the five content-free values below.
+    """
+
+    try:
+        audit_receipt = verify_v6_curator_audit_receipt(raw_audit)
+    except SemanticAssuranceCuratorAuditError as exc:
+        raise SemanticAssuranceCorpusAdmissionError("V6 curator audit receipt is invalid") from exc
+    if not isinstance(v6_controls, Mapping) or not isinstance(v6_controls.get("rows"), list):
+        raise SemanticAssuranceCorpusAdmissionError("V6 curation controls are unavailable for curator audit join")
+    bindings = _curator_case_bindings(raw_case_bindings, cases, v6_controls["rows"])
+    audit = audit_receipt["audit"]
+    assert isinstance(audit, Mapping)
+    expected = {
+        "atomic_fact_binding_digest": _digest(bindings["fact_rows"]),
+        "control_binding_digest": _digest(bindings["control_rows"]),
+        "canonical_fragment_binding_digest": _digest(bindings["fragment_rows"]),
+    }
+    if any(audit.get(key) != digest for key, digest in expected.items()):
+        raise SemanticAssuranceCorpusAdmissionError("V6 curator audit receipt does not exactly bind corpus case mappings")
+    if (
+        audit.get("atomic_fact_count") != len(bindings["fact_rows"])
+        or audit.get("partition_counts") != bindings["partition_counts"]
+        or audit.get("partition_risk_counts") != bindings["partition_risk_counts"]
+        or audit.get("sealed_conflict_counts") != bindings["sealed_conflict_counts"]
+        or audit.get("source_kind_counts") != bindings["source_kind_counts"]
+    ):
+        raise SemanticAssuranceCorpusAdmissionError("V6 curator audit receipt aggregate bindings do not match corpus case mappings")
+    return {
+        "receipt_schema_version": str(audit_receipt["schema_version"]),
+        "audit_digest": str(audit_receipt["audit_digest"]),
+        **expected,
+    }
+
+
+def _curator_case_bindings(
+    raw: object,
+    cases: Sequence[Mapping[str, Any]],
+    controls: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Validate and normalize the private exact V6 curator-to-case join."""
+
+    if (
+        not isinstance(raw, Mapping)
+        or set(raw) != {"schema_version", "rows"}
+        or raw.get("schema_version") != V6_CURATOR_CASE_BINDINGS_SCHEMA_VERSION
+        or not _sequence(raw.get("rows"))
+    ):
+        raise SemanticAssuranceCorpusAdmissionError("V6 curator case bindings are invalid")
+    expected_keys = {
+        "case_id", "atomic_fact_id", "canonical_fragment_sha256", "source_kind",
+        "support_count_bucket", "approximate_length_bucket", "document_genre",
+        "relation_form", "adversarial_form", "dimension_surfaces",
+    }
+    case_by_id = {str(case["case_id"]): case for case in cases}
+    controls_by_case = {str(control["case_id"]): control for control in controls}
+    seen_cases: set[str] = set()
+    seen_facts: set[str] = set()
+    normalized: list[dict[str, Any]] = []
+    for row in raw["rows"]:
+        if not isinstance(row, Mapping) or set(row) != expected_keys:
+            raise SemanticAssuranceCorpusAdmissionError("V6 curator case binding row schema is invalid")
+        case_id = _text(row.get("case_id"), "V6 curator binding case id", 160)
+        atomic_fact_id = row.get("atomic_fact_id")
+        fragment = row.get("canonical_fragment_sha256")
+        source_kind = row.get("source_kind")
+        if case_id not in case_by_id or case_id in seen_cases or not _sha256(atomic_fact_id):
+            raise SemanticAssuranceCorpusAdmissionError("V6 curator case bindings do not cover exact opaque case identities")
+        if atomic_fact_id in seen_facts or not _sha256(fragment) or source_kind not in {"local_adr", "public_docs"}:
+            raise SemanticAssuranceCorpusAdmissionError("V6 curator case binding fact or source fragment is invalid")
+        control = controls_by_case.get(case_id)
+        if control is None:
+            raise SemanticAssuranceCorpusAdmissionError("V6 curator case binding does not have a matching V6 control")
+        control_fields = (
+            "atomic_fact_id", "support_count_bucket", "approximate_length_bucket",
+            "document_genre", "relation_form", "adversarial_form",
+        )
+        if (
+            any(row.get(field) != control.get(field) for field in control_fields)
+            or sorted(str(value) for value in row.get("dimension_surfaces", [])) != control.get("dimension_surfaces")
+        ):
+            raise SemanticAssuranceCorpusAdmissionError("V6 curator case binding does not exactly match V6 control")
+        normalized.append({
+            "case_id": case_id,
+            "atomic_fact_id": str(atomic_fact_id),
+            "canonical_fragment_sha256": str(fragment),
+            "source_kind": str(source_kind),
+            "support_count_bucket": str(row["support_count_bucket"]),
+            "approximate_length_bucket": str(row["approximate_length_bucket"]),
+            "document_genre": str(row["document_genre"]),
+            "relation_form": str(row["relation_form"]),
+            "adversarial_form": str(row["adversarial_form"]),
+            "dimension_surfaces": sorted(str(value) for value in row["dimension_surfaces"]),
+        })
+        seen_cases.add(case_id)
+        seen_facts.add(str(atomic_fact_id))
+    if seen_cases != set(case_by_id) or set(controls_by_case) != set(case_by_id):
+        raise SemanticAssuranceCorpusAdmissionError("V6 curator case bindings do not cover every corpus case")
+    fact_rows = [
+        {"atomic_fact_id": row["atomic_fact_id"], "partition": str(case_by_id[row["case_id"]]["partition"])}
+        for row in normalized
+    ]
+    fact_rows.sort(key=lambda row: row["atomic_fact_id"])
+    control_rows = [
+        {
+            "atomic_fact_id": row["atomic_fact_id"],
+            "risk_class": str(case_by_id[row["case_id"]]["risk_class"]),
+            "support_count_bucket": row["support_count_bucket"],
+            "approximate_length_bucket": row["approximate_length_bucket"],
+            "document_genre": row["document_genre"],
+            "relation_form": row["relation_form"],
+            "adversarial_form": row["adversarial_form"],
+            "dimension_surfaces": row["dimension_surfaces"],
+        }
+        for row in normalized
+    ]
+    control_rows.sort(key=lambda row: row["atomic_fact_id"])
+    fragment_rows = [
+        {
+            "atomic_fact_id": row["atomic_fact_id"],
+            "canonical_fragment_sha256": row["canonical_fragment_sha256"],
+            "source_kind": row["source_kind"],
+        }
+        for row in normalized
+    ]
+    fragment_rows.sort(key=lambda row: row["atomic_fact_id"])
+    partition_counts = {partition: sum(case["partition"] == partition for case in cases) for partition in sorted(_PARTITIONS)}
+    partition_risk_counts = _partition_risk_counts(cases)
+    return {
+        "fact_rows": fact_rows,
+        "control_rows": control_rows,
+        "fragment_rows": fragment_rows,
+        "partition_counts": partition_counts,
+        "partition_risk_counts": partition_risk_counts,
+        "sealed_conflict_counts": {
+            risk: partition_risk_counts["sealed_holdout"][risk]
+            for risk in sorted(_CONFLICT_BUCKETS)
+        },
+        "source_kind_counts": {
+            "local_adr": sum(row["source_kind"] == "local_adr" for row in normalized),
+            "public_docs": sum(row["source_kind"] == "public_docs" for row in normalized),
+        },
+    }
+
+
+def _verify_curator_audit_binding(raw: object) -> dict[str, str]:
+    expected = {
+        "receipt_schema_version", "audit_digest", "atomic_fact_binding_digest",
+        "control_binding_digest", "canonical_fragment_binding_digest",
+    }
+    if not isinstance(raw, Mapping) or set(raw) != expected:
+        raise SemanticAssuranceCorpusAdmissionError("V6 curator audit binding is invalid")
+    if raw.get("receipt_schema_version") != "bhm.semantic-assurance-curator-audit-receipt.v1":
+        raise SemanticAssuranceCorpusAdmissionError("V6 curator audit binding receipt schema is invalid")
+    result = {key: str(raw[key]) for key in expected}
+    if any(not _sha256(result[key]) for key in expected if key != "receipt_schema_version"):
+        raise SemanticAssuranceCorpusAdmissionError("V6 curator audit binding digest is invalid")
+    return result
 
 
 def _split_isolation(cases: Sequence[Mapping[str, Any]]) -> None:
@@ -598,6 +810,13 @@ def _digest(value: Any) -> str:
 __all__ = [
     "RECEIPT_SCHEMA_VERSION",
     "SCHEMA_VERSION",
+    "RECEIPT_SCHEMA_VERSION_V2",
+    "SCHEMA_VERSION_V2",
+    "RECEIPT_SCHEMA_VERSION_V3",
+    "SCHEMA_VERSION_V3",
+    "V6_ADMISSION_PROFILE",
+    "V6_AUDITED_ADMISSION_PROFILE",
+    "V6_CURATOR_CASE_BINDINGS_SCHEMA_VERSION",
     "SemanticAssuranceCorpusAdmissionError",
     "admit_semantic_assurance_corpus",
     "admit_semantic_assurance_corpus_for_human_review",
