@@ -20,6 +20,7 @@ from blackholememory.semantic_assurance_readiness import assess_semantic_assuran
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v4
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v5
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v6
+from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v7
 from blackholememory.semantic_assurance_readiness import load_semantic_assurance_readiness
 from blackholememory.semantic_assurance_runner_attestation import runner_attestation_payload_digest
 from blackholememory.semantic_assurance_runner_attestation import runner_trust_registry_digest
@@ -1085,6 +1086,7 @@ def test_v6_recomputes_private_reports_and_returns_content_free_no_go(
     assert receipt["schema_version"] == "bhm.semantic-assurance-readiness-receipt.v6"
     assert receipt["checks"]["public_private_live_exact_binding"] is True
     assert receipt["checks"]["private_reports_recomputed"] is True
+    assert "risk_label_matrix_recomputed" not in receipt["checks"]
     assert receipt["decision"] == {
         "automatic_apply_ready": False,
         "decision": "no_go",
@@ -1094,6 +1096,17 @@ def test_v6_recomputes_private_reports_and_returns_content_free_no_go(
     assert '"offline_reports":' not in rendered
     assert "opaque-" not in rendered
     assert "support-" not in rendered
+
+
+def test_v7_rejects_historical_v5_label_receipt_before_private_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence, registry = _v6_evidence(tmp_path, monkeypatch)
+    evidence["schema_version"] = "bhm.semantic-assurance-readiness.v7"
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="exact declared human-label receipt version"):
+        assess_semantic_assurance_readiness_v7(evidence, trust_registry=registry)
 
 
 @pytest.mark.parametrize(

@@ -415,6 +415,24 @@ SHA-256 canonical count-map; raw labels, counts, case IDs, supports, prompts
 Это исключает structurally V5-admitted, но математически readiness-impossible
 corpus; V4 receipts остаются допустимы лишь в своей historical границе.
 
+`bhm.semantic-assurance-human-label-admission.v6` — отдельное, forward-only
+усиление V5. Оно сохраняет все десять V5 exact-label floors и дополнительно
+коммитит content-free SHA-256 matrix `11 risk classes × 10 exact-label strata`.
+Каждый stratum должен быть представлен хотя бы в двух sealed risk classes; для
+`direct_conflict × direct`, `temporal_conflict × temporal`,
+`scope_conflict × scope` и `implicit_conflict × implicit` требуется не менее
+50 observations в aligned cell. Relevance по-прежнему считается по support
+rows, наследуя risk class от owning case. Admission, evaluator, live adapter и
+V7 readiness заново выводят matrix из exact owner-only labels; digest сам по
+себе не принимается на доверии. V1–V5 остаются historical contracts и не
+получают эти свойства задним числом.
+
+Эта matrix закрывает distribution loophole: глобальные `>=80` по label не
+могут подменять coverage соответствующего conflict risk. Но floor `>=2` risk
+classes — только structural diversity. Он не даёт отдельный 95% Wilson claim
+для каждой risk×label ячейки: для этого нужен будущий явно объявленный
+per-cell policy с существенно большей выборкой.
+
 До повторной human-curation owner может получить content-free gap diagnosis,
 не меняя dataset, manifest или labels:
 
@@ -443,18 +461,19 @@ case IDs, support IDs, reviewer/adjudicator identities, prompts, source text
 V6 evidence.
 
 Live adapter выпускает
-`bhm.semantic-assurance-live-receipt.v5` только для strata-bound label receipt V5 и только
-после той же проверки; проверка выполняется до создания HTTP client. Receipt
-V5 переносит exact curator binding без prompt, evidence или raw model output.
+`bhm.semantic-assurance-live-receipt.v5` только для strata-bound label receipt V5,
+а `bhm.semantic-assurance-live-receipt.v6` — только для matrix-bound label
+receipt V6; проверка выполняется до создания HTTP client. Receipt переносит
+exact curator binding без prompt, evidence или raw model output.
 Это read-only transport evidence, а не доказательство фактического запуска
 модели или качества ответа.
 
-### Privacy-split live V6 и readiness V6
+### Privacy-split live V6, historical readiness V6 и readiness V7
 
 Legacy live receipts V1–V5 остаются restricted owner artifacts: в них есть
 `offline_reports` с per-case evaluation rows. Они не должны становиться
 public/checked-in receipt. Forward-only helper строит из уже проверенного V5
-receipt два exact-bound файла без hash-cycle:
+или V6 receipt два exact-bound файла без hash-cycle:
 
 ```text
 public-live-receipt.v6              # content-free: aggregates, identities and commitments only
@@ -471,13 +490,21 @@ strata, safety counts, repeat coverage и case binding из owner-only reports.
 report нельзя присоединить к другому public run. Финальный readiness receipt
 снова остаётся content-free.
 
+Historical `bhm.semantic-assurance-readiness.v6` принимает только label receipt
+V5 и поэтому не заявляет risk×label matrix gate. Новый
+`bhm.semantic-assurance-readiness.v7` принимает только label receipt V6 и
+legacy live receipt V6, повторно выводит matrix из каждого owner-only report и
+сверяет её с admission binding до проверки runner attestation. V7 receipt
+выдаёт только content-free risk-stratified metrics и сохраняет
+`automatic_apply_ready=false`, `decision=no_go`.
+
 Для запуска с split-output используются оба явных пути; обычный `--output`
 совместим, но пишет restricted legacy receipt:
 
 ```powershell
 uv run python scripts\run-bhm-semantic-assurance-live.py `
   --dataset <owner-only-final-dataset.json> `
-  --label-admission <label-admission-receipt.v5.json> `
+  --label-admission <label-admission-receipt.v6.json> `
   --partition sealed_holdout --repeats 3 `
   --public-output <public-live-receipt.v6.json> `
   --private-evaluation-output <owner-only-private-evaluation.v6.json>
