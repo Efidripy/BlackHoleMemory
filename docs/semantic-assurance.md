@@ -63,9 +63,10 @@ compatibility: минимум `80` cases в `development`, `80` в `validation`,
 direct/temporal/scope/implicit conflict bucket. Это минимум формы corpus, не
 статистическое доказательство универсальной точности.
 
-Для V6 human-curation path нужен только отдельный forward-only contract
-`bhm.semantic-assurance-corpus-admission.v2` с
-`admission_profile=v6_independent_human_curation`. Его hard-coded floor:
+`bhm.semantic-assurance-corpus-admission.v2` — historical V6
+human-curation contract с `admission_profile=v6_independent_human_curation`.
+Он остаётся поддерживаемым для уже сформированной historical цепочки, но не
+может быть повышен до curator-audited tier. Его hard-coded floor:
 
 - `development >= 220`, `validation >= 220`, `sealed_holdout >= 400`;
 - все 11 risk classes присутствуют в каждой из трёх partitions;
@@ -79,7 +80,7 @@ V2 receipt несёт только content-free `partition_risk_counts` и contr
 digest. Он доказывает, что эти declared structural bounds были проверены, но
 не доказывает человеческую идентичность, реальную независимость фактов,
 происхождение источника, factual truth, entailment или relevance. V1 receipt
-не может выдаваться за V6 receipt.
+не может выдаваться за V6 receipt, а V2 — за source-audited V3 receipt.
 
 ### V6 curator-source audit до построения corpus
 
@@ -121,15 +122,16 @@ truth, entailment или relevance. Следующий допустимый ша
 один admitted atomic fact → максимум один independently authored unlabeled
 case. Автоматическое построение case из private proposition запрещено.
 
-V6 corpus receipt может перейти в dual-review только через
+Historical V6 corpus receipt V2 может перейти в dual-review только через
 `bhm.semantic-assurance-human-label-admission.v3`: этот forward-only contract
-принимает только corpus receipt v2, заново сверяет его exact dataset binding,
+принимает только corpus receipt V2, заново сверяет его exact dataset binding,
 `220/220/400` distribution, partition-level risk map и control binding digest.
 Его content-free label receipt сохраняет эти bindings, но всё ещё не
-аутентифицирует reviewers или adjudicator. Existing label-admission v1/v2
-сохраняют исходный смысл и не могут молча повыситься до V6. Отдельный readiness
-v4 должен потреблять именно этот label receipt; до него V6 corpus не даёт
-разрешения model run или automatic apply.
+аутентифицирует reviewers или adjudicator. Новый curator-audited path использует
+только corpus receipt V3 и label receipt V4, как описано в разделе
+«V6 forward-only propagation». Existing label-admission v1/v2 сохраняют
+исходный смысл и не могут молча повыситься до V6. Ни один corpus receipt не
+даёт разрешения model run, automatic approve или automatic apply.
 
 Verifier проверяет opaque non-risk IDs, одинаковый payload set с разными
 позициями в A/B packets, blank ledger в порядке каждого packet, отсутствие
@@ -329,34 +331,81 @@ content-free envelope. Она не доказывает физическое в�
 safety. Даже при успешной механической проверке v3 receipt всегда содержит
 `automatic_apply_ready=false` и `decision=no_go`.
 
-## V6 propagation: evaluator, live v4 и readiness v4
+## V6 forward-only propagation: curator audit, evaluator, live v5 и readiness v5
 
-V6 evidence идёт только по отдельной forward-only цепочке:
-`corpus-admission receipt.v2 → human-label-admission receipt.v3 →`
-`evaluator report → live receipt.v4 → readiness receipt.v4`. Старые
-evaluator reports, live v1/v2/v3 и readiness v2/v3 не меняют смысл и не могут
-молча стать V6 evidence.
+Для source-audited V6 действует отдельная forward-only цепочка:
 
-До scoring evaluator повторно сверяет corpus receipt.v2,
-`admission_profile=v6_independent_human_curation`, exact
-`partition_risk_counts`, `v6_control_binding_digest` и link к
-`corpus_pre_admission_digest`. Эти content-free bindings попадают в dataset
-раздел evaluator report. Live adapter повторяет проверку до создания HTTP
-client и выпускает `bhm.semantic-assurance-live-receipt.v4` только для
-label receipt.v3; он несёт те же exact bindings без prompt, evidence или raw
-model output.
+`curator-audit receipt.v1 → corpus-admission receipt.v3 →`
+`human-label-admission receipt.v4 → evaluator report → live receipt.v5 →`
+`readiness receipt.v5 (pre-attestation core.v3)`.
 
-Readiness v4 принимает только пару label receipt.v3 и live receipt.v4,
-сверяет их byte-for-byte нормализованные V6 bindings, включает их в
-`pre-attestation core.v2` и финальный receipt. Подпись runner остаётся
-attestation v2 и подписывает только pre-attestation digest, поэтому hash-цикл
-не возникает. V6 floors являются минимумами (`development >=220`,
-`validation >=220`, `sealed_holdout >=400`), а не требованием ровно 840 cases.
+Историческая цепочка `corpus-admission receipt.v2 → label receipt.v3 → live
+receipt.v4 → readiness receipt.v4` остаётся валидной в своей исходной границе,
+но не может быть переименована, дополнена или молча повышена до
+source-audited V6. То же относится к старым evaluator reports, live v1/v2/v3
+и readiness v2/v3: они сохраняют прежний смысл и не являются доказательством
+нового tier.
 
-Это сохраняет declared structural continuity, но не доказывает identity или
-независимость humans, factual truth, entailment, relevance, полноту hidden
+### Curator-audit receipt.v1 и corpus receipt.v3
+
+`bhm.semantic-assurance-curator-audit-receipt.v1` остаётся content-free. Он
+связывает три независимых digest-а: `atomic_fact_binding_digest`,
+`control_binding_digest` и `canonical_fragment_binding_digest`, а также их
+aggregate counts. Сам digest receipt недостаточен для join: corpus V3 обязан
+повторно вычислить и сопоставить все три binding-а с private
+`curator_case_bindings`.
+
+Каждая строка `curator_case_bindings` имеет ровно один opaque `case_id` и
+`atomic_fact_id`, exact canonical fragment SHA-256 и `source_kind`, а также
+closed-vocabulary control profile: support-count, length bucket, document
+genre, relation/adversarial form и surfaced dimensions. Corpus V3 требует
+one-to-one case/control coverage, exact partition/risk recomputation и
+`admission_profile=v6_curator_audited_independent_human_curation`. Изменение
+одного case, atomic fact, control, fragment hash или source kind отклоняется,
+даже если aggregate counts совпадают.
+
+Receipt V3 сохраняет structural floors (`development >=220`,
+`validation >=220`, `sealed_holdout >=400`), all-11-risk coverage и sealed
+conflict floors. Он доказывает только корректность declared join и повторной
+проверки канонических bytes; он не доказывает curator identity, human
+independence, factual truth, entailment, relevance или полноту hidden
+conflicts. Автоматическое построение reviewer cases из private propositions
+запрещено.
+
+### Label V4, evaluator binding и live V5
+
+`bhm.semantic-assurance-human-label-admission.v4` принимает только exact
+corpus receipt V3 и повторяет его curator binding byte-for-byte. V1/V2/V3
+label contracts не меняются и остаются historical/compatibility paths.
+
+До scoring evaluator повторно проверяет receipt V3, exact dataset binding,
+`partition_risk_counts`, `v6_control_binding_digest`, `curator_audit` и link к
+`corpus_pre_admission_digest`. Эти content-free values входят в dataset
+раздел evaluator report. Отчёт с label receipt V3/V4 mismatch не является
+V6 evidence.
+
+Live adapter выпускает
+`bhm.semantic-assurance-live-receipt.v5` только для label receipt V4 и только
+после той же проверки; проверка выполняется до создания HTTP client. Receipt
+V5 переносит exact curator binding без prompt, evidence или raw model output.
+Это read-only transport evidence, а не доказательство фактического запуска
+модели или качества ответа.
+
+### Readiness V5 и trusted-runner boundary
+
+Readiness V5 принимает только согласованные label receipt V4, evaluator report
+и live receipt V5. Он сверяет byte-for-byte curator bindings, включает их в
+`pre-attestation core.v3`, а затем в финальный readiness receipt. Existing
+runner attestation envelope не расширяется: подписывается digest core после
+того, как core содержит exact curator binding, поэтому hash-cycle не
+возникает.
+
+Механическая continuity этой цепочки не доказывает identity или независимость
+human reviewers, factual truth, entailment, relevance, полноту hidden
 conflicts, фактическое HTTP/model execution либо универсальную безопасность.
-Даже сформированный v4 receipt неизменно возвращает
-`automatic_apply_ready=false` и `decision=no_go`; реальный V6 corpus,
-dual-review/adjudication, sealed model run и owner safety/deployment decision
-остаются отдельными обязательными gates.
+Даже полностью сформированный V5 receipt неизменно возвращает
+`automatic_apply_ready=false` и `decision=no_go`. Реальный V6 corpus,
+dual-review/adjudication, sealed local-model run, shadow/human-oracle,
+disposable SQLite fault/rollback rehearsal и отдельный owner
+safety/deployment decision остаются обязательными gates. Automatic semantic
+approve/apply не становится разрешённым ни на одной стадии этой цепочки.

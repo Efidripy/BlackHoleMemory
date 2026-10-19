@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+import blackholememory.semantic_assurance_readiness as readiness
 from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
 from blackholememory.semantic_assurance_evaluation import recompute_semantic_assurance_results
 from blackholememory.semantic_assurance_corpus_admission import verify_semantic_assurance_corpus_admission
@@ -17,6 +18,7 @@ from blackholememory.semantic_assurance_readiness import SemanticAssuranceReadin
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v3
 from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v4
+from blackholememory.semantic_assurance_readiness import assess_semantic_assurance_readiness_v5
 from blackholememory.semantic_assurance_readiness import load_semantic_assurance_readiness
 from blackholememory.semantic_assurance_runner_attestation import runner_attestation_payload_digest
 from blackholememory.semantic_assurance_runner_attestation import runner_trust_registry_digest
@@ -515,6 +517,47 @@ def _v4_live(evidence: dict[str, object]) -> None:
     _rebind_dependents(evidence)
 
 
+def _v5_live(evidence: dict[str, object]) -> None:
+    _v4_live(evidence)
+    admission = evidence["admission_receipt"]
+    live = evidence["live_receipt"]
+    assert isinstance(admission, dict) and isinstance(live, dict)
+    corpus = admission["corpus"]
+    corpus_admission = admission["corpus_admission"]
+    assert isinstance(corpus, dict) and isinstance(corpus_admission, dict)
+    audit = corpus_admission["curator_audit"]
+    assert isinstance(audit, dict)
+    live["schema_version"] = "bhm.semantic-assurance-live-receipt.v5"
+    live["label_admission"] = {
+        "receipt_schema_version": "bhm.semantic-assurance-human-label-admission-receipt.v4",
+        "admission_digest": admission["admission_digest"],
+        "corpus_pre_admission_digest": corpus["corpus_pre_admission_digest"],
+        "corpus_admission_digest": corpus_admission["admission_digest"],
+        "admission_profile": corpus_admission["admission_profile"],
+        "partition_risk_counts": corpus_admission["partition_risk_counts"],
+        "v6_control_binding_digest": corpus_admission["v6_control_binding_digest"],
+        "curator_audit": audit,
+    }
+    reports = live["offline_reports"]
+    assert isinstance(reports, list)
+    for report in reports:
+        assert isinstance(report, dict)
+        dataset = report["dataset"]
+        assert isinstance(dataset, dict)
+        dataset.update({
+            "label_independence": "attested_structurally_bound_with_v6_curator_audited_corpus_not_identity_authenticated",
+            "label_admission_version": "v4_v6_curator_audited",
+            "human_label_admission_digest": admission["admission_digest"],
+            "corpus_pre_admission_digest": corpus["corpus_pre_admission_digest"],
+            "admission_profile": corpus_admission["admission_profile"],
+            "partition_risk_counts": corpus_admission["partition_risk_counts"],
+            "v6_control_binding_digest": corpus_admission["v6_control_binding_digest"],
+            "curator_audit": audit,
+        })
+    _rebind_live(evidence)
+    _rebind_dependents(evidence)
+
+
 def _runner_registry(private: Ed25519PrivateKey) -> dict[str, object]:
     public_key = private.public_key().public_bytes_raw()
     registry: dict[str, object] = {
@@ -588,6 +631,39 @@ def _v4_pre_digest(evidence: dict[str, object], source: dict[str, str]) -> str:
         "source_identity": source,
         "readiness_v2": {key: value for key, value in v2.items() if key != "readiness_digest"},
         "v6_label_admission": label_admission,
+        "live_report_digest": live["report_digest"],
+        "event_chain": chain_summary,
+        "inventory_before_digest": _digest(inventory["before"]),
+        "inventory_after_digest": _digest(inventory["after"]),
+    }
+    return _digest(core)
+
+
+def _v5_pre_digest(evidence: dict[str, object], source: dict[str, str]) -> str:
+    v2 = assess_semantic_assurance_readiness({
+        "schema_version": "bhm.semantic-assurance-readiness.v2",
+        **{key: evidence[key] for key in (
+            "admission_receipt", "live_receipt", "threshold_policy", "risk_coverage",
+            "shadow_human_oracle", "sqlite_rehearsal", "architecture_invariants", "owner_charter",
+        )},
+    }, _allow_live_v5=True, _required_label_admission_schema="bhm.semantic-assurance-human-label-admission-receipt.v4")
+    live = evidence["live_receipt"]
+    assert isinstance(live, dict)
+    execution = live["execution"]
+    inventory = live["inventory"]
+    label_admission = live["label_admission"]
+    assert isinstance(execution, dict) and isinstance(inventory, dict) and isinstance(label_admission, dict)
+    chain = execution["event_chain"]
+    assert isinstance(chain, dict)
+    chain_summary = {key: chain[key] for key in (
+        "event_count", "first_event_digest", "last_event_digest", "chain_root",
+        "inventory_before_digest", "inventory_after_digest",
+    )}
+    core = {
+        "schema_version": "bhm.semantic-assurance-pre-attestation-core.v3",
+        "source_identity": source,
+        "readiness_v2": {key: value for key, value in v2.items() if key != "readiness_digest"},
+        "v6_curator_audited_label_admission": label_admission,
         "live_report_digest": live["report_digest"],
         "event_chain": chain_summary,
         "inventory_before_digest": _digest(inventory["before"]),
@@ -704,6 +780,80 @@ def _v4_evidence(tmp_path: Path) -> tuple[dict[str, object], dict[str, object]]:
     return evidence, registry
 
 
+def _v5_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[dict[str, object], dict[str, object]]:
+    evidence = _evidence(tmp_path, v6=True)
+    admission = evidence["admission_receipt"]
+    assert isinstance(admission, dict)
+    corpus_admission = admission["corpus_admission"]
+    assurance = admission["assurance"]
+    assert isinstance(corpus_admission, dict) and isinstance(assurance, dict)
+    corpus_admission.update({
+        "receipt_schema_version": "bhm.semantic-assurance-corpus-admission-receipt.v3",
+        "admission_profile": "v6_curator_audited_independent_human_curation",
+        "curator_audit": {
+            "receipt_schema_version": "bhm.semantic-assurance-curator-audit-receipt.v1",
+            "audit_digest": "1" * 64,
+            "atomic_fact_binding_digest": "2" * 64,
+            "control_binding_digest": "3" * 64,
+            "canonical_fragment_binding_digest": "4" * 64,
+        },
+    })
+    admission["schema_version"] = "bhm.semantic-assurance-human-label-admission-receipt.v4"
+    assurance["v6_curator_audit_exactly_bound"] = True
+    admission["admission_digest"] = _digest({key: value for key, value in admission.items() if key != "admission_digest"})
+    monkeypatch.setattr(readiness, "verify_semantic_assurance_label_admission", lambda value: value)
+    _v5_live(evidence)
+
+    source = _source_identity()
+    private = Ed25519PrivateKey.generate()
+    registry = _runner_registry(private)
+    live = evidence["live_receipt"]
+    policy = evidence["threshold_policy"]
+    assert isinstance(live, dict) and isinstance(policy, dict)
+    execution = live["execution"]
+    inventory = live["inventory"]
+    assert isinstance(execution, dict) and isinstance(inventory, dict)
+    chain = execution["event_chain"]
+    assert isinstance(chain, dict)
+    public_key_b64 = base64.b64encode(private.public_key().public_bytes_raw()).decode("ascii")
+    runner: dict[str, object] = {
+        "schema_version": "bhm.semantic-assurance-runner-attestation.v2",
+        **{key: value for key, value in source.items() if key != "schema_version"},
+        "model": {"model_id": DEFAULT_MODEL_ID, "model_variant": DEFAULT_MODEL_VARIANT, "endpoint": DEFAULT_BASE_URL},
+        "prompt_contract_digest": hashlib.sha256(PROMPT_CONTRACT.encode("utf-8")).hexdigest(),
+        "corpus_admission_digest": corpus_admission["admission_digest"],
+        "label_admission_digest": admission["admission_digest"],
+        "threshold_policy_digest": _digest(policy),
+        "live_report_digest": live["report_digest"],
+        "pre_attestation_readiness_digest": _v5_pre_digest(evidence, source),
+        "event_chain": {
+            "event_count": chain["event_count"],
+            "first_event_digest": chain["first_event_digest"],
+            "last_event_digest": chain["last_event_digest"],
+            "chain_root": chain["chain_root"],
+        },
+        "inventory_before_digest": _digest(inventory["before"]),
+        "inventory_after_digest": _digest(inventory["after"]),
+        "execution": {
+            "read_only": True, "automatic_apply": False, "sqlite_mutation": False,
+            "mem0_mutation": False, "qdrant_mutation": False, "model_load_requested": False,
+            "model_unload_requested": False, "model_download_requested": False,
+            "model_configuration_requested": False,
+        },
+        "signer": {"signer_id": "readiness-v3-runner", "public_key_b64": public_key_b64, "signature_b64": ""},
+        "trust_registry_digest": registry["registry_digest"],
+    }
+    runner["signer"]["signature_b64"] = base64.b64encode(private.sign(bytes.fromhex(runner_attestation_payload_digest(runner)))).decode("ascii")  # type: ignore[index]
+    evidence = {
+        **evidence,
+        "schema_version": "bhm.semantic-assurance-readiness.v5",
+        "source_identity": source,
+        "runner_attestation": runner,
+    }
+    return evidence, registry
 
 
 def test_complete_evidence_remains_no_go_and_is_content_free(tmp_path: Path) -> None:
@@ -785,6 +935,41 @@ def test_v4_preserves_v6_bindings_in_signed_readiness_path(tmp_path: Path) -> No
     assert receipt["checks"]["v6_live_binding"] is True
     assert receipt["decision"]["automatic_apply_ready"] is False
     assert receipt["decision"]["decision"] == "no_go"
+
+
+def test_v5_preserves_curator_audit_in_signed_readiness_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence, registry = _v5_evidence(tmp_path, monkeypatch)
+
+    receipt = assess_semantic_assurance_readiness_v5(evidence, trust_registry=registry)
+
+    assert receipt["schema_version"] == "bhm.semantic-assurance-readiness-receipt.v5"
+    assert receipt["bindings"]["admission_profile"] == "v6_curator_audited_independent_human_curation"
+    assert len(receipt["bindings"]["curator_audit"]["canonical_fragment_binding_digest"]) == 64
+    assert receipt["checks"]["v6_curator_audit_binding"] is True
+    assert receipt["checks"]["v6_live_binding"] is True
+    assert receipt["decision"] == {
+        "automatic_apply_ready": False,
+        "decision": "no_go",
+        "reason": "curator-audited V6 structural evidence is not deployment authorization",
+    }
+
+
+def test_v5_rejects_tampered_curator_audit_before_runner_verification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence, registry = _v5_evidence(tmp_path, monkeypatch)
+    admission = evidence["admission_receipt"]
+    assert isinstance(admission, dict)
+    audit = admission["corpus_admission"]["curator_audit"]
+    assert isinstance(audit, dict)
+    audit["audit_digest"] = "not-a-digest"
+
+    with pytest.raises(SemanticAssuranceReadinessError, match="curator audit audit_digest"):
+        assess_semantic_assurance_readiness_v5(evidence, trust_registry=registry)
 
 
 @pytest.mark.parametrize(

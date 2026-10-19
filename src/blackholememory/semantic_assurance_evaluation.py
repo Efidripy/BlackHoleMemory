@@ -23,6 +23,7 @@ PREDICTION_SCHEMA_VERSION = "bhm.semantic-assurance-predictions.v1"
 _LABEL_ADMISSION_RECEIPT_V1 = "bhm.semantic-assurance-human-label-admission-receipt.v1"
 _LABEL_ADMISSION_RECEIPT_V2 = "bhm.semantic-assurance-human-label-admission-receipt.v2"
 _LABEL_ADMISSION_RECEIPT_V3 = "bhm.semantic-assurance-human-label-admission-receipt.v3"
+_LABEL_ADMISSION_RECEIPT_V4 = "bhm.semantic-assurance-human-label-admission-receipt.v4"
 _V2_CORPUS_ADMISSION_KEYS = frozenset({
     "receipt_schema_version",
     "admission_digest",
@@ -55,6 +56,19 @@ _V3_CORPUS_ADMISSION_KEYS = _V2_CORPUS_ADMISSION_KEYS | frozenset({
     "admission_profile",
     "partition_risk_counts",
     "v6_control_binding_digest",
+})
+_V4_CURATOR_AUDIT_KEYS = frozenset({
+    "receipt_schema_version",
+    "audit_digest",
+    "atomic_fact_binding_digest",
+    "control_binding_digest",
+    "canonical_fragment_binding_digest",
+})
+_V4_CORPUS_ADMISSION_KEYS = _V2_CORPUS_ADMISSION_KEYS | frozenset({
+    "admission_profile",
+    "partition_risk_counts",
+    "v6_control_binding_digest",
+    "curator_audit",
 })
 PARTITIONS = frozenset({"development", "validation", "sealed_holdout"})
 FACTUALITY_LABELS = ("true", "false", "insufficient", "ambiguous")
@@ -173,12 +187,17 @@ def evaluate_semantic_assurance(
         "human_label_admission_digest": admitted_labels["admission_digest"],
         "corpus_pre_admission_digest": admitted_labels["corpus_pre_admission_digest"],
     }
-    if admitted_labels["version"] == "v3_v6_corpus_pre_admitted":
+    if admitted_labels["version"] in {
+        "v3_v6_corpus_pre_admitted",
+        "v4_v6_curator_audited",
+    }:
         dataset_receipt.update({
             "admission_profile": admitted_labels["admission_profile"],
             "partition_risk_counts": admitted_labels["partition_risk_counts"],
             "v6_control_binding_digest": admitted_labels["v6_control_binding_digest"],
         })
+    if admitted_labels["version"] == "v4_v6_curator_audited":
+        dataset_receipt["curator_audit"] = admitted_labels["curator_audit"]
     report_core = {
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "mode": "offline-content-free-classification-evaluation",
@@ -694,15 +713,24 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
             "safety_case_eligible": False,
             "acceptance_scope": "proposal_only_structural_label_measurement",
         }
-    if schema_version not in {_LABEL_ADMISSION_RECEIPT_V2, _LABEL_ADMISSION_RECEIPT_V3}:
+    if schema_version not in {
+        _LABEL_ADMISSION_RECEIPT_V2,
+        _LABEL_ADMISSION_RECEIPT_V3,
+        _LABEL_ADMISSION_RECEIPT_V4,
+    }:
         raise SemanticAssuranceEvaluationError("semantic assurance human-label admission receipt version is unsupported")
-    is_v6 = schema_version == _LABEL_ADMISSION_RECEIPT_V3
+    is_v6 = schema_version in {_LABEL_ADMISSION_RECEIPT_V3, _LABEL_ADMISSION_RECEIPT_V4}
+    is_v6_curator_audited = schema_version == _LABEL_ADMISSION_RECEIPT_V4
     corpus_pre_admission_digest = _sha256_digest(
         corpus.get("corpus_pre_admission_digest"),
         "semantic assurance corpus pre-admission digest",
     )
     corpus_admission = receipt.get("corpus_admission")
-    expected_corpus_admission_keys = _V3_CORPUS_ADMISSION_KEYS if is_v6 else _V2_CORPUS_ADMISSION_KEYS
+    expected_corpus_admission_keys = (
+        _V4_CORPUS_ADMISSION_KEYS
+        if is_v6_curator_audited
+        else _V3_CORPUS_ADMISSION_KEYS if is_v6 else _V2_CORPUS_ADMISSION_KEYS
+    )
     if not isinstance(corpus_admission, Mapping) or set(corpus_admission) != expected_corpus_admission_keys:
         raise SemanticAssuranceEvaluationError("semantic assurance corpus pre-admission binding is invalid")
     _sha256_digest(
@@ -739,6 +767,24 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
     }
     if not is_v6:
         return result
+    if is_v6_curator_audited:
+        curator_audit = _validate_v6_curator_audited_corpus_admission_binding(corpus_admission, rows)
+        return {
+            **result,
+            "status": "attested_structurally_bound_with_v6_curator_audited_corpus_not_identity_authenticated",
+            "version": "v4_v6_curator_audited",
+            "acceptance_scope": "proposal_only_v6_curator_audited_human_labelled_measurement",
+            "admission_profile": "v6_curator_audited_independent_human_curation",
+            "partition_risk_counts": {
+                partition: dict(sorted(corpus_admission["partition_risk_counts"][partition].items()))
+                for partition in sorted(PARTITIONS)
+            },
+            "v6_control_binding_digest": _sha256_digest(
+                corpus_admission.get("v6_control_binding_digest"),
+                "semantic assurance V6 control binding",
+            ),
+            "curator_audit": curator_audit,
+        }
     _validate_v6_corpus_admission_binding(corpus_admission, rows)
     return {
         **result,
@@ -769,6 +815,15 @@ def _validate_v6_corpus_admission_binding(
     ):
         raise SemanticAssuranceEvaluationError("semantic assurance V6 corpus admission tier is invalid")
     _sha256_digest(corpus_admission.get("v6_control_binding_digest"), "semantic assurance V6 control binding")
+    _validate_v6_partition_risk_distribution(corpus_admission, rows)
+
+
+def _validate_v6_partition_risk_distribution(
+    corpus_admission: Mapping[str, Any],
+    rows: Sequence[Mapping[str, str | list[str]]],
+) -> None:
+    """Recompute the V6 partition/risk grid from this exact dataset."""
+
     partition_risk_counts = corpus_admission.get("partition_risk_counts")
     if not isinstance(partition_risk_counts, Mapping) or set(partition_risk_counts) != PARTITIONS:
         raise SemanticAssuranceEvaluationError("semantic assurance V6 partition risk distribution is invalid")
@@ -793,6 +848,40 @@ def _validate_v6_corpus_admission_binding(
             or dict(observed) != expected[partition]
         ):
             raise SemanticAssuranceEvaluationError("semantic assurance V6 partition risk distribution does not bind this dataset")
+
+
+def _validate_v6_curator_audited_corpus_admission_binding(
+    corpus_admission: Mapping[str, Any],
+    rows: Sequence[Mapping[str, str | list[str]]],
+) -> dict[str, str]:
+    """Require the forward-only curator-audited V6 corpus tier.
+
+    This is deliberately separate from :func:`_validate_v6_corpus_admission_binding`.
+    A v2 corpus receipt may be structurally V6-complete, but it cannot be
+    upgraded to canonical-fragment-audited evidence by adding optional fields.
+    """
+
+    if (
+        corpus_admission.get("receipt_schema_version")
+        != "bhm.semantic-assurance-corpus-admission-receipt.v3"
+        or corpus_admission.get("admission_profile")
+        != "v6_curator_audited_independent_human_curation"
+    ):
+        raise SemanticAssuranceEvaluationError("semantic assurance curator-audited corpus admission tier is invalid")
+    curator_audit = corpus_admission.get("curator_audit")
+    if not isinstance(curator_audit, Mapping) or set(curator_audit) != _V4_CURATOR_AUDIT_KEYS:
+        raise SemanticAssuranceEvaluationError("semantic assurance curator audit binding is invalid")
+    if curator_audit.get("receipt_schema_version") != "bhm.semantic-assurance-curator-audit-receipt.v1":
+        raise SemanticAssuranceEvaluationError("semantic assurance curator audit receipt version is invalid")
+    normalized_audit = {
+        key: _sha256_digest(curator_audit.get(key), f"semantic assurance curator audit {key}")
+        for key in sorted(_V4_CURATOR_AUDIT_KEYS - {"receipt_schema_version"})
+    }
+    _validate_v6_partition_risk_distribution(corpus_admission, rows)
+    return {
+        "receipt_schema_version": "bhm.semantic-assurance-curator-audit-receipt.v1",
+        **normalized_audit,
+    }
 
 
 def _partition_name(value: Any) -> str:

@@ -257,6 +257,52 @@ def test_v3_preserves_and_recomputes_the_v6_corpus_distribution_before_scoring(
         _evaluate_v6_before_scoring(monkeypatch, dataset, tampered)
 
 
+def test_v4_requires_exact_curator_audit_binding_before_scoring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Canonical-source-audited evidence is a distinct forward-only tier."""
+
+    dataset = load_semantic_assurance_dataset_from_raw(_v6_dataset())
+    receipt = _v4_label_admission(dataset, "a" * 64)
+    monkeypatch.setattr(label_admission, "verify_semantic_assurance_label_admission", lambda value: value)
+
+    report = evaluate_semantic_assurance(
+        dataset,
+        _v6_holdout_predictions(dataset),
+        label_admission=receipt,
+    )
+
+    assert report["dataset"]["label_admission_version"] == "v4_v6_curator_audited"
+    assert report["dataset"]["admission_profile"] == "v6_curator_audited_independent_human_curation"
+    assert report["dataset"]["curator_audit"]["audit_digest"] == "1" * 64
+    assert report["gate"]["automatic_apply_ready"] is False
+    assert report["gate"]["automatic_apply_decision"] == "no_go"
+
+    tampered = _v4_label_admission(dataset, "a" * 64)
+    audit = tampered["corpus_admission"]["curator_audit"]
+    assert isinstance(audit, dict)
+    audit["canonical_fragment_binding_digest"] = "not-a-digest"
+    with pytest.raises(SemanticAssuranceEvaluationError, match="curator audit canonical_fragment_binding_digest"):
+        _evaluate_v6_before_scoring(monkeypatch, dataset, tampered)
+
+
+def test_v3_cannot_be_upgraded_by_optional_curator_audit_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset = load_semantic_assurance_dataset_from_raw(_v6_dataset())
+    receipt = _v3_label_admission(dataset, "a" * 64)
+    receipt["corpus_admission"]["curator_audit"] = {
+        "receipt_schema_version": "bhm.semantic-assurance-curator-audit-receipt.v1",
+        "audit_digest": "1" * 64,
+        "atomic_fact_binding_digest": "2" * 64,
+        "control_binding_digest": "3" * 64,
+        "canonical_fragment_binding_digest": "4" * 64,
+    }
+    monkeypatch.setattr(label_admission, "verify_semantic_assurance_label_admission", lambda value: value)
+    with pytest.raises(SemanticAssuranceEvaluationError, match="corpus pre-admission binding"):
+        _evaluate_v6_before_scoring(monkeypatch, dataset, receipt)
+
+
 @pytest.mark.parametrize(
     ("mutation", "message"),
     [
@@ -606,3 +652,20 @@ def _canonical_digest(value: object) -> str:
     return hashlib.sha256(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def _v4_label_admission(dataset: dict[str, object], admission_digest: str) -> dict[str, object]:
+    receipt = _v3_label_admission(dataset, admission_digest)
+    corpus_admission = receipt["corpus_admission"]
+    assert isinstance(corpus_admission, dict)
+    corpus_admission["receipt_schema_version"] = "bhm.semantic-assurance-corpus-admission-receipt.v3"
+    corpus_admission["admission_profile"] = "v6_curator_audited_independent_human_curation"
+    corpus_admission["curator_audit"] = {
+        "receipt_schema_version": "bhm.semantic-assurance-curator-audit-receipt.v1",
+        "audit_digest": "1" * 64,
+        "atomic_fact_binding_digest": "2" * 64,
+        "control_binding_digest": "3" * 64,
+        "canonical_fragment_binding_digest": "4" * 64,
+    }
+    receipt["schema_version"] = "bhm.semantic-assurance-human-label-admission-receipt.v4"
+    return receipt
