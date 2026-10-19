@@ -81,6 +81,46 @@ digest. Он доказывает, что эти declared structural bounds бы
 происхождение источника, factual truth, entailment или relevance. V1 receipt
 не может выдаваться за V6 receipt.
 
+### V6 curator-source audit до построения corpus
+
+До того как человек вручную создаёт reviewer-visible case, private ledger
+`bhm.semantic-assurance-human-curation-ledger.v1` и его paired controls
+`bhm.semantic-assurance-human-curation-controls.v1` проходят отдельный
+локальный audit:
+
+```powershell
+uv run python scripts/validate-bhm-semantic-assurance-curator.py `
+  --atomic-facts E:\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\atomic-facts.json `
+  --control-cells E:\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\control-cells.json `
+  --canonical-root E:\GitHub\repos\BlackHoleMemory `
+  --output E:\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\curator-audit-receipt.json
+```
+
+Он принимает только явно переданные local files, canonical Markdown из
+`docs/**/*.md` и local canonical ADR из `.docs/adr/**/*.md`. Path traversal,
+symlink, runtime/config/token/private paths, non-Markdown source, missing exact
+heading, out-of-range lines или fragment hash mismatch отклоняются до receipt.
+Fragment SHA-256 считается по указанным inclusive строкам после UTF-8/LF
+normalization и без terminal newline. `docs/` фрагмент остаётся public-source
+evidence; `.docs/adr/` intentionally local-only, поэтому receipt связывает его
+content digest, но не выдаёт за Git-revision evidence.
+
+Каждый private atomic fact обязан быть unique opaque SHA-256 ID, иметь
+human-verified canonical fragment, unique normalized private proposition и
+inference mechanism. Paired neutral control cell связывает его ровно с одним
+risk class и closed-vocabulary surface profile. Audit требует минимум
+`220/220/400`, все 11 risks в каждой partition и sealed direct/temporal/scope/
+implicit buckets по `>=50`.
+
+Receipt содержит только counts и three content-free bindings: atomic-fact,
+control и canonical-fragment. В нём нет proposition, mechanism, source text,
+path, heading, line range, identity, prompt, candidate, support или labels.
+Он не создаёт corpus/packets, не аутентифицирует куратора, не доказывает
+происхождение source beyond re-read bytes, semantic independence, factual
+truth, entailment или relevance. Следующий допустимый шаг остаётся ручным:
+один admitted atomic fact → максимум один independently authored unlabeled
+case. Автоматическое построение case из private proposition запрещено.
+
 V6 corpus receipt может перейти в dual-review только через
 `bhm.semantic-assurance-human-label-admission.v3`: этот forward-only contract
 принимает только corpus receipt v2, заново сверяет его exact dataset binding,
