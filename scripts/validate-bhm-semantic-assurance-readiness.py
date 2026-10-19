@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-"""Verify a local, content-free semantic-assurance readiness evidence package.
+"""Verify a local semantic-assurance readiness evidence package.
 
-The command only reads JSON files and writes an optional derived receipt.  It
-never starts a model, contacts a service, opens BHM storage, or authorises an
-automatic lifecycle action.
+V6 package input may name an owner-only private evaluation bundle that is
+needed to recompute metrics; the optional derived receipt remains content-free.
+The command never starts a model, contacts a service, opens BHM storage, or
+authorises an automatic lifecycle action.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from blackholememory.semantic_assurance_readiness import write_semantic_assuranc
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--evidence", type=Path, required=True, help="local content-free readiness evidence JSON")
+    parser.add_argument("--evidence", type=Path, required=True, help="local readiness evidence JSON; V6 may reference owner-only data")
     parser.add_argument("--output", type=Path, help="optional derived content-free readiness receipt JSON")
     args = parser.parse_args(argv)
     try:

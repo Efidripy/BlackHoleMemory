@@ -31,7 +31,42 @@ def _inventory() -> dict[str, object]:
 def _valid_result(case_id: str) -> dict[str, object]:
     raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
     case = next(item for item in raw["cases"] if item["case_id"] == case_id)
-    return dict(case["expected"])
+    expected = dict(case["expected"])
+    return {
+        **expected,
+        "support_relevance": {
+            f"support_{index}": expected["support_relevance"][support["support_id"]]
+            for index, support in enumerate(case["supports"], start=1)
+        },
+    }
+
+
+def test_live_classifier_prompt_requires_quoted_json_labels() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    case = raw["cases"][0]
+
+    payload = live._chat_payload(case, live.DEFAULT_MODEL_ID)
+
+    assert payload["model"] == live.DEFAULT_MODEL_ID
+    assert 'Every classifier label is a JSON string in double quotes' in payload["input"]
+    assert 'Never emit a bare label token, Python-style dictionary, code fence' in payload["input"]
+    assert '"no_op"' in payload["input"]
+    assert "support_ref=support_1" in payload["input"]
+    assert "support_id=" not in payload["input"]
+    assert "response_format" not in payload
+
+
+def test_live_classifier_parser_requires_exact_ephemeral_support_aliases() -> None:
+    raw = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    case = raw["cases"][0]
+    expected = dict(case["expected"])
+    aliased = _valid_result(str(case["case_id"]))
+
+    parsed = live._parse_classification(json.dumps(aliased), case)
+    assert parsed["support_relevance"] == expected["support_relevance"]
+
+    with pytest.raises(live._LiveFailure):
+        live._parse_classification(json.dumps(expected), case)
 
 
 def test_live_adapter_uses_only_inventory_and_chat_and_emits_content_free_receipt(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -94,6 +129,65 @@ def test_live_adapter_uses_only_inventory_and_chat_and_emits_content_free_receip
     assert len({item["results_digest"] for item in report["offline_reports"]}) == 1
     assert "Synthetic projection work" not in rendered
     assert "support_id=s1" not in rendered
+
+
+def test_v6_public_live_receipt_separates_private_per_case_evaluation_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeClient:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> "FakeClient":
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def get(self, path: str) -> httpx.Response:
+            return _response(_inventory())
+
+        def post(self, path: str, *, json: dict[str, Any]) -> httpx.Response:
+            case_id = next(case_id for case_id in _holdout_ids() if f"Task: { _prompt_for(case_id) }" in json["input"])
+            return _response({
+                "output": [{"content": json_module_dumps(_valid_result(case_id))}],
+                "stats": {"model_load_time_seconds": 0.0},
+            })
+
+    monkeypatch.setattr(live.httpx, "Client", FakeClient)
+    legacy = live.run_live_semantic_assurance(FIXTURE, repeats=3)
+
+    public, private = live.build_semantic_assurance_live_v6_evidence(legacy)
+    verified = live.verify_semantic_assurance_live_v6_evidence(public, private)
+    public_rendered = json.dumps(public, ensure_ascii=False, sort_keys=True)
+
+    assert public["schema_version"] == live.LIVE_PUBLIC_RECEIPT_SCHEMA_VERSION_V6
+    assert private["schema_version"] == live.LIVE_PRIVATE_EVALUATION_BUNDLE_SCHEMA_VERSION_V6
+    assert public["private_evaluation"]["offline_reports_commitment"] == private["offline_reports_commitment"]
+    assert private["public_anchor"]["public_receipt_digest"] == public["public_receipt_digest"]
+    assert private["offline_reports"] == legacy["offline_reports"]
+    assert verified["offline_report_count"] == 3
+    assert not (live._mapping_keys(public) & {
+        "offline_reports", "results", "case_id", "case_ids", "predictions",
+        "support_relevance", "support_ids", "labels",
+    })
+    assert all(case_id not in public_rendered for case_id in _holdout_ids())
+    assert "support_ref=" not in public_rendered
+
+    public_path = tmp_path / "public-live-v6.json"
+    private_path = tmp_path / "private-evaluation-v6.json"
+    live.write_semantic_assurance_public_live_receipt_v6(public, public_path)
+    live.write_semantic_assurance_private_evaluation_bundle_v6(private, public, private_path)
+    assert json.loads(public_path.read_text(encoding="utf-8")) == public
+    assert json.loads(private_path.read_text(encoding="utf-8")) == private
+
+    tampered = json.loads(json.dumps(private))
+    tampered["offline_reports"][0]["results"] = []
+    tampered_core = {key: value for key, value in tampered.items() if key != "private_bundle_digest"}
+    tampered["private_bundle_digest"] = live._digest(tampered_core)
+    with pytest.raises(live.SemanticAssuranceLiveError, match="binding"):
+        live.verify_semantic_assurance_live_v6_evidence(public, tampered)
 
 
 def test_v3_event_chain_has_exact_1200_ordered_content_free_events_and_binds_inventories() -> None:
@@ -378,9 +472,9 @@ def test_live_adapter_v4_rejects_offline_report_with_substituted_v6_binding() ->
     assert live._v6_reports_bind_label([report], binding, expected_count=1) is False
 
 
-def test_live_adapter_emits_forward_only_v5_receipt_with_exact_curator_audit_binding() -> None:
+def test_live_adapter_emits_forward_only_v5_receipt_with_exact_curator_audit_and_strata_binding() -> None:
     dataset = _v6_dataset()
-    label_admission = _v4_label_admission(dataset)
+    label_admission = _v5_label_admission(dataset)
     receipt = live._receipt(
         dataset=dataset,
         partition="sealed_holdout",
@@ -402,9 +496,11 @@ def test_live_adapter_emits_forward_only_v5_receipt_with_exact_curator_audit_bin
 
     assert receipt["schema_version"] == live.LIVE_RECEIPT_SCHEMA_VERSION_V5
     binding = receipt["label_admission"]
-    assert binding["receipt_schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v4"
+    assert binding["receipt_schema_version"] == "bhm.semantic-assurance-human-label-admission-receipt.v5"
     assert binding["admission_profile"] == "v6_curator_audited_independent_human_curation"
     assert binding["curator_audit"]["canonical_fragment_binding_digest"] == "4" * 64
+    assert binding["sealed_readiness_strata_binding_digest"] == "5" * 64
+    assert binding["sealed_readiness_strata_minimum_population"] == 80
     assert receipt["gate"]["automatic_apply_ready"] is False
     assert receipt["gate"]["automatic_apply_decision"] == "no_go"
 
@@ -413,7 +509,7 @@ def test_live_adapter_v5_rejects_tampered_curator_audit_before_http(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     dataset = _v6_dataset()
-    receipt = _v4_label_admission(dataset)
+    receipt = _v5_label_admission(dataset)
     audit = receipt["corpus_admission"]["curator_audit"]
     assert isinstance(audit, dict)
     audit["atomic_fact_binding_digest"] = "not-a-digest"
@@ -580,7 +676,7 @@ def _v3_label_admission(dataset: dict[str, object]) -> dict[str, object]:
     }
 
 
-def _v4_label_admission(dataset: dict[str, object]) -> dict[str, object]:
+def _v5_label_admission(dataset: dict[str, object]) -> dict[str, object]:
     receipt = _v3_label_admission(dataset)
     corpus_admission = receipt["corpus_admission"]
     assert isinstance(corpus_admission, dict)
@@ -593,10 +689,13 @@ def _v4_label_admission(dataset: dict[str, object]) -> dict[str, object]:
         "control_binding_digest": "3" * 64,
         "canonical_fragment_binding_digest": "4" * 64,
     }
-    receipt["schema_version"] = "bhm.semantic-assurance-human-label-admission-receipt.v4"
+    receipt["schema_version"] = "bhm.semantic-assurance-human-label-admission-receipt.v5"
     assurance = receipt["assurance"]
     assert isinstance(assurance, dict)
     assurance["v6_curator_audit_exactly_bound"] = True
+    assurance["v6_sealed_exact_label_strata_bound"] = True
+    assurance["sealed_readiness_strata_binding_digest"] = "5" * 64
+    assurance["sealed_readiness_strata_minimum_population"] = 80
     return receipt
 
 
