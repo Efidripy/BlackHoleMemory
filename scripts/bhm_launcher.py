@@ -537,14 +537,25 @@ def find_state_root() -> Path:
     return find_project_root()
 
 
+def find_resource_cache_root() -> Path:
+    """Return the writable cache root for resources extracted from a bundle."""
+
+    if bundled_resource_root():
+        base = os.environ.get("LOCALAPPDATA")
+        return (Path(base) if base else Path.home()) / "BlackHoleMemory"
+    return find_project_root()
+
+
 RESOURCE_ROOT = find_resource_root()
 PROJECT_ROOT = find_state_root()
+RESOURCE_CACHE_ROOT = find_resource_cache_root()
 SCRIPTS_DIR = RESOURCE_ROOT / "scripts"
 QDRANT_COMPOSE = RESOURCE_ROOT / "infra" / "qdrant" / "docker-compose.yml"
 LAUNCHER_LOG_DIR = PROJECT_ROOT / ".runtime" / "logs" / "launcher"
-LAUNCHER_SETTINGS_PATH = PROJECT_ROOT / "config" / "launcher-settings.json"
+LAUNCHER_SETTINGS_ROOT = RESOURCE_CACHE_ROOT if is_frozen() else PROJECT_ROOT
+LAUNCHER_SETTINGS_PATH = LAUNCHER_SETTINGS_ROOT / "config" / "launcher-settings.json"
 LAUNCHER_SETTINGS_BACKUP_DIR = PROJECT_ROOT / ".runtime" / "logs" / "launcher" / "config-backups"
-PERSISTENT_RESOURCE_ROOT = PROJECT_ROOT / "resources"
+PERSISTENT_RESOURCE_ROOT = RESOURCE_CACHE_ROOT / "resources"
 
 
 def load_ui_version() -> str:
