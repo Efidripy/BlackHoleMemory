@@ -143,6 +143,13 @@ these records with compatibility task nodes and marks its provenance as
 `explicit-declarations-only` until the source-completeness/publish gate has
 been separately approved.
 
+The service no longer reads or writes that legacy JSON graph at runtime:
+search graph expansion follows outgoing SQLite `depends_on`/`upgrades` links
+whose targets are `active` in SQLite, and `linked_dependencies` on a memory
+upsert are written through the ordinary SQLite link route (live endpoints plus
+ontology admission). Legacy JSON edges reach search only after the operator
+migration below.
+
 The legacy semantic dependency graph is one such read model. Use
 `scripts/plan-bhm-semantic-graph-migration.py` only to produce a bounded,
 content-free, read-only classification against SQLite endpoint state and the

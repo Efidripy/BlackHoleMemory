@@ -256,6 +256,7 @@ class SQLiteMemoryService:
         self,
         *,
         project: str | None = None,
+        memory_id: str | None = None,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """Return persisted SQLite memory links, paging through ``all`` safely."""
@@ -270,6 +271,7 @@ class SQLiteMemoryService:
             page_limit = 10_000 if remaining is None else min(10_000, remaining)
             page = self.repository.list_links(
                 project=project,
+                memory_id=memory_id,
                 limit=page_limit,
                 offset=page_offset,
             )
@@ -387,12 +389,16 @@ class SQLiteMemoryService:
         memory_ids: Iterable[str],
         *,
         project: str | None = None,
+        include_storage_lifecycle: bool = False,
     ) -> list[dict[str, Any]]:
         self._ensure_ready(verify_integrity=False)
-        return [
-            memory.to_record()
-            for memory in self.repository.get_memories(memory_ids, project=project)
-        ]
+        records = []
+        for memory in self.repository.get_memories(memory_ids, project=project):
+            record = memory.to_record()
+            if include_storage_lifecycle:
+                record["lifecycle"] = memory.lifecycle.value
+            records.append(record)
+        return records
 
     def find_exact_identifier_candidate_ids(
         self,

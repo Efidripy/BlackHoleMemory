@@ -123,7 +123,6 @@ from .storage_state import qdrant_required_for_core
 from .mcp_protocol_contract import validate_bhm_remember_arguments
 from .ingress_admission import IngressKind
 from .ingress_admission import admit_ingress
-from .mem0_adapter import BHMGraphManager
 from .mem0_adapter import StorageNotReady
 from .mem0_adapter import decay_lambda_for_payload
 from .mem0_adapter import ensure_memory_collections
@@ -785,7 +784,8 @@ _PROVIDER_WARMUP_STATUS: dict[str, Any] = {
 }
 _VECTOR_CONTEXT_LOCAL = "LOCAL"
 _VECTOR_CONTEXT_GLOBAL = "GLOBAL"
-_GRAPH_EXPANSION_EDGE_TYPES = ["DEPENDS_ON", "UPGRADES"]
+_GRAPH_EXPANSION_RELATIONS = frozenset({"depends_on", "upgrades"})
+_GRAPH_EXPANSION_LINKS_PER_NODE = 100
 _SEMANTIC_LINK_EDGE_TYPES = {"DEPENDS_ON", "UPGRADES", "CONTRADICTS"}
 _GRAPH_FUSION_WEIGHT = 0.04
 _MMR_LAMBDA = min(_env_float("BHM_MMR_LAMBDA", 0.94, 0.0), 1.0)
@@ -793,7 +793,6 @@ _SEMANTIC_READINESS_GATE_ENABLED = _env_enabled("BHM_SEMANTIC_READINESS_GATE", F
 _SEMANTIC_READINESS_CACHE = SemanticReadinessCache(
     ttl_seconds=_env_float("BHM_SEMANTIC_READINESS_CACHE_TTL_SECONDS", 30.0, 1.0)
 )
-_BHM_GRAPH_MANAGER = BHMGraphManager()
 FACT_SYNTHESIS_SYSTEM_PROMPT = """Вы — Ядро Дистилляции Знаний (Knowledge Synthesis Engine).
 Ваша задача — принять трехзонный контекст инженерной сессии и превратить его в один эталонный Кристалл Факта (Fact Crystal).
 
@@ -2673,6 +2672,19 @@ _OBSERVATION_SQLITE_STORES: dict[str, ObservationStore] = {}
 _MEMORY_SERVICE_LOCK = threading.RLock()
 _MEMORY_SERVICES: dict[str, SQLiteMemoryService] = {}
 _LINK_STORE_LOCK = threading.RLock()
+
+
+def _serialized_link_mutation(func):
+    """Hold the link lock across load->save: replace_links deletes links missing from a stale snapshot."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with _LINK_STORE_LOCK:
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
 _TASK_LIFECYCLE_LOCK = threading.RLock()
 _TASK_INGRESS_FROZEN = False
 _TASK_INGRESS_REASON = ""
@@ -6576,6 +6588,7 @@ def _delete_live_memory(request: MemoryDeleteRequest) -> dict:
     return deleted
 
 
+@_serialized_link_mutation
 def _delete_live_memory_hard(request: HardDeleteMemoryRequest) -> dict:
     deleted = _delete_live_memory(MemoryDeleteRequest(id=request.id, project=request.project))
     accepted_projects = _project_aliases(request.project) if request.project else None
@@ -8721,13 +8734,24 @@ async def _add_semantic_dependency_links(record: dict, project_name: str) -> dic
             if not target_id:
                 errors.append({"keyword": keyword, "edge_type": edge_type, "error": "target_not_found"})
                 continue
-            edge = await _BHM_GRAPH_MANAGER.add_semantic_link(source_id, target_id, edge_type)
-            created.append({"source_id": source_id, **edge, "keyword": keyword})
+            # SQLite is the only relation store; the shared route enforces live endpoints and ontology admission.
+            await _run_bounded_write(
+                "bhm.memory.link",
+                _create_memory_link,
+                MemoryLinkRequest(
+                    source_id=source_id,
+                    target_id=target_id,
+                    relation=edge_type.lower(),
+                    project=project_name,
+                ),
+            )
+            created.append({"source_id": source_id, "target_id": target_id, "edge_type": edge_type, "keyword": keyword})
         except Exception as exc:
             errors.append({"keyword": keyword, "edge_type": edge_type, "error": _safe_exception_text(exc)})
     return {"created": created, "errors": errors}
 
 
+@_serialized_link_mutation
 def _create_memory_link(request: MemoryLinkRequest) -> dict:
     project = _canonical_project(request.project)
     if request.source_id == request.target_id:
@@ -8811,6 +8835,7 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
     return link
 
 
+@_serialized_link_mutation
 def _delete_memory_link(request: MemoryLinkDeleteRequest) -> bool:
     project = _canonical_project(request.project)
     links = _load_memory_links()
@@ -11068,6 +11093,7 @@ def _integrity_audit(project: str | None = None) -> dict:
     }
 
 
+@_serialized_link_mutation
 def _repair_live_indexes(request: RepairLiveIndexesRequest) -> dict:
     if not request.project and not request.aggregate:
         raise HTTPException(
@@ -12070,6 +12096,7 @@ def _project_memory_heatmap(project: str | None = None) -> dict:
     return {"project": project, "type_counts": dict(type_counts), "top_tags": dict(tag_counts.most_common(10)), "age_buckets": age_buckets}
 
 
+@_serialized_link_mutation
 def _relation_confidence_set(request: RelationConfidenceRequest) -> dict:
     project = _canonical_project(request.project)
     links = _load_memory_links()
@@ -12083,6 +12110,7 @@ def _relation_confidence_set(request: RelationConfidenceRequest) -> dict:
     raise HTTPException(status_code=404, detail="relation not found")
 
 
+@_serialized_link_mutation
 def _relation_vote_quality(request: RelationVoteRequest) -> dict:
     project = _canonical_project(request.project)
     links = _load_memory_links()
@@ -12635,6 +12663,7 @@ def _alias_stats(project: str | None = None) -> dict:
     return {"project": project, "alias_count": sum(alias_counter.values()), "unique_alias_count": len(alias_counter), "duplicates": sorted(duplicates, key=lambda item: item["count"], reverse=True)}
 
 
+@_serialized_link_mutation
 def _relation_prune_low_quality(request: RelationPruneLowQualityRequest) -> dict:
     if not request.project and not request.aggregate:
         raise HTTPException(
@@ -13246,6 +13275,7 @@ def _admin_import_preview(request: AdminImportPreviewRequest, *, http_request: R
     }
 
 
+@_serialized_link_mutation
 def _admin_import_apply(request: AdminImportApplyRequest, *, http_request: Request) -> dict:
     if request.merge_mode not in {"upsert", "replace"}:
         raise HTTPException(status_code=422, detail={"code": "admin_snapshot_merge_mode_invalid"})
@@ -13797,6 +13827,40 @@ def _copy_graph_expansion_hit(hit: dict, *, source_id: str, link_type: str, grap
     return item
 
 
+def _authoritative_graph_links_sync(source_ids: list[str], project_name: str) -> list[dict[str, str]]:
+    """Return outgoing expansion links from SQLite whose targets are active in SQLite."""
+
+    try:
+        project = _canonical_project(project_name)
+        service = _memory_service()
+        links: list[dict[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for source_id in source_ids:
+            for link in service.list_links(project=project, memory_id=source_id, limit=_GRAPH_EXPANSION_LINKS_PER_NODE):
+                target_id = str(link.get("target_id") or "").strip()
+                relation = str(link.get("relation") or "").strip().lower()
+                if link.get("source_id") != source_id or relation not in _GRAPH_EXPANSION_RELATIONS:
+                    continue
+                if not target_id or (target_id, relation) in seen:
+                    continue
+                seen.add((target_id, relation))
+                links.append({"target_id": target_id, "edge_type": relation.upper()})
+        if not links:
+            return []
+        active_ids = {
+            str(record.get("source_id"))
+            for record in service.get_records(
+                [link["target_id"] for link in links],
+                project=project,
+                include_storage_lifecycle=True,
+            )
+            if record.get("lifecycle") == "active"
+        }
+    except (MemoryServiceNotReady, sqlite3.Error):
+        return []
+    return [link for link in links if link["target_id"] in active_ids]
+
+
 async def _augment_hits_with_graph_expansion(hits: list[dict], project_name: str, now: datetime) -> list[dict]:
     if not hits:
         return hits
@@ -13817,15 +13881,7 @@ async def _augment_hits_with_graph_expansion(hits: list[dict], project_name: str
         source_id = source_aliases[0] if source_aliases else ""
         if not source_aliases or not source_id:
             continue
-        links: list[dict[str, str]] = []
-        seen_link_keys: set[tuple[str, str]] = set()
-        for source_alias in source_aliases:
-            for link in await _BHM_GRAPH_MANAGER.get_linked_nodes(source_alias, _GRAPH_EXPANSION_EDGE_TYPES):
-                link_key = (str(link.get("target_id") or ""), str(link.get("edge_type") or ""))
-                if link_key in seen_link_keys:
-                    continue
-                seen_link_keys.add(link_key)
-                links.append(link)
+        links = await asyncio.to_thread(_authoritative_graph_links_sync, source_aliases, project_name)
         for link in links:
             target_id = str(link.get("target_id") or "").strip()
             link_type = str(link.get("edge_type") or "").strip().upper()

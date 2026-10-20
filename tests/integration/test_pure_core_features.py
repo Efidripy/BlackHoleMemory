@@ -2536,11 +2536,10 @@ def test_federated_search_concurrency(monkeypatch):
 
         embedding_model = Embedder()
 
-    class FakeGraphManager:
-        async def get_linked_nodes(self, node_id: str, edge_types: list[str]):
-            if node_id == "local-hit" and "DEPENDS_ON" in edge_types:
-                return [{"target_id": "dependency-hit", "edge_type": "DEPENDS_ON"}]
-            return []
+    def fake_authoritative_graph_links(source_ids: list[str], _project_name: str):
+        if "local-hit" in source_ids:
+            return [{"target_id": "dependency-hit", "edge_type": "DEPENDS_ON"}]
+        return []
 
     def fake_search_memory_collection(
         *,
@@ -2604,7 +2603,7 @@ def test_federated_search_concurrency(monkeypatch):
 
     monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
     monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeEmbeddingMemory())
-    monkeypatch.setattr(bhm_app, "_BHM_GRAPH_MANAGER", FakeGraphManager())
+    monkeypatch.setattr(bhm_app, "_authoritative_graph_links_sync", fake_authoritative_graph_links)
     monkeypatch.setattr(bhm_app, "_fetch_qdrant_hit_by_source_id", fake_fetch_qdrant_hit_by_source_id)
 
     async def run_search():
