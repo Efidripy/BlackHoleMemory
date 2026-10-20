@@ -25,6 +25,7 @@ from .caller_auth import configured_caller_principal
 from .caller_auth import extract_request_projects
 from .caller_auth import is_caller_token_valid
 from .caller_auth import parse_bearer_token
+from .mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
 from .resource_limits import MCP_SESSION_ADMISSION_TIMEOUT_SECONDS
 
 
@@ -764,7 +765,7 @@ class BhmStreamableHttpGateway:
                 catalog_hash,
                 server_id="bhm",
                 server_version=self.server_version,
-                protocol_version="2025-06-18",
+                protocol_version=CURRENT_PROTOCOL_VERSION,
             ),
         }
 
@@ -782,13 +783,14 @@ class BhmStreamableHttpGateway:
             return
         if not session_id:
             return
-        catalog_hash = self._catalog_hash
-        contract_digest = _transport_contract_digest(
-            catalog_hash,
-            server_id="bhm",
-            server_version=self.server_version,
-            protocol_version=protocol_version,
-        )
+        # Contract identity is server-owned.  The request header records the
+        # client's negotiated protocol for session diagnostics, but must not
+        # change the digest used to compare this session with the server
+        # catalog (a client may send a different protocol header on a later
+        # transport request).
+        identity = await self._catalog_identity_for_session()
+        catalog_hash = identity.get("catalog_hash")
+        contract_digest = identity.get("contract_digest")
         self.sessions.confirm_validated_tool_call(
             session_id,
             client_id="sdk-session-rehydrated",
@@ -867,7 +869,7 @@ class BhmStreamableHttpGateway:
                 self._catalog_hash,
                 server_id="bhm",
                 server_version=self.server_version,
-                protocol_version="2025-06-18",
+                protocol_version=CURRENT_PROTOCOL_VERSION,
             ),
             "dns_rebinding_protection": True,
             "sessions": self.sessions.snapshot(
@@ -875,7 +877,7 @@ class BhmStreamableHttpGateway:
                     self._catalog_hash,
                     server_id="bhm",
                     server_version=self.server_version,
-                    protocol_version="2025-06-18",
+                    protocol_version=CURRENT_PROTOCOL_VERSION,
                 )
             ),
         }
