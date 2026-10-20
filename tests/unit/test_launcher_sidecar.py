@@ -29,6 +29,43 @@ def test_find_state_root_uses_localappdata_without_repo(monkeypatch, tmp_path: P
     assert launcher.find_state_root() == tmp_path / "local" / "BlackHoleMemory"
 
 
+def test_find_resource_cache_root_uses_localappdata_for_frozen_checkout(monkeypatch, tmp_path: Path) -> None:
+    project = tmp_path / "repo"
+    (project / "src" / "blackholememory").mkdir(parents=True)
+    (project / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    monkeypatch.setattr(launcher, "bundled_resource_root", lambda: tmp_path / "bundle")
+    monkeypatch.setattr(launcher, "find_project_root", lambda: project)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "local"))
+    assert launcher.find_state_root() == project
+    assert launcher.find_resource_cache_root() == tmp_path / "local" / "BlackHoleMemory"
+
+
+def test_find_resource_cache_root_uses_project_when_not_frozen(monkeypatch, tmp_path: Path) -> None:
+    project = tmp_path / "repo"
+    monkeypatch.setattr(launcher, "bundled_resource_root", lambda: None)
+    monkeypatch.setattr(launcher, "find_project_root", lambda: project)
+    assert launcher.find_resource_cache_root() == project
+
+
+def test_ensure_persistent_plugin_source_writes_only_to_resource_cache(monkeypatch, tmp_path: Path) -> None:
+    project = tmp_path / "repo"
+    bundle = tmp_path / "bundle"
+    source = bundle / "plugins" / launcher.CODEX_PLUGIN_ID
+    (source / ".codex-plugin").mkdir(parents=True)
+    (source / ".codex-plugin" / "plugin.json").write_text("{}", encoding="utf-8")
+    cache = tmp_path / "local" / "BlackHoleMemory"
+    monkeypatch.setattr(launcher, "bundled_resource_root", lambda: bundle)
+    monkeypatch.setattr(launcher, "find_project_root", lambda: project)
+    monkeypatch.setattr(launcher, "RESOURCE_ROOT", bundle)
+    monkeypatch.setattr(launcher, "PERSISTENT_RESOURCE_ROOT", cache / "resources")
+
+    destination = launcher.ensure_persistent_plugin_source()
+
+    assert destination == cache / "resources" / "plugins" / launcher.CODEX_PLUGIN_ID
+    assert (destination / ".codex-plugin" / "plugin.json").is_file()
+    assert not (project / "resources").exists()
+
+
 def test_sidecar_status_requires_matching_process_identity(monkeypatch, tmp_path: Path) -> None:
     pid_path, _ = launcher._sidecar_paths(tmp_path)
     pid_path.parent.mkdir(parents=True)
