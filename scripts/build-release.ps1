@@ -19,6 +19,18 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Cyan
 }
 
+function Invoke-NativeCommand {
+    param([Parameter(Mandatory = $true)][scriptblock]$Command)
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $Command
+    }
+    finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+}
+
 function Assert-Path {
     param(
         [string]$Path,
@@ -237,7 +249,7 @@ if ($RefreshCanonicalLauncher -and $SkipCanonicalLauncherRefresh) {
     throw "-RefreshCanonicalLauncher and -SkipCanonicalLauncherRefresh cannot be used together."
 }
 Assert-Path -Path $sourceBoundaryScript -Message "Missing local source boundary verifier: $sourceBoundaryScript"
-$boundaryProbe = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sourceBoundaryScript -RepoRoot $repoRoot
+$boundaryProbe = Invoke-NativeCommand { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sourceBoundaryScript -RepoRoot $repoRoot }
 if ($LASTEXITCODE -ne 0) {
     throw "Local source boundary validation failed: $boundaryProbe"
 }
@@ -246,18 +258,18 @@ $expectedVersion = "v$([string]$versionManifest.release_version)"
 if ($Version -ne $expectedVersion) {
     throw "Release version '$Version' does not match canonical version '$expectedVersion'."
 }
-$sourceRevision = (& git -C $repoRoot rev-parse HEAD 2>$null | Select-Object -First 1).ToString().Trim()
+$sourceRevision = (Invoke-NativeCommand { & git -C $repoRoot rev-parse HEAD 2>$null } | Select-Object -First 1).ToString().Trim()
 if ($sourceRevision -notmatch '^[0-9a-fA-F]{40}$') {
     throw "Unable to resolve source revision for release provenance."
 }
 $env:BHM_SOURCE_REVISION = $sourceRevision
 # Ignore unreadable untracked test caches when collecting provenance; tracked
 # modifications remain fully visible and are still marked as a dirty source.
-$sourceStatus = (& git -C $repoRoot status --porcelain --untracked-files=all 2>$null | Out-String).Trim()
+$sourceStatus = (Invoke-NativeCommand { & git -C $repoRoot status --porcelain --untracked-files=all 2>$null } | Out-String).Trim()
 if (-not [string]::IsNullOrWhiteSpace($sourceStatus)) {
     throw "Trusted release build requires an exact clean tracked tree; commit or remove local changes first."
 }
-$sourceTree = (& git -C $repoRoot rev-parse 'HEAD^{tree}' 2>$null | Select-Object -First 1).ToString().Trim()
+$sourceTree = (Invoke-NativeCommand { & git -C $repoRoot rev-parse 'HEAD^{tree}' 2>$null } | Select-Object -First 1).ToString().Trim()
 if ($sourceTree -notmatch '^[0-9a-fA-F]{40}$') {
     throw "Unable to resolve canonical source tree for release provenance."
 }
@@ -276,7 +288,7 @@ $env:PYTHONPATH = if ([string]::IsNullOrWhiteSpace($previousPythonPath)) {
 }
 
 Write-Step "Pre-flighting exact tracked source tree"
-$sourceOnlyProbe = & $seedPython $sourceTreeVerifyScript --source-root $repoRoot --expected-revision $sourceRevision --expected-tree $sourceTree --check-source-only | Out-String
+$sourceOnlyProbe = Invoke-NativeCommand { & $seedPython $sourceTreeVerifyScript --source-root $repoRoot --expected-revision $sourceRevision --expected-tree $sourceTree --check-source-only } | Out-String
 if ($LASTEXITCODE -ne 0) {
     throw "Exact tracked source-tree preflight failed: $sourceOnlyProbe"
 }
@@ -315,19 +327,19 @@ trap {
 }
 
 Write-Step "Creating disposable locked release environment"
-& uv venv --python $seedPython $releaseEnv
+Invoke-NativeCommand { & uv venv --python $seedPython $releaseEnv }
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to create disposable release environment."
 }
 $env:UV_PROJECT_ENVIRONMENT = $releaseEnv
-& uv sync --locked --no-install-project --extra build --project $repoRoot
+Invoke-NativeCommand { & uv sync --locked --no-install-project --extra build --project $repoRoot }
 if ($LASTEXITCODE -ne 0) {
     throw "Locked release environment synchronization failed."
 }
 if (-not (Test-Path -LiteralPath $releasePython)) {
     throw "Disposable release interpreter was not created: $releasePython"
 }
-& $releasePython -m PyInstaller --version *> $null
+Invoke-NativeCommand { & $releasePython -m PyInstaller --version *> $null }
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller is missing after locked release synchronization."
 }
@@ -350,7 +362,7 @@ New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
 
 Write-Step "Materializing immutable tracked source snapshot"
 $sourceSnapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ("bhm-source-" + [guid]::NewGuid().ToString("N"))
-$sourceSnapshotJson = & $seedPython $sourceMaterializeScript --repo-root $repoRoot --output-root $sourceSnapshotRoot --expected-revision $sourceRevision --expected-tree $sourceTree | Out-String
+$sourceSnapshotJson = Invoke-NativeCommand { & $seedPython $sourceMaterializeScript --repo-root $repoRoot --output-root $sourceSnapshotRoot --expected-revision $sourceRevision --expected-tree $sourceTree } | Out-String
 if ($LASTEXITCODE -ne 0) {
     throw "Immutable tracked source materialization failed: $sourceSnapshotJson"
 }
@@ -439,7 +451,7 @@ if (Test-Path -LiteralPath $iconPath) {
 }
 
 try {
-    & $venvPython @pyInstallerArgs
+    Invoke-NativeCommand { & $venvPython @pyInstallerArgs }
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller build failed."
     }
@@ -481,7 +493,7 @@ Copy-Item -LiteralPath (Join-Path $sourceRoot "uv.lock") -Destination (Join-Path
 Copy-Item -LiteralPath $licensePath -Destination (Join-Path $releaseDir "LICENSE") -Force
 
 Write-Step "Verifying exact tracked source snapshot"
-$sourceTreeProbeJson = & $venvPython $sourceTreeVerifyScript --source-root $repoRoot --release-root $releaseDir --expected-revision $sourceRevision --expected-tree $sourceTree | Out-String
+$sourceTreeProbeJson = Invoke-NativeCommand { & $venvPython $sourceTreeVerifyScript --source-root $repoRoot --release-root $releaseDir --expected-revision $sourceRevision --expected-tree $sourceTree } | Out-String
 if ($LASTEXITCODE -ne 0) {
     throw "Initial staged source-tree snapshot verification failed: $sourceTreeProbeJson"
 }
@@ -492,31 +504,31 @@ if ($sourceSnapshot -notmatch '^[0-9a-fA-F]{64}$' -or $sourceSnapshot -ne [strin
 }
 
 Write-Step "Capturing consumed build-input evidence"
-$uvVersion = (& uv --version | Out-String).Trim()
-& $venvPython $captureInputsScript --root $releaseDir --output (Join-Path $releaseDir "build-inputs.json") --source-revision $sourceRevision --source-snapshot-sha256 $sourceSnapshot --launcher $releaseExe --uv-version $uvVersion
+$uvVersion = (Invoke-NativeCommand { & uv --version } | Out-String).Trim()
+Invoke-NativeCommand { & $venvPython $captureInputsScript --root $releaseDir --output (Join-Path $releaseDir "build-inputs.json") --source-revision $sourceRevision --source-snapshot-sha256 $sourceSnapshot --launcher $releaseExe --uv-version $uvVersion }
 if ($LASTEXITCODE -ne 0) {
     throw "Build-input evidence capture failed."
 }
 
 Write-Step "Generating and verifying release manifest"
-& $venvPython $releaseManifestScript --root $releaseDir --expected-version $Version
+Invoke-NativeCommand { & $venvPython $releaseManifestScript --root $releaseDir --expected-version $Version }
 if ($LASTEXITCODE -ne 0) {
     throw "Release manifest generation failed."
 }
-& $venvPython $releaseTrustScript --root $releaseDir --expected-version $Version
+Invoke-NativeCommand { & $venvPython $releaseTrustScript --root $releaseDir --expected-version $Version }
 if ($LASTEXITCODE -ne 0) {
     throw "Release trust metadata generation failed."
 }
-& $venvPython $releaseVerifyScript --release-root $releaseDir --expected-version $Version
+Invoke-NativeCommand { & $venvPython $releaseVerifyScript --release-root $releaseDir --expected-version $Version }
 if ($LASTEXITCODE -ne 0) {
     throw "Staged release verification failed."
 }
-& $venvPython $releaseTrustVerifyScript --release-root $releaseDir --expected-version $Version --expected-source-revision $sourceRevision
+Invoke-NativeCommand { & $venvPython $releaseTrustVerifyScript --release-root $releaseDir --expected-version $Version --expected-source-revision $sourceRevision }
 if ($LASTEXITCODE -ne 0) {
     throw "Staged release trust verification failed."
 }
 Write-Step "Verifying staged source-tree snapshot"
-& $venvPython $sourceTreeVerifyScript --source-root $repoRoot --release-root $releaseDir --expected-revision $sourceRevision --expected-tree $sourceTree
+Invoke-NativeCommand { & $venvPython $sourceTreeVerifyScript --source-root $repoRoot --release-root $releaseDir --expected-revision $sourceRevision --expected-tree $sourceTree }
 if ($LASTEXITCODE -ne 0) {
     throw "Staged source-tree snapshot verification failed."
 }
@@ -524,32 +536,32 @@ if ($LASTEXITCODE -ne 0) {
 Write-Step "Generating release archive"
 Compress-Archive -Path $releaseDir -DestinationPath $zipPath -Force
 Assert-Path -Path $zipPath -Message "Release archive was not created: $zipPath"
-& $venvPython $releaseVerifyScript --archive $zipPath --expected-version $Version
+Invoke-NativeCommand { & $venvPython $releaseVerifyScript --archive $zipPath --expected-version $Version }
 if ($LASTEXITCODE -ne 0) {
     throw "Release archive verification failed."
 }
 $zipHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
 [System.IO.File]::WriteAllText($releaseHashPath, "$zipHash *$([IO.Path]::GetFileName($zipPath))`n", [System.Text.UTF8Encoding]::new($false))
-& $venvPython $releaseTrustVerifyScript --archive $zipPath --expected-version $Version --sidecar $releaseHashPath --expected-source-revision $sourceRevision
+Invoke-NativeCommand { & $venvPython $releaseTrustVerifyScript --archive $zipPath --expected-version $Version --sidecar $releaseHashPath --expected-source-revision $sourceRevision }
 if ($LASTEXITCODE -ne 0) {
     throw "Release archive trust verification failed."
 }
-& $venvPython $sourceTreeVerifyScript --source-root $repoRoot --release-root $releaseDir --expected-revision $sourceRevision --expected-tree $sourceTree
+Invoke-NativeCommand { & $venvPython $sourceTreeVerifyScript --source-root $repoRoot --release-root $releaseDir --expected-revision $sourceRevision --expected-tree $sourceTree }
 if ($LASTEXITCODE -ne 0) {
     throw "Pre-sign source-tree snapshot verification failed."
 }
 if ($SignRelease) {
     Write-Step "Creating detached Ed25519 release signature"
-    & $venvPython $releaseSignScript --archive $zipPath --private-key $SigningKeyPath --expected-version $Version --signer-id $SignerId --authority $SignatureAuthority --source-revision $sourceRevision --repository-root $repoRoot
+    Invoke-NativeCommand { & $venvPython $releaseSignScript --archive $zipPath --private-key $SigningKeyPath --expected-version $Version --signer-id $SignerId --authority $SignatureAuthority --source-revision $sourceRevision --repository-root $repoRoot }
     if ($LASTEXITCODE -ne 0) {
         throw "Detached Ed25519 release signing failed."
     }
-    & $venvPython $releaseSignatureVerifyScript --archive $zipPath --signature "$zipPath.sig" --public-key "$zipPath.pub" --receipt "$zipPath.trust.json" --expected-version $Version --trust-registry $signerTrustRegistry --expected-source-revision $sourceRevision
+    Invoke-NativeCommand { & $venvPython $releaseSignatureVerifyScript --archive $zipPath --signature "$zipPath.sig" --public-key "$zipPath.pub" --receipt "$zipPath.trust.json" --expected-version $Version --trust-registry $signerTrustRegistry --expected-source-revision $sourceRevision }
     if ($LASTEXITCODE -ne 0) {
         throw "Detached Ed25519 release signature verification failed."
     }
 }
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sourceBoundaryScript -RepoRoot $repoRoot -StagingRoot $releaseDir -ArchivePath $zipPath
+Invoke-NativeCommand { & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $sourceBoundaryScript -RepoRoot $repoRoot -StagingRoot $releaseDir -ArchivePath $zipPath }
 if ($LASTEXITCODE -ne 0) {
     throw "Local source boundary validation failed for release artifact."
 }
