@@ -215,6 +215,57 @@ def test_streamable_http_tool_call_uses_shared_dispatcher():
     asyncio.run(exercise())
 
 
+def test_streamable_http_first_tool_call_uses_server_contract_identity():
+    async def dispatch(message: dict[str, Any]) -> dict[str, Any]:
+        if message["method"] == "tools/list":
+            return {
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "result": {
+                    "tools": [
+                        {
+                            "name": "bhm_echo",
+                            "description": "Echo a value.",
+                            "inputSchema": {"type": "object", "properties": {"value": {"type": "string"}}},
+                        }
+                    ]
+                },
+            }
+        return {
+            "jsonrpc": "2.0",
+            "id": message["id"],
+            "result": {"content": [{"type": "text", "text": "ok"}]},
+        }
+
+    async def exercise() -> None:
+        gateway = BhmStreamableHttpGateway(dispatch, server_version="test")
+        async with gateway.run():
+            transport = httpx.ASGITransport(app=gateway.asgi_app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:
+                _, session_id = await _initialize_named(client, 31, "mcp-remote client")
+                headers = dict(BASE_HEADERS)
+                headers["mcp-session-id"] = session_id
+                headers["mcp-protocol-version"] = "2025-11-25"
+                response = await client.post(
+                    "/mcp",
+                    headers=headers,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 32,
+                        "method": "tools/call",
+                        "params": {"name": "bhm_echo", "arguments": {"value": "ok"}},
+                    },
+                )
+                assert response.status_code == 200
+                session = gateway.contract_snapshot()["sessions"]["sessions"][0]
+                assert session["client_id"] == "mcp-remote client"
+                assert session["last_request"] == "tools/call"
+                assert session["contract_state"] == "aligned"
+                assert gateway.contract_snapshot()["sessions"]["contract_drift_count"] == 0
+
+    asyncio.run(exercise())
+
+
 def test_streamable_http_contract_drift_is_visible_without_rejecting_session():
     registry = HttpMcpSessionRegistry(idle_seconds=30)
     registry.register(
