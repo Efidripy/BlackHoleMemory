@@ -17,6 +17,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+GIT_TIMEOUT_SECONDS = 30
+
 
 class WorkpackError(ValueError):
     """The requested workpack would not bind a safe canonical source snapshot."""
@@ -102,14 +104,16 @@ def _clean_git_head(root: Path) -> str:
             check=True,
             capture_output=True,
             text=True,
+            timeout=GIT_TIMEOUT_SECONDS,
         ).stdout.strip()
         status = subprocess.run(
             ["git", "-C", str(root), "status", "--porcelain"],
             check=True,
             capture_output=True,
             text=True,
+            timeout=GIT_TIMEOUT_SECONDS,
         ).stdout
-    except (OSError, subprocess.CalledProcessError) as exc:
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         raise WorkpackError("canonical root must be a Git checkout") from exc
     if len(head) != 40 or any(char not in "0123456789abcdef" for char in head) or status:
         raise WorkpackError("canonical Git checkout must be clean")

@@ -278,6 +278,14 @@ MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         disposition="new-destination-failure-cleanup",
         scope_signals=("if destination_root.exists()", "destination_root.mkdir(parents=False)", "shutil.rmtree(destination_root, ignore_errors=True)"),
     ),
+    ("scripts/prepare-bhm-semantic-assurance-curator-workpack.py", "build_workpack", "shutil.copyfile"): BoundaryExpectation(
+        disposition="new-workpack-source-snapshot-copy",
+        scope_signals=("if output.exists()", "output.mkdir(parents=True)", "shutil.copyfile(source, target)"),
+    ),
+    ("scripts/prepare-bhm-semantic-assurance-curator-workpack.py", "build_workpack", "shutil.rmtree"): BoundaryExpectation(
+        disposition="new-workpack-failure-cleanup",
+        scope_signals=("if output.exists()", "output.mkdir(parents=True)", "shutil.rmtree(output)"),
+    ),
     ("scripts/bhm-finalize-runtime-temp-trash.py", "finalize", "shutil.rmtree"): BoundaryExpectation(
         disposition="digest-confirmed-reparse-checked-stage-finalization",
         scope_signals=("plan = build_plan(runtime_root, stage_name)", "if digest != expected_plan_digest", "shutil.rmtree(target, onerror=_remove_readonly)"),
