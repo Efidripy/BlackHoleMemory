@@ -2207,6 +2207,32 @@ def _compact_mcp_input_schema_descriptions(value: Any) -> Any:
     return value
 
 
+_MCP_CORE_SCHEMA_PROPERTY_LEVELS = 2
+
+
+def _collapse_nested_mcp_schema_properties(value: Any, level: int = 0) -> Any:
+    """Replace property subschemas nested deeper than the core budget with ``{}``.
+
+    ``{}`` is a valid "any value" JSON Schema, so strict clients keep the tool;
+    the server-side pydantic models still validate the full argument shape.
+    """
+
+    if isinstance(value, list):
+        return [_collapse_nested_mcp_schema_properties(item, level) for item in value]
+    if not isinstance(value, dict):
+        return value
+    collapsed: dict[str, Any] = {}
+    for key, item in value.items():
+        if key == "properties" and isinstance(item, dict):
+            collapsed[key] = {
+                name: {} if level >= _MCP_CORE_SCHEMA_PROPERTY_LEVELS else _collapse_nested_mcp_schema_properties(sub, level + 1)
+                for name, sub in item.items()
+            }
+        else:
+            collapsed[key] = _collapse_nested_mcp_schema_properties(item, level)
+    return collapsed
+
+
 def _mcp_catalog_tool_dump(value: Any, *, compact_schema: bool = False) -> dict[str, Any]:
     """Publish a compact core catalog without FastMCP implementation extras."""
 
@@ -2222,21 +2248,26 @@ def _mcp_catalog_tool_dump(value: Any, *, compact_schema: bool = False) -> dict[
     if isinstance(description, str) and len(description) > 240:
         dumped["description"] = description[:237].rstrip() + "..."
     if compact_schema and isinstance(dumped.get("inputSchema"), dict):
-        dumped["inputSchema"] = _compact_mcp_input_schema_descriptions(dumped["inputSchema"])
+        dumped["inputSchema"] = _collapse_nested_mcp_schema_properties(
+            _compact_mcp_input_schema_descriptions(dumped["inputSchema"])
+        )
     return dumped
 
 
-def _jsonrpc_success(request_id: Any, result: dict[str, Any]) -> dict[str, Any]:
+_MCP_CATALOG_MAX_DEPTH = 64
+
+
+def _jsonrpc_success(request_id: Any, result: dict[str, Any], *, max_depth: int | None = None) -> dict[str, Any]:
     """Return a bounded JSON-RPC result without leaking nested sensitive fields."""
 
-    return {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        # MCP catalogue and bounded query responses legitimately contain more
-        # than the observation-ingress default of 128 members.  Keep their
-        # established response contract while still redacting recursively.
-        "result": PayloadSanitizer(max_collection_items=2_000).sanitize(result),
-    }
+    # MCP catalogue and bounded query responses legitimately contain more
+    # than the observation-ingress default of 128 members.  Keep their
+    # established response contract while still redacting recursively.
+    if max_depth is None:
+        sanitized = PayloadSanitizer(max_collection_items=2_000).sanitize(result)
+    else:
+        sanitized = PayloadSanitizer(max_collection_items=2_000, max_depth=max_depth).sanitize(result)
+    return {"jsonrpc": "2.0", "id": request_id, "result": sanitized}
 
 
 def _jsonrpc_error(request_id: Any, code: int, message: str) -> dict[str, Any]:
@@ -2320,6 +2351,9 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
                     for tool in tools
                 ]
             },
+            # Server-generated input schemas nest deeper than the observation default;
+            # truncating them leaves strings where subschemas belong and strict clients drop the tool.
+            max_depth=_MCP_CATALOG_MAX_DEPTH,
         )
     if method == "tools/call":
         name = str(params.get("name") or "")
