@@ -234,6 +234,24 @@ MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         disposition="owned-persistent-resource-copy",
         scope_signals=("_assert_owned_path(destination", "destination.parent.mkdir", "shutil.copy2(source, destination)"),
     ),
+    ("scripts/bhm_launcher.py", "cleanup_stale_pyinstaller_dirs", "os.rename"): BoundaryExpectation(
+        disposition="reparse-checked-stale-pyinstaller-bundle-retirement",
+        scope_signals=(
+            "candidate.lstat()",
+            "renamed = temp_root /",
+            "os.rename(candidate, renamed)",
+            "shutil.rmtree(renamed, ignore_errors=True)",
+        ),
+    ),
+    ("scripts/bhm_launcher.py", "cleanup_stale_pyinstaller_dirs", "shutil.rmtree"): BoundaryExpectation(
+        disposition="reparse-checked-stale-pyinstaller-bundle-cleanup",
+        scope_signals=(
+            "candidate.lstat()",
+            "renamed = temp_root /",
+            "os.rename(candidate, renamed)",
+            "shutil.rmtree(renamed, ignore_errors=True)",
+        ),
+    ),
     ("scripts/bhm_launcher.py", "ensure_persistent_plugin_source", "shutil.rmtree"): BoundaryExpectation(
         disposition="owned-plugin-replacement",
         scope_signals=("_assert_owned_plugin_target(destination", "shutil.rmtree(destination)", "shutil.copytree(source, destination)"),

@@ -158,6 +158,8 @@ class _HttpSession:
     last_transport_event: str | None
     expires_at_monotonic: float
     slot_held: bool
+    contract_verified: bool
+    rehydrated: bool
 
 
 @dataclass
@@ -295,6 +297,8 @@ class HttpMcpSessionRegistry:
                 last_transport_event=None,
                 expires_at_monotonic=now + self.idle_seconds,
                 slot_held=True,
+                contract_verified=False,
+                rehydrated=False,
             )
             return True
 
@@ -319,6 +323,7 @@ class HttpMcpSessionRegistry:
         with self._lock:
             self._purge(now)
             item = self._sessions.get(key)
+            rehydrated = item is None
             if item is None:
                 if self._active_slots_locked() >= self.max_sessions:
                     return False
@@ -338,6 +343,8 @@ class HttpMcpSessionRegistry:
                     last_transport_event=None,
                     expires_at_monotonic=now + self.idle_seconds,
                     slot_held=True,
+                    contract_verified=False,
+                    rehydrated=True,
                 )
                 self._sessions[key] = item
             elif not item.slot_held:
@@ -349,6 +356,10 @@ class HttpMcpSessionRegistry:
             item.state = "healthy"
             item.catalog_hash = catalog_hash or item.catalog_hash
             item.contract_digest = contract_digest or item.contract_digest
+            # A recovered SDK session has no initialize/clientInfo evidence;
+            # its digest is telemetry only and must not be used as drift proof.
+            if not rehydrated and contract_digest:
+                item.contract_verified = True
             if isinstance(tool_count, int) and tool_count >= 0:
                 item.tool_count = min(tool_count, 128)
             item.expires_at_monotonic = now + self.idle_seconds
@@ -381,6 +392,8 @@ class HttpMcpSessionRegistry:
                 item.state = "catalog_ready"
                 item.catalog_hash = catalog_hash or item.catalog_hash
                 item.contract_digest = contract_digest or item.contract_digest
+                if contract_digest:
+                    item.contract_verified = True
                 if isinstance(tool_count, int) and tool_count >= 0:
                     item.tool_count = min(tool_count, 128)
 
@@ -450,7 +463,7 @@ class HttpMcpSessionRegistry:
                         "active": item.slot_held,
                         "contract_state": (
                             "unverified"
-                            if not item.contract_digest
+                            if item.rehydrated or not item.contract_verified or not item.contract_digest
                             else "aligned"
                             if not current_contract_digest or item.contract_digest == current_contract_digest
                             else "drifted"

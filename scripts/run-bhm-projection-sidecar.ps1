@@ -36,17 +36,41 @@ $env:BHM_MEMORY_STORE_PARITY_CONFIRMED = 'false'
 $env:BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = 'true'
 $env:BHM_PROJECTION_WORKER_BATCH_SIZE = [string]$BatchSize
 $env:BHM_PROJECTION_WORKER_MAX_ATTEMPTS = [string]$MaxAttempts
+$env:BHM_PROJECTION_WORKER_POLL_SECONDS = [string]$PollSeconds
 $env:BHM_FALLBACK_MODE = 'explicit'
+
+Get-ChildItem -LiteralPath $bootstrapRoot -Filter 'bhm-restart-*.log' -File -ErrorAction SilentlyContinue |
+  Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
+  Remove-Item -Force -ErrorAction SilentlyContinue
+
+function Rotate-ProjectionLog {
+  param([Parameter(Mandatory)][string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+  if ((Get-Item -LiteralPath $Path).Length -le 5MB) { return }
+
+  $archiveOne = "$Path.1"
+  $archiveTwo = "$Path.2"
+  if (Test-Path -LiteralPath $archiveTwo -PathType Leaf) {
+    Remove-Item -LiteralPath $archiveTwo -Force
+  }
+  if (Test-Path -LiteralPath $archiveOne -PathType Leaf) {
+    Move-Item -LiteralPath $archiveOne -Destination $archiveTwo -Force
+  }
+  Move-Item -LiteralPath $Path -Destination $archiveOne -Force
+}
 
 try {
   $failureStreak = 0
   while (-not (Test-Path -LiteralPath $stopPath)) {
+    Rotate-ProjectionLog -Path $stdoutPath
+    Rotate-ProjectionLog -Path $stderrPath
     $arguments = @(
       (Join-Path $repoRoot 'scripts\run-bhm-projection-worker.py'),
       '--loop',
       '--force',
-      '--max-cycles', '1',
-      '--quiet-idle'
+      '--quiet-idle',
+      '--stop-file', $stopPath
     )
     if (-not [string]::IsNullOrWhiteSpace($OpenAiBaseUrl)) {
       $arguments += @('--openai-base-url', $OpenAiBaseUrl)

@@ -396,7 +396,8 @@ def test_streamable_http_tool_call_rehydrates_expired_diagnostics_for_live_sdk_s
                 assert session["protocol_version"] == "2025-06-18"
                 assert session["state"] == "healthy"
                 assert session["last_request"] == "tools/call"
-                assert session["contract_state"] == "aligned"
+                assert session["contract_state"] == "unverified"
+                assert current["contract_drift_count"] == 0
                 assert session["tool_count"] == 1
                 assert session_id not in str(current)
 
@@ -456,7 +457,8 @@ def test_streamable_http_missing_protocol_header_uses_sdk_default_evidence():
                 assert response.status_code == 200
                 session = gateway.contract_snapshot()["sessions"]["sessions"][0]
                 assert session["protocol_version"] == types.DEFAULT_NEGOTIATED_VERSION
-                assert session["contract_state"] == "drifted"
+                assert session["contract_state"] == "unverified"
+                assert gateway.contract_snapshot()["sessions"]["contract_drift_count"] == 0
 
     asyncio.run(exercise())
 

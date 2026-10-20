@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import tomllib
+import tempfile
 import urllib.error
 import urllib.request
 import webbrowser
@@ -60,6 +61,10 @@ from blackholememory.resource_limits import LAUNCHER_UI_SESSION_MINT_TIMEOUT_SEC
 
 class PyQt6UnavailableError(RuntimeError):
     """Raised only when GUI code is used without the optional PyQt6 dependency."""
+
+
+class InvalidMcpConfigError(OSError):
+    """Raised when an existing MCP config cannot be safely merged."""
 
 
 class _UnavailableQtType:
@@ -245,9 +250,12 @@ load_pyqt6()
 
 REFRESH_SECONDS = 3
 TELEMETRY_SECONDS = 30
+TELEMETRY_BACKOFF_MAX_SECONDS = 300
 LLM_INVENTORY_REFRESH_SECONDS = 30 * 60
 SERVICE_FAILURE_THRESHOLD = 3
 TELEMETRY_TIMEOUT = LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
+LAUNCHER_LOG_MAX_BYTES = 2 * 1024 * 1024
+LAUNCHER_LOG_BACKUP_COUNT = 3
 SERVICE_READINESS_TIMEOUT_SECONDS = LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
 SERVICE_READINESS_POLL_SECONDS = LAUNCHER_SERVICE_READINESS_POLL_SECONDS
 API_START_COMMAND_TIMEOUT_SECONDS = (
@@ -380,6 +388,62 @@ class JsonRequestResult:
     error: str = ""
 
 
+@dataclass
+class TelemetryPathState:
+    failures: int = 0
+    next_attempt_at: float = 0.0
+    last_result: JsonRequestResult | None = None
+
+
+class TelemetryRequestState:
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._paths: dict[str, TelemetryPathState] = {}
+
+    def should_request(self, path: str, now: float) -> bool:
+        with self._lock:
+            return now >= self._paths.get(path, TelemetryPathState()).next_attempt_at
+
+    def last_result(self, path: str) -> JsonRequestResult | None:
+        with self._lock:
+            state = self._paths.get(path)
+            return state.last_result if state else None
+
+    def was_recorded(self, path: str, result: JsonRequestResult) -> bool:
+        with self._lock:
+            state = self._paths.get(path)
+            return state is not None and state.last_result is result
+
+    def record_result(self, path: str, result: JsonRequestResult, *, error_class: str | None = None) -> None:
+        with self._lock:
+            state = self._paths.setdefault(path, TelemetryPathState())
+            if result.ok:
+                previous_failures = state.failures
+                state.failures = 0
+                state.next_attempt_at = 0.0
+                state.last_result = result
+                if previous_failures:
+                    append_launcher_log(f"TELEMETRY RECOVERED: path={path}; failures={previous_failures}")
+                return
+
+            state.failures += 1
+            state.next_attempt_at = time.monotonic() + min(
+                TELEMETRY_SECONDS * (2 ** (state.failures - 1)),
+                TELEMETRY_BACKOFF_MAX_SECONDS,
+            )
+            state.last_result = result
+            if state.failures == 1:
+                label = error_class or result.error or "UnknownError"
+                append_launcher_log(f"TELEMETRY REQUEST FAILED: path={path}; error={label}")
+
+    def reset(self) -> None:
+        with self._lock:
+            self._paths.clear()
+
+
+_TELEMETRY_REQUEST_STATE = TelemetryRequestState()
+
+
 class LauncherUiSessionError(RuntimeError):
     """Safe, non-secret error raised when a browser UI session cannot be established."""
 
@@ -391,6 +455,44 @@ def is_frozen() -> bool:
 def bundled_resource_root() -> Path | None:
     raw = getattr(sys, "_MEIPASS", None)
     return Path(raw).resolve() if raw else None
+
+
+def cleanup_stale_pyinstaller_dirs(
+    temp_root: Path,
+    current: Path | None,
+    *,
+    min_age_seconds: float = 3600,
+) -> list[Path]:
+    now = time.time()
+    current_path = current.resolve() if current is not None else None
+    removed: list[Path] = []
+    for candidate in temp_root.glob("_MEI*"):
+        try:
+            if not candidate.is_dir() or candidate.is_symlink():
+                continue
+            is_junction = getattr(candidate, "is_junction", None)
+            if is_junction is not None and is_junction():
+                continue
+            metadata = candidate.lstat()
+            reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+            if reparse_flag and int(getattr(metadata, "st_file_attributes", 0)) & reparse_flag:
+                continue
+            if current_path is not None and candidate.resolve() == current_path:
+                continue
+            if now - metadata.st_mtime < min_age_seconds:
+                continue
+            if not (
+                (candidate / "assets" / "bhm-control-panel.ico").is_file()
+                and (candidate / "scripts" / "bhm_launcher.py").is_file()
+            ):
+                continue
+            renamed = temp_root / f"{candidate.name}.bhm-delete-{os.getpid()}"
+            os.rename(candidate, renamed)
+            shutil.rmtree(renamed, ignore_errors=True)
+            removed.append(candidate)
+        except OSError:
+            continue
+    return removed
 
 
 def app_dir() -> Path:
@@ -631,11 +733,38 @@ def creation_flags() -> int:
     return (CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP) if os.name == "nt" else 0
 
 
+_LAUNCHER_LOG_LOCK = threading.Lock()
+
+
+def _rotate_launcher_log(path: Path) -> None:
+    stale = path.with_name(f"{path.name}.{LAUNCHER_LOG_BACKUP_COUNT + 1}")
+    if stale.exists():
+        stale.unlink()
+    for index in range(LAUNCHER_LOG_BACKUP_COUNT - 1, 0, -1):
+        source = path.with_name(f"{path.name}.{index}")
+        destination = path.with_name(f"{path.name}.{index + 1}")
+        if source.exists():
+            source.replace(destination)
+    if path.exists():
+        path.replace(path.with_name(f"{path.name}.1"))
+
+
 def append_launcher_log(line: str) -> None:
     try:
         LAUNCHER_LOG_DIR.mkdir(parents=True, exist_ok=True)
         path = LAUNCHER_LOG_DIR / "unified-launcher.log"
-        append_bytes_safely(path, f"[{now_text()}] {line}\n".encode("utf-8"))
+        payload = f"[{now_text()}] {line}\n".encode("utf-8")
+        with _LAUNCHER_LOG_LOCK:
+            try:
+                current_size = path.stat().st_size if path.exists() else 0
+                if current_size + len(payload) > LAUNCHER_LOG_MAX_BYTES:
+                    try:
+                        _rotate_launcher_log(path)
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+            append_bytes_safely(path, payload)
     except OSError:
         pass
 
@@ -952,20 +1081,23 @@ def safe_json_request(
     max_bytes: int = MAX_HTTP_BYTES,
     admin: bool = False,
 ) -> JsonRequestResult:
+    path = urlsplit(url).path
     try:
         data = request_json(url, method=method, payload=payload, project=project, timeout=timeout, max_bytes=max_bytes, admin=admin)
-        return JsonRequestResult(ok=True, data=data, status_code=200)
+        result = JsonRequestResult(ok=True, data=data, status_code=200)
+        _TELEMETRY_REQUEST_STATE.record_result(path, result)
+        return result
     except urllib.error.HTTPError as exc:
         code = int(exc.code)
         label = "AUTH" if code in {401, 403} else f"HTTP {code}"
-        append_launcher_log(f"TELEMETRY REQUEST FAILED: path={urlsplit(url).path}; status={label}")
-        return JsonRequestResult(ok=False, data={}, status_code=code, error=label)
+        result = JsonRequestResult(ok=False, data={}, status_code=code, error=label)
+        _TELEMETRY_REQUEST_STATE.record_result(path, result, error_class=exc.__class__.__name__)
+        return result
     except (LocalEndpointError, OSError, ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
         label = "OFFLINE" if isinstance(exc, (OSError, urllib.error.URLError)) else "INVALID"
-        append_launcher_log(
-            f"TELEMETRY REQUEST FAILED: path={urlsplit(url).path}; error={exc.__class__.__name__}"
-        )
-        return JsonRequestResult(ok=False, data={}, error=label)
+        result = JsonRequestResult(ok=False, data={}, error=label)
+        _TELEMETRY_REQUEST_STATE.record_result(path, result, error_class=exc.__class__.__name__)
+        return result
 
 
 def _result_error_label(results: list[JsonRequestResult]) -> str:
@@ -1479,6 +1611,7 @@ def operator_exchange_apply(path: str, project: str) -> dict[str, Any]:
 def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     global _LAST_TELEMETRY
     project_name = validate_launcher_project(project or resolve_launcher_project())
+    now = time.monotonic()
     encoded_project = urlencode({"project": project_name})
     requests = {
         "launcher": (f"{BHM_BASE_URL}/bhm/telemetry/launcher", "GET", None),
@@ -1493,7 +1626,15 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
 
     def execute(item: tuple[str, tuple[str, str, dict[str, Any] | None]]) -> tuple[str, JsonRequestResult]:
         key, (url, method, payload) = item
-        return key, safe_json_request(url, method=method, payload=payload, project=project_name)
+        path = urlsplit(url).path
+        if not _TELEMETRY_REQUEST_STATE.should_request(path, now):
+            previous = _TELEMETRY_REQUEST_STATE.last_result(path)
+            if previous is not None:
+                return key, previous
+        result = safe_json_request(url, method=method, payload=payload, project=project_name)
+        if not _TELEMETRY_REQUEST_STATE.was_recorded(path, result):
+            _TELEMETRY_REQUEST_STATE.record_result(path, result)
+        return key, result
 
     with ThreadPoolExecutor(max_workers=4, thread_name_prefix="bhm-launcher-telemetry") as pool:
         results = dict(pool.map(execute, requests.items()))
@@ -1877,20 +2018,34 @@ def mcp_config_json() -> str:
 
 
 def merge_json_file(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    original_bytes: bytes | None = None
     if path.exists():
         try:
-            current = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            current = {}
+            current = json.loads(path.read_text(encoding="utf-8-sig"))
+            original_bytes = path.read_bytes()
+        except (OSError, UnicodeError) as exc:
+            raise InvalidMcpConfigError(f"cannot read MCP config {path}: {exc}") from exc
+        except json.JSONDecodeError as exc:
+            raise InvalidMcpConfigError(f"cannot parse MCP config {path}: {exc.msg}") from exc
+        if not isinstance(current, dict):
+            raise InvalidMcpConfigError(f"MCP config {path} root must be a JSON object")
     else:
-        current = {}
-    if not isinstance(current, dict):
         current = {}
     current.setdefault("mcpServers", {})
     if not isinstance(current["mcpServers"], dict):
-        current["mcpServers"] = {}
+        raise InvalidMcpConfigError(f"MCP config {path} mcpServers must be a JSON object")
+    existing_server = current["mcpServers"].get(MCP_SERVER_NAME)
+    payload_server = payload["mcpServers"].get(MCP_SERVER_NAME)
+    if (
+        isinstance(existing_server, dict)
+        and isinstance(payload_server, dict)
+        and "command" in existing_server
+        and "url" in payload_server
+    ):
+        raise InvalidMcpConfigError(f"MCP config {path}: existing stdio entry preserved")
     current["mcpServers"].update(payload["mcpServers"])
+    if original_bytes is not None:
+        replace_bytes_safely(path.with_name(f"{path.name}.bhm-backup"), original_bytes)
     replace_bytes_safely(path, (json.dumps(current, indent=2) + "\n").encode("utf-8"))
 
 
@@ -1905,14 +2060,20 @@ def inject_mcp_config() -> list[Path]:
     targets.append(home / ".cursor" / "mcp.json")
 
     written: list[Path] = []
+    skipped: list[str] = []
     for target in targets:
+        if not target.parent.is_dir():
+            skipped.append(f"{target}: client not installed")
+            continue
         try:
             merge_json_file(target, payload)
             written.append(target)
-        except OSError:
+        except OSError as exc:
+            skipped.append(f"{target}: {exc}")
             continue
     if not written:
-        raise RuntimeError("No writable Claude or Cursor MCP config path was found.")
+        details = "; ".join(skipped) if skipped else "no targets were available"
+        raise RuntimeError(f"No writable Claude or Cursor MCP config path was found. Skipped targets: {details}")
     return written
 
 
@@ -4388,6 +4549,16 @@ def main() -> int:
     if not launcher_lock.tryLock(0):
         print("BlackHoleMemory Control Deck is already running.", file=sys.stderr)
         return 0
+    if is_frozen():
+        try:
+            removed_mei_dirs = cleanup_stale_pyinstaller_dirs(
+                Path(tempfile.gettempdir()),
+                bundled_resource_root(),
+            )
+        except Exception:
+            removed_mei_dirs = []
+        if removed_mei_dirs:
+            append_launcher_log(f"PYINSTALLER TEMP CLEANUP: removed={len(removed_mei_dirs)}")
     app.setApplicationName("BlackHoleMemory Control Deck")
     app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(make_bhm_icon())
