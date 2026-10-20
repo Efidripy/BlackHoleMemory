@@ -2580,6 +2580,11 @@ def bhm_index_repository(
     graph_only: bool = False,
     snapshot_id: str | None = None,
 ) -> dict[str, Any]:
+    if not 1 <= max_files_per_run <= BHM_INDEX_MAX_FILES_PER_RUN:
+        raise ValueError(
+            f"max_files_per_run must be between 1 and {BHM_INDEX_MAX_FILES_PER_RUN}, got {max_files_per_run}; "
+            "large repositories are indexed in resumable slices via index_next"
+        )
     return _public_code_tool(
         "index",
         project=project,
