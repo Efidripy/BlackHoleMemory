@@ -24,13 +24,15 @@ import tempfile
 import urllib.error
 import urllib.request
 import webbrowser
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime
 from datetime import timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
+
+import psutil
 
 from bhm_launcher_readiness import MAX_HTTP_BYTES
 from bhm_launcher_readiness import LocalEndpointError
@@ -527,6 +529,9 @@ def find_resource_root() -> Path:
 
 def find_state_root() -> Path:
     if bundled_resource_root():
+        project_root = find_project_root()
+        if (project_root / "pyproject.toml").is_file() and (project_root / "src" / "blackholememory").is_dir():
+            return project_root
         base = os.environ.get("LOCALAPPDATA") or str(Path.home())
         return Path(base) / "BlackHoleMemory"
     return find_project_root()
@@ -1757,6 +1762,131 @@ def remote_status(url: str) -> ServiceStatus:
     return http_status(target, timeout=LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS)
 
 
+SIDECAR_ROLE = "bhm-projection-sidecar"
+SIDECAR_PID_FILENAME = "projection-sidecar.pid"
+SIDECAR_STOP_FILENAME = "projection-sidecar.stop"
+SIDECAR_START_TIMEOUT_SECONDS = 5.0
+
+
+def _sidecar_paths(root: Path) -> tuple[Path, Path]:
+    bootstrap = Path(root) / ".runtime" / "bootstrap"
+    return bootstrap / SIDECAR_PID_FILENAME, bootstrap / SIDECAR_STOP_FILENAME
+
+
+def _sidecar_started_at(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return datetime.fromisoformat(value.strip().replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        try:
+            return float(value)
+        except ValueError:
+            return None
+
+
+def sidecar_status(root: Path) -> dict[str, Any]:
+    """Return identity-checked projection sidecar status without starting processes."""
+
+    pid_path, _ = _sidecar_paths(Path(root))
+    result: dict[str, Any] = {
+        "ok": False,
+        "alive": False,
+        "status": "offline",
+        "pid": None,
+        "detail": "pid identity missing",
+    }
+    try:
+        identity = json.loads(pid_path.read_text(encoding="utf-8-sig"))
+        pid = int(identity.get("pid"))
+        expected_start = _sidecar_started_at(identity.get("started_at"))
+        if identity.get("role") != SIDECAR_ROLE or pid <= 0 or expected_start is None:
+            result["detail"] = "invalid pid identity"
+            return result
+        process = psutil.Process(pid)
+        actual_start = float(process.create_time())
+        if abs(actual_start - expected_start) > 2.0:
+            result.update({"pid": pid, "detail": "pid identity does not match process"})
+            return result
+        result.update({"ok": True, "alive": True, "status": "ok", "pid": pid, "detail": "running"})
+        return result
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError, psutil.Error):
+        return result
+
+
+def start_sidecar(
+    root: Path,
+    *,
+    poll_seconds: int = 5,
+    batch_size: int = 10,
+    max_attempts: int = 5,
+    open_ai_base_url: str | None = None,
+) -> dict[str, Any]:
+    """Start the projection sidecar only when no identity-matched process is live."""
+
+    root = Path(root)
+    current = sidecar_status(root)
+    if current.get("alive"):
+        return {"ok": True, "started": False, "status": current}
+    _, stop_path = _sidecar_paths(root)
+    try:
+        stop_path.unlink(missing_ok=True)
+        script = root / "scripts" / "run-bhm-projection-sidecar.ps1"
+        args = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(script),
+            "-PollSeconds",
+            str(poll_seconds),
+            "-BatchSize",
+            str(batch_size),
+            "-MaxAttempts",
+            str(max_attempts),
+        ]
+        if open_ai_base_url:
+            args.extend(["-OpenAiBaseUrl", str(open_ai_base_url)])
+        process = run_detached(args, cwd=root)
+        # The sidecar owns its own graceful stop-file lifecycle; do not let
+        # generic launcher shutdown terminate it as an ordinary child.
+        try:
+            DETACHED_PROCESSES.remove(process)
+        except (ValueError, AttributeError):
+            pass
+        append_launcher_log(f"SIDECAR START: root={root}")
+        return {"ok": True, "started": True, "status": sidecar_status(root)}
+    except (OSError, ValueError) as exc:
+        detail = compact_error(exc)
+        append_launcher_log(f"SIDECAR START FAILED: {detail}")
+        return {"ok": False, "started": False, "detail": detail}
+
+
+def stop_sidecar(root: Path, timeout: float = SIDECAR_START_TIMEOUT_SECONDS) -> dict[str, Any]:
+    """Request a graceful sidecar stop and report if it remains after the deadline."""
+
+    _, stop_path = _sidecar_paths(Path(root))
+    try:
+        stop_path.parent.mkdir(parents=True, exist_ok=True)
+        stop_path.touch(exist_ok=True)
+    except OSError as exc:
+        detail = compact_error(exc)
+        append_launcher_log(f"SIDECAR STOP FAILED: {detail}")
+        return {"ok": False, "stopped": False, "detail": detail}
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while sidecar_status(Path(root)).get("alive") and time.monotonic() < deadline:
+        time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
+    alive = bool(sidecar_status(Path(root)).get("alive"))
+    if alive:
+        append_launcher_log(f"SIDECAR STOP TIMEOUT: timeout={float(timeout):.1f}s")
+        return {"ok": False, "stopped": False, "timed_out": True, "detail": "sidecar did not stop before timeout"}
+    append_launcher_log("SIDECAR STOP: stop-file created")
+    return {"ok": True, "stopped": True, "timed_out": False, "detail": "sidecar stopped"}
+
+
 def compact_error(exc: BaseException) -> str:
     text = str(exc).replace("\r", " ").replace("\n", " ").strip()
     return text[:140] if text else exc.__class__.__name__
@@ -2376,6 +2506,11 @@ class MonitorThread(QThread):
                 "qdrant": http_status(QDRANT_HEALTH_URL),
                 "api": http_status(BHM_API_HEALTH_URL),
                 "llm": self._observe_llm(now),
+                "sidecar": (
+                    ServiceStatus("Running", "ready")
+                    if sidecar_status(PROJECT_ROOT).get("alive")
+                    else ServiceStatus("Stopped", "offline")
+                ),
             }
             statuses: dict[str, ServiceStatus] = {}
             for key, status in observed.items():
@@ -3326,6 +3461,7 @@ class DashboardScreen(QWidget):
         if not 1 <= self._llm_port <= 65535:
             self._llm_port = DEFAULT_LLM_PORT
         self._llm_remote_url = str(llm_settings.get("remote_url", ""))
+        self._llm_openai_base_url = str(llm_settings.get("openai_base_url", "") or self._llm_remote_url)
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -3791,7 +3927,7 @@ class DashboardScreen(QWidget):
     def build_service_grid(self) -> QGridLayout:
         grid = QGridLayout()
         grid.setSpacing(14)
-        services = [("qdrant", "Qdrant"), ("api", "BHM API"), ("llm", "LLM")]
+        services = [("qdrant", "Qdrant"), ("api", "BHM API"), ("llm", "LLM"), ("sidecar", "Projection Sidecar")]
         for col, (key, title) in enumerate(services):
             card = ServiceCard(key, title, self._llm_mode, self._llm_port, self._llm_remote_url)
             card.start_requested.connect(self.start_service)
@@ -3916,6 +4052,17 @@ class DashboardScreen(QWidget):
             return
         try:
             project_root = find_project_root()
+            if key == "sidecar":
+                result = start_sidecar(
+                    project_root,
+                    open_ai_base_url=self._llm_openai_base_url or self._llm_remote_url or None,
+                )
+                if not result.get("ok"):
+                    raise RuntimeError(str(result.get("detail") or "sidecar start failed"))
+                card = self.service_cards.get(key)
+                if card:
+                    card.set_status(ServiceStatus("Running", "ready"))
+                return
             if key == "qdrant":
                 compose = QDRANT_COMPOSE if QDRANT_COMPOSE.exists() else project_root / "infra" / "qdrant" / "docker-compose.yml"
                 if not compose.exists():
@@ -3980,6 +4127,15 @@ class DashboardScreen(QWidget):
         card = self.service_cards.get(key)
         if card:
             card.set_status(ServiceStatus("Running", "ready"))
+        if key == "api" and not sidecar_status(PROJECT_ROOT).get("alive"):
+            sidecar_result = start_sidecar(
+                PROJECT_ROOT,
+                open_ai_base_url=self._llm_openai_base_url or self._llm_remote_url or None,
+            )
+            if not sidecar_result.get("ok"):
+                append_launcher_log(
+                    f"SIDECAR START AFTER API FAILED: {sidecar_result.get('detail', 'unknown error')}"
+                )
         callback = self._service_success_callbacks.pop(key, None)
         if callback:
             callback()
@@ -3987,6 +4143,9 @@ class DashboardScreen(QWidget):
     def stop_service(self, key: str) -> None:
         try:
             project_root = find_project_root()
+            if key == "sidecar":
+                stop_sidecar(project_root)
+                return
             compose = QDRANT_COMPOSE if QDRANT_COMPOSE.exists() else project_root / "infra" / "qdrant" / "docker-compose.yml"
             if key == "qdrant" and compose.exists():
                 _assert_launchable_source(compose, compose.parents[2])
@@ -4021,6 +4180,7 @@ class DashboardScreen(QWidget):
     def stop_all_services(self) -> None:
         try:
             project_root = find_project_root()
+            stop_sidecar(project_root)
             append_launcher_log("STOP ALL: stopping API before Qdrant")
             ok, detail = run_canonical_api_command(project_root, stop_only=True)
             if not ok:
