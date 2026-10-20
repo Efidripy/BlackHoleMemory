@@ -139,6 +139,7 @@ from .mem0_adapter import storage_runtime_state
 from .mem0_adapter import mem0_runtime_plan
 from .mem0_adapter import normalize_access_count
 from .mem0_adapter import normalize_importance_score
+from .mem0_adapter import _remote_qdrant_available
 from .mcp_surfaces import CORE_TOOL_NAMES
 from .mcp_surfaces import filter_tools
 from .mcp_surfaces import is_tool_allowed
@@ -2072,16 +2073,7 @@ def _wsl_shared_overhead_gb() -> float:
 
 
 def _qdrant_healthy_sync() -> bool:
-    try:
-        request = urllib.request.Request(
-            f"{settings.qdrant_url.rstrip('/')}/healthz",
-            headers={"User-Agent": "BlackHoleMemory-Qdrant-Health/1.0"},
-        )
-        with open_local_url(request, timeout=_QDRANT_HEALTH_TIMEOUT_SECONDS) as response:
-            read_bounded_response(response, limit=128)
-            return 200 <= int(response.status) < 300
-    except (OSError, TimeoutError, urllib.error.URLError):
-        return False
+    return _remote_qdrant_available(opener=open_local_url, timeout=_QDRANT_HEALTH_TIMEOUT_SECONDS)
 
 
 async def _wait_for_required_storage_ready(timeout_seconds: float | None = None):

@@ -44,6 +44,7 @@ from .project_registry import canonical_project_id
 from .retrieval_fusion import weighted_rank_fusion
 from .resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
 from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
+from .resource_limits import QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS
 from .runtime_storage import MemoryStoreMode
 from .runtime_storage import resolve_runtime_storage_mode
 from .storage_state import StorageState
@@ -55,6 +56,7 @@ GLOBAL_COLLECTION_NAME = "bhm_global_core_knowledge"
 _QDRANT_UNAVAILABLE_CACHE_TTL_SECONDS = 2.0
 _qdrant_health_cache_lock = threading.Lock()
 _qdrant_unavailable_until = 0.0
+_qdrant_available_until = 0.0
 _QDRANT_HEALTH_DIAGNOSTIC_SCHEMA_VERSION = "bhm.qdrant-health-diagnostic.v1"
 _qdrant_health_diagnostic: dict[str, Any] = {
     "last_checked_at": None,
@@ -276,9 +278,10 @@ def qdrant_health_diagnostics() -> dict[str, Any]:
 def _reset_qdrant_health_diagnostics_for_tests() -> None:
     """Reset process-local probe state for deterministic unit tests."""
 
-    global _qdrant_unavailable_until
+    global _qdrant_unavailable_until, _qdrant_available_until
     with _qdrant_health_cache_lock:
         _qdrant_unavailable_until = 0.0
+        _qdrant_available_until = 0.0
         _qdrant_health_diagnostic.update(
             {
                 "last_checked_at": None,
@@ -294,12 +297,15 @@ def _reset_qdrant_health_diagnostics_for_tests() -> None:
         )
 
 
-def _remote_qdrant_available() -> bool:
-    global _qdrant_unavailable_until
+def _remote_qdrant_available(*, opener: Any = None, timeout: float = QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS) -> bool:
+    global _qdrant_unavailable_until, _qdrant_available_until
     now = time.monotonic()
     with _qdrant_health_cache_lock:
         if now < _qdrant_unavailable_until:
             return False
+        if now < _qdrant_available_until:
+            return True
+    transport = open_local_url if opener is None else opener
     started_at = time.monotonic()
     checked_at = _qdrant_health_timestamp()
     try:
@@ -307,7 +313,7 @@ def _remote_qdrant_available() -> bool:
             f"{settings.qdrant_url.rstrip('/')}/healthz",
             headers={"User-Agent": "BlackHoleMemory-Qdrant-Health/1.0"},
         )
-        with open_local_url(request, timeout=QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS) as response:
+        with transport(request, timeout=timeout) as response:
             read_bounded_response(response, limit=128)
             status = int(getattr(response, "status", 200))
             available = 200 <= status < 300
@@ -332,8 +338,12 @@ def _remote_qdrant_available() -> bool:
             http_status=http_status,
             latency_ms=_qdrant_health_latency_ms(started_at),
         )
-    if not available:
-        with _qdrant_health_cache_lock:
+    with _qdrant_health_cache_lock:
+        if available:
+            _qdrant_available_until = time.monotonic() + QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS
+            _qdrant_unavailable_until = 0.0
+        else:
+            _qdrant_available_until = 0.0
             _qdrant_unavailable_until = time.monotonic() + _QDRANT_UNAVAILABLE_CACHE_TTL_SECONDS
     return available
 

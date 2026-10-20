@@ -51,6 +51,7 @@ from blackholememory.resource_limits import LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
 from blackholememory.resource_limits import LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS
 from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS
 from blackholememory.resource_limits import SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS
 from blackholememory.resource_limits import RESOURCE_LIMITS
 from blackholememory.resource_limits import resource_limit_snapshot
@@ -119,12 +120,14 @@ def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     assert LAUNCHER_SERVICE_READINESS_POLL_SECONDS == 1.0
     assert LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS == 4.0
     assert QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS == 30
+    assert QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS == 5.0
     assert SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS == 45
     assert any(item.key == "process.execution_timeout" for item in RESOURCE_LIMITS)
     assert any(item.key == "mcp.session_admission_timeout" for item in RESOURCE_LIMITS)
     assert any(item.key == "repository.index_max_files_per_run" for item in RESOURCE_LIMITS)
     assert any(item.key == "retrieval.federated_contour_timeout" for item in RESOURCE_LIMITS)
     assert any(item.key == "retrieval.embedding_preparation_timeout" for item in RESOURCE_LIMITS)
+    assert any(item.key == "qdrant.health_success_cache_ttl" for item in RESOURCE_LIMITS)
 
 
 def test_resource_limit_snapshot_is_deterministic_and_honest_about_open_families() -> None:

@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -23,6 +24,52 @@ import bhm_launcher_readiness as launcher_readiness
 
 BOOTSTRAP_TOKEN = "bootstrap-token-00000000000000000000+/="
 CALLER_TOKEN = "caller-token-000000000000000000000000"
+
+
+def _make_mei_bundle(root: Path, name: str, *, marker: bool = True) -> Path:
+    bundle = root / name
+    if marker:
+        (bundle / "assets").mkdir(parents=True)
+        (bundle / "scripts").mkdir()
+        (bundle / "assets" / "bhm-control-panel.ico").write_bytes(b"icon")
+        (bundle / "scripts" / "bhm_launcher.py").write_text("# launcher\n", encoding="utf-8")
+    else:
+        bundle.mkdir()
+    return bundle
+
+
+def test_cleanup_stale_pyinstaller_dirs_removes_only_old_own_bundles(tmp_path: Path) -> None:
+    now = time.time()
+    old_time = now - 7200
+    stale = _make_mei_bundle(tmp_path, "_MEI_stale")
+    current = _make_mei_bundle(tmp_path, "_MEI_current")
+    fresh = _make_mei_bundle(tmp_path, "_MEI_fresh")
+    foreign = _make_mei_bundle(tmp_path, "_MEI_foreign", marker=False)
+    for path in (stale, current, fresh, foreign):
+        os.utime(path, (old_time, old_time))
+    os.utime(fresh, (now, now))
+
+    removed = launcher.cleanup_stale_pyinstaller_dirs(tmp_path, current, min_age_seconds=3600)
+
+    assert removed == [stale]
+    assert not stale.exists()
+    assert current.exists()
+    assert fresh.exists()
+    assert foreign.exists()
+
+
+def test_cleanup_stale_pyinstaller_dirs_skips_when_rename_fails(tmp_path: Path, monkeypatch) -> None:
+    stale = _make_mei_bundle(tmp_path, "_MEI_stale")
+    old_time = time.time() - 7200
+    os.utime(stale, (old_time, old_time))
+
+    def deny_rename(*_args, **_kwargs):
+        raise PermissionError("bundle is in use")
+
+    monkeypatch.setattr(launcher.os, "rename", deny_rename)
+
+    assert launcher.cleanup_stale_pyinstaller_dirs(tmp_path, None, min_age_seconds=3600) == []
+    assert stale.exists()
 
 
 def test_launcher_import_is_safe_without_pyqt6_and_reports_headless_diagnostic() -> None:
@@ -135,6 +182,126 @@ def test_launcher_merge_json_rejects_hardlink_target(tmp_path: Path) -> None:
     with pytest.raises(OSError, match="hardlink"):
         launcher.merge_json_file(target, launcher.mcp_config_payload())
     assert outside.read_text(encoding="utf-8") == '{"mcpServers": {}}\n'
+
+
+def test_launcher_merge_json_preserves_invalid_json(tmp_path: Path) -> None:
+    target = tmp_path / "mcp.json"
+    original = b'{"mcpServers": '
+    target.write_bytes(original)
+
+    with pytest.raises(OSError, match="cannot parse MCP config") as exc_info:
+        launcher.merge_json_file(target, launcher.mcp_config_payload())
+
+    assert str(target) in str(exc_info.value)
+    assert target.read_bytes() == original
+    assert not target.with_name(f"{target.name}.bhm-backup").exists()
+
+
+def test_launcher_merge_json_preserves_non_object_root(tmp_path: Path) -> None:
+    target = tmp_path / "mcp.json"
+    original = b'[]\n'
+    target.write_bytes(original)
+
+    with pytest.raises(OSError, match="root must be a JSON object"):
+        launcher.merge_json_file(target, launcher.mcp_config_payload())
+
+    assert target.read_bytes() == original
+
+
+def test_launcher_merge_json_preserves_other_servers_and_creates_backup(tmp_path: Path) -> None:
+    target = tmp_path / "mcp.json"
+    original = json.dumps(
+        {
+            "mcpServers": {"other": {"command": "keep-me"}},
+            "otherSetting": True,
+        },
+        indent=2,
+    ).encode("utf-8") + b"\n"
+    target.write_bytes(original)
+
+    launcher.merge_json_file(target, launcher.mcp_config_payload())
+
+    updated = json.loads(target.read_text(encoding="utf-8"))
+    assert updated["mcpServers"]["other"] == {"command": "keep-me"}
+    assert updated["otherSetting"] is True
+    assert target.with_name(f"{target.name}.bhm-backup").read_bytes() == original
+
+
+def test_launcher_merge_json_accepts_utf8_bom(tmp_path: Path) -> None:
+    target = tmp_path / "mcp.json"
+    target.write_bytes(b"\xef\xbb\xbf" + b'{"mcpServers": {"other": {}}}\n')
+
+    launcher.merge_json_file(target, launcher.mcp_config_payload())
+
+    updated = json.loads(target.read_text(encoding="utf-8"))
+    assert "other" in updated["mcpServers"]
+    assert launcher.MCP_SERVER_NAME in updated["mcpServers"]
+
+
+def test_launcher_inject_skips_uninstalled_clients(tmp_path: Path, monkeypatch) -> None:
+    appdata = tmp_path / "AppData"
+    home = tmp_path / "Home"
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    with pytest.raises(RuntimeError, match="client not installed"):
+        launcher.inject_mcp_config()
+
+    assert not appdata.exists()
+    assert not home.exists()
+
+
+def test_launcher_merge_json_preserves_existing_stdio_entry(tmp_path: Path) -> None:
+    target = tmp_path / "mcp.json"
+    original = json.dumps(
+        {"mcpServers": {launcher.MCP_SERVER_NAME: {"command": "npx", "args": ["-y", "mcp-remote"]}}},
+        indent=2,
+    ).encode("utf-8") + b"\n"
+    target.write_bytes(original)
+
+    with pytest.raises(OSError, match="existing stdio entry preserved"):
+        launcher.merge_json_file(target, launcher.mcp_config_payload())
+
+    assert target.read_bytes() == original
+    assert not target.with_name(f"{target.name}.bhm-backup").exists()
+
+
+def test_launcher_merge_json_updates_existing_url_entry(tmp_path: Path) -> None:
+    target = tmp_path / "mcp.json"
+    target.write_text(
+        json.dumps(
+            {"mcpServers": {launcher.MCP_SERVER_NAME: {"url": "http://127.0.0.1:1/mcp"}}},
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    launcher.merge_json_file(target, launcher.mcp_config_payload())
+
+    updated = json.loads(target.read_text(encoding="utf-8"))
+    assert updated["mcpServers"][launcher.MCP_SERVER_NAME] == launcher.mcp_config_payload()["mcpServers"][launcher.MCP_SERVER_NAME]
+
+
+def test_launcher_inject_reports_skipped_invalid_targets(tmp_path: Path, monkeypatch) -> None:
+    appdata = tmp_path / "AppData"
+    home = tmp_path / "Home"
+    targets = [
+        appdata / "Claude" / "claude_desktop_config.json",
+        appdata / "Cursor" / "User" / "mcp.json",
+        home / ".cursor" / "mcp.json",
+    ]
+    for target in targets:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("[]", encoding="utf-8")
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    with pytest.raises(RuntimeError, match="Skipped targets") as exc_info:
+        launcher.inject_mcp_config()
+
+    message = str(exc_info.value)
+    assert all(str(target) in message for target in targets)
+    assert all(target.read_text(encoding="utf-8") == "[]" for target in targets)
 
 
 def test_plugin_target_guard_rejects_paths_outside_owner_root(tmp_path) -> None:
@@ -286,6 +453,75 @@ def test_process_control_timeout_is_logged_and_returns_none(monkeypatch) -> None
 
     assert result is None
     assert messages and "CONTROL COMMAND FAILED" in messages[0]
+
+
+def test_launcher_log_rotates_bounded_backups(tmp_path: Path, monkeypatch) -> None:
+    log_dir = tmp_path / "launcher-logs"
+    log_dir.mkdir()
+    log = log_dir / "unified-launcher.log"
+    log.write_bytes(b"current")
+    log.with_name("unified-launcher.log.1").write_bytes(b"one")
+    log.with_name("unified-launcher.log.2").write_bytes(b"two")
+    log.with_name("unified-launcher.log.3").write_bytes(b"three")
+    monkeypatch.setattr(launcher, "LAUNCHER_LOG_DIR", log_dir)
+    monkeypatch.setattr(launcher, "LAUNCHER_LOG_MAX_BYTES", 1)
+
+    launcher.append_launcher_log("rotated")
+
+    assert log.with_name("unified-launcher.log.1").read_bytes() == b"current"
+    assert log.with_name("unified-launcher.log.2").read_bytes() == b"one"
+    assert log.with_name("unified-launcher.log.3").read_bytes() == b"two"
+    assert b"rotated" in log.read_bytes()
+
+
+def test_telemetry_failure_logging_is_deduplicated_and_recovers(monkeypatch) -> None:
+    messages: list[str] = []
+    monkeypatch.setattr(launcher, "append_launcher_log", messages.append)
+    launcher._TELEMETRY_REQUEST_STATE.reset()
+    url = f"{launcher.BHM_BASE_URL}/bhm/profile"
+    attempts = [0]
+
+    def fake_request(*_args, **_kwargs):
+        attempts[0] += 1
+        if attempts[0] <= 3:
+            raise TimeoutError("synthetic timeout")
+        return {}
+
+    monkeypatch.setattr(launcher, "request_json", fake_request)
+
+    for _ in range(3):
+        launcher.safe_json_request(url)
+    launcher.safe_json_request(url)
+
+    assert sum("TELEMETRY REQUEST FAILED" in message for message in messages) == 1
+    assert messages[-1].startswith("TELEMETRY RECOVERED: path=/bhm/profile; failures=3")
+
+
+def test_fetch_telemetry_applies_failure_backoff(monkeypatch) -> None:
+    launcher._TELEMETRY_REQUEST_STATE.reset()
+    now = [0.0]
+    calls: list[str] = []
+    monkeypatch.setattr(launcher.time, "monotonic", lambda: now[0])
+
+    def fake_safe(url: str, *, method: str, payload: dict | None, project: str | None, timeout: float = 0):
+        path = launcher.urlsplit(url).path
+        calls.append(path)
+        if path == "/bhm/profile":
+            return launcher.JsonRequestResult(ok=False, data={}, error="TimeoutError")
+        return launcher.JsonRequestResult(ok=True, data={})
+
+    monkeypatch.setattr(launcher, "safe_json_request", fake_safe)
+
+    launcher.fetch_telemetry("blackholememory")
+    assert calls.count("/bhm/profile") == 1
+
+    now[0] = 10.0
+    launcher.fetch_telemetry("blackholememory")
+    assert calls.count("/bhm/profile") == 1
+
+    now[0] = 30.0
+    launcher.fetch_telemetry("blackholememory")
+    assert calls.count("/bhm/profile") == 2
 
 
 class _JsonResponse:

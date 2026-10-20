@@ -12,6 +12,7 @@ import json
 import os
 import sqlite3
 import sys
+import threading
 from dataclasses import replace
 from datetime import datetime
 from datetime import timezone
@@ -40,6 +41,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--once", action="store_true", help="run one bounded batch (default)")
     parser.add_argument("--loop", action="store_true", help="poll until interrupted")
     parser.add_argument("--max-cycles", type=int, default=None)
+    parser.add_argument(
+        "--stop-file",
+        type=Path,
+        default=None,
+        help="stop the long-running worker when this file appears",
+    )
     parser.add_argument(
         "--quiet-idle",
         action="store_true",
@@ -218,6 +225,16 @@ def _emit_startup_infrastructure_error(exc: BaseException) -> int:
     return INFRASTRUCTURE_UNAVAILABLE_EXIT_CODE
 
 
+def _watch_stop_file(path: Path, stop_event: threading.Event) -> None:
+    """Set ``stop_event`` when the operator stop file appears."""
+
+    while not stop_event.is_set():
+        if path.exists():
+            stop_event.set()
+            return
+        stop_event.wait(0.1)
+
+
 def main() -> int:
     args = _parser().parse_args()
     if args.once and args.loop:
@@ -298,9 +315,22 @@ def main() -> int:
             return _emit_startup_infrastructure_error(exc)
         print(f"projection worker failed: {exc}", file=sys.stderr)
         return 1
+    stop_event: threading.Event | None = None
+    if args.stop_file is not None:
+        stop_event = threading.Event()
+        threading.Thread(
+            target=_watch_stop_file,
+            args=(args.stop_file.expanduser().resolve(), stop_event),
+            name="projection-stop-file",
+            daemon=True,
+        ).start()
     try:
         if args.loop:
-            metrics = worker.run_forever(max_cycles=args.max_cycles, force=args.force)
+            metrics = worker.run_forever(
+                stop_event=stop_event,
+                max_cycles=args.max_cycles,
+                force=args.force,
+            )
         else:
             worker.run_once(force=args.force)
             metrics = worker.snapshot()
@@ -310,6 +340,9 @@ def main() -> int:
     except Exception as exc:
         print(f"projection worker failed: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if stop_event is not None:
+            stop_event.set()
 
     return _emit_worker_report(
         _worker_report(config, metrics),

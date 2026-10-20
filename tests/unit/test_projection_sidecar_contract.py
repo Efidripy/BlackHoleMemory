@@ -14,6 +14,11 @@ def test_projection_sidecar_keeps_authority_in_bhm_and_worker_in_shadow_mode():
     assert "run-bhm-projection-worker.py" in runner
     assert "--loop" in runner
     assert "--quiet-idle" in runner
+    assert "--stop-file" in runner
+    assert "--max-cycles" not in runner
+    assert "BHM_PROJECTION_WORKER_POLL_SECONDS" in runner
+    assert "Rotate-ProjectionLog" in runner
+    assert "bhm-restart-*.log" in runner
     assert "$failureStreak" in runner
     assert "$workerExitCode -eq 75" in runner
     assert "$ErrorActionPreference = 'Continue'" in runner

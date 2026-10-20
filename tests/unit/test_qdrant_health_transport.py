@@ -7,6 +7,7 @@ from blackholememory import app as bhm_app
 from blackholememory import mem0_adapter
 from blackholememory.resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
 from blackholememory.resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
+from blackholememory.resource_limits import QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS
 
 
 class _HealthResponse:
@@ -23,6 +24,7 @@ class _HealthResponse:
 
 
 def test_app_qdrant_health_uses_local_bounded_transport(monkeypatch) -> None:
+    mem0_adapter._reset_qdrant_health_diagnostics_for_tests()
     calls: list[dict[str, object]] = []
 
     def fake_open(request, *, timeout: float):
@@ -36,6 +38,7 @@ def test_app_qdrant_health_uses_local_bounded_transport(monkeypatch) -> None:
 
 
 def test_mem0_qdrant_health_uses_local_bounded_transport(monkeypatch) -> None:
+    mem0_adapter._reset_qdrant_health_diagnostics_for_tests()
     calls: list[dict[str, object]] = []
 
     def fake_open(request, *, timeout: float):
@@ -46,6 +49,56 @@ def test_mem0_qdrant_health_uses_local_bounded_transport(monkeypatch) -> None:
     assert mem0_adapter._remote_qdrant_available() is True
     assert str(calls[0]["url"]).endswith("/healthz")
     assert calls[0]["timeout"] == QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
+
+
+def test_mem0_qdrant_health_success_is_cached_until_ttl(monkeypatch) -> None:
+    mem0_adapter._reset_qdrant_health_diagnostics_for_tests()
+    now = [100.0]
+    calls = 0
+
+    def fake_open(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return _HealthResponse()
+
+    monkeypatch.setattr(mem0_adapter.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(mem0_adapter, "open_local_url", fake_open)
+    assert mem0_adapter._remote_qdrant_available() is True
+    assert mem0_adapter._remote_qdrant_available() is True
+    assert calls == 1
+    assert mem0_adapter.qdrant_health_diagnostics()["total_successes"] == 1
+
+    now[0] += QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS
+    assert mem0_adapter._remote_qdrant_available() is True
+    assert calls == 2
+    assert mem0_adapter.qdrant_health_diagnostics()["total_successes"] == 2
+
+
+def test_mem0_qdrant_health_failure_clears_success_cache(monkeypatch) -> None:
+    mem0_adapter._reset_qdrant_health_diagnostics_for_tests()
+    now = [100.0]
+    calls = 0
+
+    def successful_open(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return _HealthResponse()
+
+    monkeypatch.setattr(mem0_adapter.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(mem0_adapter, "open_local_url", successful_open)
+    assert mem0_adapter._remote_qdrant_available() is True
+    now[0] += QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS
+
+    def refused(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise urllib.error.URLError(ConnectionRefusedError(10061))
+
+    monkeypatch.setattr(mem0_adapter, "open_local_url", refused)
+    assert mem0_adapter._remote_qdrant_available() is False
+    assert mem0_adapter._qdrant_available_until == 0.0
+    assert mem0_adapter._remote_qdrant_available() is False
+    assert calls == 2
 
 
 def test_mem0_qdrant_health_exposes_redacted_connection_refused_diagnostics(monkeypatch) -> None:

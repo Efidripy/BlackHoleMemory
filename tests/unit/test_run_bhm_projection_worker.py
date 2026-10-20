@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -115,3 +116,18 @@ def test_startup_infrastructure_error_uses_retry_exit_code(capsys: pytest.Captur
     assert payload["classification"] == "infrastructure_unavailable"
     assert payload["deferred"] == 0
     assert "StorageNotReady" in payload["error"]
+
+
+def test_stop_file_watcher_stops_long_running_worker(tmp_path: Path) -> None:
+    stop_path = tmp_path / "projection-sidecar.stop"
+    stop_event = threading.Event()
+    watcher = threading.Thread(
+        target=MODULE._watch_stop_file,
+        args=(stop_path, stop_event),
+        daemon=True,
+    )
+    watcher.start()
+    stop_path.touch()
+    assert stop_event.wait(1.0)
+    watcher.join(timeout=1.0)
+    assert not watcher.is_alive()

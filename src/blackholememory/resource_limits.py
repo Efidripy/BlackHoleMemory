@@ -85,6 +85,12 @@ BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS = _bounded_env_seconds(
 EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS = 20
 QDRANT_SDK_TIMEOUT_SECONDS = 10
 QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS = 2.0
+QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS = _bounded_env_seconds(
+    "BHM_QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS",
+    5.0,
+    minimum=0.1,
+    maximum=300.0,
+)
 QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS = 30
 SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS = 45
 MCP_BROKER_JOIN_TIMEOUT_SECONDS = 3.0
@@ -160,6 +166,7 @@ RESOURCE_LIMITS: tuple[ResourceLimit, ...] = (
     ResourceLimit("outbound.external_search_timeout", "outbound-http", EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS"),
     ResourceLimit("qdrant.sdk_timeout", "qdrant-sdk", QDRANT_SDK_TIMEOUT_SECONDS, "seconds", "resource_limits.QDRANT_SDK_TIMEOUT_SECONDS"),
     ResourceLimit("qdrant.health_http_timeout", "qdrant-health-http", QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS"),
+    ResourceLimit("qdrant.health_success_cache_ttl", "qdrant-health-cache", QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS, "seconds", "resource_limits.QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS", "BHM_QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS"),
     ResourceLimit("qdrant.operator_http_timeout", "qdrant-operator-http", QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS, "seconds", "resource_limits.QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS"),
     ResourceLimit("source_registry.web_timeout", "source-registry-web", SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS, "seconds", "resource_limits.SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS"),
     ResourceLimit("mcp.broker_join_timeout", "mcp", MCP_BROKER_JOIN_TIMEOUT_SECONDS, "seconds", "resource_limits.MCP_BROKER_JOIN_TIMEOUT_SECONDS"),
@@ -280,6 +287,7 @@ __all__ = [
     "EXTERNAL_SEARCH_HTTP_TIMEOUT_SECONDS",
     "QDRANT_SDK_TIMEOUT_SECONDS",
     "QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS",
+    "QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS",
     "QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS",
     "SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS",
     "MCP_BROKER_JOIN_TIMEOUT_SECONDS",

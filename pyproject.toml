@@ -18,7 +18,7 @@ dependencies = [
   "httpx==0.28.1",
   "langgraph==1.2.4",
   "mem0ai==2.0.4",
-  "mcp==1.28.1",
+  "mcp==1.30.0",
   "psutil>=5.9.8,<8.0.0",
   "pydantic-settings==2.10.1",
   "qdrant-client==1.18.0",
@@ -43,6 +43,15 @@ dev = [
 build = [
   "PyQt6==6.11.0",
   "pyinstaller==6.21.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==9.0.3",
+  "pytest-cov==7.1.0",
+  "httpx2==2.13.1",
+  "PyQt6==6.11.0",
+  "ruff==0.15.10",
 ]
 
 [project.scripts]
