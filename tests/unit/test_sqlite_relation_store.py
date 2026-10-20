@@ -95,3 +95,18 @@ def test_semantic_dependency_links_are_written_to_sqlite(service, monkeypatch) -
     assert result["errors"] == [{"keyword": "missing insight", "edge_type": "UPGRADES", "error": "target_not_found"}]
     stored = service.list_links(project=PROJECT)
     assert [(link["source_id"], link["target_id"], link["relation"]) for link in stored] == [("seed", "dep", "depends_on")]
+
+
+def test_link_snapshot_load_and_save_share_one_lock(monkeypatch) -> None:
+    # replace_links deletes rows absent from the snapshot, so load->save must not interleave.
+    owned: list[bool] = []
+    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda memory_id, _project: {"source_id": memory_id})
+    monkeypatch.setattr(bhm_app, "_active_ontology_schema", lambda _project: None)
+    monkeypatch.setattr(bhm_app, "_load_memory_links", lambda: owned.append(bhm_app._LINK_STORE_LOCK._is_owned()) or [])
+    monkeypatch.setattr(bhm_app, "_save_memory_links", lambda _links: owned.append(bhm_app._LINK_STORE_LOCK._is_owned()))
+
+    bhm_app._create_memory_link(
+        bhm_app.MemoryLinkRequest(source_id="seed", target_id="dep", relation="depends_on", project=PROJECT)
+    )
+
+    assert owned == [True, True]

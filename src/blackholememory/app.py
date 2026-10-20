@@ -2633,6 +2633,19 @@ _OBSERVATION_SQLITE_STORES: dict[str, ObservationStore] = {}
 _MEMORY_SERVICE_LOCK = threading.RLock()
 _MEMORY_SERVICES: dict[str, SQLiteMemoryService] = {}
 _LINK_STORE_LOCK = threading.RLock()
+
+
+def _serialized_link_mutation(func):
+    """Hold the link lock across load->save: replace_links deletes links missing from a stale snapshot."""
+
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with _LINK_STORE_LOCK:
+            return func(*args, **kwargs)
+
+    return wrapper
+
+
 _TASK_LIFECYCLE_LOCK = threading.RLock()
 _TASK_INGRESS_FROZEN = False
 _TASK_INGRESS_REASON = ""
@@ -6536,6 +6549,7 @@ def _delete_live_memory(request: MemoryDeleteRequest) -> dict:
     return deleted
 
 
+@_serialized_link_mutation
 def _delete_live_memory_hard(request: HardDeleteMemoryRequest) -> dict:
     deleted = _delete_live_memory(MemoryDeleteRequest(id=request.id, project=request.project))
     accepted_projects = _project_aliases(request.project) if request.project else None
@@ -8698,6 +8712,7 @@ async def _add_semantic_dependency_links(record: dict, project_name: str) -> dic
     return {"created": created, "errors": errors}
 
 
+@_serialized_link_mutation
 def _create_memory_link(request: MemoryLinkRequest) -> dict:
     project = _canonical_project(request.project)
     if request.source_id == request.target_id:
@@ -8781,6 +8796,7 @@ def _create_memory_link(request: MemoryLinkRequest) -> dict:
     return link
 
 
+@_serialized_link_mutation
 def _delete_memory_link(request: MemoryLinkDeleteRequest) -> bool:
     project = _canonical_project(request.project)
     links = _load_memory_links()
@@ -11038,6 +11054,7 @@ def _integrity_audit(project: str | None = None) -> dict:
     }
 
 
+@_serialized_link_mutation
 def _repair_live_indexes(request: RepairLiveIndexesRequest) -> dict:
     if not request.project and not request.aggregate:
         raise HTTPException(
@@ -12040,6 +12057,7 @@ def _project_memory_heatmap(project: str | None = None) -> dict:
     return {"project": project, "type_counts": dict(type_counts), "top_tags": dict(tag_counts.most_common(10)), "age_buckets": age_buckets}
 
 
+@_serialized_link_mutation
 def _relation_confidence_set(request: RelationConfidenceRequest) -> dict:
     project = _canonical_project(request.project)
     links = _load_memory_links()
@@ -12053,6 +12071,7 @@ def _relation_confidence_set(request: RelationConfidenceRequest) -> dict:
     raise HTTPException(status_code=404, detail="relation not found")
 
 
+@_serialized_link_mutation
 def _relation_vote_quality(request: RelationVoteRequest) -> dict:
     project = _canonical_project(request.project)
     links = _load_memory_links()
@@ -12605,6 +12624,7 @@ def _alias_stats(project: str | None = None) -> dict:
     return {"project": project, "alias_count": sum(alias_counter.values()), "unique_alias_count": len(alias_counter), "duplicates": sorted(duplicates, key=lambda item: item["count"], reverse=True)}
 
 
+@_serialized_link_mutation
 def _relation_prune_low_quality(request: RelationPruneLowQualityRequest) -> dict:
     if not request.project and not request.aggregate:
         raise HTTPException(
@@ -13216,6 +13236,7 @@ def _admin_import_preview(request: AdminImportPreviewRequest, *, http_request: R
     }
 
 
+@_serialized_link_mutation
 def _admin_import_apply(request: AdminImportApplyRequest, *, http_request: Request) -> dict:
     if request.merge_mode not in {"upsert", "replace"}:
         raise HTTPException(status_code=422, detail={"code": "admin_snapshot_merge_mode_invalid"})
