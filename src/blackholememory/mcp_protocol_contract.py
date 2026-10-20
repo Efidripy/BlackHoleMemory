@@ -58,9 +58,9 @@ def validate_bhm_remember_arguments(arguments: Mapping[str, Any]) -> str | None:
     if unknown_keys:
         names = ", ".join(sorted(unknown_keys))
         return f"Unsupported bhm_remember argument(s): {names}"
-    if "concepts" in arguments and not isinstance(arguments["concepts"], list):
+    if arguments.get("concepts") is not None and not isinstance(arguments["concepts"], list):
         return "bhm_remember concepts must be an array"
-    if "files" in arguments and not isinstance(arguments["files"], list):
+    if arguments.get("files") is not None and not isinstance(arguments["files"], list):
         return "bhm_remember files must be an array"
     if "metadata" in arguments and arguments["metadata"] is not None and not isinstance(arguments["metadata"], dict):
         return "bhm_remember metadata must be an object"
