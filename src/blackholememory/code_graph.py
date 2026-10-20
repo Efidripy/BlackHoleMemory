@@ -16,7 +16,7 @@ import threading
 from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .filesystem_boundaries import assert_safe_path
 from .repository_index import _LANGUAGE_BY_SUFFIX
@@ -5310,8 +5310,12 @@ def extract_code_graph(
     max_files: int = CODE_GRAPH_MAX_NODES,
     max_nodes: int = CODE_GRAPH_MAX_NODES,
     max_edges: int = CODE_GRAPH_MAX_EDGES,
+    progress: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
-    """Parse one completed WI-01 snapshot into bounded graph material."""
+    """Parse one completed WI-01 snapshot into bounded graph material.
+
+    ``progress(files_parsed, files_total)`` is called once per file before it is parsed.
+    """
 
     root_id = str(snapshot.get("root_id") or "")
     root_path = assert_safe_path(
@@ -5330,7 +5334,9 @@ def extract_code_graph(
     draft.add_node(_node(root_id=root_id, stable_key=snapshot_key, kind="repository_snapshot", name=str(snapshot.get("snapshot_id") or ""), qualified_name=str(snapshot.get("snapshot_id") or ""), content_sha256=str(snapshot.get("snapshot_digest") or ""), attributes={"repository_snapshot_id": snapshot.get("snapshot_id"), "graph_input_digest": snapshot.get("graph_input_digest")}))
     draft.add_edge("contains", repository_key, snapshot_key)
     expected_by_path: dict[str, Mapping[str, Any]] = {}
-    for item in sorted(files, key=lambda row: str(row.get("path") or "")):
+    for parsed_count, item in enumerate(sorted(files, key=lambda row: str(row.get("path") or ""))):
+        if progress is not None:
+            progress(parsed_count, len(files))
         path = _safe_path(item.get("path"))
         expected_by_path[path] = item
         if len(expected_by_path) > int(max_files):
@@ -5784,6 +5790,20 @@ def build_code_graph(
     if snapshot is None:
         raise CodeGraphError("completed repository snapshot is required")
     material = extract_code_graph(snapshot)
+    return publish_code_graph(repository_database, snapshot, material, project=project, root_id=root_id, fail_before_publish=fail_before_publish)
+
+
+def publish_code_graph(
+    repository_database: str | Path,
+    snapshot: Mapping[str, Any],
+    material: Mapping[str, Any],
+    *,
+    project: str,
+    root_id: str,
+    fail_before_publish: bool = False,
+) -> dict[str, Any]:
+    """Publish already extracted graph material; the SQLite write half of ``build_code_graph``."""
+
     store = SQLiteCodeGraphStore(repository_database)
     published = store.publish_graph(snapshot, material, fail_before_publish=fail_before_publish)
     result = {"schema_version": CODE_GRAPH_SCHEMA_VERSION, "ok": True, "action": "build", "project": project, "root_id": root_id, "repository_snapshot_id": snapshot.get("snapshot_id"), "graph_snapshot_id": published.get("graph_snapshot_id"), "graph_digest": material.get("graph_digest"), "nodes_digest": material.get("nodes_digest"), "edges_digest": material.get("edges_digest"), "summary": material.get("summary"), "graph": published, "execution": {"writes_sqlite_state": True, "writes_memory_rows": False, "writes_qdrant": False, "writes_retrieval": False, "model_started": False, "public_mcp": False}}
@@ -5819,5 +5839,6 @@ __all__ = [
     "SQLiteCodeGraphStore",
     "build_code_graph",
     "extract_code_graph",
+    "publish_code_graph",
     "verify_code_graph_snapshot",
 ]

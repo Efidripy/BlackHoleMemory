@@ -5,11 +5,13 @@ import json
 import os
 from pathlib import Path
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
 import httpx
 
 from blackholememory import app as bhm_app
+from blackholememory import graph_build_jobs
 from blackholememory.code_graph import build_code_graph
 from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
 from blackholememory.repository_index import RepositoryIndexError
@@ -816,21 +818,24 @@ def test_graph_only_defers_slow_build_deduplicates_and_reports_completion(monkey
     call_count = 0
     call_count_lock = threading.Lock()
 
-    def slow_build(*args, **kwargs):
+    real_parse = graph_build_jobs.parse_graph_job
+
+    def slow_parse(*args, **kwargs):
         nonlocal call_count
         with call_count_lock:
             call_count += 1
         started.set()
         assert release.wait(5.0), "slow graph fixture was not released"
-        return build_code_graph(*args, **kwargs)
+        return real_parse(*args, **kwargs)
+
+    parse_executor = ThreadPoolExecutor(max_workers=1)
 
     async def exercise() -> None:
         monkeypatch.setattr(bhm_app.settings, "repo_root", root)
         monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
-        monkeypatch.setattr(bhm_app, "build_code_graph", slow_build)
+        monkeypatch.setattr(graph_build_jobs, "parse_graph_job", slow_parse)
+        monkeypatch.setattr(bhm_app, "_graph_parse_executor", lambda: parse_executor)
         monkeypatch.setattr(bhm_app, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 0.01)
-        monkeypatch.setattr(bhm_app, "_GRAPH_BUILD_OPERATIONS", {})
-        monkeypatch.setattr(bhm_app, "_GRAPH_BUILD_OPERATIONS_LOCK", asyncio.Lock())
         transport = httpx.ASGITransport(app=bhm_app.app)
         async with httpx.AsyncClient(
             transport=transport,
@@ -854,6 +859,7 @@ def test_graph_only_defers_slow_build_deduplicates_and_reports_completion(monkey
             assert first_payload["graph"] is None
             assert first_payload["graph_status"] == "running"
             assert first_payload["graph_operation"]["status"] == "running"
+            assert first_payload["graph_operation"]["phase"] in {"queued", "parsing"}
             operation_id = first_payload["graph_operation"]["operation_id"]
             assert started.wait(1.0)
 
@@ -881,6 +887,8 @@ def test_graph_only_defers_slow_build_deduplicates_and_reports_completion(monkey
             assert status_payload is not None
             assert status_payload["graph_operation"]["operation_id"] == operation_id
             assert status_payload["graph_operation"]["status"] == "completed"
+            assert status_payload["graph_operation"]["phase"] == "completed"
+            assert status_payload["graph_operation"]["files_parsed"] == status_payload["graph_operation"]["files_total"] > 0
             assert status_payload["graph"]["repository_snapshot_id"] == indexed["snapshot_id"]
             assert status_payload["index"]["current_snapshot"]["snapshot_id"] == indexed["snapshot_id"]
             assert call_count == 1
@@ -889,6 +897,34 @@ def test_graph_only_defers_slow_build_deduplicates_and_reports_completion(monkey
         asyncio.run(exercise())
     finally:
         release.set()
+        parse_executor.shutdown(wait=True)
+
+
+def test_graph_only_build_parses_in_worker_process(monkeypatch, tmp_path: Path) -> None:
+    root, runtime_dir = _prepare(tmp_path)
+    database = runtime_dir / "live-memory" / "memories.sqlite3"
+    (root / "module.py").write_text("def keep():\n    return 168\n", encoding="utf-8")
+    indexed = index_repository(
+        root,
+        database,
+        project="demo",
+        source=RepositorySourceProvenance(owner="fixture", source_url="local://p26-process", license="MIT", evidence_class="E0"),
+        force_refresh=True,
+    )
+    monkeypatch.setattr(bhm_app.settings, "repo_root", root)
+    monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
+    monkeypatch.setattr(bhm_app, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 60.0)
+    request = {"operation": "index", "project": "demo", "root": "repo", "apply": True, "graph_only": True, "snapshot_id": indexed["snapshot_id"]}
+    try:
+        response = TestClient(bhm_app.app).post("/bhm/code-tools", json=request)
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["graph_status"] == "ready"
+        assert payload["graph"]["repository_snapshot_id"] == indexed["snapshot_id"]
+        assert payload["graph_operation"]["phase"] == "completed"
+        assert bhm_app._GRAPH_PARSE_EXECUTOR is not None
+    finally:
+        bhm_app._shutdown_graph_parse_executor()
 
 
 def test_coverage_probe_timeout_is_retryable_and_fail_closed(monkeypatch, tmp_path: Path) -> None:

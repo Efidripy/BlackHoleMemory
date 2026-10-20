@@ -73,6 +73,12 @@ def test_mcp_index_forwards_bounded_resume_and_graph_receipt_fields(monkeypatch)
     }
 
 
+def test_mcp_index_rejects_slice_above_limit_with_actionable_error(monkeypatch) -> None:
+    monkeypatch.setattr(bhm_mcp, "_public_code_tool", lambda *args, **kwargs: pytest.fail("must not call API"))
+    with pytest.raises(ValueError, match="between 1 and 666, got 965"):
+        bhm_mcp.bhm_index_repository(apply=True, max_files_per_run=965)
+
+
 def test_mcp_status_preserves_omitted_root_for_fail_closed_resolution(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

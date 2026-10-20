@@ -19,7 +19,10 @@ import threading
 import urllib.error
 import urllib.request
 import uuid
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from collections import Counter
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -359,6 +362,10 @@ from .code_graph import LANGUAGE_INVENTORY_DIGEST
 from .code_graph import parser_capability_matrix
 from .code_graph import SQLiteCodeGraphStore
 from .code_graph import build_code_graph
+from .code_graph import publish_code_graph
+from . import graph_build_jobs
+from .graph_build_jobs import GraphBuildBusy
+from .graph_build_jobs import SQLiteGraphBuildJobStore
 from .code_graph_artifact import CodeGraphArtifactError
 from .code_graph_artifact import CODE_GRAPH_ARTIFACT_SCHEMA_VERSION
 from .code_graph_artifact import export_graph_artifact
@@ -617,9 +624,14 @@ _RETRIEVAL_PROVIDER_SLOTS = threading.BoundedSemaphore(_RETRIEVAL_PROVIDER_WORKE
 _READ_BACKPRESSURE_LOCK = asyncio.Lock()
 _READ_BACKPRESSURE_ACTIVE = 0
 _READ_BACKPRESSURE_WAITING = 0
-_GRAPH_BUILD_OPERATIONS: dict[str, dict[str, Any]] = {}
-_GRAPH_BUILD_OPERATIONS_LOCK = asyncio.Lock()
-_GRAPH_BUILD_OPERATION_LIMIT = 128
+# Graph build records live in SQLite; only the in-flight asyncio tasks stay here.
+_GRAPH_BUILD_TASKS: dict[str, asyncio.Task[None]] = {}
+_GRAPH_BUILD_BOOT_ID = f"bhm-graph-build-{uuid.uuid4().hex[:12]}"
+_GRAPH_BUILD_STORES: dict[str, SQLiteGraphBuildJobStore] = {}
+_GRAPH_BUILD_STORES_LOCK = threading.Lock()
+# Parsing is CPU-bound and holds the GIL for minutes on large repos; run it in
+# one spawned worker so status/search probes in this process stay responsive.
+_GRAPH_PARSE_EXECUTOR: ProcessPoolExecutor | None = None
 _GALAXY_STATS_CACHE_TTL_SECONDS = _env_float("BHM_GALAXY_STATS_CACHE_TTL_SECONDS", 300.0, 5.0, 3600.0)
 _GALAXY_STATS_CACHE: dict[str, Any] | None = None
 _GALAXY_STATS_CACHE_EXPIRES_AT = 0.0
@@ -1429,9 +1441,12 @@ def _graph_build_operation_id(project: str, root_id: str, snapshot_id: str) -> s
 
 def _public_graph_build_operation(record: Mapping[str, Any]) -> dict[str, Any]:
     return {
-        "schema_version": "bhm.code-graph-operation.v1",
+        "schema_version": "bhm.code-graph-operation.v2",
         "operation_id": record["operation_id"],
         "status": record["status"],
+        "phase": record.get("phase"),
+        "files_parsed": record.get("files_parsed"),
+        "files_total": record.get("files_total"),
         "project": record["project"],
         "root_id": record["root_id"],
         "repository_snapshot_id": record["repository_snapshot_id"],
@@ -1448,35 +1463,73 @@ def _public_graph_build_operation(record: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-async def _run_graph_build_operation(record: dict[str, Any], database_path: Path) -> None:
+def _graph_build_job_store(database_path: Path) -> SQLiteGraphBuildJobStore:
+    key = str(database_path)
+    with _GRAPH_BUILD_STORES_LOCK:
+        store = _GRAPH_BUILD_STORES.get(key)
+        if store is None:
+            store = SQLiteGraphBuildJobStore(database_path)
+            store.recover_interrupted(_GRAPH_BUILD_BOOT_ID)
+            _GRAPH_BUILD_STORES[key] = store
+        return store
+
+
+def _graph_parse_executor() -> ProcessPoolExecutor:
+    global _GRAPH_PARSE_EXECUTOR
+    if _GRAPH_PARSE_EXECUTOR is None:
+        _GRAPH_PARSE_EXECUTOR = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+    return _GRAPH_PARSE_EXECUTOR
+
+
+def _shutdown_graph_parse_executor() -> None:
+    global _GRAPH_PARSE_EXECUTOR
+    executor, _GRAPH_PARSE_EXECUTOR = _GRAPH_PARSE_EXECUTOR, None
+    if executor is not None:
+        executor.shutdown(wait=False, cancel_futures=True)
+
+
+async def _run_graph_build_operation(record: Mapping[str, Any], database_path: Path) -> None:
+    store = _graph_build_job_store(database_path)
+    operation_id = str(record["operation_id"])
     try:
+        parsed = await asyncio.get_running_loop().run_in_executor(
+            _graph_parse_executor(),
+            graph_build_jobs.parse_graph_job,
+            str(database_path),
+            operation_id,
+            str(record["repository_snapshot_id"]),
+        )
+        await run_in_threadpool(store.update, operation_id, phase="writing")
         result = await _run_bounded_write(
             "code.graph.build.deferred",
-            build_code_graph,
+            publish_code_graph,
             database_path,
+            parsed["snapshot"],
+            parsed["material"],
             project=str(record["project"]),
             root_id=str(record["root_id"]),
-            repository_snapshot_id=str(record["repository_snapshot_id"]),
         )
     except asyncio.CancelledError:
-        async with _GRAPH_BUILD_OPERATIONS_LOCK:
-            record["status"] = "cancelled"
-            record["retryable"] = True
-            record["updated_at"] = _utc_now_iso()
+        await asyncio.shield(
+            run_in_threadpool(store.update, operation_id, status="failed", phase="failed", error="cancelled", retryable=True)
+        )
         raise
     except Exception as exc:
-        _LOGGER.exception("Deferred code graph build failed: %s", record["operation_id"])
-        async with _GRAPH_BUILD_OPERATIONS_LOCK:
-            record["status"] = "failed"
-            record["error"] = _safe_exception_text(exc, fallback="code graph build failed")
-            record["retryable"] = True
-            record["updated_at"] = _utc_now_iso()
+        _LOGGER.exception("Deferred code graph build failed: %s", operation_id)
+        if isinstance(exc, BrokenProcessPool):
+            _shutdown_graph_parse_executor()
+        await run_in_threadpool(
+            store.update,
+            operation_id,
+            status="failed",
+            phase="failed",
+            error=_safe_exception_text(exc, fallback="code graph build failed"),
+            retryable=True,
+        )
     else:
-        async with _GRAPH_BUILD_OPERATIONS_LOCK:
-            record["status"] = "completed"
-            record["result"] = result
-            record["retryable"] = False
-            record["updated_at"] = _utc_now_iso()
+        await run_in_threadpool(store.update, operation_id, status="completed", phase="completed", result=result, retryable=False)
+    finally:
+        _GRAPH_BUILD_TASKS.pop(operation_id, None)
 
 
 async def _get_or_start_graph_build_operation(
@@ -1486,60 +1539,45 @@ async def _get_or_start_graph_build_operation(
     root_id: str,
     root: Path,
     snapshot_id: str,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], asyncio.Task[None] | None]:
     operation_id = _graph_build_operation_id(project, root_id, snapshot_id)
-    async with _GRAPH_BUILD_OPERATIONS_LOCK:
-        existing = _GRAPH_BUILD_OPERATIONS.get(operation_id)
-        if existing is not None and existing.get("status") in {"running", "completed"}:
-            return existing
-        if len(_GRAPH_BUILD_OPERATIONS) >= _GRAPH_BUILD_OPERATION_LIMIT:
-            finished = sorted(
-                (
-                    item
-                    for item in _GRAPH_BUILD_OPERATIONS.values()
-                    if item.get("status") != "running"
-                ),
-                key=lambda item: str(item.get("updated_at") or ""),
-            )
-            for stale in finished[: max(len(_GRAPH_BUILD_OPERATIONS) - _GRAPH_BUILD_OPERATION_LIMIT + 1, 0)]:
-                _GRAPH_BUILD_OPERATIONS.pop(str(stale["operation_id"]), None)
-        now = _utc_now_iso()
-        record: dict[str, Any] = {
-            "operation_id": operation_id,
-            "status": "running",
-            "project": project,
-            "root_id": root_id,
-            "root": str(root),
-            "repository_snapshot_id": snapshot_id,
-            "started_at": now,
-            "updated_at": now,
-            "retryable": False,
-        }
-        _GRAPH_BUILD_OPERATIONS[operation_id] = record
-        record["task"] = asyncio.create_task(
+    store = _graph_build_job_store(database_path)
+    try:
+        record, started = await run_in_threadpool(
+            store.start,
+            operation_id=operation_id,
+            project=project,
+            root_id=root_id,
+            root=str(root),
+            snapshot_id=snapshot_id,
+            boot_id=_GRAPH_BUILD_BOOT_ID,
+        )
+    except GraphBuildBusy as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "code_graph_build_in_progress",
+                "retryable": True,
+                "graph_operation": _public_graph_build_operation(exc.active),
+            },
+            headers={"Retry-After": "5"},
+        ) from exc
+    if started:
+        _GRAPH_BUILD_TASKS[operation_id] = asyncio.create_task(
             _run_graph_build_operation(record, database_path),
             name=operation_id,
         )
-        return record
+    return record, _GRAPH_BUILD_TASKS.get(operation_id)
 
 
 async def _latest_graph_build_operation(
+    database_path: Path,
     project: str,
     root_id: str,
     snapshot_id: str | None = None,
 ) -> dict[str, Any] | None:
-    async with _GRAPH_BUILD_OPERATIONS_LOCK:
-        matches = [
-            record
-            for record in _GRAPH_BUILD_OPERATIONS.values()
-            if record.get("project") == project
-            and record.get("root_id") == root_id
-            and (snapshot_id is None or record.get("repository_snapshot_id") == snapshot_id)
-        ]
-        if not matches:
-            return None
-        latest = max(matches, key=lambda item: str(item.get("updated_at") or ""))
-        return _public_graph_build_operation(latest)
+    record = await run_in_threadpool(_graph_build_job_store(database_path).latest, project, root_id, snapshot_id)
+    return _public_graph_build_operation(record) if record is not None else None
 
 
 def _graph_build_result_from_snapshot(
@@ -2615,6 +2653,7 @@ async def _app_lifespan(_app: FastAPI):
             await _cancel_lifespan_task(sqlite_retention_task, name="sqlite_retention")
             await _cancel_lifespan_task(warmup_task, name="provider_warmup")
             await _cleanup_registered_infra_processes(reason="api_shutdown")
+            _shutdown_graph_parse_executor()
 
 
 app = FastAPI(title=settings.app_name, redoc_url=None, lifespan=_app_lifespan)
@@ -17298,6 +17337,7 @@ async def bhm_public_code_tools(
         )
         current_index = status.get("current_snapshot") or {}
         graph_operation = await _latest_graph_build_operation(
+            database_path,
             project,
             root_id,
             str(current_index.get("snapshot_id") or "") or None,
@@ -17373,15 +17413,14 @@ async def bhm_public_code_tools(
             ):
                 graph = _graph_build_result_from_snapshot(current_graph, project=project, root_id=root_id)
             else:
-                graph_operation_record = await _get_or_start_graph_build_operation(
+                graph_operation_record, task = await _get_or_start_graph_build_operation(
                     database_path=database_path,
                     project=project,
                     root_id=root_id,
                     root=root,
                     snapshot_id=request.snapshot_id,
                 )
-                task = graph_operation_record.get("task")
-                if isinstance(task, asyncio.Task) and not task.done():
+                if task is not None and not task.done():
                     try:
                         await asyncio.wait_for(
                             asyncio.shield(task),
@@ -17389,6 +17428,10 @@ async def bhm_public_code_tools(
                         )
                     except asyncio.TimeoutError:
                         pass
+                    graph_operation_record = (
+                        await run_in_threadpool(_graph_build_job_store(database_path).get, graph_operation_record["operation_id"])
+                        or graph_operation_record
+                    )
                 if graph_operation_record.get("status") == "completed":
                     graph = dict(graph_operation_record.get("result") or {})
                 elif graph_operation_record.get("status") == "failed":
@@ -17434,7 +17477,7 @@ async def bhm_public_code_tools(
                 "index": None,
                 "graph": graph,
                 "graph_status": "ready",
-                "graph_operation": await _latest_graph_build_operation(project, root_id, request.snapshot_id),
+                "graph_operation": await _latest_graph_build_operation(database_path, project, root_id, request.snapshot_id),
                 "execution": {"writes_sqlite_state": True, "writes_qdrant": False, "raw_source_returned": False, "graph_only": True},
                 "provenance": {"source": "sqlite-authoritative", "authority": "sqlite-authoritative", "source_persisted": False},
             }
