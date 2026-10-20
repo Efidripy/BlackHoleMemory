@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import time
 from typing import Any
 
@@ -89,6 +90,17 @@ async def _initialize_named(
     )
     assert initialized.status_code == 202
     return response.json(), session_id
+
+
+def test_core_catalog_input_schemas_are_not_depth_truncated():
+    # Strict clients (Anthropic API) drop a tool whose schema has a string where a subschema belongs.
+    response = asyncio.run(
+        bhm_app._handle_mcp_gateway_jsonrpc_core({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+    )
+    assert response is not None
+    tools = response["result"]["tools"]
+    assert "bhm_remember" in {tool["name"] for tool in tools}
+    assert "[TRUNCATED:max-depth]" not in json.dumps(tools)
 
 
 def test_streamable_http_matches_core_catalog_and_recovers_after_disconnect():
