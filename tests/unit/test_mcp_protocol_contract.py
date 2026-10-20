@@ -80,6 +80,7 @@ def test_contract_snapshot_is_versioned_and_json_safe():
     [
         ({"content": "fact", "project": "BlackHoleMemory"}, None),
         ({"metadata": None}, None),
+        ({"concepts": None, "files": None}, None),
         ({"concepts": "bhm"}, "bhm_remember concepts must be an array"),
         ({"files": "app.py"}, "bhm_remember files must be an array"),
         ({"metadata": []}, "bhm_remember metadata must be an object"),
