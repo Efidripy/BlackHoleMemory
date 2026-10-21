@@ -485,6 +485,7 @@ async def execute_live_web_search(query: str) -> dict[str, Any]:
         normalized = _normalize_live_web_search_result(mcp_result, query=search_query, provider="mcp_playwright")
         if normalized["status"] == "OK":
             return normalized
+    # broad: external MCP providers are an availability boundary; report and try the fallback.
     except Exception as exc:
         errors.append(f"mcp_playwright: {exc}")
 
@@ -496,6 +497,7 @@ async def execute_live_web_search(query: str) -> dict[str, Any]:
             errors.append(str(fallback_result.get("error") or "environment API returned no data"))
         else:
             errors.append("no live MCP provider or supported API key configured")
+    # broad: external environment API is an availability boundary; return a failed-closed result.
     except Exception as exc:
         errors.append(f"environment_api: {exc}")
 
