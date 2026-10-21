@@ -33,7 +33,12 @@ from .swarm_tools import (
     _tool_result,
 )
 from .quarantine import *  # noqa: F401,F403
-from .llm_client import *  # noqa: F401,F403
+
+
+def _executor_max_iterations() -> int:
+    from ._core import BHMAgentExecutor
+
+    return BHMAgentExecutor.MAX_ITERATIONS
 
 class DeveloperAgentState(TypedDict, total=False):
     task_id: str
@@ -679,7 +684,7 @@ def route_after_censorship(
         if _should_bhm_flush_context(state):
             return "bhm_flush_context"
         iteration = int(state.get("iteration") or 0)
-        max_iterations = int(state.get("max_iterations") or BHMAgentExecutor.MAX_ITERATIONS)
+        max_iterations = int(state.get("max_iterations") or _executor_max_iterations())
         if iteration >= max_iterations:
             return "fix_suspended"
         return "generate_code"
@@ -822,6 +827,8 @@ async def _web_knowledge_extractor_node_impl(
     llm: LocalLLMClient,
     logger: ChronicleLogger | None = None,
 ) -> DeveloperAgentState:
+    from .llm_client import _call_local_llm_for_web_fact
+
     next_state: DeveloperAgentState = dict(state)
     if _should_execute_live_web_search(next_state):
         live_search_query = _state_live_search_query(next_state)
@@ -904,11 +911,13 @@ async def _web_knowledge_extractor_node_impl(
 
 
 async def web_knowledge_extractor_node(state: DeveloperAgentState) -> dict[str, Any]:
+    from .llm_client import LocalLLMClient
+
     llm = LocalLLMClient(
         _read_bhm_env("OPENAI_BASE_URL", endpoint_url("llm_default")),
         _read_bhm_env("OPENAI_MODEL", "qwen2.5-coder-7b-instruct"),
         _read_bhm_env("OPENAI_API_KEY", ""),
-        BHMAgentExecutor.timeout,
+        LLM_HTTP_TIMEOUT_SECONDS,
     )
     return await _web_knowledge_extractor_node_impl(state, llm)
 
@@ -962,7 +971,7 @@ async def _root_cause_censor_node_impl(
 
     if feedback["status"] == "REJECTED":
         iteration = int(next_state.get("iteration") or 0)
-        max_iterations = int(next_state.get("max_iterations") or BHMAgentExecutor.MAX_ITERATIONS)
+        max_iterations = int(next_state.get("max_iterations") or _executor_max_iterations())
         next_state["status"] = "CENSOR_REJECTED"
         next_state["next_node"] = "fix_suspended" if iteration >= max_iterations else "generate_code"
         next_state["failure_summary"] = _limit_text(feedback["audit_verdict"], 1000)
@@ -1004,11 +1013,13 @@ async def _root_cause_censor_node_impl(
 
 
 async def root_cause_censor_node(state: AgentState) -> dict[str, Any]:
+    from .llm_client import LocalLLMClient
+
     llm = LocalLLMClient(
         _read_bhm_env("OPENAI_BASE_URL", endpoint_url("llm_default")),
         _read_bhm_env("OPENAI_MODEL", "qwen2.5-coder-7b-instruct"),
         _read_bhm_env("OPENAI_API_KEY", ""),
-        BHMAgentExecutor.timeout,
+        LLM_HTTP_TIMEOUT_SECONDS,
     )
     return await _root_cause_censor_node_impl(state, llm)
 
@@ -1186,11 +1197,13 @@ async def _qa_node_impl(
 
 
 async def qa_node(state: DeveloperAgentState) -> dict[str, Any]:
+    from .llm_client import LocalLLMClient
+
     llm = LocalLLMClient(
         _read_bhm_env("OPENAI_BASE_URL", endpoint_url("llm_default")),
         _read_bhm_env("OPENAI_MODEL", "qwen2.5-coder-7b-instruct"),
         _read_bhm_env("OPENAI_API_KEY", ""),
-        BHMAgentExecutor.timeout,
+        LLM_HTTP_TIMEOUT_SECONDS,
     )
     return await _qa_node_impl(state, llm)
 

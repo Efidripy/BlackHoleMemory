@@ -24,10 +24,6 @@ swarm_tools.analyze_screenshot = analyze_screenshot
 swarm_tools.tool_get_file_outline = tool_get_file_outline
 swarm_tools.tool_get_symbol_definition = tool_get_symbol_definition
 swarm_tools.DeveloperAgentState = _core.DeveloperAgentState
-quarantine._context_title = _core._context_title
-llm_client._extract_json_object = _core._extract_json_object
-llm_client._normalize_extracted_web_fact = _core._normalize_extracted_web_fact
-llm_client.BHMAgentExecutor = _core.BHMAgentExecutor
 
 
 def _terminate_spawned_pid_tree(pid: int, grace_seconds: int = PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS):

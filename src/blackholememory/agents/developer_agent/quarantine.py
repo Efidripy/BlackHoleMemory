@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ._common import *  # noqa: F401,F403
-from ._common import _normalize_search_payload, _repo_root
+from ._common import _context_title, _normalize_search_payload, _repo_root
 from .swarm_tools import _normalize_sandbox_result
 
 class ChronicleLogger:
@@ -32,8 +32,6 @@ class ChronicleLogger:
         future.result(timeout=RUNTIME_CHRONICLE_APPEND_TIMEOUT_SECONDS)
 
     def log_retrieval(self, context: list[dict[str, Any]], mode: str, payload_summary: str) -> None:
-        from . import _core as core_module
-
         lines = [f"- mode: `{mode}`", f"- payload: {_limit_text(payload_summary, 700)}", f"- retrieved: {len(context)}"]
         if context:
             lines.append("")
@@ -44,7 +42,7 @@ class ChronicleLogger:
                 lines.append(
                     "| "
                     f"`{_limit_text(item.get('id'), 80)}` | "
-                    f"{_limit_text(core_module._context_title(item), 120)} | "
+                    f"{_limit_text(_context_title(item), 120)} | "
                     f"`{_limit_text(metadata.get('semantic_type'), 40)}` | "
                     f"`{_limit_text(metadata.get('lifecycle'), 40)}` | "
                     f"`{item.get('score', 0.0)}` |"
@@ -365,9 +363,5 @@ class QuarantineGatewayNode:
                 "version": "1.0",
             },
         }
-
-from . import _common as _common
-
-_common.BHMSearchResult = BHMSearchResult
 
 __all__ = [name for name in globals() if not name.startswith("__")]
