@@ -79,6 +79,7 @@ from .capability import ADMIN_CAPABILITY_HEADER
 from .capability import admin_route_requires_capability
 from .capability import configured_admin_capability
 from .capability import extract_mcp_capability
+from .capability import MCP_OPERATOR_SESSION
 from .capability import is_admin_capability_valid
 from .caller_auth import authorize_projects
 from .caller_auth import authorize_project_root
@@ -2404,6 +2405,36 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
             validation_error = _validate_bhm_remember_mcp_arguments(arguments)
             if validation_error:
                 return _jsonrpc_error(request_id, -32600, validation_error)
+        if name == "bhm_remember" and MCP_OPERATOR_SESSION.get():
+            try:
+                remember_request = _remember_request_from_mcp_arguments(arguments)
+                remember_result = await _remember_authoritative(
+                    remember_request,
+                    actor="mcp-http-operator",
+                )
+            except HTTPException as exc:
+                detail = exc.detail
+                if isinstance(detail, dict) and detail.get("code") == "ingress_admission_rejected":
+                    rejection = {"success": False, **detail}
+                    return _jsonrpc_success(
+                        request_id,
+                        {
+                            "content": [{"type": "text", "text": json.dumps(rejection, ensure_ascii=False)}],
+                            "isError": True,
+                            "structuredContent": rejection,
+                        },
+                    )
+                return _jsonrpc_error(request_id, -32603, _safe_exception_text(exc))
+            except Exception as exc:
+                return _jsonrpc_error(request_id, -32603, f"{name} failed: {redact_secret_text(str(exc)).value}")
+            return _jsonrpc_success(
+                request_id,
+                {
+                    "content": [{"type": "text", "text": json.dumps(remember_result, ensure_ascii=False)}],
+                    "isError": False,
+                    "structuredContent": remember_result,
+                },
+            )
         try:
             from . import bhm_mcp
 
@@ -4769,6 +4800,42 @@ def _admit_new_content(*, ingress: IngressKind, project: str, actor: str, payloa
     if not admission.admitted or (requires_authority and not admission.authority_eligible):
         raise HTTPException(status_code=422, detail={"code": "ingress_admission_rejected", "admission": admission.receipt()})
     return admission.receipt()
+
+
+def _remember_response(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "success": True,
+        "memory": {
+            "id": record["source_id"],
+            "title": record["metadata"]["raw_title"],
+            "project": record["project"],
+            "type": record["memory_type"],
+            "memoryClass": _effective_memory_class(record),
+            "createdAt": record["created_at"],
+        },
+    }
+
+
+async def _remember_authoritative(request: RememberRequest, *, actor: str) -> dict[str, Any]:
+    """Run the single operator-authority write path shared by REST and HTTP MCP."""
+
+    _admit_new_content(
+        ingress=IngressKind.OPERATOR,
+        project=request.project,
+        actor=actor,
+        payload=request.model_dump(mode="json"),
+        requires_authority=True,
+    )
+    record = await _run_bounded_write("bhm.remember", _remember_live_memory, request)
+    return _remember_response(record)
+
+
+def _remember_request_from_mcp_arguments(arguments: dict[str, Any]) -> RememberRequest:
+    payload = dict(arguments)
+    payload["type"] = payload.pop("memory_type", "workflow")
+    payload["concepts"] = payload.get("concepts") or []
+    payload["files"] = payload.get("files") or []
+    return RememberRequest.model_validate(payload)
 
 
 def _request_ingress(request: Request) -> IngressKind:
@@ -22068,25 +22135,16 @@ def _mem0_match_search(request: BhmMatchSearchRequest) -> dict:
 
 @app.post("/bhm/remember")
 async def bhm_remember(request: RememberRequest, http_request: Request) -> dict:
-    _admit_new_content(
-        ingress=_request_ingress(http_request),
-        project=request.project,
-        actor=_request_actor(http_request),
-        payload=request.model_dump(mode="json"),
-        requires_authority=True,
-    )
-    record = await _run_bounded_write("bhm.remember", _remember_live_memory, request)
-    return {
-        "success": True,
-        "memory": {
-            "id": record["source_id"],
-            "title": record["metadata"]["raw_title"],
-            "project": record["project"],
-            "type": record["memory_type"],
-            "memoryClass": _effective_memory_class(record),
-            "createdAt": record["created_at"],
-        },
-    }
+    ingress = _request_ingress(http_request)
+    if ingress is not IngressKind.OPERATOR:
+        _admit_new_content(
+            ingress=ingress,
+            project=request.project,
+            actor=_request_actor(http_request),
+            payload=request.model_dump(mode="json"),
+            requires_authority=True,
+        )
+    return await _remember_authoritative(request, actor=_request_actor(http_request))
 
 
 @app.post("/bhm/lessons")
