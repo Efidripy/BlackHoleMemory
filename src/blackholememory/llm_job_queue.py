@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -19,6 +20,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .filesystem_boundaries import assert_safe_path
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 LLM_JOB_QUEUE_SCHEMA_VERSION = 1
@@ -309,7 +313,11 @@ class LLMJobQueue:
                     capacity=self.capacity,
                     created_at=created_at,
                 )
-            except Exception:
+            except Exception as exc:  # broad: rollback must run for any failure before propagating
+                _LOGGER.error(
+                    "llm_job_queue_enqueue_transaction_failed",
+                    extra={"exception_type": type(exc).__name__},
+                )
                 connection.rollback()
                 raise
             finally:
@@ -396,7 +404,11 @@ class LLMJobQueue:
                 ).fetchone()
                 connection.commit()
                 return self._materialize_job(claimed, include_payload=True)
-            except Exception:
+            except Exception as exc:  # broad: rollback must run for any failure before propagating
+                _LOGGER.error(
+                    "llm_job_queue_claim_transaction_failed",
+                    extra={"exception_type": type(exc).__name__},
+                )
                 connection.rollback()
                 raise
             finally:
@@ -460,7 +472,11 @@ class LLMJobQueue:
                 if cursor.rowcount != 1:
                     raise LLMJobLeaseLost(str(job_id))
                 connection.commit()
-            except Exception:
+            except Exception as exc:  # broad: rollback must run for any failure before propagating
+                _LOGGER.error(
+                    "llm_job_queue_complete_transaction_failed",
+                    extra={"exception_type": type(exc).__name__},
+                )
                 connection.rollback()
                 raise
             finally:
@@ -513,7 +529,11 @@ class LLMJobQueue:
                 )
                 connection.commit()
                 return status
-            except Exception:
+            except Exception as exc:  # broad: rollback must run for any failure before propagating
+                _LOGGER.error(
+                    "llm_job_queue_fail_transaction_failed",
+                    extra={"exception_type": type(exc).__name__},
+                )
                 connection.rollback()
                 raise
             finally:
@@ -546,7 +566,11 @@ class LLMJobQueue:
                 updated = connection.execute("SELECT * FROM llm_jobs WHERE job_id = ?", (str(job_id),)).fetchone()
                 connection.commit()
                 return self._materialize_job(updated, include_payload=False)
-            except Exception:
+            except Exception as exc:  # broad: rollback must run for any failure before propagating
+                _LOGGER.error(
+                    "llm_job_queue_cancel_transaction_failed",
+                    extra={"exception_type": type(exc).__name__},
+                )
                 connection.rollback()
                 raise
             finally:
@@ -602,7 +626,11 @@ class LLMJobQueue:
                 )
                 connection.commit()
                 return int(cursor.rowcount)
-            except Exception:
+            except Exception as exc:  # broad: rollback must run for any failure before propagating
+                _LOGGER.error(
+                    "llm_job_queue_recover_transaction_failed",
+                    extra={"exception_type": type(exc).__name__},
+                )
                 connection.rollback()
                 raise
             finally:
@@ -638,7 +666,11 @@ class LLMJobQueue:
                     raise LLMJobLeaseLost(str(job_id))
                 connection.commit()
                 return LLMJobCheckpoint(job_id=str(job_id), digest=str(digest), updated_at=now)
-            except Exception:
+            except Exception as exc:  # broad: rollback must run for any failure before propagating
+                _LOGGER.error(
+                    "llm_job_queue_checkpoint_transaction_failed",
+                    extra={"exception_type": type(exc).__name__},
+                )
                 connection.rollback()
                 raise
             finally:
