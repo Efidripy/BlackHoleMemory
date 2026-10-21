@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from blackholememory import app as bhm_app
+from blackholememory import code_tools_service
 from blackholememory import app_runtime
 from blackholememory import caller_auth
 from blackholememory import ui_session as ui_session_module
@@ -1032,7 +1033,7 @@ def test_scoped_code_tools_reject_omitted_root_before_root_index_probe(monkeypat
         probes.append(args)
         return ()
 
-    monkeypatch.setattr(bhm_app, "_public_code_indexed_root_paths", record_root_index_probe)
+    monkeypatch.setattr(code_tools_service, "_public_code_indexed_root_paths", record_root_index_probe)
     response = _client().post(
         "/bhm/code-tools",
         json={"operation": "status", "project": "blackholememory"},
@@ -1056,7 +1057,7 @@ def test_scoped_code_tools_authorize_root_before_repository_probe(monkeypatch, t
         probes.append((project, str(root)))
         return "unexpected-root-id"
 
-    monkeypatch.setattr(bhm_app, "_public_code_root_id", record_probe)
+    monkeypatch.setattr(code_tools_service, "_public_code_root_id", record_probe)
     response = _client().post(
         "/bhm/code-tools",
         json={"operation": "status", "project": "blackholememory", "root": sibling.name},
@@ -1080,7 +1081,7 @@ def test_scoped_code_tools_root_matrix_denies_every_root_taking_operation_before
         probes.append((project, str(root)))
         return "unexpected-root-id"
 
-    monkeypatch.setattr(bhm_app, "_public_code_root_id", record_probe)
+    monkeypatch.setattr(code_tools_service, "_public_code_root_id", record_probe)
     root_operations = sorted(bhm_app._PUBLIC_CODE_TOOL_OPERATIONS - {"projects", "cross_repo"})
 
     for operation in root_operations:
