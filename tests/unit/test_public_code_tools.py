@@ -6,10 +6,8 @@ import pytest
 
 from blackholememory import bhm_mcp
 from blackholememory.app import PublicCodeToolRequest
-from blackholememory.app import _PUBLIC_CODE_TOOL_OPERATIONS
-from blackholememory.app import _resolve_public_code_root
-
-
+from blackholememory.code_tools_service import _PUBLIC_CODE_TOOL_OPERATIONS
+from blackholememory.code_tools_service import _resolve_public_code_root
 def test_public_code_tool_contract_is_allowlisted_and_read_only_by_default() -> None:
     request = PublicCodeToolRequest(operation="schema")
     assert request.apply is False

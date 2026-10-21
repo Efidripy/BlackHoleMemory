@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import httpx
 
 from blackholememory import app as bhm_app
+from blackholememory import code_tools_service
 from blackholememory import graph_build_jobs
 from blackholememory.code_graph import build_code_graph
 from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
@@ -99,9 +100,9 @@ def test_public_architecture_response_is_transport_bounded(monkeypatch, tmp_path
         "clone_hints": [],
         "execution": {"authority": "proposal", "raw_source_returned": False},
     }
-    monkeypatch.setattr(bhm_app, "build_architecture_intelligence", lambda *_args, **_kwargs: dict(intelligence))
-    monkeypatch.setattr(bhm_app, "build_architecture_explain_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
-    monkeypatch.setattr(bhm_app, "build_graph_analysis_quality_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
+    monkeypatch.setattr(code_tools_service, "build_architecture_intelligence", lambda *_args, **_kwargs: dict(intelligence))
+    monkeypatch.setattr(code_tools_service, "build_architecture_explain_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
+    monkeypatch.setattr(code_tools_service, "build_graph_analysis_quality_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
     monkeypatch.setattr(
         bhm_app,
         "build_architecture_memory",
@@ -137,7 +138,7 @@ def test_public_impact_preview_response_is_transport_bounded(monkeypatch, tmp_pa
         preview["decision_card"]["impact"] = list(preview["impact"])
         return preview
 
-    monkeypatch.setattr(bhm_app, "build_change_impact_preview", oversized_preview)
+    monkeypatch.setattr(code_tools_service, "build_change_impact_preview", oversized_preview)
     response = TestClient(bhm_app.app).post(
         "/bhm/code-tools",
         json={
@@ -834,8 +835,8 @@ def test_graph_only_defers_slow_build_deduplicates_and_reports_completion(monkey
         monkeypatch.setattr(bhm_app.settings, "repo_root", root)
         monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
         monkeypatch.setattr(graph_build_jobs, "parse_graph_job", slow_parse)
-        monkeypatch.setattr(bhm_app, "_graph_parse_executor", lambda: parse_executor)
-        monkeypatch.setattr(bhm_app, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 0.01)
+        monkeypatch.setattr(code_tools_service, "_graph_parse_executor", lambda: parse_executor)
+        monkeypatch.setattr(code_tools_service, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 0.01)
         transport = httpx.ASGITransport(app=bhm_app.app)
         async with httpx.AsyncClient(
             transport=transport,
@@ -913,7 +914,7 @@ def test_graph_only_build_parses_in_worker_process(monkeypatch, tmp_path: Path) 
     )
     monkeypatch.setattr(bhm_app.settings, "repo_root", root)
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
-    monkeypatch.setattr(bhm_app, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 60.0)
+    monkeypatch.setattr(code_tools_service, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 60.0)
     request = {"operation": "index", "project": "demo", "root": "repo", "apply": True, "graph_only": True, "snapshot_id": indexed["snapshot_id"]}
     try:
         response = TestClient(bhm_app.app).post("/bhm/code-tools", json=request)
@@ -922,7 +923,7 @@ def test_graph_only_build_parses_in_worker_process(monkeypatch, tmp_path: Path) 
         assert payload["graph_status"] == "ready"
         assert payload["graph"]["repository_snapshot_id"] == indexed["snapshot_id"]
         assert payload["graph_operation"]["phase"] == "completed"
-        assert bhm_app._GRAPH_PARSE_EXECUTOR is not None
+        assert code_tools_service._GRAPH_PARSE_EXECUTOR is not None
     finally:
         bhm_app._shutdown_graph_parse_executor()
 
@@ -937,7 +938,7 @@ def test_coverage_probe_timeout_is_retryable_and_fail_closed(monkeypatch, tmp_pa
 
     monkeypatch.setattr(bhm_app.settings, "repo_root", root)
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
-    monkeypatch.setattr(bhm_app, "repository_index_status", timed_out_status)
+    monkeypatch.setattr(code_tools_service, "repository_index_status", timed_out_status)
     client = TestClient(bhm_app.app)
 
     response = client.post(
