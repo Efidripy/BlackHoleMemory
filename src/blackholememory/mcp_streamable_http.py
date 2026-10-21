@@ -520,7 +520,8 @@ class _StreamableHttpAsgiApp:
             await _send_auth_error(send, 503, "caller_auth_not_configured")
             return
         supplied = parse_bearer_token(request_headers.get("authorization"))
-        if not is_caller_token_valid(supplied):
+        # The operator capability may arrive as the bearer itself: some clients forward only Authorization.
+        if not is_caller_token_valid(supplied) and not is_admin_capability_valid(supplied):
             await _send_auth_error(send, 401, "caller_auth_required")
             return
         session_id = request_headers.get("mcp-session-id", "")
@@ -825,11 +826,10 @@ class BhmStreamableHttpGateway:
             except LookupError:
                 headers = None
             supplied = headers.get(ADMIN_CAPABILITY_HEADER, "") if headers else ""
-            operator = bool(supplied) and is_admin_capability_valid(supplied)
+            bearer = parse_bearer_token(headers.get("authorization") if headers else "")
+            operator = is_admin_capability_valid(supplied) or is_admin_capability_valid(bearer)
             marker = MCP_OPERATOR_SESSION.set(operator)
             state = "valid" if operator else ("invalid" if supplied else "absent")
-            if state == "absent":  # temporary diagnostic: header NAMES only, never values
-                state += f"(request={'none' if headers is None else 'yes'};names={','.join(sorted(k for k in (headers or {})))[:300]})"
             state_marker = MCP_OPERATOR_HEADER_STATE.set(state)
             try:
                 response = await self._dispatch(
