@@ -108,6 +108,7 @@ from .filesystem_boundaries import FilesystemReadLimitError
 from .filesystem_boundaries import read_bytes_safely
 from .filesystem_boundaries import replace_bytes_safely
 from .graph import build_graph
+from .galaxy_atlas import AtlasCache
 from .galaxy import GalaxyOptions
 from .galaxy import build_galaxy_graph
 from .galaxy import camera_distance_for
@@ -19461,6 +19462,31 @@ async def bhm_galaxy_stats() -> dict[str, Any]:
     return await _get_global_galaxy_stats()
 
 
+_ATLAS_CACHE: AtlasCache | None = None
+
+
+def _atlas_cache() -> AtlasCache:
+    global _ATLAS_CACHE
+    if _ATLAS_CACHE is None:
+        config = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir)
+        _ATLAS_CACHE = AtlasCache(
+            settings.runtime_dir / "galaxy" / "atlas-cache.json",
+            config.database_path,
+            settings.qdrant_url,
+        )
+    return _ATLAS_CACHE
+
+
+@app.get("/bhm/galaxy/atlas", include_in_schema=False)
+async def bhm_galaxy_atlas(request: Request) -> dict[str, Any]:
+    """Whole-memory 3D atlas (positions, projects, links). Cached; rebuilt in the background."""
+
+    principal = getattr(request.state, "bhm_caller_principal", None)
+    if principal is None or not principal.all_projects:
+        raise HTTPException(status_code=403, detail={"code": "galaxy_atlas_all_projects_required"})
+    return await asyncio.to_thread(_atlas_cache().snapshot)
+
+
 @app.get("/bhm/telemetry/launcher", response_model=LauncherStatsResponse, include_in_schema=False)
 def bhm_launcher_stats() -> dict[str, Any]:
     """Return bounded all-project counters for the local launcher dashboard."""
@@ -19637,9 +19663,9 @@ def bhm_ui_session_status(request: Request) -> dict:
 
 
 @app.get("/bhm/galaxy", response_class=FileResponse)
-def bhm_galaxy_view_selector() -> FileResponse:
+def bhm_galaxy_view() -> FileResponse:
     return FileResponse(
-        STATIC_DIR / "galaxy-selector.html",
+        STATIC_DIR / "galaxy-atlas.html",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",
@@ -19652,18 +19678,6 @@ def bhm_galaxy_view_selector() -> FileResponse:
 def bhm_galaxy_classic_view() -> FileResponse:
     return FileResponse(
         STATIC_DIR / "galaxy.html",
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
-    )
-
-
-@app.get("/bhm/atlas", response_class=FileResponse)
-def bhm_atlas_view() -> FileResponse:
-    return FileResponse(
-        STATIC_DIR / "atlas.html",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
             "Pragma": "no-cache",

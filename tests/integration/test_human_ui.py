@@ -41,7 +41,8 @@ def test_hidden_route_and_galaxy_viewer_surfaces():
     assert routes["/bhm/human-ui/preview"].include_in_schema is False
     assert routes["/bhm/galaxy"].path == "/bhm/galaxy"
     assert routes["/bhm/galaxy/classic"].path == "/bhm/galaxy/classic"
-    assert routes["/bhm/atlas"].path == "/bhm/atlas"
+    assert "/bhm/atlas" not in routes
+    assert routes["/bhm/galaxy/atlas"].path == "/bhm/galaxy/atlas"
     preview = build_human_ui_bridge_preview(project="fixture", nodes=[], links=[], context_packet={"token_usage": 0, "max_tokens": 1200})
     assert "/bhm/galaxy" in preview["surfaces"]
     assert preview["checks"]["obsidian_optional"] is True

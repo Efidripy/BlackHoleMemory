@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BHM Atlas</title>
+<style>
+  :root { --bg:#02030a; --panel:rgba(9,14,28,.78); --line:rgba(120,170,255,.16); --text:#dbe6ff; --dim:#8393b8; --accent:#6fe3ff; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text); font:13px/1.45 "Segoe UI",system-ui,sans-serif; overflow:hidden; }
+  canvas#gl { position:fixed; inset:0; width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
+  canvas#gl.drag { cursor:grabbing; }
+  .glass { background:var(--panel); border:1px solid var(--line); border-radius:14px; backdrop-filter:blur(10px); }
+  button,input { font:inherit; color:inherit; }
+  button { background:rgba(120,170,255,.08); border:1px solid var(--line); border-radius:9px; padding:6px 11px; cursor:pointer; }
+  button:hover { background:rgba(120,170,255,.18); }
+  button:focus-visible,input:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+  #top { position:fixed; left:14px; right:14px; top:12px; display:flex; gap:10px; align-items:center; pointer-events:none; flex-wrap:wrap; }
+  #top>* { pointer-events:auto; }
+  .brand { padding:8px 14px; font-weight:600; letter-spacing:.12em; color:var(--accent); white-space:nowrap; }
+  #searchWrap { position:relative; flex:1 1 260px; max-width:460px; }
+  #search { width:100%; padding:9px 14px; border-radius:12px; background:var(--panel); border:1px solid var(--line); }
+  #results { position:absolute; left:0; right:0; top:42px; max-height:340px; overflow:auto; display:none; padding:6px; z-index:5; }
+  #results button { display:block; width:100%; text-align:left; border:0; background:transparent; padding:7px 9px; border-radius:8px; }
+  #results small { color:var(--dim); display:block; }
+  .spacer { flex:1; }
+  .seg { display:inline-flex; padding:3px; gap:3px; }
+  .seg button { border:0; background:transparent; padding:5px 10px; }
+  .seg button.on { background:rgba(111,227,255,.22); }
+  #stats { position:fixed; left:16px; top:58px; color:var(--dim); font-size:12px; pointer-events:none; text-shadow:0 0 8px #000; }
+  #filters { position:fixed; top:58px; right:14px; padding:12px 14px; display:none; min-width:250px; max-height:70vh; overflow:auto; z-index:4; }
+  #filters h4 { margin:8px 0; font-size:11px; letter-spacing:.1em; color:var(--dim); text-transform:uppercase; }
+  .chip { display:inline-flex; align-items:center; gap:6px; margin:0 6px 6px 0; padding:4px 9px; border-radius:99px; border:1px solid var(--line); cursor:pointer; user-select:none; }
+  .chip i { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .chip.off { opacity:.3; }
+  #legend { position:fixed; left:14px; bottom:96px; padding:10px 14px; max-width:330px; }
+  #legend summary { cursor:pointer; color:var(--dim); letter-spacing:.1em; font-size:11px; text-transform:uppercase; }
+  #legend .row { display:flex; align-items:center; gap:8px; margin-top:7px; color:var(--dim); flex-wrap:wrap; }
+  #legend .ramp { width:130px; height:9px; border-radius:5px; background:linear-gradient(90deg,#fff3b0,#ffb066,#6b86c9,#39425a); }
+  #legend .ln { width:18px; height:3px; border-radius:2px; display:inline-block; }
+  #timeline { position:fixed; left:14px; right:14px; bottom:12px; height:76px; padding:8px 12px 6px; display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:center; }
+  #timeline canvas { width:100%; height:60px; display:block; cursor:ew-resize; touch-action:none; }
+  #timeline .meta { color:var(--dim); font-size:12px; min-width:150px; text-align:right; }
+  #toolsDrawer { position:fixed; right:0; top:0; bottom:0; width:min(640px,100vw); z-index:9; display:none; border-radius:0; border-width:0 0 0 1px; }
+  #toolsDrawer iframe { width:100%; height:calc(100% - 38px); border:0; background:#05070d; }
+  #toolsDrawer .bar { height:38px; display:flex; align-items:center; justify-content:space-between; padding:0 12px; }
+  #detail { position:fixed; right:14px; top:58px; bottom:96px; width:350px; padding:14px 16px; display:none; overflow:auto; z-index:3; }
+  #detail h3 { margin:0 28px 8px 0; font-size:15px; line-height:1.35; }
+  #detail .close { position:absolute; right:10px; top:10px; padding:2px 8px; }
+  #detail dl { display:grid; grid-template-columns:105px 1fr; gap:5px 10px; margin:10px 0; }
+  #detail dt { color:var(--dim); } #detail dd { margin:0; }
+  #detail .tag { display:inline-block; padding:1px 8px; border-radius:99px; border:1px solid var(--line); margin:0 5px 5px 0; }
+  #detail .links button { display:block; width:100%; text-align:left; margin-bottom:5px; }
+  #tip { position:fixed; pointer-events:none; padding:7px 10px; max-width:340px; display:none; z-index:6; }
+  #labels { position:fixed; inset:0; pointer-events:none; overflow:hidden; }
+  #labels span { position:absolute; transform:translate(-50%,-50%); font-weight:600; letter-spacing:.06em; white-space:nowrap; text-shadow:0 0 14px #000,0 0 4px #000; }
+  #hint { position:fixed; left:50%; transform:translateX(-50%); bottom:96px; color:var(--dim); font-size:12px; pointer-events:none; text-shadow:0 0 8px #000; max-width:min(900px,92vw); text-align:center; }
+</style>
+</head>
+<body>
+<canvas id="gl" aria-label="Атлас памяти BHM: плотный граф записей"></canvas>
+<div id="labels" aria-hidden="true"></div>
+<div id="tip" class="glass"></div>
+<div id="top">
+  <div class="glass brand">BHM ATLAS</div>
+  <div id="searchWrap"><input id="search" type="search" placeholder="Найти запись или проект…" autocomplete="off" aria-label="Поиск по памяти"><div id="results" class="glass"></div></div>
+  <div class="spacer"></div>
+  <div class="glass seg" role="group" aria-label="Окраска">
+    <button id="mProject" class="on" type="button" title="Цвет — проект">Проекты</button>
+    <button id="mClass" type="button" title="Цвет — класс памяти">Классы</button>
+    <button id="mFresh" type="button" title="Цвет — как давно обновлена запись">Свежесть</button>
+  </div>
+  <button id="filtersBtn" class="glass" type="button" aria-expanded="false">Фильтры</button>
+  <button id="toolsBtn" class="glass" type="button">Инструменты</button>
+</div>
+<div id="stats"></div>
+<div id="filters" class="glass"></div>
+<div id="hud" class="glass" style="display:none;position:fixed;left:50%;transform:translateX(-50%);bottom:112px;padding:7px 16px;z-index:7;pointer-events:none"></div>
+<div id="hint">Тяни пустое место — вращать · тяни точку или звезду — потянуть за собой (колесо при этом меняет охват, Alt при захвате — только эта точка) · колесо — масштаб · правая кнопка — сдвиг · клик — выбрать · Esc — сброс</div>
+<details id="legend" class="glass">
+  <summary>Легенда</summary>
+  <div class="row">Крупная звезда — «мать» проекта; точки тянутся к своей матери</div>
+  <div class="row">Яркость и размер точки — как свежо обновлена запись и насколько важна</div>
+  <div class="row"><span class="ramp"></span>сегодня → неделя → месяц → старше</div>
+  <div class="row">Пульсирует — запись недавно использовалась агентами</div>
+  <div class="row"><span class="ln" style="background:#7894c8"></span>близки по смыслу <span class="ln" style="background:#4aa3ff"></span>зависит <span class="ln" style="background:#b58cff"></span>заменяет <span class="ln" style="background:#ffb347"></span>дубль <span class="ln" style="background:#ff5c6c"></span>конфликт</div>
+</details>
+<aside id="detail" class="glass" aria-live="polite"></aside>
+<aside id="toolsDrawer" class="glass" aria-label="Инструменты BHM"><div class="bar"><strong>Инструменты</strong><button id="toolsClose" type="button">Закрыть</button></div></aside>
+<div id="gate" class="glass" style="display:none;position:fixed;left:50%;top:42%;transform:translateX(-50%);padding:18px 26px;z-index:20;text-align:center;max-width:min(480px,90vw)"></div>
+<section id="timeline" class="glass" aria-label="Шкала времени">
+  <button id="playBtn" type="button" aria-label="Проиграть рост памяти">▶</button>
+  <canvas id="tl" aria-label="Записи по дням создания"></canvas>
+  <div class="meta" id="tlMeta"></div>
+</section>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const CLASS_NAMES = ["episodic", "semantic", "procedural", "working", "unclassified"];
+const CLASS_RU = { episodic: "эпизод", semantic: "знание", procedural: "процедура", working: "рабочая", unclassified: "без класса" };
+const CLASS_RGB = { episodic: [0.37, 0.78, 1], semantic: [0.71, 0.55, 1], procedural: [0.48, 0.9, 0.58], working: [1, 0.81, 0.36], unclassified: [0.55, 0.58, 0.66] };
+const REL = { 1: ["зависит от", [0.29, 0.64, 1]], 2: ["заменяет", [0.71, 0.55, 1]], 3: ["дубль", [1, 0.7, 0.28]], 4: ["конфликтует", [1, 0.36, 0.42]], 5: ["обобщает/детализирует", [0.48, 0.9, 0.58]], 6: ["связана", [0.62, 0.71, 0.85]] };
+const S = { mode: "project", sel: -1, focus: -1, search: null, classOff: new Set(), range: [0, 1], now: Date.now(), q: [0, 0, 0, 1], dist: 1150, target: [0, 0, 0], auto: !REDUCED, anim: null };
+let D, N, H, NT, E, ET, pos, pos0, hubPos, tCreated, ageUpd, ageUse, adj, projCol, projStats, memberOf, lpArr, mixCol, nbr, posHome;
+const PH = { vel: null, active: false, pin: -1, pinBase: null, pinTarget: null, released: false, releaseT: 0, restoring: false, frozen: -1, field: false, w: null, base: null, hop: null, reach: 1 };
+
+/* ---------------------------------------------------------------- quaternions (free rotation, no poles) */
+const qMul = (a, b) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+const qAxis = (ax, ang) => { const s = Math.sin(ang / 2), l = Math.hypot(...ax) || 1; return [ax[0] / l * s, ax[1] / l * s, ax[2] / l * s, Math.cos(ang / 2)]; };
+const qNorm = (q) => { const l = Math.hypot(...q) || 1; return q.map((v) => v / l); };
+function qRot(q, v) { const [x, y, z, w] = q; const tx = 2 * (y * v[2] - z * v[1]), ty = 2 * (z * v[0] - x * v[2]), tz = 2 * (x * v[1] - y * v[0]); return [v[0] + w * tx + (y * tz - z * ty), v[1] + w * ty + (z * tx - x * tz), v[2] + w * tz + (x * ty - y * tx)]; }
+S.q = qNorm(qMul(qAxis([0, 1, 0], 0.6), qAxis([1, 0, 0], -0.35)));
+
+/* ---------------------------------------------------------------- data */
+async function load() {
+  D = ATLAS;
+  N = D.nodes.id.length; H = D.projects.length; NT = N + H; E = D.edges.a.length; ET = E + N;
+  pos = new Float32Array(NT * 3); pos.set(D.pos); pos.set(D.hubs, N * 3); pos0 = Float32Array.from(pos); posHome = Float32Array.from(pos); hubPos = D.hubs;
+  PH.vel = new Float32Array(NT * 3);
+  const cr = D.nodes.created.map((t) => Date.parse(t) || 0); const t0 = Math.min(...cr.filter(Boolean)), t1 = Math.max(...cr);
+  S.t0 = t0; S.t1 = t1; tCreated = new Float32Array(NT); cr.forEach((t, i) => (tCreated[i] = (t - t0) / Math.max(1, t1 - t0))); for (let h = 0; h < H; h++) tCreated[N + h] = -1;
+  ageUpd = new Float32Array(NT).fill(0); ageUse = new Float32Array(NT).fill(9999);
+  D.nodes.updated.forEach((t, i) => (ageUpd[i] = Math.max(0, (S.now - Date.parse(t)) / 86400000)));
+  D.nodes.used.forEach((t, i) => { if (t) ageUse[i] = Math.max(0, (S.now - Date.parse(t)) / 86400000); });
+  adj = Array.from({ length: N }, () => []);
+  for (let i = 0; i < E; i++) { const a = D.edges.a[i], b = D.edges.b[i], k = D.edges.kind[i], w = D.edges.w[i]; adj[a].push([b, k === 7 ? 0 : k, w]); adj[b].push([a, k === 7 ? 0 : k, w]); }
+  projCol = D.projects.map((_, i) => hsl((i * 137.508) % 360, 0.8, 0.62));
+  memberOf = D.nodes.project;
+  projStats = D.projects.map(() => ({ n: 0, fresh: 0, used: 0, cls: {}, newest: -1, newestAge: 1e9 }));
+  for (let i = 0; i < N; i++) { const s = projStats[memberOf[i]]; s.n++; if (ageUpd[i] < 30) s.fresh++; if (ageUse[i] < 7) s.used++; s.cls[D.nodes.cls[i]] = (s.cls[D.nodes.cls[i]] || 0) + 1; if (ageUpd[i] < s.newestAge) { s.newestAge = ageUpd[i]; s.newest = i; } }
+  for (let h = 0; h < H; h++) { const s = projStats[h]; ageUpd[N + h] = s.newestAge; }
+  // neighbour lists with travel cost for the "tug" physics; spokes member<->mother are expensive so a leaf does not drag its whole project
+  nbr = Array.from({ length: NT }, () => []);
+  for (let i = 0; i < E; i++) { const a = D.edges.a[i], b = D.edges.b[i], k = D.edges.kind[i]; const c = k === 0 ? 1.15 : 1; nbr[a].push([b, c]); nbr[b].push([a, c]); }
+  for (let i = 0; i < N; i++) { const h = N + memberOf[i]; nbr[i].push([h, 3.6]); nbr[h].push([i, 3.6]); }
+  // colour mixing where projects overlap: a node with many cross-project links takes a tint of those projects
+  mixCol = new Float32Array(N * 3); const tot = new Float32Array(N), crossW = new Float32Array(N), cross = new Float32Array(N * 3);
+  for (let i = 0; i < E; i++) { const a = D.edges.a[i], b = D.edges.b[i], w = D.edges.w[i]; tot[a] += w; tot[b] += w; if (memberOf[a] !== memberOf[b]) { crossW[a] += w; crossW[b] += w; for (let k = 0; k < 3; k++) { cross[a * 3 + k] += w * projCol[memberOf[b]][k]; cross[b * 3 + k] += w * projCol[memberOf[a]][k]; } } }
+  for (let i = 0; i < N; i++) { const own = projCol[memberOf[i]]; const amt = tot[i] > 0 && crossW[i] > 0 ? Math.min(0.55, (crossW[i] / tot[i]) * 0.9) : 0; for (let k = 0; k < 3; k++) mixCol[i * 3 + k] = amt ? own[k] * (1 - amt) + (cross[i * 3 + k] / crossW[i]) * amt : own[k]; }
+}
+function hsl(h, s, l) { const a = s * Math.min(l, 1 - l); const f = (n) => { const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; return [f(0), f(8), f(4)]; }
+const freshF = (a) => Math.exp(-a / 21);
+function ramp(a) { const x = Math.min(1, Math.log1p(a) / Math.log1p(120)); const R = [[0, [1, 0.95, 0.69]], [0.25, [1, 0.69, 0.4]], [0.55, [0.42, 0.53, 0.79]], [1, [0.22, 0.26, 0.35]]]; for (let i = 1; i < 4; i++) if (x <= R[i][0]) { const f = (x - R[i - 1][0]) / (R[i][0] - R[i - 1][0]); return R[i - 1][1].map((v, k) => v + (R[i][1][k] - v) * f); } return R[3][1]; }
+function nodeRGB(i) {
+  if (i >= N) return projCol[i - N].map((v) => Math.min(1, v + 0.3));
+  if (S.mode === "class") return CLASS_RGB[D.nodes.cls[i]] || CLASS_RGB.unclassified;
+  if (S.mode === "fresh") return ramp(ageUpd[i]);
+  return [mixCol[i * 3], mixCol[i * 3 + 1], mixCol[i * 3 + 2]];
+}
+
+/* ---------------------------------------------------------------- gl */
+const cv = $("#gl"); const gl = cv.getContext("webgl", { antialias: false, alpha: false, premultipliedAlpha: false });
+if (!gl) document.body.insertAdjacentHTML("beforeend", "<p style='padding:80px'>WebGL недоступен.</p>");
+function prog(vs, fs) {
+  const mk = (t, s) => { const sh = gl.createShader(t); gl.shaderSource(sh, s); gl.compileShader(sh); if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh)); return sh; };
+  const p = gl.createProgram(); gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p)); return p;
+}
+const PTS = prog(`
+attribute vec3 aPos; attribute vec3 aCol; attribute vec4 aMeta; attribute float aEmph;
+uniform mat4 uVP; uniform float uScale; uniform float uTime; uniform vec2 uRange;
+varying vec3 vCol; varying float vA; varying float vCore;
+void main(){
+  vec4 p = uVP * vec4(aPos,1.0);
+  float inR = max(step(uRange.x, aMeta.y) * step(aMeta.y, uRange.y), step(aMeta.y, -0.5));
+  float pulse = 1.0 + aMeta.w * 0.45 * sin(uTime * 3.2 + aPos.x * 0.07 + aPos.z * 0.05);
+  float size = aMeta.x * (0.55 + 0.95 * aMeta.z) * pulse * clamp(aEmph, 0.0, 2.2);
+  gl_PointSize = clamp(size * 2.0 * uScale / max(p.w, 1.0), 1.0, 150.0);
+  gl_Position = p; vCol = aCol; vCore = aMeta.z;
+  float fade = clamp(1.45 - p.w / 1900.0, 0.3, 1.0);
+  vA = inR * (0.22 + 0.78 * aMeta.z) * clamp(aEmph, 0.0, 1.8) * fade;
+}`, `
+precision mediump float; varying vec3 vCol; varying float vA; varying float vCore;
+void main(){
+  vec2 d = gl_PointCoord - 0.5; float r = length(d) * 2.0; if (r > 1.0) discard;
+  float core = smoothstep(0.38, 0.0, r); float halo = exp(-r * r * 5.5) * 0.6;
+  vec3 col = mix(vCol, vec3(1.0), core * 0.6 * vCore);
+  gl_FragColor = vec4(col * (core + halo) * vA, 1.0);
+}`);
+const LNS = prog(`
+attribute vec3 aPos; attribute vec3 aCol; attribute vec4 aMeta; attribute float aEmph;
+uniform mat4 uVP; uniform vec2 uRange;
+varying vec3 vCol; varying float vAlong; varying float vAmp; varying float vPhase;
+void main(){
+  vec4 p = uVP * vec4(aPos,1.0); gl_Position = p;
+  float inR = step(uRange.x, aMeta.x) * step(aMeta.x, uRange.y);
+  float fade = clamp(1.45 - p.w / 1900.0, 0.25, 1.0);
+  vCol = aCol * inR * aEmph * fade; vAlong = aMeta.w; vAmp = aMeta.y; vPhase = aMeta.z;
+}`, `
+precision mediump float; varying vec3 vCol; varying float vAlong; varying float vAmp; varying float vPhase; uniform float uTime;
+void main(){
+  float p = fract(uTime * 0.28 + vPhase); float d = abs(vAlong - p); d = min(d, 1.0 - d);
+  float pulse = exp(-d * d * 120.0) * vAmp;
+  gl_FragColor = vec4(vCol * (1.0 + pulse * 3.2), 1.0);
+}`);
+const buf = () => gl.createBuffer();
+const B = { pPos: buf(), pCol: buf(), pMeta: buf(), pEmph: buf(), lPos: buf(), lCol: buf(), lMeta: buf(), lEmph: buf() };
+let pEmph, lEmph, pCol, lCol;
+function up(b, data, usage = gl.STATIC_DRAW) { gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, data, usage); }
+function buildStatic() {
+  up(B.pPos, pos, gl.DYNAMIC_DRAW);
+  const meta = new Float32Array(NT * 4);
+  for (let i = 0; i < N; i++) { meta[i * 4] = 2.2 + D.nodes.importance[i] * 0.55; meta[i * 4 + 1] = tCreated[i]; meta[i * 4 + 2] = Math.min(1, freshF(ageUpd[i]) * 1.15); meta[i * 4 + 3] = ageUse[i] < 7 ? Math.exp(-ageUse[i] / 3) : 0; }
+  for (let h = 0; h < H; h++) { const s = projStats[h], i = N + h; meta[i * 4] = 8 + Math.sqrt(s.n) * 0.45; meta[i * 4 + 1] = -1; meta[i * 4 + 2] = Math.min(1, 0.55 + 0.45 * (s.fresh / Math.max(1, s.n)) * 3); meta[i * 4 + 3] = s.used ? Math.min(1, s.used / Math.max(1, s.n) * 8) : 0; }
+  up(B.pMeta, meta);
+  lpArr = new Float32Array(ET * 6); const lm = new Float32Array(ET * 8); const ph = (n) => ((Math.sin(n * 12.9898) * 43758.5453) % 1 + 1) % 1; const amp = REDUCED ? 0 : 1;
+  for (let i = 0; i < E; i++) { const a = D.edges.a[i], b = D.edges.b[i], k = D.edges.kind[i]; const t = Math.max(tCreated[a], tCreated[b]); const am = amp * (k === 0 ? 0.22 : k === 7 ? 0.75 : 1.0); lm.set([t, am, ph(i), 0, t, am, ph(i), 1], i * 8); }
+  for (let i = 0; i < N; i++) { const j = E + i, am = amp * 0.55; lm.set([tCreated[i], am, ph(j), 1, tCreated[i], am, ph(j), 0], j * 8); }
+  refreshLinePositions(true); up(B.lMeta, lm);
+  pEmph = new Float32Array(NT).fill(1); lEmph = new Float32Array(ET * 2).fill(1);
+}
+function refreshLinePositions(first) {
+  for (let i = 0; i < E; i++) { const a = D.edges.a[i] * 3, b = D.edges.b[i] * 3, o = i * 6; lpArr[o] = pos[a]; lpArr[o + 1] = pos[a + 1]; lpArr[o + 2] = pos[a + 2]; lpArr[o + 3] = pos[b]; lpArr[o + 4] = pos[b + 1]; lpArr[o + 5] = pos[b + 2]; }
+  for (let i = 0; i < N; i++) { const a = i * 3, b = (N + memberOf[i]) * 3, o = (E + i) * 6; lpArr[o] = pos[a]; lpArr[o + 1] = pos[a + 1]; lpArr[o + 2] = pos[a + 2]; lpArr[o + 3] = pos[b]; lpArr[o + 4] = pos[b + 1]; lpArr[o + 5] = pos[b + 2]; }
+  if (first) up(B.lPos, lpArr, gl.DYNAMIC_DRAW); else { gl.bindBuffer(gl.ARRAY_BUFFER, B.lPos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, lpArr); }
+  if (!first && lCol && rest0) {                                       // корневые линии гаснут по мере растяжения: растянутый проект не превращается в яркий веер
+    for (let i = 0; i < N; i++) { const o = (E + i) * 6, len = Math.hypot(lpArr[o] - lpArr[o + 3], lpArr[o + 1] - lpArr[o + 4], lpArr[o + 2] - lpArr[o + 5]), r0 = rest0[E + i]; const f = Math.min(1.1, (1 + (r0 / 110) * (r0 / 110)) / (1 + (len / 110) * (len / 110))); const c = projCol[memberOf[i]], al = 0.026 * f; lCol[o] = c[0] * al; lCol[o + 1] = c[1] * al; lCol[o + 2] = c[2] * al; lCol[o + 3] = c[0] * al * 2; lCol[o + 4] = c[1] * al * 2; lCol[o + 5] = c[2] * al * 2; }
+    gl.bindBuffer(gl.ARRAY_BUFFER, B.lCol); gl.bufferSubData(gl.ARRAY_BUFFER, E * 6 * 4, lCol.subarray(E * 6));
+  }
+}
+function buildColors() {
+  pCol = new Float32Array(NT * 3); for (let i = 0; i < NT; i++) pCol.set(nodeRGB(i), i * 3); up(B.pCol, pCol);
+  lCol = new Float32Array(ET * 6);
+  for (let i = 0; i < E; i++) {
+    const a = D.edges.a[i], b = D.edges.b[i], k = D.edges.kind[i], w = D.edges.w[i];
+    if (k === 0 || k === 7) { const len = Math.hypot(pos[a * 3] - pos[b * 3], pos[a * 3 + 1] - pos[b * 3 + 1], pos[a * 3 + 2] - pos[b * 3 + 2]); const att = 1 / (1 + (len / 70) * (len / 70)); const al = (k === 7 ? 0.5 : 0.12) * (0.5 + 0.5 * Math.max(0, (w - 0.5) / 0.5)) * (0.15 + 0.85 * att) * (memberOf[a] !== memberOf[b] ? 1.43 : 1); const ca = pCol.subarray(a * 3, a * 3 + 3), cb = pCol.subarray(b * 3, b * 3 + 3); lCol.set([ca[0] * al, ca[1] * al, ca[2] * al, cb[0] * al, cb[1] * al, cb[2] * al], i * 6); }
+    else { const c = REL[k][1]; lCol.set([c[0] * 0.9, c[1] * 0.9, c[2] * 0.9, c[0] * 0.9, c[1] * 0.9, c[2] * 0.9], i * 6); }
+  }
+  for (let i = 0; i < N; i++) { const c = projCol[memberOf[i]], al = 0.026, j = E + i; lCol.set([c[0] * al, c[1] * al, c[2] * al, c[0] * al * 2, c[1] * al * 2, c[2] * al * 2], j * 6); }
+  up(B.lCol, lCol);
+}
+function computeEmph() {
+  const hasSel = S.sel >= 0, hasSearch = !!S.search, hasFocus = S.focus >= 0; const nb = new Set(); if (hasSel) { nb.add(S.sel); for (const [o] of adj[S.sel]) nb.add(o); }
+  for (let i = 0; i < N; i++) {
+    let e = 1; if (S.classOff.has(D.nodes.cls[i])) e = 0;
+    else if (hasSel) e = i === S.sel ? 2.1 : nb.has(i) ? 1.45 : 0.13;
+    else if (hasSearch) e = S.search.has(i) ? 1.9 : 0.1;
+    else if (hasFocus) e = memberOf[i] === S.focus ? 1.35 : 0.1;
+    pEmph[i] = e;
+  }
+  for (let h = 0; h < H; h++) pEmph[N + h] = hasSel ? (h === memberOf[S.sel] ? 1.15 : 0.25) : hasFocus ? (h === S.focus ? 1.5 : 0.25) : hasSearch ? 0.35 : 1;
+  for (let i = 0; i < E; i++) {
+    const a = D.edges.a[i], b = D.edges.b[i]; let e = Math.min(pEmph[a], pEmph[b]);
+    if (hasSel) e = a === S.sel || b === S.sel ? (D.edges.kind[i] < 1 || D.edges.kind[i] === 7 ? 3.2 : 4.2) * (pEmph[a] > 0 && pEmph[b] > 0 ? 1 : 0) : e * 0.35;
+    else if (hasSearch) e = S.search.has(a) && S.search.has(b) ? 2.2 : e * 0.3;
+    lEmph[i * 2] = lEmph[i * 2 + 1] = e;
+  }
+  for (let i = 0; i < N; i++) { const e = pEmph[i] > 0 ? Math.min(pEmph[i], 1.2) : 0; lEmph[(E + i) * 2] = lEmph[(E + i) * 2 + 1] = hasSel ? (i === S.sel ? 4 : e * 0.2) : e; }
+  up(B.pEmph, pEmph, gl.DYNAMIC_DRAW); up(B.lEmph, lEmph, gl.DYNAMIC_DRAW);
+}
+
+/* ---------------------------------------------------------------- math / camera */
+function perspective(fov, asp, n, f) { const t = 1 / Math.tan(fov / 2); return [t / asp, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, (2 * f * n) / (n - f), 0]; }
+function lookAt(e, c, u) { const z = norm(sub(e, c)), x = norm(cross(u, z)), y = cross(z, x); return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, e), -dot(y, e), -dot(z, e), 1]; }
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; const norm = (a) => { const l = Math.hypot(...a) || 1; return a.map((v) => v / l); };
+function mul(a, b) { const o = new Array(16).fill(0); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k]; return o; }
+const FOV = 0.9; let VP = [];
+function camera() {
+  const off = qRot(S.q, [0, 0, S.dist]), up3 = qRot(S.q, [0, 1, 0]); const e = [S.target[0] + off[0], S.target[1] + off[1], S.target[2] + off[2]];
+  VP = mul(perspective(FOV, cv.width / cv.height, 4, 7000), lookAt(e, S.target, up3));
+}
+function project(x, y, z) { const m = VP; const w = m[3] * x + m[7] * y + m[11] * z + m[15]; if (w <= 0) return null; return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / w * 0.5 + 0.5) * cv.clientWidth, (1 - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / w * 0.5 + 0.5)) * cv.clientHeight, w]; }
+
+/* ---------------------------------------------------------------- viscous physics: pull a node, a weighted neighbourhood flows after it and arrives */
+let EA, EB, EK, rest, rest0, mass, anchor, anchorHome, headTab, nextTab;
+const TIERS = [
+  { n: "Бабушка", sub: "звезда проекта", floor: 0.57, spread: 1.4, link: 1.2 },
+  { n: "Мать", sub: "очень крупная запись", floor: 0.59, spread: 1.3, link: 1 },
+  { n: "Дочка", sub: "крупная запись", floor: 0.68, spread: 1.6, link: 1.55 },
+  { n: "Внучка", sub: "средняя запись", floor: 0.38, spread: 1.1, link: 1 },
+  { n: "Дочка внучки", sub: "мелкая запись", floor: 0.41, spread: 1.15, link: 1.25 }];
+const TH = { t1: 60, t2: 23, t3: 7 };                                      // порог «связей»: ≥t1 мать, ≥t2 дочка, ≥t3 внучка (подобрано владельцем 2026-10-21)
+function tierOf(src) { if (src >= N) return 0; const d = nbr[src].length; return d >= TH.t1 ? 1 : d >= TH.t2 ? 2 : d >= TH.t3 ? 3 : 4; }
+const PCFG = { crossMul: 2, light: 0.3, gamma: 5, fieldK: 47, anchorK: 12, repelR: 6.5, repelK: 230, lambdaBase: 1.0, lambdaMass: 0.7, tent: 0.7, aDrag: 0.34, floor: 0.5, bigK: 0.28, bigMax: 0.75 };   // вязкость; тяга к цели; якорь к матери; отталкивание; охват
+function physicsInit() {
+  const T = ET; EA = new Int32Array(T); EB = new Int32Array(T); EK = new Float32Array(T); rest = new Float32Array(T); rest0 = new Float32Array(T); mass = new Float32Array(NT);
+  const deg = new Float32Array(NT);
+  for (let i = 0; i < E; i++) { EA[i] = D.edges.a[i]; EB[i] = D.edges.b[i]; const k = D.edges.kind[i]; const same = memberOf[EA[i]] === memberOf[EB[i]]; EK[i] = !same ? (k >= 1 && k <= 6 ? 5 : 2.5) : (k === 0 ? 9 : k === 7 ? 28 : 26); deg[EA[i]]++; deg[EB[i]]++; }   // связи в чужие проекты мягкие: не рвут записи на части
+  for (let i = 0; i < N; i++) { const j = E + i; EA[j] = i; EB[j] = N + memberOf[i]; EK[j] = 0; deg[i]++; deg[N + memberOf[i]]++; }
+  for (let i = 0; i < NT; i++) mass[i] = 1 + deg[i] * 0.6;
+  for (let i = 0; i < T; i++) { rest0[i] = edgeLen(i); rest[i] = rest0[i]; }
+  anchor = new Float32Array(N * 3); anchorHome = new Float32Array(N * 3); setAnchors(anchorHome); anchor.set(anchorHome);
+  headTab = new Int32Array(16384); nextTab = new Int32Array(N); PH.w = new Float32Array(NT); PH.base = new Float32Array(NT * 3); PH.hop = new Float32Array(NT);
+}
+function setAnchors(arr) { for (let i = 0; i < N; i++) { const h = (N + memberOf[i]) * 3; for (let k = 0; k < 3; k++) arr[i * 3 + k] = pos[i * 3 + k] - pos[h + k]; } }
+function edgeLen(i) { const a = EA[i] * 3, b = EB[i] * 3; return Math.hypot(pos[a] - pos[b], pos[a + 1] - pos[b + 1], pos[a + 2] - pos[b + 2]); }
+function uploadPositions() { gl.bindBuffer(gl.ARRAY_BUFFER, B.pPos); gl.bufferSubData(gl.ARRAY_BUFFER, 0, pos); refreshLinePositions(false); }
+function computeWeights(src) {                                          // вес записи = exp(-путь по связям / охват); охват меняется колесом во время перетаскивания
+  const hop = PH.hop; hop.fill(1e9); const isHub = src >= N, sp = isHub ? src - N : memberOf[src]; const heap = [];
+  const push = (it) => { heap.push(it); let c = heap.length - 1; while (c > 0) { const q = (c - 1) >> 1; if (heap[q][0] <= heap[c][0]) break; [heap[q], heap[c]] = [heap[c], heap[q]]; c = q; } };
+  const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let c = 0; for (;;) { const l = 2 * c + 1, r = l + 1; let m = c; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === c) break; [heap[m], heap[c]] = [heap[c], heap[m]]; c = m; } } return top; };
+  const mass0 = isHub ? projStats[sp].n : nbr[src].length; const tier = tierOf(src), T = TIERS[tier]; PH.tier = tier; const lam0 = PCFG.lambdaBase + PCFG.lambdaMass * Math.log2(1 + mass0); const r = PH.reach, lambda = lam0 * r * T.link;
+  let memberHop = 0;
+  const crossPen = PCFG.crossMul * lam0 * 2.6 * Math.min(1.6, Math.max(0.05, 1.6 - 0.6 * r));   // охват большой: растягивается и соседние проекты
+  hop[src] = 0; push([0, src]);
+  if (isHub) {                                                         // мать вытягивает щупальце: ближние записи едут почти целиком, дальний край облака остаётся
+    const hx = PH.base[src * 3], hy = PH.base[src * 3 + 1], hz = PH.base[src * 3 + 2], ds = [];
+    for (let i = 0; i < N; i++) if (memberOf[i] === sp) ds.push(Math.hypot(PH.base[i * 3] - hx, PH.base[i * 3 + 1] - hy, PH.base[i * 3 + 2] - hz));
+    ds.sort((a2, b2) => a2 - b2); const Rp = ds[Math.floor(ds.length * 0.9)] || 1, Rw = Math.max(0.5, T.spread * Rp * Math.pow(r, 1.4));
+    if (!PH.wm) PH.wm = new Float32Array(N); PH.wm.fill(0);
+    const flo = Math.min(0.95, T.floor + PCFG.light * Math.log2(1300 / Math.max(10, projStats[sp].n)));   // чем меньше проект, тем он «легче»: облако едет за матерью почти целиком
+    for (let i = 0; i < N; i++) if (memberOf[i] === sp) { const d = Math.hypot(PH.base[i * 3] - hx, PH.base[i * 3 + 1] - hy, PH.base[i * 3 + 2] - hz); const hp = 0.05 + lambda * (d / Rw) * (d / Rw); PH.wm[i] = Math.max(flo * Math.min(1, r), Math.exp(-hp / lambda)); if (hp < lambda * 6) { hop[i] = hp; push([hp, i]); } }
+  }
+  while (heap.length) { const [d, u] = pop(); if (d > hop[u] + 1e-6 || d > lambda * 6) continue; for (const [v, c] of nbr[u]) { const pv = v < N ? memberOf[v] : v - N; const nd = d + c + (pv !== sp ? crossPen : 0); if (nd < hop[v]) { hop[v] = nd; push([nd, v]); } } }
+  for (let i = 0; i < NT; i++) PH.w[i] = hop[i] < 1e8 ? Math.exp(-hop[i] / lambda) : 0;
+  if (isHub) for (let i = 0; i < N; i++) if (memberOf[i] === sp) PH.w[i] = PH.wm[i];   // внутри проекта вес задаёт расстояние до матери, а не путь по связям
+  if (!isHub) {                                                        // крупная запись тянет за собой свой проект: мягкий пол веса, спадающий с расстоянием (мелкие — без пола)
+    const f0 = T.floor * Math.min(1, r) * Math.min(1.6, 1 + 1.5 * PCFG.light * Math.log2(1300 / Math.max(10, projStats[sp].n)));
+    if (f0 > 0.01) {
+      const sx = PH.base[src * 3], sy = PH.base[src * 3 + 1], sz = PH.base[src * 3 + 2], ds = [];
+      for (let i = 0; i < N; i++) if (memberOf[i] === sp) ds.push(Math.hypot(PH.base[i * 3] - sx, PH.base[i * 3 + 1] - sy, PH.base[i * 3 + 2] - sz));
+      ds.sort((x, y) => x - y); const Rs = Math.max(1, (ds[Math.floor(ds.length * 0.9)] || 1) * T.spread);
+      for (let i = 0; i < N; i++) if (memberOf[i] === sp) { const d = Math.hypot(PH.base[i * 3] - sx, PH.base[i * 3 + 1] - sy, PH.base[i * 3 + 2] - sz); PH.w[i] = Math.max(PH.w[i], f0 / (1 + 0.4 * (d / Rs) * (d / Rs))); }
+    }
+  }
+  PH.w[src] = 1;
+}
+function reachLabel(r) { return r < 0.12 ? "только эта точка" : r < 0.55 ? "самые ближние связи" : r < 1.4 ? "ближайшие связи (щупальце)" : r < 2.6 ? "весь проект" : "проект и соседние проекты"; }
+function setReach(r) { PH.reach = Math.max(0.04, Math.min(9, r)); if (PH.pin >= 0) computeWeights(PH.pin); const h = $("#hud"); h.style.display = "block"; h.textContent = (PH.pin >= 0 ? "Тянешь: " + TIERS[PH.tier].n + (PH.pin < N ? " (" + nbr[PH.pin].length + " связей)" : "") + "  ·  " : "") + "Охват: " + reachLabel(PH.reach) + "  ·  колесо — шире/уже"; }
+function tugStart(src, reach) {
+  if (PH.active) commitPhysics();                                      // предыдущее перетаскивание сначала фиксируется там, где стоит: иначе старые пружины вернули бы точки назад
+  PH.reach = reach || 1; PH.pin = src; PH.pinBase = [pos[src * 3], pos[src * 3 + 1], pos[src * 3 + 2]]; PH.pinTarget = [...PH.pinBase]; PH.base.set(pos); computeWeights(src); PH.released = false; PH.restoring = false; PH.frozen = -1; PH.t = 0; PH.active = true; PH.field = true; setReach(PH.reach);
+}
+function tugRelease() { PH.released = true; PH.releaseT = 0; PH.frozen = PH.pin; PH.pin = -1; $("#hud").style.display = "none"; }
+function commitPhysics() { for (let i = 0; i < ET; i++) rest[i] = edgeLen(i); setAnchors(anchor); PH.vel.fill(0); PH.w.fill(0); PH.active = false; PH.field = false; PH.pin = -1; PH.frozen = -1; PH.released = false; PH.restoring = false; uploadPositions(); }
+function resetLayout() { PH.pin = -1; PH.frozen = -1; PH.field = false; PH.w.fill(0); PH.restoring = true; PH.released = false; for (let i = 0; i < ET; i++) rest[i] = rest0[i]; anchor.set(anchorHome); PH.active = true; }
+const ACC = { v: null };
+function repulsion(acc) {
+  const R = PCFG.repelR, inv = 1 / R, mask = 16383; headTab.fill(-1);
+  const hash = (x, y, z) => ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) & mask;
+  for (let i = 0; i < N; i++) { const h = hash(Math.floor(pos[i * 3] * inv), Math.floor(pos[i * 3 + 1] * inv), Math.floor(pos[i * 3 + 2] * inv)); nextTab[i] = headTab[h]; headTab[h] = i; }
+  const R2 = R * R;
+  for (let i = 0; i < N; i++) {
+    const ix = Math.floor(pos[i * 3] * inv), iy = Math.floor(pos[i * 3 + 1] * inv), iz = Math.floor(pos[i * 3 + 2] * inv), xi = pos[i * 3], yi = pos[i * 3 + 1], zi = pos[i * 3 + 2];
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+      let j = headTab[hash(ix + dx, iy + dy, iz + dz)];
+      while (j >= 0) {
+        if (j > i) { const ex = xi - pos[j * 3], ey = yi - pos[j * 3 + 1], ez = zi - pos[j * 3 + 2]; const d2 = ex * ex + ey * ey + ez * ez;
+          if (d2 < R2) { const d = Math.sqrt(d2) + 1e-3, f = PCFG.repelK * (1 - d / R) * (1 - d / R) / d; const mi = 1 / mass[i], mj = 1 / mass[j]; acc[i * 3] += ex * f * mi; acc[i * 3 + 1] += ey * f * mi; acc[i * 3 + 2] += ez * f * mi; acc[j * 3] -= ex * f * mj; acc[j * 3 + 1] -= ey * f * mj; acc[j * 3 + 2] -= ez * f * mj; } }
+        j = nextTab[j];
+      }
+    }
+  }
+}
+function physicsStep(dt) {
+  if (!PH.active) return; dt = Math.min(dt, 0.033); const sub = 2, h = dt / sub, gamma = PCFG.gamma;
+  if (!ACC.v) ACC.v = new Float32Array(NT * 3); const acc = ACC.v; let kin = 0;
+  const d = PH.pinTarget && PH.pinBase ? [PH.pinTarget[0] - PH.pinBase[0], PH.pinTarget[1] - PH.pinBase[1], PH.pinTarget[2] - PH.pinBase[2]] : [0, 0, 0];
+  for (let s = 0; s < sub; s++) {
+    acc.fill(0);
+    if (PH.pin >= 0) { const q = PH.pin * 3; for (let k = 0; k < 3; k++) { pos[q + k] += (PH.pinTarget[k] - pos[q + k]) * 0.4; PH.vel[q + k] = 0; } }
+    if (PH.field) for (let i = 0; i < NT; i++) {                        // тяга к цели: исходное место + смещение × вес
+      const w = PH.w[i]; if (w < 0.01) continue; const k = PCFG.fieldK * Math.min(1, w * 1.8) / mass[i], i3 = i * 3;
+      acc[i3] += (PH.base[i3] + d[0] * w - pos[i3]) * k; acc[i3 + 1] += (PH.base[i3 + 1] + d[1] * w - pos[i3 + 1]) * k; acc[i3 + 2] += (PH.base[i3 + 2] + d[2] * w - pos[i3 + 2]) * k;
+    }
+    for (let e = 0; e < ET; e++) {
+      if (EK[e] === 0) continue;
+      const a = EA[e] * 3, b = EB[e] * 3; const dx = pos[b] - pos[a], dy = pos[b + 1] - pos[a + 1], dz = pos[b + 2] - pos[a + 2]; const len = Math.hypot(dx, dy, dz); if (len < 1e-4) continue;
+      const f = EK[e] * (len - rest[e]) / len; const ia = 1 / mass[EA[e]], ib = 1 / mass[EB[e]];
+      acc[a] += dx * f * ia; acc[a + 1] += dy * f * ia; acc[a + 2] += dz * f * ia; acc[b] -= dx * f * ib; acc[b + 1] -= dy * f * ib; acc[b + 2] -= dz * f * ib;
+    }
+    for (let i = 0; i < N; i++) {                                      // мягкий якорь к матери для тех, кого сейчас не тянут напрямую
+      const wi = PH.field ? PH.w[i] : 0; const kA = PCFG.anchorK * (PH.field ? PCFG.aDrag : 1) * (1 - Math.min(1, wi * 1.5)) * (PH.field ? Math.pow(Math.min(1, PH.reach * 1.1), 3) : 1); if (kA < 0.005) continue;
+      const hh = (N + memberOf[i]) * 3, i3 = i * 3; const fx = (pos[hh] + anchor[i3] - pos[i3]) * kA, fy = (pos[hh + 1] + anchor[i3 + 1] - pos[i3 + 1]) * kA, fz = (pos[hh + 2] + anchor[i3 + 2] - pos[i3 + 2]) * kA;
+      const mi = 1 / mass[i], mh = 1 / mass[N + memberOf[i]]; acc[i3] += fx * mi; acc[i3 + 1] += fy * mi; acc[i3 + 2] += fz * mi; acc[hh] -= fx * mh; acc[hh + 1] -= fy * mh; acc[hh + 2] -= fz * mh;
+    }
+    repulsion(acc);
+    const damp = Math.exp(-gamma * h);
+    for (let i = 0; i < NT; i++) {
+      if (i === PH.pin || i === PH.frozen) continue;
+      for (let k = 0; k < 3; k++) { const ix = i * 3 + k; let v = (PH.vel[ix] + acc[ix] * h) * damp; if (v > 260) v = 260; else if (v < -260) v = -260; PH.vel[ix] = v; pos[ix] += v * h; kin += Math.abs(v); }
+    }
+    if (PH.restoring) { const r = 1 - Math.exp(-2.2 * h); for (let i = 0; i < NT * 3; i++) pos[i] += (posHome[i] - pos[i]) * r; }
+  }
+  if (PH.released) {                                                  // отпустили: все ещё дотягиваются до своих целей; фиксируем только когда дотянулись
+    PH.releaseT += dt; let err = 0, cnt = 0;
+    for (let i = 0; i < NT; i++) { const w = PH.w[i]; if (w < 0.05) continue; cnt++; const i3 = i * 3; err += Math.hypot(PH.base[i3] + d[0] * w - pos[i3], PH.base[i3 + 1] + d[1] * w - pos[i3 + 1], PH.base[i3 + 2] + d[2] * w - pos[i3 + 2]); }
+    if ((PH.releaseT > 0.5 && err / Math.max(1, cnt) < 1.6 && kin < 0.4 * NT) || PH.releaseT > 6) commitPhysics();
+  } else if (PH.restoring) { let err = 0; for (let i = 0; i < NT * 3; i++) err += Math.abs(posHome[i] - pos[i]); if (err < 0.05 * NT) { pos.set(posHome); commitPhysics(); } }
+  uploadPositions();
+}
+
+/* ---------------------------------------------------------------- render */
+function resize() { const d = devicePixelRatio || 1; cv.width = Math.floor(innerWidth * d); cv.height = Math.floor(innerHeight * d); gl.viewport(0, 0, cv.width, cv.height); }
+addEventListener("resize", () => { resize(); drawTimeline(); });
+function bindAttr(p, name, buffer, size) { const l = gl.getAttribLocation(p, name); gl.bindBuffer(gl.ARRAY_BUFFER, buffer); gl.enableVertexAttribArray(l); gl.vertexAttribPointer(l, size, gl.FLOAT, false, 0, 0); }
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now; physicsStep(dt);
+  if (S.anim) { const a = S.anim; a.t = Math.min(1, a.t + dt / a.d); const k = a.t * a.t * (3 - 2 * a.t); S.target = a.from.map((v, i) => v + (a.to[i] - v) * k); S.dist = a.fd + (a.td - a.fd) * k; if (a.t >= 1) S.anim = null; }
+  else if (S.auto) S.q = qNorm(qMul(qAxis([0, 1, 0], dt * 0.05), S.q));
+  camera(); gl.clearColor(0.008, 0.012, 0.035, 1); gl.clear(gl.COLOR_BUFFER_BIT); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.disable(gl.DEPTH_TEST);
+  const uScale = cv.height / (2 * Math.tan(FOV / 2)); const range = [S.range[0] - 1e-4, S.range[1] + 1e-4];
+  gl.useProgram(LNS); gl.uniformMatrix4fv(gl.getUniformLocation(LNS, "uVP"), false, VP); gl.uniform2fv(gl.getUniformLocation(LNS, "uRange"), range); gl.uniform1f(gl.getUniformLocation(LNS, "uTime"), REDUCED ? 0 : now / 1000);
+  bindAttr(LNS, "aPos", B.lPos, 3); bindAttr(LNS, "aCol", B.lCol, 3); bindAttr(LNS, "aMeta", B.lMeta, 4); bindAttr(LNS, "aEmph", B.lEmph, 1); gl.drawArrays(gl.LINES, 0, ET * 2);
+  gl.useProgram(PTS); gl.uniformMatrix4fv(gl.getUniformLocation(PTS, "uVP"), false, VP); gl.uniform1f(gl.getUniformLocation(PTS, "uScale"), uScale);
+  gl.uniform1f(gl.getUniformLocation(PTS, "uTime"), REDUCED ? 0 : now / 1000); gl.uniform2fv(gl.getUniformLocation(PTS, "uRange"), range);
+  bindAttr(PTS, "aPos", B.pPos, 3); bindAttr(PTS, "aCol", B.pCol, 3); bindAttr(PTS, "aMeta", B.pMeta, 4); bindAttr(PTS, "aEmph", B.pEmph, 1); gl.drawArrays(gl.POINTS, 0, NT);
+  placeLabels(); requestAnimationFrame(frame);
+}
+function placeLabels() {
+  const box = $("#labels"); if (!box.children.length) D.projects.forEach((p) => { const s = document.createElement("span"); s.textContent = p; box.appendChild(s); });
+  [...box.children].forEach((el, h) => { const st = projStats[h]; if (st.n < 12) { el.style.display = "none"; return; } const hb = (N + h) * 3; const q = project(pos[hb], pos[hb + 1], pos[hb + 2]); if (!q) { el.style.display = "none"; return; }
+    const col = projCol[h].map((v) => Math.round(255 * Math.min(1, v + 0.3))); const dim = S.sel >= 0 && memberOf[S.sel] !== h || S.focus >= 0 && S.focus !== h;
+    el.style.display = "block"; el.style.left = q[0] + "px"; el.style.top = q[1] + 22 + "px"; el.style.color = `rgb(${col})`; el.style.fontSize = Math.round(11 + Math.min(10, Math.sqrt(st.n) * 0.3)) + "px"; el.style.opacity = dim ? 0.18 : 0.9; });
+}
+
+/* ---------------------------------------------------------------- interaction (free trackball) */
+let drag = null;
+cv.addEventListener("pointerdown", (e) => { cv.setPointerCapture(e.pointerId); const hit = e.button === 0 && !e.shiftKey ? pick(e.clientX, e.clientY) : -1; drag = { x: e.clientX, y: e.clientY, lx: e.clientX, ly: e.clientY, btn: e.button, moved: 0, node: hit, alt: e.altKey, tugging: false, r: qRot(S.q, [1, 0, 0]), u: qRot(S.q, [0, 1, 0]) }; cv.classList.add("drag"); S.auto = false; S.anim = null; });
+cv.addEventListener("pointermove", (e) => {
+  if (drag) {
+    const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly; drag.lx = e.clientX; drag.ly = e.clientY; drag.moved = Math.max(drag.moved, Math.hypot(e.clientX - drag.x, e.clientY - drag.y));
+    if (drag.node >= 0 && drag.moved > 5) {
+      if (!drag.tugging) { drag.tugging = true; tugStart(drag.node, drag.alt ? 0.06 : 1); const q = project(pos[drag.node * 3], pos[drag.node * 3 + 1], pos[drag.node * 3 + 2]); drag.wpp = (2 * Math.tan(FOV / 2) * (q ? q[2] : S.dist)) / cv.clientHeight; $("#tip").style.display = "none"; }
+      const tx = e.clientX - drag.x, ty = e.clientY - drag.y, B0 = PH.pinBase;
+      PH.pinTarget = [B0[0] + (drag.r[0] * tx - drag.u[0] * ty) * drag.wpp, B0[1] + (drag.r[1] * tx - drag.u[1] * ty) * drag.wpp, B0[2] + (drag.r[2] * tx - drag.u[2] * ty) * drag.wpp]; return;
+    }
+    if (drag.node >= 0) return;
+    if (drag.btn === 2 || e.shiftKey) { const r = qRot(S.q, [1, 0, 0]), u = qRot(S.q, [0, 1, 0]), k = S.dist * 0.0016; S.target = [S.target[0] - (r[0] * dx - u[0] * dy) * k, S.target[1] - (r[1] * dx - u[1] * dy) * k, S.target[2] - (r[2] * dx - u[2] * dy) * k]; }
+    else { const r = qRot(S.q, [1, 0, 0]), u = qRot(S.q, [0, 1, 0]); S.q = qNorm(qMul(qAxis(u, -dx * 0.0062), qMul(qAxis(r, -dy * 0.0062), S.q))); }
+    return;
+  }
+  hoverAt(e.clientX, e.clientY);
+});
+cv.addEventListener("pointerup", (e) => { const wasClick = drag && drag.moved < 5 && drag.btn === 0; if (drag && drag.tugging) tugRelease(); drag = null; cv.classList.remove("drag"); if (wasClick) activate(pick(e.clientX, e.clientY)); });
+cv.addEventListener("contextmenu", (e) => e.preventDefault());
+cv.addEventListener("wheel", (e) => { e.preventDefault(); if (drag && drag.tugging) { setReach(PH.reach * Math.exp(-e.deltaY * 0.0016)); return; } S.auto = false; S.anim = null; S.dist = Math.max(30, Math.min(3000, S.dist * Math.exp(e.deltaY * 0.0011))); }, { passive: false });
+function pick(mx, my) {
+  let best = -1, bd = 1e9;
+  for (let i = 0; i < NT; i++) { if (pEmph[i] <= 0.2) continue; const hub = i >= N, rad = hub ? 26 : 14; const t = tCreated[i]; if (!hub && (t < S.range[0] || t > S.range[1])) continue;
+    const q = project(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]); if (!q) continue; const d = Math.hypot(q[0] - mx, q[1] - my) - (hub ? 12 : 0); if (d < rad && d - 0.002 * q[2] < bd) { bd = d - 0.002 * q[2]; best = i; } }
+  return best;
+}
+function hoverAt(mx, my) {
+  const i = pick(mx, my); const tip = $("#tip");
+  if (i < 0) { tip.style.display = "none"; cv.style.cursor = "grab"; return; }
+  cv.style.cursor = "pointer"; tip.style.display = "block"; tip.style.left = Math.min(innerWidth - 360, mx + 16) + "px"; tip.style.top = my + 16 + "px";
+  if (i >= N) { const st = projStats[i - N]; tip.innerHTML = `<b>${esc(D.projects[i - N])}</b><br><span style="color:#8393b8">проект · ${st.n} записей · за месяц обновлено ${Math.round(100 * st.fresh / Math.max(1, st.n))}% · последняя запись ${ago(st.newestAge)}</span>`; return; }
+  tip.innerHTML = `<b>${esc(D.nodes.title[i])}</b><br><span style="color:#8393b8">${esc(D.projects[memberOf[i]])} · ${CLASS_RU[D.nodes.cls[i]] || D.nodes.cls[i]} · обновлена ${ago(ageUpd[i])}${ageUse[i] < 9999 ? " · использовалась " + ago(ageUse[i]) : ""}</span>`;
+}
+function ago(a) { if (a < 1) return "сегодня"; if (a < 2) return "вчера"; if (a < 30) return Math.floor(a) + " дн. назад"; if (a < 365) return Math.floor(a / 30) + " мес. назад"; return Math.floor(a / 365) + " г. назад"; }
+function activate(i) { if (i < 0) { reset(); return; } if (i >= N) focusProject(i - N); else select(i); }
+function reset() { S.sel = -1; S.focus = -1; S.search = null; $("#search").value = ""; computeEmph(); renderDetail(); S.anim = { from: [...S.target], to: [0, 0, 0], fd: S.dist, td: 1150, t: 0, d: REDUCED ? 0.01 : 0.9 }; }
+function flyTo(p, dist) { S.anim = { from: [...S.target], to: p, fd: S.dist, td: dist, t: 0, d: REDUCED ? 0.01 : 0.9 }; }
+function select(i) { S.sel = i; S.focus = -1; S.search = null; computeEmph(); renderDetail(); flyTo([pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]], Math.min(S.dist, 150)); }
+function focusProject(h) { S.focus = h; S.sel = -1; S.search = null; computeEmph(); renderDetail(); flyTo([pos[(N + h) * 3], pos[(N + h) * 3 + 1], pos[(N + h) * 3 + 2]], 330); }
+function renderDetail() {
+  const el = $("#detail"); const n = D.nodes;
+  if (S.sel < 0 && S.focus < 0) { el.style.display = "none"; return; } el.style.display = "block";
+  if (S.sel < 0) {
+    const h = S.focus, st = projStats[h]; const recent = []; for (let i = 0; i < N; i++) if (memberOf[i] === h) recent.push(i); recent.sort((a, b) => ageUpd[a] - ageUpd[b]);
+    const mix = CLASS_NAMES.filter((k) => st.cls[k]).map((k) => `<span class="tag" style="border-color:rgb(${CLASS_RGB[k].map((v) => Math.round(v * 255))})">${CLASS_RU[k]} ${st.cls[k]}</span>`).join("");
+    el.innerHTML = `<button class="close" type="button" aria-label="Закрыть">×</button><h3 style="color:rgb(${projCol[h].map((v) => Math.round(v * 255))})">${esc(D.projects[h])}</h3><div>${mix}</div>
+      <dl><dt>Записей</dt><dd>${st.n}</dd><dt>За месяц</dt><dd>${st.fresh} (${Math.round(100 * st.fresh / Math.max(1, st.n))}%)</dd><dt>Использовались</dt><dd>${st.used} за неделю</dd><dt>Последняя</dt><dd>${ago(st.newestAge)}</dd></dl>
+      <b>Свежие записи</b><div class="links">${recent.slice(0, 10).map((o) => `<button type="button" data-o="${o}">${esc(n.title[o].slice(0, 80))}<br><small style="color:#8393b8">${ago(ageUpd[o])}</small></button>`).join("")}</div>`;
+    el.querySelector(".close").onclick = reset; el.querySelectorAll("[data-o]").forEach((b) => (b.onclick = () => select(+b.dataset.o))); return;
+  }
+  const i = S.sel, rel = adj[i].filter((x) => x[1] !== 0).slice(0, 12), sim = adj[i].filter((x) => x[1] === 0).sort((a, b) => b[2] - a[2]).slice(0, 8);
+  const row = (o, label, color) => `<button type="button" data-o="${o}"><span style="color:${color}">${label}</span><br>${esc(n.title[o].slice(0, 80))}<br><small style="color:#8393b8">${esc(D.projects[memberOf[o]])}</small></button>`;
+  el.innerHTML = `<button class="close" type="button" aria-label="Закрыть">×</button><h3>${esc(n.title[i])}</h3>
+   <div><span class="tag" style="border-color:rgb(${projCol[memberOf[i]].map((v) => Math.round(v * 255))});cursor:pointer" data-p="${memberOf[i]}">${esc(D.projects[memberOf[i]])}</span><span class="tag">${CLASS_RU[n.cls[i]] || n.cls[i]}</span><span class="tag">${esc(n.type[i])}</span></div>
+   <dl><dt>Обновлена</dt><dd>${ago(ageUpd[i])}</dd><dt>Создана</dt><dd>${new Date(Date.parse(n.created[i])).toISOString().slice(0, 10)}</dd><dt>Использовалась</dt><dd>${ageUse[i] < 9999 ? ago(ageUse[i]) : "ещё не использовалась"}</dd><dt>Важность</dt><dd>${n.importance[i].toFixed(0)} из 10</dd></dl>
+   ${rel.length ? "<b>Настоящие связи</b><div class='links'>" + rel.map((r) => row(r[0], REL[r[1]][0], `rgb(${REL[r[1]][1].map((v) => Math.round(v * 255))})`)).join("") + "</div>" : ""}
+   <b>Близкие по смыслу</b><div class="links">${sim.length ? sim.map((r) => row(r[0], "сходство " + Math.round(r[2] * 100) + "%", "#7894c8")).join("") : "<span style='color:#8393b8'>нет</span>"}</div>`;
+  el.querySelector(".close").onclick = reset; el.querySelectorAll("[data-o]").forEach((b) => (b.onclick = () => select(+b.dataset.o))); el.querySelector("[data-p]").onclick = (e) => focusProject(+e.currentTarget.dataset.p);
+}
+addEventListener("keydown", (e) => { if (e.key === "Escape") reset(); });
+
+/* modes, filters */
+function setMode(m) { S.mode = m; ["Project", "Class", "Fresh"].forEach((k) => $("#m" + k).classList.toggle("on", k.toLowerCase() === m)); buildColors(); }
+$("#mProject").onclick = () => setMode("project"); $("#mClass").onclick = () => setMode("class"); $("#mFresh").onclick = () => setMode("fresh");
+function buildFilters() {
+  const f = $("#filters"); f.innerHTML = "<h4>Класс памяти</h4>" + CLASS_NAMES.map((k) => `<span class="chip" data-k="${k}"><i style="background:rgb(${CLASS_RGB[k].map((v) => Math.round(v * 255))})"></i>${CLASS_RU[k]}</span>`).join("");
+  f.insertAdjacentHTML("beforeend", "<h4>Раскладка</h4><button id=\"resetLayout\" type=\"button\">Вернуть раскладку</button>"); f.querySelector("#resetLayout").onclick = resetLayout;
+  f.querySelectorAll(".chip").forEach((c) => (c.onclick = () => { const k = c.dataset.k; S.classOff.has(k) ? S.classOff.delete(k) : S.classOff.add(k); c.classList.toggle("off", S.classOff.has(k)); computeEmph(); }));
+  $("#filtersBtn").onclick = () => { const o = f.style.display !== "block"; f.style.display = o ? "block" : "none"; $("#filtersBtn").setAttribute("aria-expanded", o); };
+  const dr = $("#toolsDrawer"); $("#toolsBtn").onclick = () => { if (!dr.querySelector("iframe")) dr.insertAdjacentHTML("beforeend", '<iframe title="Инструменты BHM" src="/bhm/galaxy/classic"></iframe>'); dr.style.display = dr.style.display === "block" ? "none" : "block"; };
+  $("#toolsClose").onclick = () => (dr.style.display = "none");
+}
+let st; $("#search").addEventListener("input", (e) => {
+  clearTimeout(st); const q = e.target.value.trim().toLowerCase(); const box = $("#results"); if (q.length < 2) { box.style.display = "none"; S.search = null; computeEmph(); return; }
+  st = setTimeout(() => {
+    const hits = []; const set = new Set();
+    for (let i = 0; i < N; i++) if (D.nodes.title[i].toLowerCase().includes(q) || D.projects[memberOf[i]].toLowerCase().includes(q)) { set.add(i); if (hits.length < 10) hits.push(i); }
+    S.sel = -1; S.focus = -1; renderDetail(); S.search = set.size ? set : null; computeEmph();
+    box.style.display = hits.length ? "block" : "none";
+    box.innerHTML = (set.size > hits.length ? `<small style="padding:4px 9px;display:block;color:#8393b8">найдено ${set.size}, показаны первые ${hits.length}</small>` : "") + hits.map((i) => `<button type="button" data-i="${i}">${esc(D.nodes.title[i].slice(0, 90))}<small>${esc(D.projects[memberOf[i]])}</small></button>`).join("");
+    box.querySelectorAll("button").forEach((b) => (b.onclick = () => { box.style.display = "none"; select(+b.dataset.i); }));
+  }, 160);
+});
+
+/* timeline (по дате создания) */
+const tl = { bins: [], n: 120, from: 0, to: 119, drag: null, playing: false };
+function buildTimeline() { tl.bins = new Array(tl.n).fill(0); for (let i = 0; i < N; i++) tl.bins[Math.min(tl.n - 1, Math.floor(tCreated[i] * tl.n))]++; tl.max = Math.max(...tl.bins); drawTimeline(); }
+function dayLabel(bin) { return new Date(S.t0 + (bin / tl.n) * (S.t1 - S.t0)).toISOString().slice(5, 10); }
+function drawTimeline() {
+  if (!tl.bins.length) return; const c = $("#tl"), g = c.getContext("2d"), d = devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight; c.width = w * d; c.height = h * d; g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, w, h);
+  const bw = w / tl.n; tl.bins.forEach((v, i) => { const bh = v ? Math.max(2, (Math.log1p(v) / Math.log1p(tl.max)) * (h - 14)) : 1; const inside = i >= tl.from && i <= tl.to; g.fillStyle = inside ? "#6fe3ff" : "#1b2438"; g.globalAlpha = inside ? 0.9 : 0.5; g.fillRect(i * bw + 0.5, h - 12 - bh, Math.max(1, bw - 1), bh); });
+  g.globalAlpha = 1; g.fillStyle = "#8393b8"; g.font = "10px Segoe UI"; [0, 30, 60, 90, 119].forEach((i) => g.fillText(dayLabel(i), Math.min(w - 30, i * bw), h - 1));
+  g.strokeStyle = "#6fe3ff"; g.lineWidth = 2; [tl.from, tl.to + 1].forEach((i) => { g.beginPath(); g.moveTo(i * bw, 2); g.lineTo(i * bw, h - 12); g.stroke(); });
+  S.range = [tl.from / tl.n, (tl.to + 1) / tl.n]; const cnt = tl.bins.slice(tl.from, tl.to + 1).reduce((a, b) => a + b, 0); const full = tl.from === 0 && tl.to === tl.n - 1;
+  $("#tlMeta").textContent = full ? `вся история · ${cnt} записей` : `${dayLabel(tl.from)} — ${dayLabel(tl.to)} · ${cnt}`;
+}
+(function tlEvents() {
+  const c = $("#tl"); const idx = (e) => Math.min(tl.n - 1, Math.max(0, Math.floor(((e.clientX - c.getBoundingClientRect().left) / c.clientWidth) * tl.n)));
+  c.addEventListener("pointerdown", (e) => { c.setPointerCapture(e.pointerId); const i = idx(e); tl.drag = Math.abs(i - tl.from) < 4 ? "from" : Math.abs(i - tl.to) < 4 ? "to" : "new"; tl.anchor = i; if (tl.drag === "new") tl.from = tl.to = i; drawTimeline(); });
+  c.addEventListener("pointermove", (e) => { if (!tl.drag) return; const i = idx(e); if (tl.drag === "from") tl.from = Math.min(i, tl.to); else if (tl.drag === "to") tl.to = Math.max(i, tl.from); else { tl.from = Math.min(tl.anchor, i); tl.to = Math.max(tl.anchor, i); } drawTimeline(); });
+  c.addEventListener("pointerup", () => (tl.drag = null)); c.addEventListener("dblclick", () => { tl.from = 0; tl.to = tl.n - 1; drawTimeline(); });
+  $("#playBtn").onclick = () => { if (tl.playing) { tl.playing = false; $("#playBtn").textContent = "▶"; return; } tl.playing = true; $("#playBtn").textContent = "❚❚"; tl.from = 0; tl.to = 0;
+    const step = () => { if (!tl.playing) return; tl.to++; if (tl.to >= tl.n - 1) { tl.to = tl.n - 1; tl.playing = false; $("#playBtn").textContent = "▶"; } drawTimeline(); if (tl.playing) setTimeout(step, 55); }; step(); };
+})();
+
+/* boot: launcher-bound UI session, then the cached atlas (built in the background on the server) */
+let ATLAS = null;
+const BOOT_KEY = "bhm-ui-bootstrap";
+async function bootstrapSession() {
+  const frag = new URLSearchParams(location.hash.slice(1)); let token = frag.get(BOOT_KEY) || "";
+  if (frag.has(BOOT_KEY)) history.replaceState(null, "", location.pathname + location.search);
+  else { const r = await fetch("/bhm/ui/session/bootstrap", { cache: "no-store", credentials: "same-origin", headers: { accept: "application/json" } }); if (!r.ok) throw new Error("bootstrap"); const p = await r.json(); if (p.session === true) return; token = p.bootstrap_token || ""; }
+  if (!token || token.length > 512) throw new Error("bootstrap");
+  const r = await fetch("/bhm/ui/session/exchange", { method: "POST", cache: "no-store", credentials: "same-origin", redirect: "error", headers: { "content-type": "application/json" }, body: JSON.stringify({ bootstrap_token: token }) });
+  if (!r.ok) throw new Error("exchange " + r.status);
+}
+const gate = (html) => { const g = $("#gate"); g.style.display = html ? "block" : "none"; g.innerHTML = html || ""; };
+async function atlasFetch(retry = true) {
+  const r = await fetch("/bhm/galaxy/atlas", { cache: "no-store", credentials: "same-origin" });
+  if (r.status === 401 && retry) { const rn = await fetch("/bhm/ui/session/renew", { method: "POST", credentials: "same-origin" }); if (rn.ok) return atlasFetch(false); }
+  if (r.status === 403) throw new Error("Для карты нужен оператор со всеми проектами.");
+  if (!r.ok) throw new Error("Карта недоступна (" + r.status + ").");
+  return r.json();
+}
+async function boot() {
+  try { await bootstrapSession(); } catch (e) { gate("Откройте карту через лаунчер BHM: сессия не найдена."); return; }
+  setInterval(() => fetch("/bhm/ui/session/renew", { method: "POST", credentials: "same-origin" }).catch(() => {}), 5 * 60 * 1000);
+  for (;;) {
+    let p; try { p = await atlasFetch(); } catch (e) { gate(esc(e.message)); return; }
+    if (p.status === "ready") { ATLAS = p; break; }
+    if (p.status === "error") { gate("Не удалось построить карту: " + esc(p.error || "ошибка") + "<br><small>Повторю через минуту.</small>"); await new Promise((r) => setTimeout(r, 60000)); continue; }
+    gate("Строю карту памяти…<br><small>Первый раз это занимает несколько минут, дальше карта открывается сразу.</small>"); await new Promise((r) => setTimeout(r, 5000));
+  }
+  gate("");
+  await load(); resize(); buildStatic(); physicsInit(); buildColors(); computeEmph(); buildFilters(); buildTimeline();
+  $("#stats").textContent = `${N.toLocaleString("ru")} записей · ${H} проектов · ${E.toLocaleString("ru")} связей` + (ATLAS.rebuilding ? " · обновляется…" : "");
+  if (innerHeight > 780) $("#legend").open = true; requestAnimationFrame(frame);
+}
+boot().catch((e) => { document.body.insertAdjacentHTML("beforeend", "<pre style='padding:80px;color:#f88'>" + esc(e.stack || e) + "</pre>"); });
+</script>
+</body>
+</html>

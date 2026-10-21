@@ -36,7 +36,6 @@ _ANONYMOUS_EXACT_PATHS = frozenset(
         "/health/ready",
         "/bhm/galaxy",
         "/bhm/galaxy/classic",
-        "/bhm/atlas",
         "/bhm/ui/session/exchange",
     }
 )

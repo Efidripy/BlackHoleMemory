@@ -543,7 +543,7 @@ class _JsonResponse:
 def test_bhm_human_ui_detection_is_origin_and_path_bounded() -> None:
     assert launcher._is_bhm_human_ui_url(f"{launcher.BHM_BASE_URL}/bhm/galaxy") is True
     assert launcher._is_bhm_human_ui_url(f"{launcher.BHM_BASE_URL}/bhm/galaxy/classic") is True
-    assert launcher._is_bhm_human_ui_url(f"{launcher.BHM_BASE_URL}/bhm/atlas") is True
+    assert launcher._is_bhm_human_ui_url(f"{launcher.BHM_BASE_URL}/bhm/atlas") is False
     assert launcher._is_bhm_human_ui_url(f"{launcher.BHM_BASE_URL}/") is True
     assert launcher._is_bhm_human_ui_url(f"{launcher.BHM_BASE_URL}/docs") is False
     assert launcher._is_bhm_human_ui_url(f"{launcher.BHM_BASE_URL}.example.invalid/bhm/galaxy") is False
@@ -836,7 +836,7 @@ def test_open_bhm_home_uses_the_same_trusted_ui_bootstrap() -> None:
     assert CALLER_TOKEN not in opened[0]
 
 
-@pytest.mark.parametrize("viewer_path", ("/bhm/galaxy", "/bhm/galaxy/classic", "/bhm/atlas"))
+@pytest.mark.parametrize("viewer_path", ("/bhm/galaxy", "/bhm/galaxy/classic"))
 def test_scoped_launcher_adds_default_project_to_each_galaxy_viewer(monkeypatch, viewer_path: str) -> None:
     monkeypatch.setattr(launcher, "_read_process_or_user_env_value", lambda key: {
         "BHM_CALLER_PROJECTS": "blackholememory",
@@ -858,7 +858,7 @@ def test_scoped_launcher_does_not_confuse_a_non_project_query_key_with_project_s
     }.get(key))
 
     target = launcher.browser_target_for_url(
-        f"{launcher.BHM_BASE_URL}/bhm/atlas?previous_project=fixture",
+        f"{launcher.BHM_BASE_URL}/bhm/galaxy?previous_project=fixture",
         mint=lambda: BOOTSTRAP_TOKEN,
     )
 

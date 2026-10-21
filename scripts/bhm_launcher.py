@@ -343,8 +343,8 @@ OPERATOR_ACTIONS: tuple[OperatorActionSpec, ...] = (
 OPERATOR_MUTATION_KEYS = frozenset(item.key for item in OPERATOR_ACTIONS if item.mutation)
 
 BHM_UI_BOOTSTRAP_FRAGMENT_KEY = "bhm-ui-bootstrap"
-BHM_HUMAN_UI_PATHS = frozenset({"/", "/bhm", "/bhm/galaxy", "/bhm/galaxy/classic", "/bhm/atlas"})
-BHM_GALAXY_VIEWER_PATHS = frozenset({"/bhm/galaxy", "/bhm/galaxy/classic", "/bhm/atlas"})
+BHM_HUMAN_UI_PATHS = frozenset({"/", "/bhm", "/bhm/galaxy", "/bhm/galaxy/classic"})
+BHM_GALAXY_VIEWER_PATHS = frozenset({"/bhm/galaxy", "/bhm/galaxy/classic"})
 
 MCP_SERVER_NAME = "bhm"
 CODEX_PLUGIN_ID = "bhm-codex-connector"
