@@ -30,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from blackholememory import app as bhm_app
+from blackholememory import galaxy_routes
 from blackholememory import app_runtime
 from blackholememory import bhm_mcp
 from blackholememory import galaxy as bhm_galaxy
@@ -3887,8 +3888,8 @@ def _patch_galaxy_data(monkeypatch, nodes: list[dict], graph: dict[str, list[dic
         for source, outgoing in graph.items()
         for link in outgoing
     ]
-    monkeypatch.setattr(bhm_app, "_load_galaxy_authoritative_nodes", fake_active_nodes)
-    monkeypatch.setattr(bhm_app, "_load_galaxy_authoritative_links_sync", lambda project: links)
+    monkeypatch.setattr(galaxy_routes, "_load_galaxy_authoritative_nodes", fake_active_nodes)
+    monkeypatch.setattr(galaxy_routes, "_load_galaxy_authoritative_links_sync", lambda project: links)
 
 
 def test_galaxy_endpoint_json_structure(monkeypatch):
@@ -3979,7 +3980,7 @@ def test_galaxy_typed_filters_use_authoritative_service_and_expose_typed_metadat
     monkeypatch.setattr(bhm_app, "_require_typed_memory_boundary", lambda **_kwargs: None)
 
     data = asyncio.run(
-        bhm_app._build_galaxy_data(
+        galaxy_routes._build_galaxy_data(
             "blackholememory",
             50,
             memory_class=bhm_app.MemoryClass.SEMANTIC,
@@ -4001,7 +4002,7 @@ def test_galaxy_all_mode_has_no_numeric_cap(monkeypatch):
         captured.append((project, limit, domain))
         return {"nodes": [], "links": [], "summary": {}}
 
-    monkeypatch.setattr(bhm_app, "_build_galaxy_data", fake_build)
+    monkeypatch.setattr(galaxy_routes, "_build_galaxy_data", fake_build)
 
     data = asyncio.run(bhm_app.bhm_galaxy_data(project="lookatme", limit="all"))
 
