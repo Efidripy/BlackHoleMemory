@@ -412,7 +412,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_public_code_tools",
+    "endpoint": "blackholememory.code_tools_service:bhm_public_code_tools",
     "include_in_schema": false,
     "index": 29,
     "kind": "APIRoute",

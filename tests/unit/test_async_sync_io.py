@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import code_tools_service
 from blackholememory import app_runtime
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
@@ -103,20 +104,20 @@ def test_code_tools_status_does_not_run_index_reads_on_event_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        bhm_app,
+        code_tools_service,
         "_public_code_request_scope",
         lambda request: (Path("repo"), "demo"),
     )
-    monkeypatch.setattr(bhm_app, "_validate_explicit_public_code_root", lambda *args: None)
-    monkeypatch.setattr(bhm_app, "_public_code_root_id", lambda *args, **kwargs: "root-id")
+    monkeypatch.setattr(code_tools_service, "_validate_explicit_public_code_root", lambda *args: None)
+    monkeypatch.setattr(code_tools_service, "_public_code_root_id", lambda *args, **kwargs: "root-id")
 
     def blocking_index_status(*args, **kwargs) -> dict:
         del args, kwargs
         time.sleep(0.15)
         return {"status": "ready"}
 
-    monkeypatch.setattr(bhm_app, "repository_index_status", blocking_index_status)
-    monkeypatch.setattr(bhm_app, "_current_code_graph_snapshot", lambda *args, **kwargs: {})
+    monkeypatch.setattr(code_tools_service, "repository_index_status", blocking_index_status)
+    monkeypatch.setattr(code_tools_service, "_current_code_graph_snapshot", lambda *args, **kwargs: {})
 
     async def exercise() -> tuple[float, int]:
         ticks: list[float] = []
