@@ -114,6 +114,7 @@ def test_missing_or_wrong_header_is_rejected_without_write(writes, admin):
         body = _structured(await _remember(client, session_id, admin=admin))
         assert body["code"] == "ingress_admission_rejected"
         assert body["operator_header"].startswith("absent" if admin is None else "invalid")
+        assert "(bearer=caller)" in body["operator_header"]
         assert "wrong-capability" not in json.dumps(body)
 
     asyncio.run(_exercise(scenario))
