@@ -4065,31 +4065,18 @@ def test_galaxy_static_html_availability():
 
     response = client.get("/bhm/galaxy")
     classic = client.get("/bhm/galaxy/classic")
-    atlas = client.get("/bhm/atlas")
-    g6_bundle = client.get("/static/g6.min.js")
-    g6_3d_bundle = client.get("/static/g6-extension-3d.min.js")
-    g6_license = client.get("/static/G6-LICENSE.txt")
-    g6_3d_license = client.get("/static/G6-EXTENSION-3D-LICENSE.txt")
+    removed_atlas = client.get("/bhm/atlas")
 
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Choose a BHM knowledge view" in response.text
+    assert "BHM Atlas" in response.text
+    assert "/bhm/galaxy/atlas" in response.text
+    assert "/bhm/galaxy/classic" in response.text
     assert classic.status_code == 200
     assert "BHM Galaxy Viewer" in classic.text
     assert "cbmCodeSearchPanel" in classic.text
     assert "sqlite-fts5-metadata" not in classic.text
-    assert atlas.status_code == 200
-    assert "BHM Atlas · G6 3D Knowledge Map" in atlas.text
-    assert 'src="/static/g6.min.js' in atlas.text
-    assert 'src="/static/g6-extension-3d.min.js' in atlas.text
-    assert g6_bundle.status_code == 200
-    assert "application/javascript" in g6_bundle.headers["content-type"]
-    assert g6_3d_bundle.status_code == 200
-    assert "application/javascript" in g6_3d_bundle.headers["content-type"]
-    assert g6_license.status_code == 200
-    assert "MIT License" in g6_license.text
-    assert g6_3d_license.status_code == 200
-    assert "MIT License" in g6_3d_license.text
+    assert removed_atlas.status_code == 404
 
 
 def test_speculative_rag_trigger(monkeypatch):

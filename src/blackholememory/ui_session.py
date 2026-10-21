@@ -26,6 +26,7 @@ _HTTP_ALLOWLIST = frozenset(
         # must use the launcher-bound browser session rather than fall back
         # to a bearer credential in page JavaScript.
         ("GET", "/bhm/galaxy/stats"),
+        ("GET", "/bhm/galaxy/atlas"),
         ("GET", "/bhm/graph"),
         ("GET", "/bhm/telemetry/mcp-panel"),
         ("GET", "/bhm/mcp/http/status"),
