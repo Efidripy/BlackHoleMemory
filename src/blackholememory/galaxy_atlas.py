@@ -64,8 +64,8 @@ def store_digest(database_path: Path) -> str:
 def _load_vectors(qdrant_url: str, projects: list[str], wanted: set[str]) -> dict[str, np.ndarray]:
     vectors: dict[str, np.ndarray] = {}
     base = qdrant_url.rstrip("/")
-    with httpx.Client(timeout=120.0) as client:
-        names = [item["name"] for item in client.get(f"{base}/collections").json()["result"]["collections"]]
+    with httpx.Client(timeout=120.0, trust_env=False, follow_redirects=False) as client:
+        names = [item["name"] for item in client.get(f"{base}/collections", timeout=30.0).json()["result"]["collections"]]
         for project in projects:
             slug = _slug(project)
             for name in names:
@@ -76,7 +76,7 @@ def _load_vectors(qdrant_url: str, projects: list[str], wanted: set[str]) -> dic
                     body: dict[str, Any] = {"limit": 256, "with_payload": ["source_id"], "with_vector": True}
                     if offset is not None:
                         body["offset"] = offset
-                    response = client.post(f"{base}/collections/{name}/points/scroll", json=body)
+                    response = client.post(f"{base}/collections/{name}/points/scroll", json=body, timeout=120.0)
                     if response.status_code != 200:
                         break
                     result = response.json()["result"]
