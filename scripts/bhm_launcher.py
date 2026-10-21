@@ -570,7 +570,7 @@ def load_ui_version() -> str:
                 return value
         except (OSError, json.JSONDecodeError, AttributeError):
             continue
-    return "Runtime v1.8.6-PURE"
+    return "Runtime v1.8.7-PURE"
 
 
 UI_VERSION = load_ui_version()
