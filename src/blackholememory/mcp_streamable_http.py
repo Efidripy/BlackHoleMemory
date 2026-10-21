@@ -830,6 +830,9 @@ class BhmStreamableHttpGateway:
             operator = is_admin_capability_valid(supplied) or is_admin_capability_valid(bearer)
             marker = MCP_OPERATOR_SESSION.set(operator)
             state = "valid" if operator else ("invalid" if supplied else "absent")
+            if not operator:  # which credential class arrived (never the value): helps debug client header handling
+                kind = "caller" if is_caller_token_valid(bearer) else ("other" if bearer else "none")
+                state += f"(bearer={kind})"
             state_marker = MCP_OPERATOR_HEADER_STATE.set(state)
             try:
                 response = await self._dispatch(
