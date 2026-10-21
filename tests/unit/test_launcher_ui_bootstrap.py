@@ -389,7 +389,7 @@ def test_launchable_source_guard_rejects_path_outside_owner_root(tmp_path) -> No
         launcher._assert_launchable_source(outside, owner_root)
 
 
-def test_mcp_integration_status_uses_current_http_contract(tmp_path, monkeypatch) -> None:
+def test_mcp_integration_status_requires_claude_stdio_bridge(tmp_path, monkeypatch) -> None:
     appdata = tmp_path / "AppData"
     target = appdata / "Claude" / "claude_desktop_config.json"
     target.parent.mkdir(parents=True)
@@ -399,8 +399,59 @@ def test_mcp_integration_status_uses_current_http_contract(tmp_path, monkeypatch
 
     ok, detail = launcher.mcp_integration_status()
 
-    assert ok is True
+    assert ok is False
+    assert "нужно переподключить" in detail
     assert str(target) in detail
+
+
+def test_launcher_inject_replaces_claude_entry_and_preserves_neighbors(tmp_path, monkeypatch) -> None:
+    appdata = tmp_path / "AppData"
+    home = tmp_path / "Home"
+    target = appdata / "Claude" / "claude_desktop_config.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    launcher.MCP_SERVER_NAME: {
+                        "url": "http://127.0.0.1:8000/mcp",
+                        "bearer_token_env_var": "BHM_CALLER_TOKEN",
+                        "env": {"OLD": "remove"},
+                    },
+                    "other": {"command": "keep"},
+                },
+                "otherSetting": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setattr(Path, "home", lambda: home)
+
+    launcher.inject_mcp_config()
+
+    updated = json.loads(target.read_text(encoding="utf-8"))
+    assert updated["mcpServers"]["other"] == {"command": "keep"}
+    assert updated["otherSetting"] is True
+    assert updated["mcpServers"][launcher.MCP_SERVER_NAME] == launcher.claude_desktop_mcp_server_entry()
+    assert "url" not in updated["mcpServers"][launcher.MCP_SERVER_NAME]
+    assert "bearer_token_env_var" not in updated["mcpServers"][launcher.MCP_SERVER_NAME]
+
+
+def test_operator_write_status_does_not_reveal_capability(tmp_path, monkeypatch) -> None:
+    appdata = tmp_path / "AppData"
+    target = appdata / "Claude" / "claude_desktop_config.json"
+    target.parent.mkdir(parents=True)
+    target.write_text(json.dumps({"mcpServers": {launcher.MCP_SERVER_NAME: launcher.claude_desktop_mcp_server_entry()}}), encoding="utf-8")
+    secret = "s" * 48
+    monkeypatch.setenv("APPDATA", str(appdata))
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", secret)
+
+    ok, detail = launcher.operator_write_status()
+
+    assert ok is True
+    assert "операторская запись" in detail.lower()
+    assert secret not in detail
 
 
 def test_mcp_integration_status_detects_codex_toml(tmp_path, monkeypatch) -> None:

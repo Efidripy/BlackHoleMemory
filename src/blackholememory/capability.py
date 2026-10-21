@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import contextvars
 import hmac
 import os
 
 
 ADMIN_CAPABILITY_HEADER = "x-bhm-admin-capability"
 ADMIN_CAPABILITY_ENV_NAMES = ("BHM_ADMIN_CAPABILITY", "BHM_MCP_ADMIN_CAPABILITY")
+
+# True only while one /mcp tools/call whose HTTP request carried a valid operator header is dispatched.
+MCP_OPERATOR_SESSION: contextvars.ContextVar[bool] = contextvars.ContextVar("bhm_mcp_operator_session", default=False)
+# "absent" | "invalid" | "valid" for the current HTTP tools/call; "" outside it (IPC broker). Never the value itself.
+MCP_OPERATOR_HEADER_STATE: contextvars.ContextVar[str] = contextvars.ContextVar("bhm_mcp_operator_header_state", default="")
 
 # Keep this list explicit and reviewable. Read-only public REST routes are not
 # included; mutating, destructive, repair, import/export and infra controls are.
