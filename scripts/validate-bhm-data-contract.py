@@ -44,11 +44,16 @@ def main() -> int:
         "memory_repository": "src/blackholememory/memory_repository.py",
         "outbox": "src/blackholememory/outbox.py",
         "runtime_storage": "src/blackholememory/runtime_storage.py",
-        "code_graph": "src/blackholememory/code_graph.py",
+        "code_graph": "src/blackholememory/code_graph",
         "retention": "src/blackholememory/retention.py",
         "migration": "src/blackholememory/migration_compatibility.py",
     }
-    module_hashes = {name: hashlib.sha256((ROOT / path).read_bytes()).hexdigest() for name, path in modules.items()}
+    def _module_digest(path: str) -> str:
+        target = ROOT / path
+        files = sorted(target.glob("*.py")) if target.is_dir() else [target]
+        return hashlib.sha256(b"".join(file.read_bytes() for file in files)).hexdigest()
+
+    module_hashes = {name: _module_digest(path) for name, path in modules.items()}
     contract = {
         "schema_version": "bhm.p21.6.data-event-storage-contract.v1",
         "authority": {"store": "sqlite", "semantic_layer": "mem0", "projection": "qdrant", "orchestration": "langgraph"},

@@ -89,6 +89,11 @@
       "release": true
     },
     {
+      "path": "scripts/dump-bhm-route-table.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/evaluate-governed-semantic-editor.py",
       "role": "quality-gate",
       "release": true
@@ -496,6 +501,21 @@
     {
       "path": "scripts/initialize-bhm-runtime.py",
       "role": "runtime",
+      "release": true
+    },
+    {
+      "path": "scripts/list-app-patch-targets.py",
+      "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/list-app-source-readers.py",
+      "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/list-module-globals.py",
+      "role": "operator",
       "release": true
     },
     {
