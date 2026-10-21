@@ -404,6 +404,11 @@
       "release": true
     },
     {
+      "path": "scripts/bhm_launcher_theme.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_launcher_config.py",
       "role": "runtime-support",
       "release": true
