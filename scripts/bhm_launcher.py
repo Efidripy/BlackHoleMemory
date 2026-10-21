@@ -2313,6 +2313,45 @@ def operator_write_status() -> tuple[bool, str]:
     return False, "Операторская запись: нужно переподключить Claude Desktop"
 
 
+CLAUDE_DESKTOP_RUNNING_PROMPT = (
+    "Claude Desktop запущен и перезапишет конфиг своей копией из памяти. "
+    "Закройте Claude Desktop полностью (включая значок в трее) и нажмите Yes, либо No для отмены."
+)
+CLAUDE_DESKTOP_RESTART_HINT = "Перезапустите Claude Desktop (и Codex), чтобы применить изменения."
+
+
+def claude_desktop_running() -> bool:
+    """True when the Claude Desktop app (not the bundled Claude Code CLI) is running."""
+
+    try:
+        for process in psutil.process_iter(["name", "exe"]):
+            info = process.info
+            if str(info.get("name") or "").casefold() != "claude.exe":
+                continue
+            # The app embeds a Claude Code binary with the same exe name; it does not rewrite the desktop config.
+            if "claude-code" in str(info.get("exe") or "").casefold():
+                continue
+            return True
+    except psutil.Error:
+        return False
+    return False
+
+
+def confirm_inject_with_claude_closed(parent: Any) -> bool:
+    """Ask before writing the Claude Desktop config while the app would overwrite it."""
+
+    if not claude_desktop_running():
+        return True
+    answer = QMessageBox.question(
+        parent,
+        "BHM Integrations",
+        CLAUDE_DESKTOP_RUNNING_PROMPT,
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    return answer is QMessageBox.StandardButton.Yes
+
+
 def find_codex_plugin_source() -> Path:
     return ensure_persistent_plugin_source()
 
@@ -2925,6 +2964,8 @@ class IntegrationsPanel(QWidget):
         QMessageBox.information(self, "BHM Integrations", "MCP config copied to clipboard.")
 
     def inject_mcp(self) -> bool:
+        if not confirm_inject_with_claude_closed(self):
+            return False
         try:
             written = inject_mcp_config()
         except Exception as exc:
@@ -2937,7 +2978,7 @@ class IntegrationsPanel(QWidget):
         QMessageBox.information(
             self,
             "BHM Integrations",
-            "MCP config written to:\n" + "\n".join(str(path) for path in written),
+            "MCP config written to:\n" + "\n".join(str(path) for path in written) + "\n\n" + CLAUDE_DESKTOP_RESTART_HINT,
         )
         return True
 
@@ -3087,9 +3128,15 @@ class IntegrationsWindow(QFrame):
         self.plugin_status.setText(("Codex plugin: installed\n" if plugin_ok else "Codex plugin: missing\n") + plugin_detail)
 
     def inject_mcp(self) -> None:
+        if not confirm_inject_with_claude_closed(self):
+            return
         try:
             written = inject_mcp_config()
-            QMessageBox.information(self, "BHM Integrations", "MCP config written to:\n" + "\n".join(str(p) for p in written))
+            QMessageBox.information(
+                self,
+                "BHM Integrations",
+                "MCP config written to:\n" + "\n".join(str(p) for p in written) + "\n\n" + CLAUDE_DESKTOP_RESTART_HINT,
+            )
         except Exception as exc:
             QMessageBox.warning(self, "BHM Integrations", compact_error(exc))
         self.refresh_status()
