@@ -8,6 +8,14 @@ function New-BhmCallerToken {
   return [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 }
 
+function New-BhmAdminCapability {
+  $bytes = New-Object byte[] 32
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($bytes) }
+  finally { $rng.Dispose() }
+  return ([BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant())
+}
+
 function Get-BhmCallerTokenFingerprint([Parameter(Mandatory = $true)][string]$Token) {
   $sha = [System.Security.Cryptography.SHA256]::Create()
   try {
@@ -84,6 +92,67 @@ function Get-BhmCallerCredentialStatus {
     process_present = $processToken.Length -ge 32
     user_present = $userToken.Length -ge 32
     fingerprint = if ($effective.Length -ge 32) { Get-BhmCallerTokenFingerprint -Token $effective } else { $null }
+  }
+}
+
+function Initialize-BhmAdminCapability {
+  [CmdletBinding()]
+  param([switch]$NoPersist)
+
+  $processCapability = [string]$env:BHM_ADMIN_CAPABILITY
+  $userCapability = [string][Environment]::GetEnvironmentVariable('BHM_ADMIN_CAPABILITY', 'User')
+  if ($processCapability.Length -gt 0) {
+    $capability = $processCapability
+    $source = 'process'
+  } elseif ($userCapability.Length -gt 0) {
+    $capability = $userCapability
+    $source = 'user'
+  } else {
+    $capability = New-BhmAdminCapability
+    $source = 'generated'
+  }
+
+  if ($processCapability.Length -eq 0) {
+    $env:BHM_ADMIN_CAPABILITY = $capability
+  }
+  if (-not $NoPersist -and $userCapability.Length -eq 0) {
+    [Environment]::SetEnvironmentVariable('BHM_ADMIN_CAPABILITY', $capability, 'User')
+  }
+
+  return [pscustomobject]@{
+    ok = $true
+    source = $source
+    length = $capability.Length
+    persisted = -not $NoPersist
+  }
+}
+
+function Get-BhmAdminCapabilityStatus {
+  $processCapability = [string]$env:BHM_ADMIN_CAPABILITY
+  $userCapability = [string][Environment]::GetEnvironmentVariable('BHM_ADMIN_CAPABILITY', 'User')
+  $effective = if ($processCapability.Length -gt 0) { $processCapability } else { $userCapability }
+  return [pscustomobject]@{
+    configured = $effective.Length -gt 0
+    process_present = $processCapability.Length -gt 0
+    user_present = $userCapability.Length -gt 0
+    length = if ($effective.Length -gt 0) { $effective.Length } else { 0 }
+  }
+}
+
+function Rotate-BhmAdminCapability {
+  [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'High')]
+  param()
+
+  if (-not $PSCmdlet.ShouldProcess('BHM admin capability', 'Rotate user and process capability')) {
+    return [pscustomobject]@{ ok = $false; rotated = $false }
+  }
+  $capability = New-BhmAdminCapability
+  [Environment]::SetEnvironmentVariable('BHM_ADMIN_CAPABILITY', $capability, 'User')
+  $env:BHM_ADMIN_CAPABILITY = $capability
+  return [pscustomobject]@{
+    ok = $true
+    rotated = $true
+    length = $capability.Length
   }
 }
 
