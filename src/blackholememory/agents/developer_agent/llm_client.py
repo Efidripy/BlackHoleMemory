@@ -646,6 +646,7 @@ _AST_CODE_MANAGER = ASTCodeManager(
 def tool_get_file_outline(file_path: str) -> str:
     try:
         return _AST_CODE_MANAGER.get_file_outline(file_path)
+    # broad: AST tooling is an untrusted tool boundary; preserve a safe textual error result.
     except Exception as exc:
         return f"{AST_ANALYSIS_ERROR_PREFIX} {exc}"
 
@@ -653,6 +654,7 @@ def tool_get_file_outline(file_path: str) -> str:
 def tool_get_symbol_definition(file_path: str, symbol_name: str) -> str:
     try:
         return _AST_CODE_MANAGER.get_symbol_definition(file_path, symbol_name)
+    # broad: AST tooling is an untrusted tool boundary; preserve a safe textual error result.
     except Exception as exc:
         return f"{AST_ANALYSIS_ERROR_PREFIX} {exc}"
 
