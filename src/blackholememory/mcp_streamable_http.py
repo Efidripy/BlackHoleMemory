@@ -827,7 +827,10 @@ class BhmStreamableHttpGateway:
             supplied = headers.get(ADMIN_CAPABILITY_HEADER, "") if headers else ""
             operator = bool(supplied) and is_admin_capability_valid(supplied)
             marker = MCP_OPERATOR_SESSION.set(operator)
-            state_marker = MCP_OPERATOR_HEADER_STATE.set("valid" if operator else ("invalid" if supplied else "absent"))
+            state = "valid" if operator else ("invalid" if supplied else "absent")
+            if state == "absent":  # temporary diagnostic: header NAMES only, never values
+                state += f"(request={'none' if headers is None else 'yes'};names={','.join(sorted(k for k in (headers or {})))[:300]})"
+            state_marker = MCP_OPERATOR_HEADER_STATE.set(state)
             try:
                 response = await self._dispatch(
                     {
