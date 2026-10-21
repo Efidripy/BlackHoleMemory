@@ -236,7 +236,7 @@ class HttpMcpSessionRegistry:
         try:
             await asyncio.wait_for(waiter.event.wait(), timeout=self.admission_timeout_seconds)
             return waiter
-        except BaseException:
+        except BaseException:  # broad: release admission slot for cancellation and all task termination paths
             self.cancel_initialize_slot(waiter)
             raise
 
@@ -661,7 +661,7 @@ class _StreamableHttpAsgiApp:
                 try:
                     identity = await self._catalog_identity_provider()
                     contract_digest = identity.get("contract_digest")
-                except Exception:
+                except Exception:  # broad: omit unavailable catalog identity from session telemetry
                     contract_digest = None
             self._sessions.touch(
                 session_id,
@@ -866,7 +866,7 @@ class BhmStreamableHttpGateway:
 
         try:
             await self._catalog_hash_for_session()
-        except Exception:
+        except Exception:  # broad: catalog telemetry must not prevent runtime startup
             # Catalog telemetry must not prevent the runtime from starting;
             # tools/call remains usable and the panel reports the missing hash.
             self._catalog_hash = None

@@ -406,7 +406,7 @@ def apply_projection_generation_binding_plan(
             _event(connection, binding_id=binding_id, action="prepared", binding=binding, actor_digest=actor_digest, correlation_id=correlation_id, occurred_at=now)
             _event(connection, binding_id=binding_id, action="activated", binding=binding, actor_digest=actor_digest, correlation_id=correlation_id, occurred_at=now)
         connection.commit()
-    except Exception:
+    except Exception:  # broad: rollback transaction before re-raising to preserve binding failure semantics
         connection.rollback()
         raise
     finally:
@@ -458,7 +458,7 @@ def rollback_projection_generation_binding(
         connection.execute("UPDATE projection_generation_bindings SET state = 'rolled_back', rolled_back_at = ? WHERE binding_id = ?", (now, str(row["binding_id"])))
         _event(connection, binding_id=str(row["binding_id"]), action="rolled_back", binding=binding, actor_digest=_digest(actor_digest, "actor_digest"), correlation_id=_nonempty(correlation_id, "correlation_id"), occurred_at=now)
         connection.commit()
-    except Exception:
+    except Exception:  # broad: rollback transaction before re-raising to preserve binding failure semantics
         connection.rollback()
         raise
     finally:
@@ -563,7 +563,7 @@ def resolve_projection_route(
             memories.extend(repository.list_memories(project=item.project, include_archived=True, include_tombstoned=True, limit=10_000))
         if _generation_source_basis_digest(memories) != candidate.source_basis_digest:
             return ProjectionCollectionRoute(None, "binding_source_drift", False)
-    except Exception:
+    except Exception:  # broad: return fail-closed route when source inspection is unavailable
         return ProjectionCollectionRoute(None, "binding_source_unavailable", False)
     return ProjectionCollectionRoute(candidate.target_collection, "binding_active", False)
 

@@ -238,7 +238,7 @@ class McpIpcBroker:
             payload = json.loads(stripped.decode("utf-8-sig"))
             if not isinstance(payload, dict):
                 raise ValueError("JSON-RPC message must be an object")
-        except Exception as exc:
+        except Exception as exc:  # broad: convert malformed JSON decoding failures into JSON-RPC errors
             response = self._error_response(None, -32700, str(exc))
         else:
             validation_error = self._validate_jsonrpc_payload(payload)
@@ -253,7 +253,7 @@ class McpIpcBroker:
                 except FutureTimeoutError:
                     future.cancel()
                     response = self._error_response(payload.get("id"), -32004, "MCP dispatch timed out")
-                except Exception as exc:
+                except Exception as exc:  # broad: convert handler failures into JSON-RPC internal errors
                     response = self._error_response(payload.get("id"), -32603, str(exc))
         return self._encode_response(response)
 
@@ -392,7 +392,7 @@ class McpIpcBroker:
             if connection_id and self._connection_close_handler is not None:
                 try:
                     self._connection_close_handler(connection_id, "client_disconnect")
-                except Exception:
+                except Exception:  # broad: isolate close-handler failures during client cleanup
                     pass
 
     def _serve_windows(self) -> None:
@@ -458,7 +458,7 @@ class McpIpcBroker:
             if connection_id and self._connection_close_handler is not None:
                 try:
                     self._connection_close_handler(connection_id, "client_disconnect")
-                except Exception:
+                except Exception:  # broad: isolate close-handler failures during client cleanup
                     pass
 
     def _wake_listener(self) -> None:

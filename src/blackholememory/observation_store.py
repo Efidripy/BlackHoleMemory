@@ -349,7 +349,7 @@ class ObservationStore:
                     )
                 connection.commit()
                 return results
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -664,7 +664,7 @@ class ObservationStore:
                     payload_bytes += record_bytes
                 connection.commit()
                 return len(expired_ids), payload_bytes, tuple(expired_ids)
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -843,7 +843,7 @@ class ObservationStore:
                     changed += int(cursor.rowcount)
                 connection.commit()
                 return changed
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:

@@ -48,7 +48,7 @@ class MemoryPulseBus:
             self._clients[websocket] = projects
         try:
             await websocket.accept()
-        except Exception:
+        except Exception:  # broad: remove failed websocket registration before re-raising
             self.disconnect(websocket)
             raise
 

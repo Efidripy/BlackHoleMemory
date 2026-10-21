@@ -331,7 +331,7 @@ class HookJobQueue:
                     capacity=self.capacity,
                     created_at=created_at,
                 )
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -411,7 +411,7 @@ class HookJobQueue:
                 ).fetchone()
                 connection.commit()
                 return self._materialize_job(claimed, include_payload=True)
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -463,7 +463,7 @@ class HookJobQueue:
                 if cursor.rowcount != 1:
                     raise HookJobLeaseLost(job_id)
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -511,7 +511,7 @@ class HookJobQueue:
                 )
                 connection.commit()
                 return status
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -541,7 +541,7 @@ class HookJobQueue:
                 )
                 connection.commit()
                 return int(cursor.rowcount)
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -685,7 +685,7 @@ class HookJobQueue:
                     result_bytes += result_size
                 connection.commit()
                 return len(expired_ids), payload_bytes, result_bytes, tuple(expired_ids)
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:

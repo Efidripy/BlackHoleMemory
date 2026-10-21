@@ -963,7 +963,7 @@ def apply_projection_generation_plan(
                     f"generation point identity changed: {entry.memory_id}"
                 )
             upserted += 1
-    except Exception as exc:
+    except Exception as exc:  # broad: record generation apply failures in the result without propagating
         failures.append(f"generation apply failed: {type(exc).__name__}: {exc}")
         return ProjectionGenerationApplyResult(
             plan_digest=plan.digest,
@@ -1387,7 +1387,7 @@ def apply_projection_reconciliation(
                 expected_dimensions=expected_dimensions,
                 expected_embedding_model=expected_embedding_model,
             )
-    except Exception as exc:
+    except Exception as exc:  # broad: fail closed when projection preflight is unavailable
         return ProjectionApplyResult(
             plan_digest=plan.digest,
             upserted=0,
@@ -1450,7 +1450,7 @@ def apply_projection_reconciliation(
                     event_id=f"reconcile:{plan.digest[:24]}:{memory.id}",
                 )
                 upserted += 1
-        except Exception as exc:
+        except Exception as exc:  # broad: record per-entry projection failures and continue reconciliation
             failures.append(
                 f"{entry.collection_name}:{entry.point_id}:{type(exc).__name__}:{exc}"
             )

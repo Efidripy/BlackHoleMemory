@@ -155,14 +155,14 @@ def _validate_outcome_against_trace(outcome: ProcedureOutcomeReceipt, trace: Pro
 def _revalidate_trace(value: ProcedureExecutionTraceReceipt) -> ProcedureExecutionTraceReceipt:
     try:
         return ProcedureExecutionTraceReceipt.model_validate(value.model_dump(mode="json"))
-    except Exception as exc:
+    except Exception as exc:  # broad: convert receipt revalidation failures into a domain error
         raise ProceduralRevisionReviewError("procedure trace receipt is invalid") from exc
 
 
 def _revalidate_outcome(value: ProcedureOutcomeReceipt) -> ProcedureOutcomeReceipt:
     try:
         return ProcedureOutcomeReceipt.model_validate(value.model_dump(mode="json"))
-    except Exception as exc:
+    except Exception as exc:  # broad: convert receipt revalidation failures into a domain error
         raise ProceduralRevisionReviewError("procedure outcome receipt is invalid") from exc
 
 
