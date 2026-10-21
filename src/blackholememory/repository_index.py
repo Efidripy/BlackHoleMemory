@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import sqlite3
 import subprocess
@@ -23,6 +24,9 @@ from .filesystem_boundaries import FilesystemBoundaryError
 from .filesystem_boundaries import assert_safe_path
 from .observation_security import redact_secret_text
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 REPOSITORY_INDEX_SCHEMA_VERSION = "bhm.repository-index.v1"
@@ -1142,7 +1146,8 @@ class SQLiteRepositoryIndexStore:
                     (self._watch_checkpoint_key(project, root_id), serialized),
                 )
                 connection.commit()
-        except Exception:
+        except Exception:  # broad: preserve rollback for any transaction failure
+            _LOGGER.error("repository index checkpoint transaction failed; rolling back")
             connection.rollback()
             raise
         finally:
@@ -1237,7 +1242,8 @@ class SQLiteRepositoryIndexStore:
                 ):
                     source_connection.execute(f'DROP TABLE IF EXISTS "{table}"')
                 source_connection.commit()
-            except Exception:
+            except Exception:  # broad: preserve rollback for any migration transaction failure
+                _LOGGER.error("repository index migration transaction failed; rolling back")
                 source_connection.rollback()
                 raise
         finally:
@@ -1259,7 +1265,8 @@ class SQLiteRepositoryIndexStore:
             if after_memory_counts != before_memory_counts:
                 raise RepositoryIndexError("canonical memory row counts changed during repository-index migration")
             connection.commit()
-        except Exception:
+        except Exception:  # broad: preserve rollback for any migration metadata failure
+            _LOGGER.error("repository index migration metadata failed; rolling back")
             connection.rollback()
             raise
         finally:
@@ -1488,7 +1495,8 @@ class SQLiteRepositoryIndexStore:
                 connection.execute("PRAGMA wal_autocheckpoint=1000")
                 connection.commit()
                 self._initialized = True
-            except Exception:
+            except Exception:  # broad: preserve rollback for any schema transaction failure
+                _LOGGER.error("repository index schema transaction failed; rolling back")
                 connection.rollback()
                 raise
             finally:
@@ -1629,7 +1637,8 @@ class SQLiteRepositoryIndexStore:
                         (now, job_id),
                     )
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: preserve rollback for any job transaction failure
+                _LOGGER.error("repository index job transaction failed; rolling back")
                 connection.rollback()
                 raise
             finally:
@@ -1798,7 +1807,8 @@ class SQLiteRepositoryIndexStore:
                     ),
                 )
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: preserve rollback for any batch transaction failure
+                _LOGGER.error("repository index batch transaction failed; rolling back")
                 connection.rollback()
                 raise
             finally:
@@ -1818,7 +1828,8 @@ class SQLiteRepositoryIndexStore:
                     (_clip(code, 120), _clip(detail, 1_000), _utc_now(), job_id),
                 )
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: preserve rollback for any failure-state transaction
+                _LOGGER.error("repository index failure-state transaction failed; rolling back")
                 connection.rollback()
                 raise
             finally:
@@ -2197,7 +2208,8 @@ class SQLiteRepositoryIndexStore:
                 if foreign_key_errors:
                     raise RepositoryIndexError("foreign-key check failed during stale disposition apply")
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: preserve rollback for atomic stale-job disposition
+                _LOGGER.error("repository index stale-disposition transaction failed; rolling back")
                 connection.rollback()
                 raise
             finally:
@@ -2275,7 +2287,8 @@ class SQLiteRepositoryIndexStore:
                     (project, root_id, snapshot_id, now),
                 )
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: preserve rollback for atomic pointer repair
+                _LOGGER.error("repository index pointer-repair transaction failed; rolling back")
                 connection.rollback()
                 raise
             finally:
@@ -2539,7 +2552,8 @@ class SQLiteRepositoryIndexStore:
                     (snapshot_id, now, now, job_id),
                 )
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: preserve rollback for atomic snapshot publication
+                _LOGGER.error("repository index snapshot-publication transaction failed; rolling back")
                 connection.rollback()
                 raise
             finally:
@@ -2960,7 +2974,8 @@ def index_repository(
             deduplicated=False,
             force_refresh=force_refresh,
         )
-    except Exception as exc:
+    except Exception as exc:  # broad: mark every failed indexing job before re-raising
+        _LOGGER.error("repository indexing failed; marking job failed")
         store.mark_failed(
             str(job["job_id"]),
             code=type(exc).__name__,
@@ -3140,7 +3155,8 @@ class RepositoryWatcher:
                                 "recovered": attempt > 1,
                             }
                             break
-                        except Exception as exc:
+                        except Exception as exc:  # broad: watcher must classify and persist any job failure
+                            _LOGGER.error("repository watcher indexing attempt failed")
                             index_error = exc
                             retryable = repository_index_error_retryable(exc)
                             if not retryable or attempt >= self.retry_attempts:
