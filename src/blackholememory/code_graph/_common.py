@@ -14,6 +14,45 @@ from ..repository_index import _LANGUAGE_BY_SUFFIX, _SPECIAL_TEXT_NAMES
 
 
 
+def _structural_decl_kind(line: str, language: str) -> str:
+    """Classify a declaration conservatively for package/type parity."""
+
+    lowered = f" {line.casefold()} "
+    if language == "solidity":
+        for keyword, kind in (
+            (" contract ", "contract"),
+            (" library ", "library"),
+            (" interface ", "interface"),
+            (" struct ", "struct"),
+            (" enum ", "enum"),
+            (" event ", "event"),
+            (" error ", "error"),
+            (" modifier ", "modifier"),
+        ):
+            if keyword in lowered:
+                return kind
+    for keyword, kind in (
+        (" class ", "class"),
+        (" interface ", "interface"),
+        (" enum ", "enum"),
+        (" struct ", "struct"),
+        (" record ", "record"),
+        (" trait ", "trait"),
+        (" object ", "object"),
+        (" namespace ", "namespace"),
+        (" module ", "module"),
+        (" message ", "message"),
+        (" service ", "service"),
+    ):
+        if keyword in lowered:
+            return kind
+    if re.match(r"^\s*type\s+", line, re.IGNORECASE):
+        return "type"
+    if language in {"graphql", "protobuf"} and re.match(r"^\s*(?:input|union|scalar|schema|directive|query|mutation|subscription|oneof|rpc)\b", line, re.IGNORECASE):
+        return "type"
+    return "function"
+
+
 CODE_GRAPH_SCHEMA_VERSION = "bhm.code-graph.v1"
 PARSER_CAPABILITY_SCHEMA_VERSION = "bhm.code-graph.capabilities.v1"
 CODE_GRAPH_STORE_SCHEMA_VERSION = 1
