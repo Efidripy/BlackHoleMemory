@@ -329,6 +329,7 @@ def _remote_qdrant_available(*, opener: Any = None, timeout: float = QDRANT_HEAL
                     http_status=status,
                     latency_ms=_qdrant_health_latency_ms(started_at),
                 )
+    # broad: health probing must convert any backend failure into a diagnostic state.
     except Exception as error:
         available = False
         failure_class, http_status = _qdrant_health_failure_class(error)
@@ -626,6 +627,7 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
     if callable(schema_probe):
         try:
             schema_ready = bool(schema_probe())
+        # broad: readiness probe is an observational boundary and must never abort vacuum.
         except Exception as exc:
             schema_ready = False
             errors.append(
@@ -663,6 +665,7 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
                     with_payload=True,
                     with_vectors=False,
                 )
+            # broad: remote projection scan failures are recorded and scanning stops safely.
             except Exception as exc:
                 errors.append({"collection": collection_name, "error": str(exc)})
                 break
@@ -690,6 +693,7 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
                     continue
                 try:
                     source_memory = authoritative.get_memory(source_id, project=project)
+                # broad: authoritative lookup failures are recorded per item and do not abort the sweep.
                 except Exception as exc:
                     errors.append(
                         {
@@ -714,6 +718,7 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
                         with_payload=True,
                         with_vectors=False,
                     )
+                # broad: projection revalidation failures are recorded per item and do not abort the sweep.
                 except Exception as exc:
                     errors.append(
                         {
@@ -917,7 +922,9 @@ def _ensure_qdrant_collection(collection_name: str) -> dict[str, Any]:
                     distance=qdrant_models.Distance.COSINE,
                 ),
             )
-        except Exception:
+        # broad: collection creation races with another worker; existence check resolves the boundary.
+        except Exception as exc:
+            logging.getLogger(__name__).warning("collection creation failed: %s", type(exc).__name__)
             if not client.collection_exists(collection_name):
                 raise
             existed = True

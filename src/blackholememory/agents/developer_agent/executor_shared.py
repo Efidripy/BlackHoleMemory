@@ -879,6 +879,7 @@ async def _web_knowledge_extractor_node_impl(
         next_state["tokens"] = _merge_tokens(next_state.get("tokens"), tokens)
         next_state["extracted_web_fact"] = extracted_fact
         next_state["status"] = "WEB_FACT_EXTRACTED" if extracted_fact else "WEB_FACT_EMPTY"
+    # broad: optional web extraction must degrade state without interrupting the guarded workflow.
     except Exception as exc:
         next_state["extracted_web_fact"] = None
         next_state["status"] = "WEB_EXTRACTOR_DEGRADED"

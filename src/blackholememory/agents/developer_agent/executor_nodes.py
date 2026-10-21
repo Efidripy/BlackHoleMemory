@@ -191,6 +191,7 @@ class ExecutorNodesMixin:
                     for key in ("pid", "process_id", "pids", "process_ids", "spawned_pids"):
                         if isinstance(raw_result, dict) and key in raw_result:
                             result[key] = raw_result[key]
+                # broad: sandbox execution is a security boundary and must fail closed into the result state.
                 except Exception as exc:
                     result = _failed_sandbox_result(f"sandbox runner failure: {exc}")
                 result["candidate_index"] = candidate_index
