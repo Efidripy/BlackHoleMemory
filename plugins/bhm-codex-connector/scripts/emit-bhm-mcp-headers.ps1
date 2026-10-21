@@ -10,5 +10,5 @@ $ErrorActionPreference = "Stop"
 # reader.  The only stdout value is the JSON header object consumed by Codex.
 . (Join-Path $PSScriptRoot 'bhm-memory-common.ps1')
 
-$token = Get-ConnectorCallerToken
+$token = Get-ConnectorMcpBearer
 @{ Authorization = "Bearer $token" } | ConvertTo-Json -Compress
