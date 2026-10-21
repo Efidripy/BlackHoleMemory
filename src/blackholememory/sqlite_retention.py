@@ -594,7 +594,7 @@ def apply_sqlite_retention(
         connection.commit()
         connection.execute("PRAGMA optimize")
         after = _database_stats(connection)
-    except Exception:
+    except Exception:  # broad: rollback retention transaction before re-raising
         connection.rollback()
         raise
     finally:
@@ -726,7 +726,7 @@ async def automatic_sqlite_retention_loop(
                 )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception:  # broad: isolate automatic retention cycle failures and continue scheduling
             _LOGGER.exception("automatic SQLite retention cycle failed")
         await asyncio.sleep(max(60.0, interval_seconds))
 
