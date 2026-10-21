@@ -66,6 +66,87 @@ from blackholememory.resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_
 from blackholememory.version_manifest import RUNTIME_VERSION
 
 
+def _merge_tokens(current: dict[str, int] | None, update: dict[str, int] | None) -> dict[str, int]:
+    merged = {"prompt": 0, "completion": 0, "total": 0}
+    for source in (current or {}, update or {}):
+        for key in merged:
+            merged[key] += int(source.get(key) or 0)
+    return merged
+
+
+def _context_title(item: dict[str, Any]) -> str:
+    metadata = dict(item.get("metadata") or {})
+    return str(metadata.get("raw_title") or metadata.get("title") or item.get("id") or "memory")
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        if lines and lines[0].strip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start < 0 or end <= start:
+            return None
+        try:
+            parsed = json.loads(raw[start : end + 1])
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
+def _normalize_extracted_web_fact(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict) or not value:
+        return None
+    sanitized = _sanitize_web_fact_value_common(value)
+    if not isinstance(sanitized, dict) or not sanitized:
+        return None
+    status = str(sanitized.get("status") or sanitized.get("verdict") or "").strip().upper()
+    if status in {"EMPTY", "NO_CAUSAL_SOLUTION", "NO_FACT", "REJECTED"}:
+        return None
+    serialized = json.dumps(sanitized, ensure_ascii=False, sort_keys=True)
+    if serialized.strip() in {"{}", "null"}:
+        return None
+    sanitized.setdefault("status", "FACT_FOUND")
+    sanitized.setdefault("source", "web_knowledge_extractor_node")
+    return sanitized
+
+
+def _sanitize_web_fact_value_common(value: Any, depth: int = 0) -> Any:
+    if depth > 4:
+        return None
+    if isinstance(value, str):
+        return _limit_text(value.strip(), WEB_FACT_VALUE_LIMIT)
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        blocked_keys = {"ad", "ads", "advertising", "comments", "html", "legacy_code", "markdown", "page_text", "raw", "raw_html", "raw_markdown", "raw_text", "script", "scripts", "web_scraped_markdown"}
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            safe_key = str(key).strip()
+            if not safe_key or safe_key.lower() in blocked_keys:
+                continue
+            safe_value = _sanitize_web_fact_value_common(item, depth + 1)
+            if safe_value in (None, "", [], {}):
+                continue
+            sanitized[safe_key] = safe_value
+        return sanitized
+    if isinstance(value, (list, tuple, set)):
+        return [safe_item for item in list(value)[:20] if (safe_item := _sanitize_web_fact_value_common(item, depth + 1)) not in (None, "", [], {})]
+    return _limit_text(str(value), WEB_FACT_VALUE_LIMIT)
+
+
 TRUNCATION_SUFFIX = " [TRUNCATED BY CONFIG]"
 ERROR_FALLBACK_MARKERS = {"error", "bug", "traceback", "failed", "crash", "exception", "panic", "fatal"}
 # Compatibility name retained for callers; the registry is authoritative.

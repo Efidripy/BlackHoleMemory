@@ -5,6 +5,7 @@ from __future__ import annotations
 from .executor_shared import *  # noqa: F401,F403
 from .executor_nodes import ExecutorNodesMixin
 from .executor_graph import ExecutorGraphMixin
+from .llm_client import LocalLLMClient
 
 class BHMAgentExecutor(ExecutorNodesMixin, ExecutorGraphMixin):
     MAX_ITERATIONS = 7
@@ -205,8 +206,6 @@ class BHMAgentExecutor(ExecutorNodesMixin, ExecutorGraphMixin):
 from . import executor_shared as _executor_shared
 from .executor_shared import _extract_upserted_id  # noqa: F401
 from .executor_shared import _trim_context_for_llm  # noqa: F401
-
-_executor_shared.BHMAgentExecutor = BHMAgentExecutor
 
 
 __all__ = [
