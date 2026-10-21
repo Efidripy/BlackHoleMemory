@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.unified_context import build_unified_context_from_graph
 
@@ -66,8 +67,8 @@ def main() -> int:
         project=project,
         root_id=root_id,
         query="repository conventions and activation",
-        memory_items=bhm_app._load_live_memories()[:16],
-        task_items=bhm_app._load_tasks()[:16],
+        memory_items=app_runtime._load_live_memories()[:16],
+        task_items=app_runtime._load_tasks()[:16],
         doc_items=[],
         ops_items=[],
         include_code=True,

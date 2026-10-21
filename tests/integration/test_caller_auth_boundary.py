@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory import caller_auth
 from blackholememory import ui_session as ui_session_module
 
@@ -143,7 +144,7 @@ def test_checkpoint_and_session_record_writes_require_and_forward_caller_auth(
             "done": request.done,
         }
 
-    monkeypatch.setattr(bhm_app, "_run_bounded_write", fake_bounded_write)
+    monkeypatch.setattr(app_runtime, "_run_bounded_write", fake_bounded_write)
     accepted = _client().post(path, json=payload)
 
     assert accepted.status_code == 200
@@ -154,7 +155,7 @@ def test_checkpoint_and_session_record_writes_require_and_forward_caller_auth(
 def test_scoped_caller_rejects_foreign_project_and_allows_alias(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app_runtime, "_find_live_memory", lambda *_args, **_kwargs: None)
     client = _client()
 
     forbidden = client.get("/bhm/memory", params={"id": "missing", "project": "e-github-workspace"})
@@ -250,7 +251,7 @@ def test_launcher_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> N
             assert include_tombstoned is False
             return 2
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: MemoryService())
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: MemoryService())
 
     anonymous = _client(authorization="").get("/bhm/telemetry/launcher")
     response = _client().get("/bhm/telemetry/launcher")
@@ -332,7 +333,7 @@ def test_project_summary_list_honors_scoped_project(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             {"source_id": "summary-a", "project": "blackholememory", "metadata": {"upsert_key": "project-summary:a"}},
@@ -393,7 +394,7 @@ def test_project_similarity_report_is_operator_only(monkeypatch) -> None:
 
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "*")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             {"source_id": "a", "project": "blackholememory", "tags": ["shared"]},
@@ -445,7 +446,7 @@ def test_overlap_report_is_project_isolated_and_canonical(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             {
@@ -507,7 +508,7 @@ def test_project_labelled_reports_canonicalize_alias_filters(monkeypatch) -> Non
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_memory_links",
         lambda: [
             {"source_id": "a", "target_id": "b", "relation": "relates_to", "project": "BlackHoleMemory"},
@@ -591,7 +592,7 @@ def test_admin_import_snapshot_rejects_cross_project_link_endpoint(monkeypatch, 
     )
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", tmp_path)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             {"source_id": "local", "project": "blackholememory"},
@@ -618,7 +619,7 @@ def test_json_body_is_replayed_after_project_authorization(monkeypatch) -> None:
         assert request.project == "BlackHoleMemory"
         raise HTTPException(status_code=404, detail="memory not found in live store")
 
-    monkeypatch.setattr(bhm_app, "_run_bounded_write", missing_memory)
+    monkeypatch.setattr(app_runtime, "_run_bounded_write", missing_memory)
     response = _client().post(
         "/bhm/memory/update",
         json={"id": "missing", "project": "BlackHoleMemory", "content": "updated"},
@@ -691,7 +692,7 @@ def test_admin_route_requires_caller_then_admin_capability(monkeypatch) -> None:
         assert request.project == "blackholememory"
         raise HTTPException(status_code=404, detail="memory not found in live store")
 
-    monkeypatch.setattr(bhm_app, "_run_bounded_write", missing_memory)
+    monkeypatch.setattr(app_runtime, "_run_bounded_write", missing_memory)
     no_caller = _client(authorization="").delete("/bhm/memory")
     caller_only = _client().delete("/bhm/memory")
     both = _client().request(

@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _install_forget_store(monkeypatch):
@@ -39,8 +40,8 @@ def _install_forget_store(monkeypatch):
         },
     ]
 
-    monkeypatch.setattr(bhm_app, "_canonical_project", lambda project: (project or "").strip().lower())
-    monkeypatch.setattr(bhm_app, "_project_aliases", lambda project: {project})
+    monkeypatch.setattr(app_runtime, "_canonical_project", lambda project: (project or "").strip().lower())
+    monkeypatch.setattr(app_runtime, "_project_aliases", lambda project: {project})
     class FakeMemoryService:
         def get_record(self, memory_id, *, project=None):
             return next(
@@ -93,8 +94,8 @@ def _install_forget_store(monkeypatch):
                 return copy.deepcopy(item)
             return None
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeMemoryService())
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeMemoryService())
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
     def save(items):
         records[:] = copy.deepcopy(items)

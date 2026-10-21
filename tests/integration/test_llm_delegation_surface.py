@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.llm_job_queue import LLMJobQueue
 from blackholememory.llm_learning import LLMLearningStore
 from blackholememory.llm_resource_governor import GovernorConfig
@@ -79,7 +80,7 @@ def test_memory_foundry_preview_is_read_only_and_digest_backed(monkeypatch, tmp_
             "metadata": {"raw_title": "Feature alpha", "confidence": 0.9, "files": ["src/demo.py"]},
         },
     ]
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
     response = client.post(
         "/bhm/llm/memory-foundry/preview",

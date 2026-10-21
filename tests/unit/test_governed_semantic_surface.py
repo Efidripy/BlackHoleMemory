@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from blackholememory.domain import Memory
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _record(memory_id: str, content: str) -> dict:
@@ -101,7 +102,7 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
     monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
     monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService(records))
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
     monkeypatch.setattr(bhm_app, "federated_search", _search)
     monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _Completion)
     monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
@@ -138,7 +139,7 @@ def test_semantic_surface_uses_sqlite_lexical_fallback_when_embedding_retrieval_
     monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
     monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(bhm_app, "federated_search", _timed_out)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService(records))
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
     monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _Completion)
     monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
 
@@ -169,7 +170,7 @@ def test_semantic_surface_maps_embedding_timeout_without_lexical_evidence_to_ret
     monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
     monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(bhm_app, "federated_search", _timed_out)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService([]))
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService([]))
 
     with pytest.raises(HTTPException) as raised:
         asyncio.run(
@@ -195,7 +196,7 @@ def test_semantic_surface_returns_explicit_deterministic_no_op_when_local_model_
     monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
     monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(bhm_app, "federated_search", _search)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService(records))
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
     monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _UnavailableCompletion)
     monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
 
@@ -238,7 +239,7 @@ def test_stored_semantic_proposal_never_invokes_automatic_lifecycle_apply(monkey
     monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
     monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(bhm_app, "federated_search", _search)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _MemoryService(records))
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
     monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _Completion)
     monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
     monkeypatch.setattr(bhm_app, "GovernedConsolidationRepository", _Store)

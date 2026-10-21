@@ -56,7 +56,7 @@ from blackholememory.resource_limits import SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS
 from blackholememory.resource_limits import RESOURCE_LIMITS
 from blackholememory.resource_limits import resource_limit_snapshot
 from blackholememory.resource_limits import validate_resource_limits
-from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def test_resource_limit_registry_is_unique_and_bounded() -> None:
@@ -89,9 +89,9 @@ def test_resource_limit_registry_is_unique_and_bounded() -> None:
 
 def test_app_env_float_supports_upper_bounds(monkeypatch) -> None:
     monkeypatch.delenv("BHM_TEST_TIMEOUT", raising=False)
-    assert bhm_app._env_float("BHM_TEST_TIMEOUT", 3.0, 0.1, 5.0) == 3.0
+    assert app_runtime._env_float("BHM_TEST_TIMEOUT", 3.0, 0.1, 5.0) == 3.0
     monkeypatch.setenv("BHM_TEST_TIMEOUT", "9999")
-    assert bhm_app._env_float("BHM_TEST_TIMEOUT", 3.0, 0.1, 5.0) == 5.0
+    assert app_runtime._env_float("BHM_TEST_TIMEOUT", 3.0, 0.1, 5.0) == 5.0
     assert PROCESS_EXECUTION_P15_STARTUP_TIMEOUT_SECONDS == 20
     assert PROCESS_EXECUTION_P15_LATENCY_TIMEOUT_SECONDS == 90
     assert PROCESS_EXECUTION_LLM_INVENTORY_HARDWARE_TIMEOUT_SECONDS == 5

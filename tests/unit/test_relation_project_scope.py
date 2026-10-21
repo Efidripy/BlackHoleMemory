@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _memory(source_id: str, project: str, *, files: list[str] | None = None, tags: list[str] | None = None) -> dict:
@@ -20,7 +21,7 @@ def _memory(source_id: str, project: str, *, files: list[str] | None = None, tag
 
 def test_aggregate_relation_suggestions_never_cross_projects(monkeypatch) -> None:
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             _memory("a", "blackholememory", files=["shared.py"]),
@@ -51,7 +52,7 @@ def test_relation_apply_canonicalizes_alias_before_persisting(monkeypatch) -> No
         },
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_find_live_memory",
         lambda memory_id, project=None: _memory(memory_id, "blackholememory"),
     )

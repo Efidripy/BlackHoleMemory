@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.filesystem_boundaries import append_bytes_safely
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.filesystem_boundaries import FilesystemReadLimitError
@@ -74,7 +74,7 @@ def test_app_json_writer_rejects_hardlink_target(tmp_path: Path) -> None:
         pytest.skip(f"hardlinks unavailable: {exc}")
 
     with pytest.raises(OSError, match="hardlink"):
-        bhm_app._write_json_atomic(target, {"state": "new"})
+        app_runtime._write_json_atomic(target, {"state": "new"})
     assert outside.read_text(encoding="utf-8") == "sentinel"
 
 

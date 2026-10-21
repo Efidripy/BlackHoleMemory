@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 class _AuthoritativeStub:
@@ -45,7 +46,7 @@ def test_context_compile_and_explicit_memory_used_feed_retrieval_funnel(monkeypa
         return hit if memory_id == "memory-funnel-1" else None
 
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_memory_service",
         lambda: _AuthoritativeStub(
             [
@@ -64,7 +65,7 @@ def test_context_compile_and_explicit_memory_used_feed_retrieval_funnel(monkeypa
             ]
         ),
     )
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
     monkeypatch.setattr(bhm_app, "_fetch_qdrant_hit_by_source_id", fake_fetch)
     monkeypatch.setattr(bhm_app, "_schedule_vector_access_updates", lambda _hits: None)

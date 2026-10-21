@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 @pytest.mark.parametrize(
@@ -44,10 +45,10 @@ def test_global_maintenance_requires_explicit_scope(call, code: str) -> None:
 
 
 def test_global_maintenance_accepts_explicit_aggregate(monkeypatch) -> None:
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: [])
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: [])
     monkeypatch.setattr(bhm_app, "_save_live_memories", lambda _items: None)
-    monkeypatch.setattr(bhm_app, "_load_memory_links", lambda: [])
-    monkeypatch.setattr(bhm_app, "_save_memory_links", lambda _items: None)
+    monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: [])
+    monkeypatch.setattr(app_runtime, "_save_memory_links", lambda _items: None)
     monkeypatch.setattr(bhm_app, "_load_entity_catalogs", lambda: [])
     monkeypatch.setattr(bhm_app, "_save_entity_catalogs", lambda _items: None)
 

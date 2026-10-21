@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 
@@ -48,7 +49,7 @@ def test_advanced_search_does_not_freeze_event_loop(monkeypatch: pytest.MonkeyPa
         time.sleep(0.15)
         return [], 0
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", ready)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", ready)
     monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", blocking_search)
 
     async def exercise() -> int:
@@ -81,8 +82,8 @@ def test_advanced_search_does_not_freeze_event_loop(monkeypatch: pytest.MonkeyPa
     tick_count = asyncio.run(exercise())
     assert tick_count >= 10
     assert worker_thread_ids and all(worker_id != main_thread_id for worker_id in worker_thread_ids)
-    assert bhm_app._READ_BACKPRESSURE_ACTIVE == 0
-    assert bhm_app._READ_BACKPRESSURE_WAITING == 0
+    assert app_runtime._READ_BACKPRESSURE_ACTIVE == 0
+    assert app_runtime._READ_BACKPRESSURE_WAITING == 0
 
 
 def test_bounded_read_propagates_sqlite_error_and_releases_admission() -> None:
@@ -91,11 +92,11 @@ def test_bounded_read_propagates_sqlite_error_and_releases_admission() -> None:
 
     async def exercise() -> None:
         with pytest.raises(sqlite3.OperationalError, match="database is locked"):
-            await bhm_app._run_bounded_read("test.sqlite", failing_read)
+            await app_runtime._run_bounded_read("test.sqlite", failing_read)
 
     asyncio.run(exercise())
-    assert bhm_app._READ_BACKPRESSURE_ACTIVE == 0
-    assert bhm_app._READ_BACKPRESSURE_WAITING == 0
+    assert app_runtime._READ_BACKPRESSURE_ACTIVE == 0
+    assert app_runtime._READ_BACKPRESSURE_WAITING == 0
 
 
 def test_code_tools_status_does_not_run_index_reads_on_event_loop(
@@ -147,8 +148,8 @@ def test_code_tools_status_does_not_run_index_reads_on_event_loop(
     max_gap, tick_count = asyncio.run(exercise())
     assert tick_count >= 10
     assert max_gap < 0.08
-    assert bhm_app._READ_BACKPRESSURE_ACTIVE == 0
-    assert bhm_app._READ_BACKPRESSURE_WAITING == 0
+    assert app_runtime._READ_BACKPRESSURE_ACTIVE == 0
+    assert app_runtime._READ_BACKPRESSURE_WAITING == 0
 
 
 @pytest.mark.parametrize("admission", ["read", "write"])
@@ -160,15 +161,15 @@ def test_bounded_admission_cancellation_releases_waiter_and_slot(
         prefix = admission.upper()
         semaphore = asyncio.Semaphore(1)
         lock = asyncio.Lock()
-        monkeypatch.setattr(bhm_app, f"_{prefix}_SEMAPHORE", semaphore)
-        monkeypatch.setattr(bhm_app, f"_{prefix}_BACKPRESSURE_LOCK", lock)
-        monkeypatch.setattr(bhm_app, f"_{prefix}_BACKPRESSURE_ACTIVE", 0)
-        monkeypatch.setattr(bhm_app, f"_{prefix}_BACKPRESSURE_WAITING", 0)
-        monkeypatch.setattr(bhm_app, f"_{prefix}_ACQUIRE_TIMEOUT_SECONDS", 1.0)
-        monkeypatch.setattr(bhm_app, f"_{prefix}_QUEUE_LIMIT", 1)
+        monkeypatch.setattr(app_runtime, f"_{prefix}_SEMAPHORE", semaphore)
+        monkeypatch.setattr(app_runtime, f"_{prefix}_BACKPRESSURE_LOCK", lock)
+        monkeypatch.setattr(app_runtime, f"_{prefix}_BACKPRESSURE_ACTIVE", 0)
+        monkeypatch.setattr(app_runtime, f"_{prefix}_BACKPRESSURE_WAITING", 0)
+        monkeypatch.setattr(app_runtime, f"_{prefix}_ACQUIRE_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(app_runtime, f"_{prefix}_QUEUE_LIMIT", 1)
 
-        admission_context = getattr(bhm_app, f"_bounded_{admission}")
-        runner = getattr(bhm_app, f"_run_bounded_{admission}")
+        admission_context = getattr(app_runtime, f"_bounded_{admission}")
+        runner = getattr(app_runtime, f"_run_bounded_{admission}")
         started = asyncio.Event()
         release = asyncio.Event()
 
@@ -182,21 +183,21 @@ def test_bounded_admission_cancellation_releases_waiter_and_slot(
 
         waiter_task = asyncio.create_task(runner("cancelled", lambda: None))
         for _ in range(100):
-            if getattr(bhm_app, f"_{prefix}_BACKPRESSURE_WAITING") == 1:
+            if getattr(app_runtime, f"_{prefix}_BACKPRESSURE_WAITING") == 1:
                 break
             await asyncio.sleep(0)
-        assert getattr(bhm_app, f"_{prefix}_BACKPRESSURE_WAITING") == 1
+        assert getattr(app_runtime, f"_{prefix}_BACKPRESSURE_WAITING") == 1
 
         waiter_task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await waiter_task
 
-        assert getattr(bhm_app, f"_{prefix}_BACKPRESSURE_ACTIVE") == 1
-        assert getattr(bhm_app, f"_{prefix}_BACKPRESSURE_WAITING") == 0
+        assert getattr(app_runtime, f"_{prefix}_BACKPRESSURE_ACTIVE") == 1
+        assert getattr(app_runtime, f"_{prefix}_BACKPRESSURE_WAITING") == 0
 
         release.set()
         await holder_task
-        assert getattr(bhm_app, f"_{prefix}_BACKPRESSURE_ACTIVE") == 0
+        assert getattr(app_runtime, f"_{prefix}_BACKPRESSURE_ACTIVE") == 0
         assert getattr(semaphore, "_value") == 1
 
     asyncio.run(exercise())
@@ -206,12 +207,12 @@ def test_cancelled_bounded_read_does_not_skip_sync_resource_cleanup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def exercise() -> None:
-        monkeypatch.setattr(bhm_app, "_READ_SEMAPHORE", asyncio.Semaphore(1))
-        monkeypatch.setattr(bhm_app, "_READ_BACKPRESSURE_LOCK", asyncio.Lock())
-        monkeypatch.setattr(bhm_app, "_READ_BACKPRESSURE_ACTIVE", 0)
-        monkeypatch.setattr(bhm_app, "_READ_BACKPRESSURE_WAITING", 0)
-        monkeypatch.setattr(bhm_app, "_READ_ACQUIRE_TIMEOUT_SECONDS", 1.0)
-        monkeypatch.setattr(bhm_app, "_READ_QUEUE_LIMIT", 1)
+        monkeypatch.setattr(app_runtime, "_READ_SEMAPHORE", asyncio.Semaphore(1))
+        monkeypatch.setattr(app_runtime, "_READ_BACKPRESSURE_LOCK", asyncio.Lock())
+        monkeypatch.setattr(app_runtime, "_READ_BACKPRESSURE_ACTIVE", 0)
+        monkeypatch.setattr(app_runtime, "_READ_BACKPRESSURE_WAITING", 0)
+        monkeypatch.setattr(app_runtime, "_READ_ACQUIRE_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(app_runtime, "_READ_QUEUE_LIMIT", 1)
 
         opened = threading.Event()
         release = threading.Event()
@@ -229,15 +230,15 @@ def test_cancelled_bounded_read_does_not_skip_sync_resource_cleanup(
                 connection.close()
                 closed.set()
 
-        task = asyncio.create_task(bhm_app._run_bounded_read("cancelled-resource", blocking_read))
+        task = asyncio.create_task(app_runtime._run_bounded_read("cancelled-resource", blocking_read))
         assert await asyncio.to_thread(opened.wait, 1.0)
 
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        assert bhm_app._READ_BACKPRESSURE_ACTIVE == 0
-        assert bhm_app._READ_BACKPRESSURE_WAITING == 0
+        assert app_runtime._READ_BACKPRESSURE_ACTIVE == 0
+        assert app_runtime._READ_BACKPRESSURE_WAITING == 0
 
         release.set()
         assert await asyncio.to_thread(closed.wait, 1.0)
@@ -276,8 +277,8 @@ def test_bounded_read_and_write_close_sqlite_connections_on_success(
             connection.execute("SELECT 1")
 
     async def exercise() -> None:
-        await bhm_app._run_bounded_read("sqlite.read", read)
-        await bhm_app._run_bounded_write("sqlite.write", write)
+        await app_runtime._run_bounded_read("sqlite.read", read)
+        await app_runtime._run_bounded_write("sqlite.write", write)
 
     asyncio.run(exercise())
     assert read_connection.closed is True
@@ -293,18 +294,18 @@ def test_mixed_bounded_read_write_smoke_respects_admission_limits(
     tmp_path: Path,
 ) -> None:
     async def exercise() -> tuple[int, int, list[object]]:
-        monkeypatch.setattr(bhm_app, "_READ_SEMAPHORE", asyncio.Semaphore(2))
-        monkeypatch.setattr(bhm_app, "_READ_BACKPRESSURE_LOCK", asyncio.Lock())
-        monkeypatch.setattr(bhm_app, "_READ_BACKPRESSURE_ACTIVE", 0)
-        monkeypatch.setattr(bhm_app, "_READ_BACKPRESSURE_WAITING", 0)
-        monkeypatch.setattr(bhm_app, "_READ_QUEUE_LIMIT", 8)
-        monkeypatch.setattr(bhm_app, "_READ_ACQUIRE_TIMEOUT_SECONDS", 1.0)
-        monkeypatch.setattr(bhm_app, "_WRITE_SEMAPHORE", asyncio.Semaphore(1))
-        monkeypatch.setattr(bhm_app, "_WRITE_BACKPRESSURE_LOCK", asyncio.Lock())
-        monkeypatch.setattr(bhm_app, "_WRITE_BACKPRESSURE_ACTIVE", 0)
-        monkeypatch.setattr(bhm_app, "_WRITE_BACKPRESSURE_WAITING", 0)
-        monkeypatch.setattr(bhm_app, "_WRITE_QUEUE_LIMIT", 8)
-        monkeypatch.setattr(bhm_app, "_WRITE_ACQUIRE_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(app_runtime, "_READ_SEMAPHORE", asyncio.Semaphore(2))
+        monkeypatch.setattr(app_runtime, "_READ_BACKPRESSURE_LOCK", asyncio.Lock())
+        monkeypatch.setattr(app_runtime, "_READ_BACKPRESSURE_ACTIVE", 0)
+        monkeypatch.setattr(app_runtime, "_READ_BACKPRESSURE_WAITING", 0)
+        monkeypatch.setattr(app_runtime, "_READ_QUEUE_LIMIT", 8)
+        monkeypatch.setattr(app_runtime, "_READ_ACQUIRE_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(app_runtime, "_WRITE_SEMAPHORE", asyncio.Semaphore(1))
+        monkeypatch.setattr(app_runtime, "_WRITE_BACKPRESSURE_LOCK", asyncio.Lock())
+        monkeypatch.setattr(app_runtime, "_WRITE_BACKPRESSURE_ACTIVE", 0)
+        monkeypatch.setattr(app_runtime, "_WRITE_BACKPRESSURE_WAITING", 0)
+        monkeypatch.setattr(app_runtime, "_WRITE_QUEUE_LIMIT", 8)
+        monkeypatch.setattr(app_runtime, "_WRITE_ACQUIRE_TIMEOUT_SECONDS", 1.0)
 
         repository = SQLiteMemoryRepository(tmp_path / "mixed.sqlite3")
         repository.initialize()
@@ -341,11 +342,11 @@ def test_mixed_bounded_read_write_smoke_respects_admission_limits(
                     active_write -= 1
 
         tasks = [
-            asyncio.create_task(bhm_app._run_bounded_read(f"mixed.read.{index}", read_work))
+            asyncio.create_task(app_runtime._run_bounded_read(f"mixed.read.{index}", read_work))
             for index in range(6)
         ]
         tasks.extend(
-            asyncio.create_task(bhm_app._run_bounded_write(f"mixed.write.{index}", write_work))
+            asyncio.create_task(app_runtime._run_bounded_write(f"mixed.write.{index}", write_work))
             for index in range(4)
         )
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -355,7 +356,7 @@ def test_mixed_bounded_read_write_smoke_respects_admission_limits(
     assert all(not isinstance(result, Exception) for result in results)
     assert 1 <= max_read <= 2
     assert max_write == 1
-    assert bhm_app._READ_BACKPRESSURE_ACTIVE == 0
-    assert bhm_app._READ_BACKPRESSURE_WAITING == 0
-    assert bhm_app._WRITE_BACKPRESSURE_ACTIVE == 0
-    assert bhm_app._WRITE_BACKPRESSURE_WAITING == 0
+    assert app_runtime._READ_BACKPRESSURE_ACTIVE == 0
+    assert app_runtime._READ_BACKPRESSURE_WAITING == 0
+    assert app_runtime._WRITE_BACKPRESSURE_ACTIVE == 0
+    assert app_runtime._WRITE_BACKPRESSURE_WAITING == 0

@@ -30,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory import bhm_mcp
 from blackholememory import galaxy as bhm_galaxy
 
@@ -111,7 +112,7 @@ def profile_contract(monkeypatch):
     )
     monkeypatch.setattr(bhm_app, "_load_policy_profile_snapshot", _profile_policy_snapshot)
     monkeypatch.setattr(bhm_app, "_load_mcp_registry_snapshot", _profile_registry_snapshot)
-    monkeypatch.setattr(bhm_app, "_get_provider_warmup_status", lambda: {"ready": True, "phase": "ready"})
+    monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True, "phase": "ready"})
     monkeypatch.setattr(bhm_app, "mem0_runtime_plan", lambda: {"enabled": True, "mode": "test"})
 
 
@@ -210,7 +211,7 @@ def test_health_ready_fails_closed_on_invalid_authoritative_sqlite_target(tmp_pa
 
 def test_sqlite_authoritative_runtime_mode_fails_closed_at_startup(monkeypatch):
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_memory_store_state",
         lambda: SimpleNamespace(
             configured_mode="sqlite-authoritative",
@@ -252,9 +253,9 @@ def test_sqlite_authoritative_memory_helpers_use_service_and_tombstones(tmp_path
     monkeypatch.setenv("BHM_MEMORY_STORE_MODE", "sqlite-authoritative")
     monkeypatch.setenv("BHM_MEMORY_STORE_PARITY_CONFIRMED", "true")
     monkeypatch.setenv("BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED", "true")
-    bhm_app._MEMORY_SERVICES.clear()
+    app_runtime._MEMORY_SERVICES.clear()
 
-    loaded = bhm_app._load_live_memories()
+    loaded = app_runtime._load_live_memories()
     assert loaded[0]["source_id"] == record["source_id"]
     loaded[0]["content"] = "authoritative service updated"
     loaded[0]["updated_at"] = "2026-07-13T12:01:00Z"
@@ -266,7 +267,7 @@ def test_sqlite_authoritative_memory_helpers_use_service_and_tombstones(tmp_path
     )
 
     assert deleted["metadata"]["lifecycle"] == "tombstoned"
-    bhm_app._MEMORY_SERVICES.clear()
+    app_runtime._MEMORY_SERVICES.clear()
 
 
 def test_sqlite_authoritative_save_skips_unchanged_full_list_records(tmp_path, monkeypatch):
@@ -288,8 +289,8 @@ def test_sqlite_authoritative_save_skips_unchanged_full_list_records(tmp_path, m
         "metadata": {"raw_title": "Diff guard", "files": [], "source_refs": []},
     }
     service.upsert_records([record])
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: service)
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
 
     before = len([event for event in service.repository.list_outbox(limit=50) if event.status.value == "pending"])
     bhm_app._save_live_memories([record])
@@ -321,7 +322,7 @@ def test_sqlite_authoritative_memory_sync_does_not_write_mem0(monkeypatch):
         "metadata": {"mem0_ids": ["legacy-vector-id"]},
     }
 
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
 
     def fail_direct_vector_write(**_kwargs):
         raise AssertionError("authoritative route must not write directly to Mem0/Qdrant")
@@ -418,7 +419,7 @@ def test_fallback_grace_stage_is_content_free_and_typed(monkeypatch):
         "mem0.search",
         bhm_app.EmbeddingPreparationTimeout("provider detail must not escape"),
     )
-    contour = bhm_app._fallback_grace_meta("mem0.search", bhm_app.ResponseTimeout("slow contour"))
+    contour = bhm_app._fallback_grace_meta("mem0.search", app_runtime.ResponseTimeout("slow contour"))
     transport = bhm_app._fallback_grace_meta("mem0.search", ConnectionError("private endpoint"))
     http = bhm_app._fallback_grace_meta("mem0.search", HTTPException(status_code=503, detail="private detail"))
 
@@ -623,7 +624,7 @@ def test_admin_rest_route_requires_capability(monkeypatch):
         assert request.project == "blackholememory"
         raise HTTPException(status_code=404, detail="memory not found in live store")
 
-    monkeypatch.setattr(bhm_app, "_run_bounded_write", missing_memory)
+    monkeypatch.setattr(app_runtime, "_run_bounded_write", missing_memory)
     client = TestClient(bhm_app.app)
 
     payload = {"id": "missing", "project": "blackholememory"}
@@ -2281,7 +2282,7 @@ def test_memory_redaction_never_persists_plaintext_original(monkeypatch):
         "metadata": {"content_before_redaction": original},
     }
     persisted: list[dict] = []
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda _id, _project: record)
+    monkeypatch.setattr(app_runtime, "_find_live_memory", lambda _id, _project: record)
     monkeypatch.setattr(bhm_app, "_replace_live_memory", lambda item: persisted.append(dict(item)))
     monkeypatch.setattr(bhm_app, "_append_memory_changelog", lambda *_args, **_kwargs: None)
 
@@ -2306,7 +2307,7 @@ def test_memory_redaction_rejects_unsafe_custom_regex(monkeypatch):
         "content": "a" * 64,
         "metadata": {},
     }
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda _id, _project: record)
+    monkeypatch.setattr(app_runtime, "_find_live_memory", lambda _id, _project: record)
 
     with pytest.raises(HTTPException) as raised:
         bhm_app._memory_redact(
@@ -2337,7 +2338,7 @@ def test_websocket_broadcast_interval(monkeypatch):
     async def fake_payload() -> dict:
         return {"event": "sys_status", "data": {"mcp_active_pipes": 1}}
 
-    monkeypatch.setattr(bhm_app, "_MEMORY_PULSE_BUS", FakePulseBus())
+    monkeypatch.setattr(app_runtime, "_MEMORY_PULSE_BUS", FakePulseBus())
     monkeypatch.setattr(bhm_app.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(bhm_app, "_collect_sys_status_payload", fake_payload)
 
@@ -2370,7 +2371,7 @@ def test_telemetry_payload_integrity(monkeypatch):
             },
         },
     )
-    monkeypatch.setattr(bhm_app, "_get_provider_warmup_status", lambda: {"ready": True})
+    monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True})
     payload = asyncio.run(bhm_app._collect_sys_status_payload())
     data = payload["data"]
 
@@ -2399,7 +2400,7 @@ def test_telemetry_knowledge_counters_group_lifecycle_and_architecture_taxonomy(
         {"project": "beta", "memory_type": "knowledge", "metadata": {"lifecycle": "archived"}},
         {"project": "beta", "memory_type": "knowledge", "metadata": {"semantic_type": "decision-log", "tags": ["note"]}},
     ]
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
     result = bhm_app._knowledge_counters_sync()
 
@@ -2843,7 +2844,7 @@ def test_search_does_not_mutate_access_feedback_on_simple_display(monkeypatch):
             1,
         )
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
     monkeypatch.setattr(bhm_app, "_schedule_vector_access_updates", lambda hits: scheduled.append(hits))
 
@@ -2869,7 +2870,7 @@ def test_context_compile_is_bounded_and_fails_closed_on_project_archive_and_log_
 
     project_name = "blackholememory"
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_memory_service",
         lambda: _AuthoritativeStub(
             [
@@ -2935,7 +2936,7 @@ def test_context_compile_is_bounded_and_fails_closed_on_project_archive_and_log_
     async def fake_federated_search(*_args, **_kwargs):
         return hits, len(hits)
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
 
     response = TestClient(bhm_app.app).post(
@@ -3050,7 +3051,7 @@ def test_context_compile_recent_scope_uses_authoritative_sqlite_without_provider
         captured.append(request)
         return records, len(records)
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", unexpected_warmup)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", unexpected_warmup)
     monkeypatch.setattr(bhm_app, "federated_search", unexpected_federated)
     monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", fake_authoritative)
 
@@ -3083,9 +3084,9 @@ def test_context_compile_recovers_to_authoritative_sqlite_when_provider_warmup_t
     ]
 
     async def timeout_warmup():
-        raise bhm_app.ResponseTimeout("provider warmup is still in progress")
+        raise app_runtime.ResponseTimeout("provider warmup is still in progress")
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", timeout_warmup)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", timeout_warmup)
     monkeypatch.setattr(bhm_app, "_is_fallback_grace_error", lambda _exc: True)
     monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", lambda _request: (records, len(records)))
 
@@ -3149,7 +3150,7 @@ def test_context_compile_can_explicitly_apply_deterministic_tiers(monkeypatch):
     async def fake_federated_search(*_args, **_kwargs):
         return hits, len(hits)
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
     monkeypatch.setattr(bhm_app, "_strict_retrieval_hits", lambda items, **_kwargs: items)
 
@@ -3220,9 +3221,9 @@ def test_explain_retrieval_returns_rank_and_routing_diagnostics_without_raw_meta
             2,
         )
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_memory_service",
         lambda: _AuthoritativeStub(
             [
@@ -3350,7 +3351,7 @@ def test_memory_used_records_only_explicit_live_project_access(monkeypatch):
         return hits.get(memory_id)
 
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_memory_service",
         lambda: _AuthoritativeStub(
             [
@@ -3385,7 +3386,7 @@ def test_memory_used_records_only_explicit_live_project_access(monkeypatch):
             ]
         ),
     )
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "_fetch_qdrant_hit_by_source_id", fake_fetch)
     monkeypatch.setattr(bhm_app, "_schedule_vector_access_updates", lambda items: scheduled.append(items))
 
@@ -3936,7 +3937,7 @@ def test_galaxy_scoped_project_list_does_not_leak_global_project_names(monkeypat
         def list_projects(self):
             return ["lookatme", "jmaka", "blackholememory"]
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeMemoryService())
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeMemoryService())
 
     nodes, total, projects = bhm_app._load_galaxy_authoritative_nodes_sync("lookatme", 50)
 
@@ -3974,7 +3975,7 @@ def test_galaxy_typed_filters_use_authoritative_service_and_expose_typed_metadat
         def list_links(self, *, project=None, limit=None):
             return []
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeMemoryService())
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeMemoryService())
     monkeypatch.setattr(bhm_app, "_require_typed_memory_boundary", lambda **_kwargs: None)
 
     data = asyncio.run(

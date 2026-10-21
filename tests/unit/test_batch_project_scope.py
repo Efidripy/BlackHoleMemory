@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _code(exc: HTTPException) -> str:
@@ -44,8 +45,8 @@ def test_batch_upsert_inherits_one_top_level_project(monkeypatch) -> None:
         def upsert_records(records):
             captured.append(list(records))
 
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
-    monkeypatch.setattr(bhm_app, "_memory_service", Service)
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_service", Service)
     request = bhm_app.BatchUpsertMemoriesRequest(
         project="blackholememory",
         items=[bhm_app.BatchMemoryUpsertItem(upsert_key="key-1", content="content")],
@@ -76,8 +77,8 @@ def test_batch_upsert_is_atomic_and_retry_noop(monkeypatch) -> None:
                 key = record["metadata"]["upsert_key"]
                 records[f"{record['project']}:{key}"] = record
 
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
-    monkeypatch.setattr(bhm_app, "_memory_service", Service)
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_service", Service)
     request = bhm_app.BatchUpsertMemoriesRequest(
         project="blackholememory",
         items=[
@@ -96,9 +97,9 @@ def test_batch_upsert_is_atomic_and_retry_noop(monkeypatch) -> None:
 
 
 def test_batch_upsert_rejects_duplicate_keys_before_write(monkeypatch) -> None:
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_memory_service",
         lambda: (_ for _ in ()).throw(AssertionError("service called before validation")),
     )
@@ -127,7 +128,7 @@ def test_batch_archive_preflights_every_item_before_first_write(monkeypatch) -> 
         calls.append(request.id)
         return {"source_id": request.id}
 
-    monkeypatch.setattr(bhm_app, "_find_live_memory", fake_find)
+    monkeypatch.setattr(app_runtime, "_find_live_memory", fake_find)
     monkeypatch.setattr(bhm_app, "_archive_live_memory", fake_archive)
     request = bhm_app.BatchMemoryIdsRequest(
         project="blackholememory",

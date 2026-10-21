@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 class _TargetedService:
@@ -44,15 +45,15 @@ class _TargetedService:
 
 def test_targeted_find_and_replace_avoid_full_store_materialization(monkeypatch) -> None:
     service = _TargetedService()
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: service)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: (_ for _ in ()).throw(AssertionError("full store load used")),
     )
-    monkeypatch.setattr(bhm_app, "_emit_memory_pulse", lambda *_args: None)
+    monkeypatch.setattr(app_runtime, "_emit_memory_pulse", lambda *_args: None)
 
-    record = bhm_app._find_live_memory("memory-1", "BlackHoleMemory")
+    record = app_runtime._find_live_memory("memory-1", "BlackHoleMemory")
     assert record is service.records["memory-1"]
     assert bhm_app._find_live_memory_by_upsert_key("BlackHoleMemory", "key-1") is record
 
@@ -64,7 +65,7 @@ def test_targeted_find_and_replace_avoid_full_store_materialization(monkeypatch)
 
 def test_save_live_memories_delegates_atomic_diffing_to_service(monkeypatch) -> None:
     service = _TargetedService()
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: service)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
     items = [service.records["memory-1"]]
 
     result = bhm_app._save_live_memories(items)
@@ -85,7 +86,7 @@ def test_authoritative_startup_completes_repository_write_gate(monkeypatch) -> N
     class Service:
         repository = Repository()
 
-    monkeypatch.setattr(bhm_app, "_memory_service", Service)
+    monkeypatch.setattr(app_runtime, "_memory_service", Service)
 
     bhm_app._initialize_authoritative_memory_service()
 

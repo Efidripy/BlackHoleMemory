@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 import blackholememory.app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.consolidation_change_set import build_consolidation_change_set_preview
 from blackholememory.consolidation_review import ConsolidationReviewError
 from blackholememory.consolidation_review import append_consolidation_review
@@ -173,7 +174,7 @@ def test_review_handler_regenerates_preview_and_binds_principal(monkeypatch) -> 
             return artifact.to_record(), True
 
     monkeypatch.setattr(bhm_app, "_utility_feedback_change_set_preview", lambda _request: change_set)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: Service())
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: Service())
     request = bhm_app.ConsolidationChangeSetReviewRequest(
         project="blackholememory",
         as_of="2026-08-24T12:00:00Z",

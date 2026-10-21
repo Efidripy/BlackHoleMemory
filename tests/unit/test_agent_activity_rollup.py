@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.observation_store import ObservationStore
 
 
@@ -42,7 +43,7 @@ def test_agent_activity_rollup_uses_observation_store_aggregate(monkeypatch, tmp
     monkeypatch.setattr(bhm_app, "_observation_store", lambda: store)
     monkeypatch.setattr(bhm_app, "_load_checkpoints", lambda: [])
     monkeypatch.setattr(bhm_app, "_load_handoffs", lambda: [])
-    monkeypatch.setattr(bhm_app, "_load_tasks", lambda: [])
+    monkeypatch.setattr(app_runtime, "_load_tasks", lambda: [])
     monkeypatch.setattr(bhm_app, "_load_session_records", lambda: [])
     monkeypatch.setattr(
         bhm_app,

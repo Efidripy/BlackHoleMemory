@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.memory_service import SQLiteMemoryService
 
 PROJECT = "blackholememory"
@@ -44,8 +45,8 @@ def service(tmp_path, monkeypatch) -> SQLiteMemoryService:
         + [_record("old", lifecycle="archived")]
     )
     service.tombstone("gone", project=PROJECT)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: service)
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
     monkeypatch.setattr(bhm_app, "_active_ontology_schema", lambda _project: None)
     return service
 
@@ -100,10 +101,10 @@ def test_semantic_dependency_links_are_written_to_sqlite(service, monkeypatch) -
 def test_link_snapshot_load_and_save_share_one_lock(monkeypatch) -> None:
     # replace_links deletes rows absent from the snapshot, so load->save must not interleave.
     owned: list[bool] = []
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda memory_id, _project: {"source_id": memory_id})
+    monkeypatch.setattr(app_runtime, "_find_live_memory", lambda memory_id, _project: {"source_id": memory_id})
     monkeypatch.setattr(bhm_app, "_active_ontology_schema", lambda _project: None)
-    monkeypatch.setattr(bhm_app, "_load_memory_links", lambda: owned.append(bhm_app._LINK_STORE_LOCK._is_owned()) or [])
-    monkeypatch.setattr(bhm_app, "_save_memory_links", lambda _links: owned.append(bhm_app._LINK_STORE_LOCK._is_owned()))
+    monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: owned.append(app_runtime._LINK_STORE_LOCK._is_owned()) or [])
+    monkeypatch.setattr(app_runtime, "_save_memory_links", lambda _links: owned.append(app_runtime._LINK_STORE_LOCK._is_owned()))
 
     bhm_app._create_memory_link(
         bhm_app.MemoryLinkRequest(source_id="seed", target_id="dep", relation="depends_on", project=PROJECT)
