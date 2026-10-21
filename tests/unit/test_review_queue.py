@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _install_review_store(monkeypatch):
@@ -44,14 +45,14 @@ def _install_review_store(monkeypatch):
         },
     ]
 
-    monkeypatch.setattr(bhm_app, "_canonical_project", lambda project: (project or "").strip().lower())
+    monkeypatch.setattr(app_runtime, "_canonical_project", lambda project: (project or "").strip().lower())
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_project_aliases",
         lambda project: {str(project).strip().lower(), str(project).strip()} if project else set(),
     )
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: False)
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: False)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
     def save(items):
         records[:] = copy.deepcopy(items)

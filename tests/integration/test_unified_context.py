@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 class _AuthoritativeStub:
@@ -42,8 +43,8 @@ def test_unified_context_hidden_api_preserves_public_mcp_and_source_channels(mon
             }
         ], 1
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", fake_ready)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _AuthoritativeStub())
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _AuthoritativeStub())
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
     client = TestClient(bhm_app.app)
     response = client.post(

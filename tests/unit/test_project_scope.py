@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _record(project: str, content: str) -> dict:
@@ -46,17 +47,17 @@ def test_authoritative_link_adapter_preserves_legacy_metadata_provenance(monkeyp
             captured["records"] = records
             return records
 
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeMemoryService())
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeMemoryService())
 
-    links = bhm_app._load_memory_links()
+    links = app_runtime._load_memory_links()
 
     assert links[0]["metadata"] == {"confidence": 0.4}
-    assert bhm_app._LINK_STORAGE_METADATA_KEY in links[0]
+    assert app_runtime._LINK_STORAGE_METADATA_KEY in links[0]
     links[0]["metadata"]["confidence"] = 0.9
-    assert bhm_app._save_memory_links(links) == FakeMemoryService.path
+    assert app_runtime._save_memory_links(links) == FakeMemoryService.path
     stored = captured["records"][0]
-    assert bhm_app._LINK_STORAGE_METADATA_KEY not in stored
+    assert app_runtime._LINK_STORAGE_METADATA_KEY not in stored
     assert stored["metadata"]["legacy_metadata"] == {"confidence": 0.9}
     assert stored["metadata"]["sidecar_provenance"]["file"] == "memory-links.json"
 
@@ -77,7 +78,7 @@ def test_public_search_scope_defaults_to_configured_project_and_reserves_global(
 def test_fallback_search_does_not_turn_missing_project_into_all_projects(monkeypatch):
     monkeypatch.setattr(bhm_app.settings, "qdrant_collection", "blackholememory")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [_record("blackholememory", "needle A"), _record("other-project", "needle B")],
     )
@@ -178,9 +179,9 @@ def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(mon
             assert source_ids == ["mem-exact-identifier", "foreign-false-positive"]
             return [record]
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: (_ for _ in ()).throw(AssertionError("full exact snapshot used")),
     )
@@ -250,8 +251,8 @@ def test_opt_in_exact_identifier_snapshot_work_overlaps_vector_contours(monkeypa
 
     monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: True)
     monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
-    monkeypatch.setattr(bhm_app, "_load_live_memories", blocking_snapshot)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(app_runtime, "_load_live_memories", blocking_snapshot)
     monkeypatch.setattr(bhm_app, "_search_memory_collection", vector_contour)
 
     async def exercise():
@@ -431,7 +432,7 @@ def test_embedding_provider_connection_error_remains_fallback_grace_eligible(mon
 def test_advanced_search_without_project_is_scoped_and_missing_vector_metadata_fails_closed(monkeypatch):
     monkeypatch.setattr(bhm_app.settings, "qdrant_collection", "blackholememory")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             _record("blackholememory", "needle A"),
@@ -474,9 +475,9 @@ def test_repair_live_indexes_isolates_project_scope(monkeypatch):
     saved_links = {}
     saved_artifacts = {}
 
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: memories)
-    monkeypatch.setattr(bhm_app, "_load_memory_links", lambda: links)
-    monkeypatch.setattr(bhm_app, "_save_memory_links", lambda value: saved_links.setdefault("items", value))
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: memories)
+    monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: links)
+    monkeypatch.setattr(app_runtime, "_save_memory_links", lambda value: saved_links.setdefault("items", value))
     for name in (
         "_load_checkpoints",
         "_load_project_maps",
@@ -564,8 +565,8 @@ def test_hard_delete_preserves_foreign_project_references(monkeypatch):
         {"source_id": target["source_id"], "target_id": "b", "project": "e-github-workspace"},
     ]
     saved_links = {}
-    monkeypatch.setattr(bhm_app, "_load_memory_links", lambda: links)
-    monkeypatch.setattr(bhm_app, "_save_memory_links", lambda value: saved_links.setdefault("items", value))
+    monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: links)
+    monkeypatch.setattr(app_runtime, "_save_memory_links", lambda value: saved_links.setdefault("items", value))
 
     artifact_stores = {}
     for loader_name, saver_name in (
@@ -580,7 +581,7 @@ def test_hard_delete_preserves_foreign_project_references(monkeypatch):
         ("_load_validation_snapshots", "_save_validation_snapshots"),
     ):
         monkeypatch.setattr(
-            bhm_app,
+            app_runtime if loader_name == "_load_tasks" else bhm_app,
             loader_name,
             lambda: [
                 {"id": "a-artifact", "memory_id": target["source_id"], "project": "blackholememory"},
@@ -588,7 +589,7 @@ def test_hard_delete_preserves_foreign_project_references(monkeypatch):
             ],
         )
         monkeypatch.setattr(
-            bhm_app,
+            app_runtime if saver_name == "_save_tasks" else bhm_app,
             saver_name,
             lambda value, key=saver_name: artifact_stores.setdefault(key, value),
         )
@@ -613,7 +614,7 @@ def test_refresh_all_requires_explicit_scope_or_aggregate(monkeypatch):
 
     refreshed = []
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             {"source_id": "a", "project": "BlackHoleMemory"},

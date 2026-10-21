@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory import bhm_mcp
 from blackholememory.search_parity import CODE_SEARCH_MODES
 from blackholememory.search_parity import SCHEMA_VERSION
@@ -22,7 +23,7 @@ def _memory(project: str, *, source_ref: str = "docs/a.md", upsert_key: str = "k
 
 def test_exact_searches_accept_canonical_project_alias_without_cross_project_leak(monkeypatch):
     records = [_memory("blackholememory", upsert_key="target"), _memory("other-project", upsert_key="target")]
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
     by_ref = bhm_app._search_by_source_ref(
         bhm_app.SearchByRefRequest(ref="docs/a.md", project="BlackHoleMemory")

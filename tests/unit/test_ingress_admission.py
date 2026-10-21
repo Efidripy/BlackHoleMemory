@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory import bhm_mcp
 from blackholememory.ingress_admission import IngressKind
 from blackholememory.ingress_admission import admit_ingress
@@ -65,7 +66,7 @@ def test_mcp_memory_write_is_rejected_before_bounded_write(monkeypatch) -> None:
         called = True
         raise AssertionError("SQLite/projection write must not begin")
 
-    monkeypatch.setattr(bhm_app, "_run_bounded_write", fail_if_called)
+    monkeypatch.setattr(app_runtime, "_run_bounded_write", fail_if_called)
     request = bhm_app.RememberRequest(project="blackholememory", content="clean MCP payload")
     http_request = SimpleNamespace(
         headers={"X-BHM-Caller-Surface": "mcp"},
@@ -90,7 +91,7 @@ def test_bearer_only_rest_write_is_tool_ingress_and_rejected_before_write(monkey
         called = True
         raise AssertionError("SQLite/projection write must not begin")
 
-    monkeypatch.setattr(bhm_app, "_run_bounded_write", fail_if_called)
+    monkeypatch.setattr(app_runtime, "_run_bounded_write", fail_if_called)
     request = bhm_app.RememberRequest(project="blackholememory", content="clean REST payload")
     http_request = SimpleNamespace(
         headers={},

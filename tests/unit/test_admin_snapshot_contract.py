@@ -7,6 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def test_admin_snapshot_loader_rejects_malformed_and_non_object_payload(tmp_path) -> None:
@@ -50,7 +51,7 @@ def test_admin_import_apply_rejects_unknown_merge_mode() -> None:
 def test_admin_export_filters_alias_and_foreign_nested_records(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", tmp_path)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             {"source_id": "local", "project": "BlackHoleMemory", "content": "local", "memory_type": "fact", "tags": [], "metadata": {}},
@@ -58,7 +59,7 @@ def test_admin_export_filters_alias_and_foreign_nested_records(monkeypatch, tmp_
         ],
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_memory_links",
         lambda: [
             {"id": "local-link", "project": "blackholememory"},
@@ -121,7 +122,7 @@ def test_admin_snapshot_path_rejects_hardlinked_import_before_read(monkeypatch, 
 
 def test_admin_snapshot_rejects_cross_project_link_endpoints(monkeypatch) -> None:
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             {"source_id": "local", "project": "blackholememory"},
@@ -152,7 +153,7 @@ def test_admin_snapshot_rejects_cross_project_link_endpoints(monkeypatch) -> Non
 
 def test_admin_snapshot_rejects_artifact_backing_memory_from_foreign_project(monkeypatch) -> None:
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [
             {"source_id": "local", "project": "blackholememory"},
@@ -188,7 +189,7 @@ def test_admin_snapshot_rejects_artifact_backing_memory_from_foreign_project(mon
 
 def test_admin_snapshot_rejects_foreign_memory_id_collision_before_merge(monkeypatch) -> None:
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [{"source_id": "shared-id", "project": "e-github-workspace"}],
     )

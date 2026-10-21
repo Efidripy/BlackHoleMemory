@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.hook_queue import HookQueueError
 from blackholememory.mem0_adapter import StorageNotReady
 
@@ -20,7 +21,7 @@ _SECRET_MESSAGE = (
 
 
 def test_safe_exception_text_is_bounded_and_redacts_secrets() -> None:
-    safe = bhm_app._safe_exception_text(RuntimeError(_SECRET_MESSAGE), limit=48)
+    safe = app_runtime._safe_exception_text(RuntimeError(_SECRET_MESSAGE), limit=48)
 
     assert len(safe) <= 48
     assert "synthetic-bearer-token" not in safe

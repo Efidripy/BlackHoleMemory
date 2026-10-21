@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from blackholememory import app_runtime
 from blackholememory.feedback_tuning import build_feedback_tuning
 from blackholememory.feedback_tuning import summarize_quality_feedback
 
@@ -52,7 +53,7 @@ def test_feedback_tuning_endpoint_is_review_only(monkeypatch):
         lambda: {"groups": [{"project": "blackholememory", "packed": 10, "explicit_memory_used": 8}]},
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_live_memories",
         lambda: [{"project": "blackholememory", "metadata": {"quality_votes": [{"vote": 5}] * 3}}],
     )

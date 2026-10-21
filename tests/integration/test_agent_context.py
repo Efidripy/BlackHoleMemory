@@ -6,6 +6,7 @@ import json
 from fastapi.testclient import TestClient
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory import bhm_mcp
 
 
@@ -54,7 +55,7 @@ def test_agent_context_composes_bounded_sqlite_only_package(monkeypatch) -> None
             2,
         )
 
-    monkeypatch.setattr(bhm_app, "_ensure_provider_warmup_ready", unexpected_provider)
+    monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", unexpected_provider)
     monkeypatch.setattr(bhm_app, "federated_search", unexpected_provider)
     monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", sqlite_only)
     monkeypatch.setattr(

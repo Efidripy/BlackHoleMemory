@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.caller_auth import CallerPrincipal
 from blackholememory.utility_feedback import UtilityEvent
 from blackholememory.utility_feedback import utility_report
@@ -55,7 +56,7 @@ def test_utility_feedback_binds_actor_to_authenticated_principal_and_is_replay_s
         captured["event"] = event
         return {"id": event.event_id}, True
 
-    monkeypatch.setattr(bhm_app, "_memory_service", _Service)
+    monkeypatch.setattr(app_runtime, "_memory_service", _Service)
     monkeypatch.setattr(bhm_app, "append_utility_event", fake_append)
 
     result = bhm_app._record_utility_feedback_event(_request(), principal=_principal())
@@ -76,7 +77,7 @@ def test_utility_feedback_binds_actor_to_authenticated_principal_and_is_replay_s
 
 
 def test_utility_feedback_rejects_unauthenticated_and_cross_project_memory(monkeypatch) -> None:
-    monkeypatch.setattr(bhm_app, "_memory_service", _Service)
+    monkeypatch.setattr(app_runtime, "_memory_service", _Service)
 
     with pytest.raises(HTTPException) as unauthenticated:
         bhm_app._record_utility_feedback_event(_request(), principal=None)
@@ -107,7 +108,7 @@ def test_utility_feedback_rest_surface_requires_caller_and_derives_actor(monkeyp
     monkeypatch.setenv("BHM_CALLER_ID", "rest-caller")
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
-    monkeypatch.setattr(bhm_app, "_memory_service", _Service)
+    monkeypatch.setattr(app_runtime, "_memory_service", _Service)
     monkeypatch.setattr(bhm_app, "append_utility_event", fake_append)
     client = TestClient(bhm_app.app)
     payload = _request().model_dump(mode="json")
@@ -141,7 +142,7 @@ def test_utility_feedback_report_is_project_scoped_and_read_only(monkeypatch) ->
         observed.update({"project": project, "limit": limit})
         return (event,)
 
-    monkeypatch.setattr(bhm_app, "_memory_service", _Service)
+    monkeypatch.setattr(app_runtime, "_memory_service", _Service)
     monkeypatch.setattr(bhm_app, "load_utility_events", fake_load)
 
     result = bhm_app._utility_feedback_report(
@@ -176,7 +177,7 @@ def test_utility_feedback_consolidation_preview_is_read_only(monkeypatch) -> Non
     )
 
     events = tuple(event.model_copy(update={"event_id": f"utility-event-{index}"}) for index in range(1, 4))
-    monkeypatch.setattr(bhm_app, "_memory_service", _Service)
+    monkeypatch.setattr(app_runtime, "_memory_service", _Service)
     monkeypatch.setattr(bhm_app, "load_utility_events", lambda *_args, **_kwargs: events)
 
     result = bhm_app._utility_feedback_consolidation_preview(

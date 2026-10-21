@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _memory(source_id: str, project: str) -> dict:
@@ -16,7 +17,7 @@ def _memory(source_id: str, project: str) -> dict:
 
 def test_hard_delete_preview_filters_alias_and_foreign_artifacts(monkeypatch) -> None:
     record = _memory("m1", "BlackHoleMemory")
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda _id, _project=None: record)
+    monkeypatch.setattr(app_runtime, "_find_live_memory", lambda _id, _project=None: record)
     monkeypatch.setattr(
         bhm_app,
         "_artifact_store_pairs",
@@ -26,7 +27,7 @@ def test_hard_delete_preview_filters_alias_and_foreign_artifacts(monkeypatch) ->
         ], lambda _items: None)},
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_load_memory_links",
         lambda: [
             {"id": "local-link", "project": "BlackHoleMemory", "source_id": "m1", "target_id": "m2"},

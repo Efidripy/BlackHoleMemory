@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _install_artifact_stores(monkeypatch):
@@ -10,8 +11,8 @@ def _install_artifact_stores(monkeypatch):
     sessions: list[dict] = []
     memories: dict[str, dict] = {}
 
-    monkeypatch.setattr(bhm_app, "_canonical_project", lambda project: project.strip().lower())
-    monkeypatch.setattr(bhm_app, "_project_aliases", lambda project: {project})
+    monkeypatch.setattr(app_runtime, "_canonical_project", lambda project: project.strip().lower())
+    monkeypatch.setattr(app_runtime, "_project_aliases", lambda project: {project})
     monkeypatch.setattr(bhm_app, "_load_checkpoints", lambda: [dict(item) for item in checkpoints])
     monkeypatch.setattr(bhm_app, "_save_checkpoints", lambda items: checkpoints.__setitem__(slice(None), items) or Path("checkpoints.json"))
     monkeypatch.setattr(bhm_app, "_load_session_records", lambda: [dict(item) for item in sessions])

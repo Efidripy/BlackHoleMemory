@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.mem0_adapter import StorageNotReady
 
 
@@ -86,11 +87,11 @@ def test_sqlite_authoritative_readiness_stays_ready_when_projection_is_down(monk
     )
     monkeypatch.setenv("BHM_QDRANT_REQUIRED_FOR_CORE", "false")
     monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: projection)
-    monkeypatch.setattr(bhm_app, "_memory_store_state", _authoritative_memory_state)
+    monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
     monkeypatch.setattr(bhm_app, "dependency_report", _optional_qdrant_down_report)
     monkeypatch.setattr(bhm_app, "_fallback_grace_active", lambda: False)
     monkeypatch.setattr(bhm_app, "mem0_runtime_plan", lambda: {"status": "projection-degraded"})
-    monkeypatch.setattr(bhm_app, "_get_provider_warmup_status", lambda: {"ready": True})
+    monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True})
 
     detailed_ready = bhm_app.health_ready()
     public_ready = bhm_app.health_ready_endpoint()
@@ -116,7 +117,7 @@ def test_detailed_health_reports_projection_degradation_without_losing_sqlite_au
     )
     monkeypatch.setenv("BHM_QDRANT_REQUIRED_FOR_CORE", "false")
     monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: projection)
-    monkeypatch.setattr(bhm_app, "_memory_store_state", _authoritative_memory_state)
+    monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
     monkeypatch.setattr(bhm_app, "_fallback_grace_active", lambda: False)
     monkeypatch.setattr(
         bhm_app._MCP_STREAMABLE_HTTP,
@@ -163,11 +164,11 @@ def test_sqlite_authoritative_lifespan_enters_when_qdrant_collection_probe_fails
 
     monkeypatch.setattr(bhm_app, "validate_loopback_listener_host", lambda _host: None)
     monkeypatch.setattr(bhm_app, "caller_auth_configuration_error", lambda: None)
-    monkeypatch.setattr(bhm_app, "_memory_store_state", _authoritative_memory_state)
+    monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
     monkeypatch.setattr(bhm_app, "_initialize_authoritative_memory_service", lambda: None)
     monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: projection)
     monkeypatch.setattr(bhm_app, "ensure_memory_collections", qdrant_unavailable)
-    monkeypatch.setattr(bhm_app, "warmup_provider_probe", noop_async)
+    monkeypatch.setattr(app_runtime, "warmup_provider_probe", noop_async)
     monkeypatch.setattr(bhm_app, "_boot_report_is_pending", lambda: False)
     monkeypatch.setattr(bhm_app, "_telemetry_harvester_loop", noop_async)
     monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", noop_async)
@@ -192,11 +193,11 @@ def test_remote_required_profile_remains_fail_closed_when_qdrant_is_down(monkeyp
     )
     monkeypatch.setenv("BHM_QDRANT_REQUIRED_FOR_CORE", "true")
     monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: projection)
-    monkeypatch.setattr(bhm_app, "_memory_store_state", _authoritative_memory_state)
+    monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
     monkeypatch.setattr(bhm_app, "dependency_report", _required_qdrant_down_report)
     monkeypatch.setattr(bhm_app, "_fallback_grace_active", lambda: False)
     monkeypatch.setattr(bhm_app, "mem0_runtime_plan", lambda: {"status": "projection-required"})
-    monkeypatch.setattr(bhm_app, "_get_provider_warmup_status", lambda: {"ready": True})
+    monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True})
 
     detailed_ready = bhm_app.health_ready()
 
@@ -240,7 +241,7 @@ def test_sqlite_authoritative_lifespan_still_fails_closed_in_remote_required_pro
 
     monkeypatch.setattr(bhm_app, "validate_loopback_listener_host", lambda _host: None)
     monkeypatch.setattr(bhm_app, "caller_auth_configuration_error", lambda: None)
-    monkeypatch.setattr(bhm_app, "_memory_store_state", _authoritative_memory_state)
+    monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
     monkeypatch.setattr(bhm_app, "_initialize_authoritative_memory_service", lambda: None)
     monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: projection)
     monkeypatch.setattr(bhm_app, "_wait_for_required_storage_ready", immediate_strict_storage_gate)
@@ -249,7 +250,7 @@ def test_sqlite_authoritative_lifespan_still_fails_closed_in_remote_required_pro
         "ensure_memory_collections",
         lambda *_args, **_kwargs: pytest.fail("collection initialization must not run before the strict gate"),
     )
-    monkeypatch.setattr(bhm_app, "warmup_provider_probe", noop_async)
+    monkeypatch.setattr(app_runtime, "warmup_provider_probe", noop_async)
     monkeypatch.setattr(bhm_app, "_boot_report_is_pending", lambda: False)
     monkeypatch.setattr(bhm_app, "_telemetry_harvester_loop", noop_async)
     monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", noop_async)

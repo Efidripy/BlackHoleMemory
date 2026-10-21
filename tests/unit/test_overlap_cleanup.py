@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _memory(memory_id: str, content: str) -> dict:
@@ -19,9 +20,9 @@ def _memory(memory_id: str, content: str) -> dict:
 def test_overlap_cleanup_plans_non_overlapping_pairs_and_saves_once(monkeypatch) -> None:
     records = [_memory("source-1", "same"), _memory("target-1", "same")]
     writes: list[list[dict]] = []
-    monkeypatch.setattr(bhm_app, "_canonical_project", lambda value: str(value or "").lower())
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: False)
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: copy.deepcopy(records))
+    monkeypatch.setattr(app_runtime, "_canonical_project", lambda value: str(value or "").lower())
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: False)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: copy.deepcopy(records))
     monkeypatch.setattr(bhm_app, "_save_live_memories", lambda items: writes.append(items))
     monkeypatch.setattr(
         bhm_app,

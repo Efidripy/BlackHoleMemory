@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _patch_lifespan_dependencies(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> list[asyncio.Task]:
@@ -24,7 +25,7 @@ def _patch_lifespan_dependencies(monkeypatch: pytest.MonkeyPatch, events: list[s
     monkeypatch.setattr(bhm_app.asyncio, "create_task", track_create_task)
     monkeypatch.setattr(bhm_app, "caller_auth_configuration_error", lambda: None)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_memory_store_state",
         lambda: SimpleNamespace(configured_mode="sqlite-authoritative", ready=True),
     )
@@ -37,7 +38,7 @@ def _patch_lifespan_dependencies(monkeypatch: pytest.MonkeyPatch, events: list[s
             "global": {"collection_name": "global"},
         },
     )
-    monkeypatch.setattr(bhm_app, "warmup_provider_probe", blocked_task)
+    monkeypatch.setattr(app_runtime, "warmup_provider_probe", blocked_task)
     monkeypatch.setattr(bhm_app, "_telemetry_harvester_loop", blocked_task)
     monkeypatch.setattr(bhm_app, "_boot_report_is_pending", lambda: False)
     monkeypatch.setattr(bhm_app, "_stop_hook_queue_workers", lambda: _record_event(events, "workers_stopped"))
@@ -133,7 +134,7 @@ def test_lifespan_observes_failed_background_task_and_cleans_siblings(monkeypatc
     async def exercise() -> None:
         nonlocal created
         created = _patch_lifespan_dependencies(monkeypatch, events)
-        monkeypatch.setattr(bhm_app, "warmup_provider_probe", fail_warmup)
+        monkeypatch.setattr(app_runtime, "warmup_provider_probe", fail_warmup)
         monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", start_workers)
         monkeypatch.setattr(bhm_app._MCP_STREAMABLE_HTTP, "run", fake_mcp_run)
         async with bhm_app._app_lifespan(bhm_app.app):

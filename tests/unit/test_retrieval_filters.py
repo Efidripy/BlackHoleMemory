@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.retrieval_filters import build_candidate_filters
 from blackholememory.retrieval_scope import resolve_history_scope
 
@@ -89,7 +90,7 @@ def test_memory_listing_and_fallback_keep_trace_history_opt_in(monkeypatch):
         "event_role": "trace",
         "metadata": {"event_role": "trace", "artifact_kind": "session-record"},
     }
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: [current, trace])
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: [current, trace])
 
     current_window, current_total, _limit, _offset = bhm_app._list_live_memories(
         project="blackholememory",
@@ -142,7 +143,7 @@ def test_advanced_search_freshness_filters_updated_at_before_pagination(monkeypa
             "metadata": {"event_role": "trace", "priority": "high"},
         },
     ]
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
     window, total = bhm_app._advanced_search_live_memories(
         bhm_app.MemoryAdvancedSearchRequest(
@@ -196,7 +197,7 @@ def test_advanced_search_recent_scope_includes_only_recent_history(monkeypatch):
             "metadata": {"event_role": "trace"},
         },
     ]
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
     window, total = bhm_app._advanced_search_live_memories(
         bhm_app.MemoryAdvancedSearchRequest(
             project="blackholememory", history_scope="recent", limit=10
@@ -240,7 +241,7 @@ def test_federated_search_pushes_the_same_project_boundary_to_both_contours(monk
     assert hits == []
     assert total == 0
     assert set(captured) == {"LOCAL", "GLOBAL"}
-    expected_projects = sorted(bhm_app._project_aliases("BlackHoleMemory"))
+    expected_projects = sorted(app_runtime._project_aliases("BlackHoleMemory"))
     for filters in captured.values():
         assert filters["user_id"] == bhm_app.settings.mem0_user_id
         assert {"project": {"in": expected_projects}} in filters["AND"]

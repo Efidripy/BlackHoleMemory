@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.caller_auth import CallerPrincipal
 from blackholememory.governed_shared_memory import CallerIdentity
 from blackholememory.governed_shared_memory import PolicyDecision
@@ -140,7 +141,7 @@ def test_policy_preflight_keeps_shared_io_disabled_and_has_no_projection_call(
         captured["event"] = event
         return event.to_artifact().to_record(), True
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
     monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
     result = bhm_app._shared_memory_policy_preflight(
         bhm_app.SharedMemoryPolicyPreflightRequest(
@@ -181,7 +182,7 @@ def test_rest_policy_preflight_binds_caller_scope_before_handler(monkeypatch) ->
             "shared_write_enabled": False,
         }
 
-    monkeypatch.setattr(bhm_app, "_run_bounded_write", fake_bounded_write)
+    monkeypatch.setattr(app_runtime, "_run_bounded_write", fake_bounded_write)
     client = TestClient(
         bhm_app.app,
         headers={"X-BHM-Admin-Capability": "admin-test-token"},
@@ -245,9 +246,9 @@ def test_governed_read_requires_grant_then_returns_bounded_sqlite_record(monkeyp
         captured["event"] = event
         return event.to_artifact().to_record(), True
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_find_live_memory",
         lambda _memory_id, _project: {
             "source_id": "memory-fixture",
@@ -316,12 +317,12 @@ def test_identical_concurrent_governed_reads_use_sqlite_ledger_and_replay_one_au
     assert inserted is True
     monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "1")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_memory_service",
         lambda: SQLiteMemoryService(database, allow_create=True),
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_find_live_memory",
         lambda _memory_id, _project: {
             "source_id": "memory-fixture",
@@ -404,10 +405,10 @@ def test_expired_or_revoked_governed_read_retry_keeps_one_content_free_audit(
             revocation_receipt_digest="f" * 64,
         )))
     monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "1")
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: SQLiteMemoryService(database, allow_create=True))
-    monkeypatch.setattr(bhm_app, "_utc_now_iso", lambda: "2026-08-23T12:00:00Z")
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: SQLiteMemoryService(database, allow_create=True))
+    monkeypatch.setattr(app_runtime, "_utc_now_iso", lambda: "2026-08-23T12:00:00Z")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_find_live_memory",
         lambda *_args: {
             "source_id": "memory-fixture",
@@ -460,8 +461,8 @@ def test_governed_read_audits_policy_deny_without_disclosing_memory(monkeypatch)
         captured["event"] = event
         return event.to_artifact().to_record(), True
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "agent-owner", "content": "private content", "metadata": {"shared_visibility": "project", "sensitivity": "internal"}, "lifecycle": "active"})
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(app_runtime, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "agent-owner", "content": "private content", "metadata": {"shared_visibility": "project", "sensitivity": "internal"}, "lifecycle": "active"})
     monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
 
     with pytest.raises(bhm_app.HTTPException) as error:
@@ -491,8 +492,8 @@ def test_governed_read_rejects_client_supplied_owner_that_disagrees_with_sqlite(
         def list_artifact_records(self, **_kwargs):
             return []
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
-    monkeypatch.setattr(bhm_app, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "actual-owner", "metadata": {"shared_visibility": "project", "sensitivity": "internal"}, "lifecycle": "active"})
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(app_runtime, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "actual-owner", "metadata": {"shared_visibility": "project", "sensitivity": "internal"}, "lifecycle": "active"})
 
     with pytest.raises(bhm_app.HTTPException) as error:
         bhm_app._shared_memory_read(
@@ -516,7 +517,7 @@ def test_governed_read_uses_canonical_visibility_sensitivity_and_server_time(mon
     """Client fields cannot downgrade a restricted record or backdate a grant."""
 
     monkeypatch.setenv("BHM_SHARED_MEMORY_READ_ENABLED", "true")
-    monkeypatch.setattr(bhm_app, "_utc_now_iso", lambda: "2026-08-23T12:00:00Z")
+    monkeypatch.setattr(app_runtime, "_utc_now_iso", lambda: "2026-08-23T12:00:00Z")
     expired = _grant(expires_at="2026-08-23T11:59:59Z")
 
     class FakeService:
@@ -525,14 +526,14 @@ def test_governed_read_uses_canonical_visibility_sensitivity_and_server_time(mon
                 return [{"project": "blackholememory", "grant": expired.model_dump(mode="json")}]
             return []
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: FakeService())
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
     monkeypatch.setattr(
         bhm_app,
         "append_shared_memory_audit",
         lambda _service, event: (event.to_artifact().to_record(), True),
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_find_live_memory",
         lambda *_args: {
             "source_id": "memory-fixture",

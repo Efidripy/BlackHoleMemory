@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def _record(index: int, *, title: str, content: str, files: list[str] | None = None) -> dict:
@@ -24,7 +25,7 @@ def test_duplicate_detection_preserves_reason_precedence(monkeypatch) -> None:
         _record(2, title="Same", content="identical", files=["a.cs"]),
         _record(3, title="Same", content="different", files=["a.cs"]),
     ]
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
     result = bhm_app._detect_duplicates(
         bhm_app.MemoryDetectRequest(project="jmaka", limit=10, include_archived=False)
@@ -51,7 +52,7 @@ def test_duplicate_detection_bounds_large_candidate_bucket(monkeypatch) -> None:
         normalized_calls += 1
         return original(value)
 
-    monkeypatch.setattr(bhm_app, "_load_live_memories", lambda: records)
+    monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
     monkeypatch.setattr(bhm_app, "_normalized_text", counted)
 
     result = bhm_app._detect_duplicates(

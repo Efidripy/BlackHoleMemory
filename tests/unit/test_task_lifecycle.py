@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory import bhm_mcp
 
 
@@ -22,13 +23,13 @@ def test_task_open_creates_one_canonical_session_and_is_idempotent(monkeypatch):
     task_store: list[dict] = []
     session_calls: list[object] = []
 
-    monkeypatch.setattr(bhm_app, "_load_tasks", lambda: list(task_store))
+    monkeypatch.setattr(app_runtime, "_load_tasks", lambda: list(task_store))
 
     def save_tasks(items: list[dict]) -> Path:
         task_store[:] = items
         return Path("tasks.json")
 
-    monkeypatch.setattr(bhm_app, "_save_tasks", save_tasks)
+    monkeypatch.setattr(app_runtime, "_save_tasks", save_tasks)
 
     def create_session(request):
         session_calls.append(request)
@@ -68,8 +69,8 @@ def test_task_open_creates_one_canonical_session_and_is_idempotent(monkeypatch):
 def test_task_open_updates_existing_task_without_creating_a_second_task(monkeypatch):
     task_store: list[dict] = []
     session_calls: list[object] = []
-    monkeypatch.setattr(bhm_app, "_load_tasks", lambda: list(task_store))
-    monkeypatch.setattr(bhm_app, "_save_tasks", lambda items: task_store.__setitem__(slice(None), items) or Path("tasks.json"))
+    monkeypatch.setattr(app_runtime, "_load_tasks", lambda: list(task_store))
+    monkeypatch.setattr(app_runtime, "_save_tasks", lambda items: task_store.__setitem__(slice(None), items) or Path("tasks.json"))
     monkeypatch.setattr(
         bhm_app,
         "_create_session_record",
@@ -96,8 +97,8 @@ def test_task_open_updates_existing_task_without_creating_a_second_task(monkeypa
 def test_task_open_serializes_concurrent_first_open(monkeypatch):
     task_store: list[dict] = []
     session_calls: list[object] = []
-    monkeypatch.setattr(bhm_app, "_load_tasks", lambda: list(task_store))
-    monkeypatch.setattr(bhm_app, "_save_tasks", lambda items: task_store.__setitem__(slice(None), items) or Path("tasks.json"))
+    monkeypatch.setattr(app_runtime, "_load_tasks", lambda: list(task_store))
+    monkeypatch.setattr(app_runtime, "_save_tasks", lambda items: task_store.__setitem__(slice(None), items) or Path("tasks.json"))
     monkeypatch.setattr(
         bhm_app,
         "_create_session_record",
@@ -122,9 +123,9 @@ def test_task_ingress_freeze_blocks_open_and_close_without_lifecycle_writes(monk
     task_store: list[dict] = []
     session_calls: list[object] = []
     task_writes: list[object] = []
-    monkeypatch.setattr(bhm_app, "_load_tasks", lambda: list(task_store))
+    monkeypatch.setattr(app_runtime, "_load_tasks", lambda: list(task_store))
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_save_tasks",
         lambda items: task_writes.append(items) or task_store.__setitem__(slice(None), items) or Path("tasks.json"),
     )
@@ -249,8 +250,8 @@ def test_task_ingress_freeze_rejects_public_task_routes_before_any_task_write(mo
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "unit-admin-capability")
     task_writes: list[object] = []
     session_calls: list[object] = []
-    monkeypatch.setattr(bhm_app, "_load_tasks", lambda: [])
-    monkeypatch.setattr(bhm_app, "_save_tasks", lambda items: task_writes.append(items))
+    monkeypatch.setattr(app_runtime, "_load_tasks", lambda: [])
+    monkeypatch.setattr(app_runtime, "_save_tasks", lambda items: task_writes.append(items))
     monkeypatch.setattr(
         bhm_app,
         "_create_session_record",
@@ -288,7 +289,7 @@ def test_task_ingress_freeze_does_not_intercept_session_record_writes(monkeypatc
         calls.append(operation)
         return "created", {"id": "session-1", "memory_id": "mem-1"}
 
-    monkeypatch.setattr(bhm_app, "_run_bounded_write", bounded_write)
+    monkeypatch.setattr(app_runtime, "_run_bounded_write", bounded_write)
     assert bhm_app._freeze_task_ingress(
         bhm_app.TaskIngressControlRequest(reason="exact snapshot")
     )[0] == "frozen"
@@ -306,9 +307,9 @@ def test_task_ingress_freeze_does_not_intercept_session_record_writes(monkeypatc
 def test_task_close_updates_one_canonical_session_and_is_idempotent(monkeypatch):
     task_store: list[dict] = []
     session_calls: list[object] = []
-    monkeypatch.setattr(bhm_app, "_load_tasks", lambda: list(task_store))
+    monkeypatch.setattr(app_runtime, "_load_tasks", lambda: list(task_store))
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_save_tasks",
         lambda items: task_store.__setitem__(slice(None), items) or Path("tasks.json"),
     )
@@ -354,9 +355,9 @@ def test_task_close_updates_one_canonical_session_and_is_idempotent(monkeypatch)
 def test_task_close_reclose_updates_same_task_and_session(monkeypatch):
     task_store: list[dict] = []
     session_calls: list[object] = []
-    monkeypatch.setattr(bhm_app, "_load_tasks", lambda: list(task_store))
+    monkeypatch.setattr(app_runtime, "_load_tasks", lambda: list(task_store))
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_save_tasks",
         lambda items: task_store.__setitem__(slice(None), items) or Path("tasks.json"),
     )

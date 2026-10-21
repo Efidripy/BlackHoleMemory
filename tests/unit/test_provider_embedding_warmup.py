@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 
 
 def test_required_provider_warmup_is_an_embedding_probe(monkeypatch) -> None:
@@ -29,9 +30,9 @@ def test_required_provider_warmup_is_an_embedding_probe(monkeypatch) -> None:
         captured["payload"] = json.loads(request.data.decode("utf-8"))
         return _Response()
 
-    monkeypatch.setattr(bhm_app, "open_local_url", fake_urlopen)
+    monkeypatch.setattr(app_runtime, "open_local_url", fake_urlopen)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "settings",
         SimpleNamespace(
             mem0_embedding_model="text-embedding-nomic-embed-text-v1.5",
@@ -40,7 +41,7 @@ def test_required_provider_warmup_is_an_embedding_probe(monkeypatch) -> None:
         ),
     )
 
-    bhm_app._post_provider_warmup_probe()
+    app_runtime._post_provider_warmup_probe()
 
     assert captured["url"] == "http://127.0.0.1:13666/v1/embeddings"
     assert captured["payload"] == {
@@ -48,14 +49,14 @@ def test_required_provider_warmup_is_an_embedding_probe(monkeypatch) -> None:
         "input": ["bhm provider readiness"],
         "encoding_format": "float",
     }
-    assert captured["timeout"] == bhm_app._PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS
-    assert captured["read_limit"] == bhm_app._PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES + 1
+    assert captured["timeout"] == app_runtime._PROVIDER_EMBEDDING_WARMUP_TIMEOUT_SECONDS
+    assert captured["read_limit"] == app_runtime._PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES + 1
 
 
 def test_required_provider_warmup_accepts_bounded_768_dimension_embedding(monkeypatch) -> None:
     body = json.dumps({"data": [{"embedding": [-0.12345678901234567] * 768}]}).encode("utf-8")
-    assert len(body) > bhm_app._PROVIDER_WARMUP_MAX_RESPONSE_BYTES
-    assert len(body) <= bhm_app._PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES
+    assert len(body) > app_runtime._PROVIDER_WARMUP_MAX_RESPONSE_BYTES
+    assert len(body) <= app_runtime._PROVIDER_EMBEDDING_WARMUP_MAX_RESPONSE_BYTES
 
     class _Response:
         def __enter__(self):
@@ -67,9 +68,9 @@ def test_required_provider_warmup_accepts_bounded_768_dimension_embedding(monkey
         def read(self, limit: int):
             return body[:limit]
 
-    monkeypatch.setattr(bhm_app, "open_local_url", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr(app_runtime, "open_local_url", lambda *_args, **_kwargs: _Response())
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "settings",
         SimpleNamespace(
             mem0_embedding_model="text-embedding-nomic-embed-text-v1.5",
@@ -78,7 +79,7 @@ def test_required_provider_warmup_accepts_bounded_768_dimension_embedding(monkey
         ),
     )
 
-    bhm_app._post_provider_warmup_probe()
+    app_runtime._post_provider_warmup_probe()
 
 
 def test_qwen_chat_warmup_disables_thinking(monkeypatch) -> None:
@@ -99,9 +100,9 @@ def test_qwen_chat_warmup_disables_thinking(monkeypatch) -> None:
         captured["timeout"] = timeout
         return _Response()
 
-    monkeypatch.setattr(bhm_app, "open_local_url", fake_urlopen)
+    monkeypatch.setattr(app_runtime, "open_local_url", fake_urlopen)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "settings",
         SimpleNamespace(
             mem0_llm_model="qwen2.5-coder-7b-instruct",
@@ -110,10 +111,10 @@ def test_qwen_chat_warmup_disables_thinking(monkeypatch) -> None:
         ),
     )
 
-    bhm_app._post_provider_chat_warmup_probe()
+    app_runtime._post_provider_chat_warmup_probe()
 
     assert captured["payload"]["chat_template_kwargs"] == {"enable_thinking": False}
-    assert captured["timeout"] == bhm_app._PROVIDER_WARMUP_TIMEOUT_SECONDS
+    assert captured["timeout"] == app_runtime._PROVIDER_WARMUP_TIMEOUT_SECONDS
 
 
 def test_chat_warmup_accepts_normal_completion_larger_than_128_bytes(monkeypatch) -> None:
@@ -138,9 +139,9 @@ def test_chat_warmup_accepts_normal_completion_larger_than_128_bytes(monkeypatch
         def read(self, limit: int):
             return body[:limit]
 
-    monkeypatch.setattr(bhm_app, "open_local_url", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr(app_runtime, "open_local_url", lambda *_args, **_kwargs: _Response())
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "settings",
         SimpleNamespace(
             mem0_llm_model="qwen2.5-coder-7b-instruct",
@@ -149,7 +150,7 @@ def test_chat_warmup_accepts_normal_completion_larger_than_128_bytes(monkeypatch
         ),
     )
 
-    bhm_app._post_provider_chat_warmup_probe()
+    app_runtime._post_provider_chat_warmup_probe()
 
 
 def test_chat_warmup_rejects_invalid_or_oversized_completion(monkeypatch) -> None:
@@ -167,7 +168,7 @@ def test_chat_warmup_rejects_invalid_or_oversized_completion(monkeypatch) -> Non
             return self.body[:limit]
 
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "settings",
         SimpleNamespace(
             mem0_llm_model="qwen2.5-coder-7b-instruct",
@@ -175,40 +176,40 @@ def test_chat_warmup_rejects_invalid_or_oversized_completion(monkeypatch) -> Non
             mem0_api_key="",
         ),
     )
-    monkeypatch.setattr(bhm_app, "open_local_url", lambda *_args, **_kwargs: _Response(b'{"choices": []}'))
+    monkeypatch.setattr(app_runtime, "open_local_url", lambda *_args, **_kwargs: _Response(b'{"choices": []}'))
     with pytest.raises(OSError, match="completion choice"):
-        bhm_app._post_provider_chat_warmup_probe()
+        app_runtime._post_provider_chat_warmup_probe()
 
-    oversized = b"x" * (bhm_app._PROVIDER_WARMUP_MAX_RESPONSE_BYTES + 1)
-    monkeypatch.setattr(bhm_app, "open_local_url", lambda *_args, **_kwargs: _Response(oversized))
+    oversized = b"x" * (app_runtime._PROVIDER_WARMUP_MAX_RESPONSE_BYTES + 1)
+    monkeypatch.setattr(app_runtime, "open_local_url", lambda *_args, **_kwargs: _Response(oversized))
     with pytest.raises(bhm_app.urllib.error.URLError, match="bounded limit"):
-        bhm_app._post_provider_chat_warmup_probe()
+        app_runtime._post_provider_chat_warmup_probe()
 
 
 def test_provider_warmup_requires_embedding_but_not_chat(monkeypatch) -> None:
     calls: list[str] = []
 
     async def run_probe() -> None:
-        bhm_app._PROVIDER_WARMUP_READY.clear()
-        monkeypatch.setattr(bhm_app, "_PROVIDER_WARMUP_REQUIRED", True)
-        monkeypatch.setattr(bhm_app, "_PROVIDER_CHAT_WARMUP_ENABLED", False)
-        monkeypatch.setattr(bhm_app, "_post_provider_warmup_probe", lambda: calls.append("embedding"))
+        app_runtime._PROVIDER_WARMUP_READY.clear()
+        monkeypatch.setattr(app_runtime, "_PROVIDER_WARMUP_REQUIRED", True)
+        monkeypatch.setattr(app_runtime, "_PROVIDER_CHAT_WARMUP_ENABLED", False)
+        monkeypatch.setattr(app_runtime, "_post_provider_warmup_probe", lambda: calls.append("embedding"))
         monkeypatch.setattr(
-            bhm_app,
+            app_runtime,
             "_post_provider_embedding_warmup_probe",
             lambda: calls.append("legacy-embedding"),
         )
-        await bhm_app.warmup_provider_probe()
+        await app_runtime.warmup_provider_probe()
 
     asyncio.run(run_probe())
 
     assert calls == ["embedding"]
-    status = bhm_app._get_provider_warmup_status()
+    status = app_runtime._get_provider_warmup_status()
     assert status["ready"] is True
     assert status["embedding_ready"] is True
     assert status["embedding_phase"] == "ready"
     assert status["chat_warmup_enabled"] is False
-    bhm_app._PROVIDER_WARMUP_READY.clear()
+    app_runtime._PROVIDER_WARMUP_READY.clear()
 
 
 def test_memory_warmup_only_instantiates_existing_collections(monkeypatch) -> None:
@@ -222,22 +223,22 @@ def test_memory_warmup_only_instantiates_existing_collections(monkeypatch) -> No
         embedding_model = object()
 
     monkeypatch.setenv("BHM_PROVIDER_WARMUP_PROJECTS", "existing,missing")
-    monkeypatch.setattr(bhm_app, "_PROVIDER_MEMORY_WARMUP_MAX_PROJECTS", 8)
-    monkeypatch.setattr(bhm_app, "get_qdrant_client", lambda: _Client())
-    monkeypatch.setattr(bhm_app, "local_collection_name", lambda project: f"local_{project}")
-    monkeypatch.setattr(bhm_app, "global_collection_name", lambda: "global")
+    monkeypatch.setattr(app_runtime, "_PROVIDER_MEMORY_WARMUP_MAX_PROJECTS", 8)
+    monkeypatch.setattr(app_runtime, "get_qdrant_client", lambda: _Client())
+    monkeypatch.setattr(app_runtime, "local_collection_name", lambda project: f"local_{project}")
+    monkeypatch.setattr(app_runtime, "global_collection_name", lambda: "global")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "get_project_mem0_memory",
         lambda project, **_kwargs: (calls.append(f"project:{project}") or _Memory()),
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "get_global_core_memory",
         lambda: (calls.append("global") or _Memory()),
     )
 
-    warmed, skipped = bhm_app._post_provider_memory_warmup_probe()
+    warmed, skipped = app_runtime._post_provider_memory_warmup_probe()
 
     assert warmed == ["existing"]
     assert skipped == ["missing"]
@@ -256,21 +257,21 @@ def test_memory_warmup_uses_bound_generation_not_legacy_collection(monkeypatch) 
         embedding_model = object()
 
     monkeypatch.setenv("BHM_PROVIDER_WARMUP_PROJECTS", "bound")
-    monkeypatch.setattr(bhm_app, "get_qdrant_client", lambda: _Client())
-    monkeypatch.setattr(bhm_app, "global_collection_name", lambda: "global")
+    monkeypatch.setattr(app_runtime, "get_qdrant_client", lambda: _Client())
+    monkeypatch.setattr(app_runtime, "global_collection_name", lambda: "global")
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_project_projection_route",
         lambda _project: SimpleNamespace(collection_name="generation"),
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "get_project_mem0_memory",
         lambda project, **kwargs: (calls.append(("memory", (project, kwargs))) or _Memory()),
     )
-    monkeypatch.setattr(bhm_app, "get_global_core_memory", lambda: _Memory())
+    monkeypatch.setattr(app_runtime, "get_global_core_memory", lambda: _Memory())
 
-    warmed, skipped = bhm_app._post_provider_memory_warmup_probe()
+    warmed, skipped = app_runtime._post_provider_memory_warmup_probe()
 
     assert warmed == ["bound"]
     assert skipped == []

@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from blackholememory import app as bhm_app
+from blackholememory import app_runtime
 from blackholememory.code_graph import build_code_graph
 from blackholememory.repository_index import RepositorySourceProvenance
 from blackholememory.repository_index import index_repository
@@ -78,7 +79,7 @@ def test_project_scoped_warmup_blocks_unlisted_project_before_provider(monkeypat
             return {"pending": 0, "failed": 0}
 
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_get_provider_warmup_status",
         lambda: {
             "ready": True,
@@ -87,8 +88,8 @@ def test_project_scoped_warmup_blocks_unlisted_project_before_provider(monkeypat
             "memory_skipped_projects": ["bonsai-demo"],
         },
     )
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _FakeMemoryService())
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _FakeMemoryService())
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
     monkeypatch.setattr(bhm_app, "_semantic_projected_code_metadata_count", lambda **_kwargs: 3)
 
     receipt = asyncio.run(
@@ -141,7 +142,7 @@ def test_code_tools_returns_not_ready_for_indexed_but_unwarmed_project(monkeypat
     monkeypatch.setenv("BHM_CODE_SEMANTIC_FUSION", "1")
     monkeypatch.setattr(bhm_app, "_SEMANTIC_READINESS_GATE_ENABLED", True)
     monkeypatch.setattr(
-        bhm_app,
+        app_runtime,
         "_get_provider_warmup_status",
         lambda: {
             "ready": True,
@@ -155,8 +156,8 @@ def test_code_tools_returns_not_ready_for_indexed_but_unwarmed_project(monkeypat
         def outbox_status(self):
             return {"pending": 0, "failed": 0}
 
-    monkeypatch.setattr(bhm_app, "_memory_service", lambda: _FakeMemoryService())
-    monkeypatch.setattr(bhm_app, "_memory_store_is_authoritative", lambda: True)
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _FakeMemoryService())
+    monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
     monkeypatch.setattr(bhm_app, "_semantic_projected_code_metadata_count", lambda **_kwargs: 1)
     calls = {"provider": 0}
 
