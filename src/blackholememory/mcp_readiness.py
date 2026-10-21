@@ -132,7 +132,7 @@ class ReadinessSingleFlightLock:
                         self.release()
                         return False
                     sleeper(min(0.05, remaining))
-        except Exception:
+        except Exception:  # broad: release admission slot before re-raising unexpected probe failures
             self.release()
             raise
 
@@ -257,7 +257,7 @@ class ReadinessCoordinator:
         try:
             ready, detail = probe(timeout)
             return bool(ready), _clean_detail(detail)
-        except Exception as exc:  # pragma: no cover - defensive boundary
+        except Exception as exc:  # broad: convert probe failures into fail-closed readiness detail
             return False, _clean_detail(f"{type(exc).__name__}: {exc}")
 
     def _poll_until_ready(self, probe: Callable[[float], tuple[bool, str]]) -> bool:
@@ -315,7 +315,7 @@ class ReadinessCoordinator:
                 self.mark("api", "starting", "invoking canonical launcher after explicit opt-in")
                 try:
                     started, start_detail = launcher(self.remaining_seconds())
-                except Exception as exc:  # pragma: no cover - defensive boundary
+                except Exception as exc:  # broad: convert launcher failures into fail-closed readiness detail
                     started, start_detail = False, f"{type(exc).__name__}: {exc}"
                 if not started:
                     self.mark("api", "failed", start_detail or "canonical launcher failed")

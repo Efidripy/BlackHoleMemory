@@ -489,7 +489,7 @@ class LongTaskStore:
                     "inserted": True,
                     "created_at": now,
                 }
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve task failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -635,7 +635,7 @@ class LongTaskStore:
                 )
                 connection.commit()
                 return {"task_id": str(task_id), "stage_id": str(stage_id), "status": normalized_status, "task_status": task_status, "result_sha256": result_digest, "checkpoint_digest": checkpoint_digest}
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve task failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -761,7 +761,7 @@ class LongTaskStore:
                     "size_bytes": size_bytes,
                     "expires_at": expires_at,
                 }
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve task failure semantics
                 connection.rollback()
                 raise
             finally:

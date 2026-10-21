@@ -187,7 +187,7 @@ def upsert_freshness_candidates(database: str | Path, candidates: Iterable[Mappi
                 else:
                     connection.execute("UPDATE freshness_candidates SET observed_at=?, updated_at=? WHERE candidate_id=? AND project=?", (str(item.get("observed_at") or now), now, candidate_id, project))
             connection.commit()
-        except Exception:
+        except Exception:  # broad: rollback transaction before re-raising to preserve candidate failure semantics
             connection.rollback()
             raise
     return {"candidates_inserted": inserted, "detected_events_appended": events}
@@ -237,7 +237,7 @@ def decide_freshness_candidate(database: str | Path, *, project: str, candidate_
             if cursor.rowcount:
                 connection.execute("UPDATE freshness_candidates SET state=?, updated_at=? WHERE candidate_id=? AND project=?", (action, now, candidate_id, project))
             connection.commit()
-        except Exception:
+        except Exception:  # broad: rollback transaction before re-raising to preserve candidate failure semantics
             connection.rollback()
             raise
     return {"candidate_id": candidate_id, "project": project, "state": action, "event_appended": bool(cursor.rowcount), "lifecycle_mutated": False, "outbox_mutated": False}

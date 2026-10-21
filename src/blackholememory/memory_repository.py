@@ -503,7 +503,7 @@ class SQLiteMemoryRepository:
                     str(row[1]) for row in connection.execute("PRAGMA table_info(memories)").fetchall()
                 )
                 self._initialized = True
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve repository failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -574,7 +574,7 @@ class SQLiteMemoryRepository:
                 self._begin_immediate(connection)
                 yield connection
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve repository failure semantics
                 connection.rollback()
                 raise
             finally:

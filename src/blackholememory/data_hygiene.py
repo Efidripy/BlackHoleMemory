@@ -590,7 +590,7 @@ def verify_projection_absence(
                         with_payload=False,
                         with_vectors=False,
                     )
-                except Exception as exc:
+                except Exception as exc:  # broad: isolate per-memory Qdrant cleanup failures in the hygiene report
                     memory_error = True
                     errors.append(
                         {
@@ -899,7 +899,7 @@ def prepare_data_hygiene(
                 f"foreign-key verification failed before prepare commit: {len(foreign_key_errors)}"
             )
         connection.commit()
-    except Exception:
+    except Exception:  # broad: rollback transaction before re-raising to preserve hygiene failure semantics
         connection.rollback()
         raise
     finally:
@@ -1125,7 +1125,7 @@ def purge_data_hygiene(
                 f"candidate memories remain after purge transaction: {remaining}"
             )
         connection.commit()
-    except Exception:
+    except Exception:  # broad: rollback transaction before re-raising to preserve hygiene failure semantics
         connection.rollback()
         raise
     finally:
@@ -1218,7 +1218,7 @@ def restore_data_hygiene(
                 f"foreign-key verification failed before restore commit: {len(foreign_key_errors)}"
             )
         connection.commit()
-    except Exception:
+    except Exception:  # broad: rollback transaction before re-raising to preserve hygiene failure semantics
         connection.rollback()
         raise
     finally:

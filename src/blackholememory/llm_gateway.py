@@ -221,7 +221,7 @@ class LocalOpenAICompatibleAdapter:
                 headers,
                 _bounded_request_timeout(request.timeout_seconds),
             )
-        except Exception as exc:  # adapter boundary returns structured failure
+        except Exception as exc:  # broad: adapter boundary returns structured failure
             return GatewayResult(
                 request_id=request.request_id,
                 model_id=model.model_id,
@@ -258,7 +258,7 @@ class LocalOpenAICompatibleAdapter:
                 headers,
                 _bounded_request_timeout(request.timeout_seconds),
             )
-        except Exception as exc:
+        except Exception as exc:  # broad: adapter boundary returns structured failure
             return GatewayResult(
                 request_id=request.request_id,
                 model_id=model.model_id,
