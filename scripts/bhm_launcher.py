@@ -2154,11 +2154,34 @@ def mcp_config_payload() -> dict:
     }
 
 
+def claude_desktop_mcp_server_entry() -> dict[str, Any]:
+    """Return the Claude Desktop stdio bridge entry for the BHM server."""
+
+    plugin_source = ensure_persistent_plugin_source()
+    bridge = plugin_source / "scripts" / "run-bhm-mcp-remote.ps1"
+    return {
+        "command": "powershell.exe",
+        "args": [
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(bridge),
+        ],
+    }
+
+
+def claude_desktop_mcp_config_payload() -> dict[str, dict[str, dict[str, Any]]]:
+    """Return the complete Claude Desktop MCP payload."""
+
+    return {"mcpServers": {MCP_SERVER_NAME: claude_desktop_mcp_server_entry()}}
+
+
 def mcp_config_json() -> str:
     return json.dumps(mcp_config_payload(), indent=2)
 
 
-def merge_json_file(path: Path, payload: dict) -> None:
+def merge_json_file(path: Path, payload: dict, *, replace_server: bool = False) -> None:
     original_bytes: bytes | None = None
     if path.exists():
         try:
@@ -2178,7 +2201,8 @@ def merge_json_file(path: Path, payload: dict) -> None:
     existing_server = current["mcpServers"].get(MCP_SERVER_NAME)
     payload_server = payload["mcpServers"].get(MCP_SERVER_NAME)
     if (
-        isinstance(existing_server, dict)
+        not replace_server
+        and isinstance(existing_server, dict)
         and isinstance(payload_server, dict)
         and "command" in existing_server
         and "url" in payload_server
@@ -2191,7 +2215,6 @@ def merge_json_file(path: Path, payload: dict) -> None:
 
 
 def inject_mcp_config() -> list[Path]:
-    payload = mcp_config_payload()
     targets: list[Path] = []
     appdata = os.environ.get("APPDATA")
     home = Path.home()
@@ -2207,7 +2230,10 @@ def inject_mcp_config() -> list[Path]:
             skipped.append(f"{target}: client not installed")
             continue
         try:
-            merge_json_file(target, payload)
+            if target.name == "claude_desktop_config.json":
+                merge_json_file(target, claude_desktop_mcp_config_payload(), replace_server=True)
+            else:
+                merge_json_file(target, mcp_config_payload())
             written.append(target)
         except OSError as exc:
             skipped.append(f"{target}: {exc}")
@@ -2220,10 +2246,9 @@ def inject_mcp_config() -> list[Path]:
 
 def mcp_integration_status() -> tuple[bool, str]:
     payload = mcp_config_payload()["mcpServers"][MCP_SERVER_NAME]
-    expected_url = payload.get("url")
-    expected_bearer_token_env_var = payload.get("bearer_token_env_var")
-    expected_command = payload.get("command")
-    expected_args = payload.get("args")
+    claude_payload = claude_desktop_mcp_config_payload()["mcpServers"][MCP_SERVER_NAME]
+    expected_url = payload["url"]
+    expected_bearer_token_env_var = payload["bearer_token_env_var"]
     targets: list[Path] = []
     appdata = os.environ.get("APPDATA")
     home = Path.home()
@@ -2233,23 +2258,21 @@ def mcp_integration_status() -> tuple[bool, str]:
     targets.append(home / ".cursor" / "mcp.json")
 
     configured: list[str] = []
+    needs_reconnect: list[str] = []
     for target in targets:
         try:
             if not target.exists():
                 continue
             data = json.loads(target.read_text(encoding="utf-8"))
             server = ((data.get("mcpServers") or {}).get(MCP_SERVER_NAME) or {})
-            http_matches = (
-                expected_url is not None
-                and server.get("url") == expected_url
-                and server.get("bearer_token_env_var") == expected_bearer_token_env_var
-            )
-            legacy_stdio_matches = (
-                expected_command is not None
-                and server.get("command") == expected_command
-                and server.get("args") == expected_args
-            )
-            if http_matches or legacy_stdio_matches:
+            if target.name == "claude_desktop_config.json":
+                if server == claude_payload:
+                    configured.append(str(target))
+                elif server.get("url") == expected_url or server.get("bearer_token_env_var"):
+                    needs_reconnect.append(str(target))
+                continue
+            http_matches = server.get("url") == expected_url and server.get("bearer_token_env_var") == expected_bearer_token_env_var
+            if http_matches:
                 configured.append(str(target))
         except (OSError, json.JSONDecodeError, AttributeError):
             continue
@@ -2264,7 +2287,30 @@ def mcp_integration_status() -> tuple[bool, str]:
         pass
     if configured:
         return True, "Configured in:\n" + "\n".join(configured)
+    if needs_reconnect:
+        return False, "Claude Desktop: нужно переподключить MCP bridge in:\n" + "\n".join(needs_reconnect)
     return False, "Not found in Codex/Claude/Cursor MCP configs"
+
+
+def operator_write_status() -> tuple[bool, str]:
+    """Report whether operator-capability-backed Claude writes are ready."""
+
+    capability = _read_process_or_user_env_value("BHM_ADMIN_CAPABILITY") or ""
+    if len(capability) < 32:
+        return False, "Операторская запись: требуется BHM_ADMIN_CAPABILITY"
+
+    appdata = os.environ.get("APPDATA")
+    if not appdata:
+        return False, "Операторская запись: Claude Desktop не настроен"
+    target = Path(appdata) / "Claude" / "claude_desktop_config.json"
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+        server = ((data.get("mcpServers") or {}).get(MCP_SERVER_NAME) or {})
+    except (OSError, UnicodeError, json.JSONDecodeError, AttributeError):
+        return False, "Операторская запись: нужно переподключить Claude Desktop"
+    if server == claude_desktop_mcp_server_entry():
+        return True, "Операторская запись: настроена"
+    return False, "Операторская запись: нужно переподключить Claude Desktop"
 
 
 def find_codex_plugin_source() -> Path:
@@ -3029,8 +3075,15 @@ class IntegrationsWindow(QFrame):
 
     def refresh_status(self) -> None:
         mcp_ok, mcp_detail = mcp_integration_status()
+        operator_ok, operator_detail = operator_write_status()
         plugin_ok, plugin_detail = codex_plugin_status()
-        self.mcp_status.setText(("MCP: installed\n" if mcp_ok else "MCP: missing\n") + mcp_detail)
+        self.mcp_status.setText(
+            ("MCP: installed\n" if mcp_ok else "MCP: missing\n")
+            + mcp_detail
+            + "\n"
+            + ("Operator write: ready\n" if operator_ok else "Operator write: unavailable\n")
+            + operator_detail
+        )
         self.plugin_status.setText(("Codex plugin: installed\n" if plugin_ok else "Codex plugin: missing\n") + plugin_detail)
 
     def inject_mcp(self) -> None:
