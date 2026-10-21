@@ -2767,7 +2767,9 @@ async def caller_and_admin_capability_guard(request: Request, call_next):
                 content={"detail": {"code": "caller_auth_not_configured"}},
             )
         supplied = parse_bearer_token(request.headers.get("authorization"))
-        principal = configured_principal if is_caller_token_valid(supplied) else None
+        # /mcp alone also accepts the operator capability as the bearer (clients that forward only Authorization).
+        accepted = is_caller_token_valid(supplied) or (request.url.path == "/mcp" and is_admin_capability_valid(supplied))
+        principal = configured_principal if accepted else None
         auth_kind = "caller_bearer" if principal is not None else ""
         if principal is None and ui_session_route_allowed(request.url.path, request.method):
             session_candidate = request.cookies.get(UI_SESSION_COOKIE)
