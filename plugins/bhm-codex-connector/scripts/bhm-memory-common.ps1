@@ -73,6 +73,20 @@ function Get-ConnectorCallerToken {
     return $token
 }
 
+function Get-ConnectorOperatorCapability {
+    # An explicit process-level value wins over the registry (user scope), as with any env override.
+    $capability = [string]$env:BHM_ADMIN_CAPABILITY
+    if ($capability.Length -lt 32) { $capability = [string][Environment]::GetEnvironmentVariable('BHM_ADMIN_CAPABILITY', 'User') }
+    if ($capability.Length -lt 32) { return '' }
+    return $capability
+}
+
+function Get-ConnectorMcpBearer {
+    $capability = Get-ConnectorOperatorCapability
+    if ($capability.Length -ge 32) { return $capability }
+    return Get-ConnectorCallerToken
+}
+
 function Get-ConnectorHttpStatusFromError {
     param([System.Management.Automation.ErrorRecord]$ErrorRecord)
 

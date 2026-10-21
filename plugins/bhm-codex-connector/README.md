@@ -9,6 +9,11 @@ Repository-owned Codex plugin that packages the current BHM ritual for this Wind
 - a Codex skill for the workspace ritual
 - helper scripts for install, activation, runtime discovery, and smoke checks
 
+For MCP clients, set the user environment variable `BHM_ADMIN_CAPABILITY` to
+the operator capability issued by BHM. The connector uses it as the bearer for
+MCP (falling back to the user `BHM_CALLER_TOKEN` when the capability is absent
+or too short), so Claude Desktop and Codex can write memory through `/mcp`.
+
 ## Runtime contract
 
 - primary API surface defaults to `http://127.0.0.1:8000/bhm/*`;
@@ -65,6 +70,8 @@ Repository-owned Codex plugin that packages the current BHM ritual for this Wind
 - `scripts/bhm-show-mcp-sources.ps1`
 - `scripts/bhm-doctor-activate.ps1`
 - `scripts/bhm-plugin-duplicate-guard.ps1`
+- `scripts/emit-bhm-mcp-headers.ps1` (Codex HTTP header helper)
+- `scripts/run-bhm-mcp-remote.ps1` (Claude Desktop stdio bridge)
 
 Checkpoint/session closeouts use one deterministic `upsert_key` when they
 describe the same workflow. `bhm-memory-checkpoint.ps1` writes the first-class
