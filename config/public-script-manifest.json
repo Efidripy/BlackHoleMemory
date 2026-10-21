@@ -504,6 +504,11 @@
       "release": true
     },
     {
+      "path": "scripts/check-undefined-globals.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/cutover-readiness.ps1",
       "role": "operator",
       "release": true

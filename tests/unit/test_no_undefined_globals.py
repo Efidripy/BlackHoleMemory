@@ -16,12 +16,7 @@ def _checker_module():
 
 
 # Keep this list explicit if the checker reveals a real pre-existing defect.
-KNOWN_ISSUES: list[dict[str, object]] = [
-    # Existing star-import boundary: these private helpers are not re-exported.
-    {"module": "blackholememory.agents.developer_agent.executor_nodes", "scope": "quarantine_retrieve_node", "name": "_trim_context_for_llm"},
-    {"module": "blackholememory.agents.developer_agent.executor_nodes", "scope": "generate_code_node", "name": "_trim_context_for_llm"},
-    {"module": "blackholememory.agents.developer_agent.executor_nodes", "scope": "bhm_flush_context", "name": "_extract_upserted_id"},
-]
+KNOWN_ISSUES: list[dict[str, object]] = []
 
 
 def test_blackholememory_has_no_undefined_globals():
