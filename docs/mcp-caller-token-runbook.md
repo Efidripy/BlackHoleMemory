@@ -46,6 +46,38 @@ http_headers_helper = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C
 перезапустите только Codex Desktop и подтвердите attach native `bhm_health`.
 BHM API перезапускать не требуется, если `/health/ready` уже возвращает `200`.
 
+## Операторская запись (`bhm_remember`)
+
+MCP-вызов `bhm_remember` пишет в авторитетную память только как оператор.
+Сервер считает вызов `/mcp` операторским, если bearer равен операторской
+капабилити `BHM_ADMIN_CAPABILITY` (либо она пришла в заголовке
+`x-bhm-admin-capability`); обычный `BHM_CALLER_TOKEN` даёт только доступ
+вызывающего, и запись отклоняется как `non_authoritative_ingress`. Капабилити
+не принимается из `_meta` и аргументов инструмента.
+
+- **Создание.** Скрипты запуска сервиса создают `BHM_ADMIN_CAPABILITY` в
+  пользовательском окружении, если её нет (существующая не перезаписывается и
+  не печатается). Ротация — `Rotate-BhmAdminCapability` из
+  `scripts/bhm-caller-credential.ps1`; после неё нужно перезапустить BHM и
+  клиентов.
+- **Claude Desktop.** Кнопка Inject в окне Integrations лаунчера записывает
+  `bhm` как stdio-мост `run-bhm-mcp-remote.ps1` из каталога плагина (секрет в
+  конфиг не пишется). Claude Desktop передаёт серверу только `Authorization`,
+  поэтому капабилити едет именно как bearer. Старая запись `url` +
+  `bearer_token_env_var` записи не даёт.
+- **Codex.** В `[mcp_servers.bhm]` оставьте `http_headers_helper` и укажите
+  `bearer_token_env_var = "BHM_ADMIN_CAPABILITY"`. Проверено: Codex CLI с
+  этими двумя настройками пишет память; конфигурация только с helper без
+  `bearer_token_env_var` в проверке не подключила сервер. Для Desktop-хостов без
+  user environment см. раздел выше и проверьте attach вручную: этот вариант в
+  операторской записи не проверялся.
+- **Диагностика.** Отказ `bhm_remember` содержит `operator_header`:
+  `absent(bearer=caller)` — клиент прислал обычный токен (запись клиента
+  откатилась, перезапустите Inject); `invalid` — прислано неверное значение.
+  Значения секретов нигде не возвращаются.
+- **Граница.** Капабилити — секрет оператора: не хранить в Git, `.docs`, BHM,
+  логах и конфигах клиентов.
+
 ## Проверка
 
 - `401` означает отсутствующий, просроченный или неверно переданный token.
