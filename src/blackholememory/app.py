@@ -38,6 +38,23 @@ from pydantic import BaseModel
 from qdrant_client.http import models as qdrant_models
 from starlette.routing import Route
 
+from .ui_session import BOOTSTRAP_TTL_SECONDS  # noqa: F401
+from .ui_session import SESSION_TTL_SECONDS  # noqa: F401
+from .ui_session import UiSessionRegistry  # noqa: F401
+from . import ui_routes
+from .ui_routes import (
+    _UI_SESSIONS,  # noqa: F401
+    _ui_browser_request_is_same_origin,  # noqa: F401
+    _ui_request_is_loopback,  # noqa: F401
+    bhm_human_ui_preview,  # noqa: F401
+    bhm_ui_boot_report,  # noqa: F401
+    bhm_ui_code_tools,  # noqa: F401
+    bhm_ui_session_bootstrap,  # noqa: F401
+    bhm_ui_session_exchange,  # noqa: F401
+    bhm_ui_session_mint,  # noqa: F401
+    bhm_ui_session_renew,  # noqa: F401
+    bhm_ui_session_status,  # noqa: F401
+)
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS  # noqa: F401
 from . import galaxy_routes
 from .galaxy_routes import (
@@ -353,14 +370,9 @@ from .caller_auth import extract_request_projects
 from .caller_auth import is_caller_token_valid
 from .caller_auth import MAX_PROJECT_INSPECTION_BYTES
 from .caller_auth import parse_bearer_token
-from .ui_session import BOOTSTRAP_TTL_SECONDS
-from .ui_session import SESSION_TTL_SECONDS
 from .ui_session import UI_SESSION_COOKIE
-from .ui_session import UiSessionRegistry
 from .ui_session import ui_session_route_allowed
-from .ui_origin_policy import browser_request_is_same_origin
 from .ui_origin_policy import request_host_parts
-from .ui_origin_policy import request_is_loopback
 from .ui_origin_policy import websocket_origin_is_allowed
 from .embedding_reuse import search_with_precomputed_embedding
 from .embedding_cache import EmbeddingCache
@@ -587,8 +599,6 @@ from .unified_mcp_contract import UnifiedMcpContractError
 from .unified_mcp_contract import build_unified_mcp_contract
 from .capability_router import CapabilityRouterError
 from .capability_router import build_capability_route_plan
-from .human_ui_bridge import HumanUiBridgeError
-from .human_ui_bridge import build_human_ui_bridge_preview
 from .migration_compatibility import MigrationCompatibilityError
 from .migration_compatibility import build_migration_preview
 from .security_trust_boundary import SecurityTrustBoundaryError
@@ -1914,30 +1924,12 @@ _MCP_STREAMABLE_HTTP = BhmStreamableHttpGateway(
     _handle_mcp_gateway_jsonrpc_async,
     server_version=BROKER_VERSION,
 )
-_UI_SESSIONS = UiSessionRegistry()
 MAX_UI_EXCHANGE_BODY_BYTES = 16 * 1024
 MAX_ADMIN_SNAPSHOT_BYTES = 16 * 1024 * 1024
 
 
 def _request_host_parts(host_header: str | None) -> tuple[str, str] | None:
     return request_host_parts(host_header, canonical_port=settings.port)
-
-
-def _ui_browser_request_is_same_origin(request: Request, *, require_origin: bool = False) -> bool:
-    return browser_request_is_same_origin(
-        host_header=request.headers.get("host"),
-        sec_fetch_site=request.headers.get("sec-fetch-site"),
-        origin_header=request.headers.get("origin"),
-        request_scheme=request.url.scheme,
-        canonical_port=settings.port,
-        require_origin=require_origin,
-    )
-
-
-def _ui_request_is_loopback(request: Request) -> bool:
-    """Allow direct browser bootstrap only from the local loopback listener."""
-
-    return request_is_loopback(getattr(request.client, "host", ""))
 
 
 def _websocket_origin_is_allowed(websocket: WebSocket, *, require_exact_origin: bool) -> bool:
@@ -12932,13 +12924,7 @@ def bhm_infra_boot_report() -> dict:
     return _read_boot_report()
 
 
-@app.get("/bhm/ui/boot-report")
-def bhm_ui_boot_report() -> dict[str, Any]:
-    """Return the redacted boot passport allowed to an authenticated UI session."""
-
-    report = _read_boot_report()
-    allowed = {"status", "elapsed_seconds", "qdrant", "lm_studio", "timestamp"}
-    return {key: report[key] for key in allowed if key in report}
+ui_routes.register(app)
 
 
 def _llm_governor() -> LLMResourceGovernor:
@@ -13030,27 +13016,6 @@ def bhm_conventions_preview(request: ConventionMemoryPreviewRequest) -> dict[str
     """Internal read-only convention/architecture-memory preview."""
 
     return _convention_memory_preview_response(request)
-
-
-@app.post("/bhm/ui/code-tools", include_in_schema=False)
-async def bhm_ui_code_tools(
-    request: PublicCodeToolRequest,
-    http_request: Request,
-) -> dict[str, Any]:
-    """Read-only UI proxy for the canonical code-tools contract.
-
-    The browser session must not gain the mutating index/watch/artifact-export
-    operations exposed to bearer-authenticated operators.
-    """
-
-    operation = str(request.operation).strip().casefold()
-    allowed = {"schema", "coverage", "code_search", "graph", "architecture", "impact_preview", "status"}
-    if operation not in allowed:
-        raise HTTPException(status_code=403, detail={"error": "ui_code_tool_operation_rejected"})
-    if operation == "code_search" and request.search_mode not in {"metadata", "symbol", "path"}:
-        raise HTTPException(status_code=403, detail={"error": "ui_code_search_mode_rejected"})
-    safe_request = request.model_copy(update={"include_snippets": False, "semantic_fusion": False, "apply": False})
-    return await bhm_public_code_tools(safe_request, http_request)
 
 
 @app.post("/bhm/change-impact/preview", include_in_schema=False)
@@ -13341,30 +13306,6 @@ def bhm_capability_router_preview(request: CapabilityRoutePreviewRequest) -> dic
         )
     except CapabilityRouterError as exc:
         raise HTTPException(status_code=422, detail={"error": "capability_route_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
-
-
-@app.post("/bhm/human-ui/preview", include_in_schema=False)
-def bhm_human_ui_preview(request: HumanUiBridgePreviewRequest) -> dict[str, Any]:
-    """Internal bounded human-surface and optional Obsidian preview."""
-
-    try:
-        return build_human_ui_bridge_preview(
-            project=rt._canonical_project(request.project) if request.project else None,
-            nodes=request.nodes,
-            links=request.links,
-            selected_id=request.selected_id,
-            provenance=request.provenance,
-            review_items=request.review_items,
-            task_items=request.task_items,
-            context_packet=request.context_packet,
-            mcp_state=request.mcp_state,
-            obsidian_export=request.obsidian_export,
-            obsidian_import=request.obsidian_import,
-            snapshot_id=request.snapshot_id,
-            generated_at=request.generated_at,
-        )
-    except HumanUiBridgeError as exc:
-        raise HTTPException(status_code=422, detail={"error": "human_ui_preview_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
 
 
 @app.post("/bhm/migration/preview", include_in_schema=False)
@@ -13664,175 +13605,6 @@ galaxy_routes.register(app)
 def bhm_launcher_stats() -> dict[str, Any]:
     """Return bounded all-project counters for the local launcher dashboard."""
     return _get_global_launcher_stats()
-
-
-@app.post("/bhm/ui/session/mint")
-def bhm_ui_session_mint(request: Request) -> JSONResponse:
-    if not _ui_request_is_loopback(request):
-        return JSONResponse(
-            status_code=403,
-            headers={"Cache-Control": "no-store"},
-            content={"detail": {"code": "ui_session_mint_loopback_only"}},
-        )
-    principal = getattr(request.state, "bhm_caller_principal", None)
-    if principal is None:
-        raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
-    bootstrap_token = _UI_SESSIONS.mint_bootstrap(principal)
-    return JSONResponse(
-        content={
-            "ok": True,
-            "schema_version": "bhm.ui.bootstrap.v1",
-            "bootstrap_token": bootstrap_token,
-            "expires_in_seconds": int(BOOTSTRAP_TTL_SECONDS),
-        },
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@app.get("/bhm/ui/session/bootstrap")
-def bhm_ui_session_bootstrap(request: Request) -> JSONResponse:
-    """Return a launcher-issued bootstrap token or confirm an existing session."""
-
-    principal = getattr(request.state, "bhm_caller_principal", None)
-    if (principal is None and not _ui_request_is_loopback(request)) or not _ui_browser_request_is_same_origin(request):
-        return JSONResponse(
-            status_code=403,
-            headers={"Cache-Control": "no-store"},
-            content={"detail": {"code": "ui_direct_bootstrap_loopback_only"}},
-        )
-    existing = None
-    if principal is not None:
-        existing = _UI_SESSIONS.resolve_session(
-            request.cookies.get(UI_SESSION_COOKIE),
-            expected_principal=principal,
-        )
-    if existing is not None:
-        return JSONResponse(
-            content={
-                "ok": True,
-                "schema_version": "bhm.ui.bootstrap.v1",
-                "session": True,
-                "expires_in_seconds": int(SESSION_TTL_SECONDS),
-            },
-            headers={"Cache-Control": "no-store"},
-        )
-    if principal is None:
-        return JSONResponse(
-            status_code=401,
-            headers={"Cache-Control": "no-store"},
-            content={"detail": {"code": "ui_launcher_bootstrap_required"}},
-        )
-    bootstrap_token = _UI_SESSIONS.mint_bootstrap(principal)
-    return JSONResponse(
-        content={
-            "ok": True,
-            "schema_version": "bhm.ui.bootstrap.v1",
-            "session": False,
-            "bootstrap_token": bootstrap_token,
-            "expires_in_seconds": int(BOOTSTRAP_TTL_SECONDS),
-        },
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-@app.post("/bhm/ui/session/exchange")
-def bhm_ui_session_exchange(request: Request, payload: UiSessionExchangeRequest) -> JSONResponse:
-    if not _ui_browser_request_is_same_origin(request, require_origin=True):
-        return JSONResponse(
-            status_code=403,
-            content={"detail": {"code": "ui_session_origin_rejected"}},
-        )
-    configured_principal = configured_caller_principal()
-    if configured_principal is None:
-        return JSONResponse(
-            status_code=503,
-            headers={"Cache-Control": "no-store"},
-            content={"detail": {"code": "caller_auth_not_configured"}},
-        )
-    exchanged = _UI_SESSIONS.exchange_bootstrap(
-        payload.bootstrap_token,
-        expected_principal=configured_principal,
-    )
-    if exchanged is None:
-        return JSONResponse(
-            status_code=401,
-            headers={"Cache-Control": "no-store"},
-            content={"detail": {"code": "ui_bootstrap_invalid_or_expired"}},
-        )
-    session_token, _principal = exchanged
-    response = JSONResponse(
-        content={
-            "ok": True,
-            "schema_version": "bhm.ui.session.v1",
-            "expires_in_seconds": int(SESSION_TTL_SECONDS),
-        },
-        headers={"Cache-Control": "no-store"},
-    )
-    response.set_cookie(
-        key=UI_SESSION_COOKIE,
-        value=session_token,
-        max_age=int(SESSION_TTL_SECONDS),
-        path="/",
-        secure=request.url.scheme.casefold() == "https",
-        httponly=True,
-        samesite="strict",
-    )
-    return response
-
-
-@app.post("/bhm/ui/session/renew")
-def bhm_ui_session_renew(request: Request) -> JSONResponse:
-    if not _ui_browser_request_is_same_origin(request, require_origin=True):
-        return JSONResponse(
-            status_code=403,
-            headers={"Cache-Control": "no-store"},
-            content={"detail": {"code": "ui_session_origin_rejected"}},
-        )
-    session_token = str(request.cookies.get(UI_SESSION_COOKIE) or "")
-    renewed = _UI_SESSIONS.renew_session(
-        session_token,
-        expected_principal=getattr(request.state, "bhm_caller_principal", None),
-    )
-    if renewed is None:
-        return JSONResponse(
-            status_code=401,
-            headers={"Cache-Control": "no-store"},
-            content={"detail": {"code": "ui_session_expired"}},
-        )
-    _principal, lease_seconds, renewed_session_token = renewed
-    response = JSONResponse(
-        content={
-            "ok": True,
-            "schema_version": "bhm.ui.session.v1",
-            "renewed": True,
-            "expires_in_seconds": int(lease_seconds),
-        },
-        headers={"Cache-Control": "no-store"},
-    )
-    response.set_cookie(
-        key=UI_SESSION_COOKIE,
-        value=renewed_session_token,
-        max_age=int(lease_seconds),
-        path="/",
-        secure=request.url.scheme.casefold() == "https",
-        httponly=True,
-        samesite="strict",
-    )
-    return response
-
-
-@app.get("/bhm/ui/session/status")
-def bhm_ui_session_status(request: Request) -> dict:
-    principal = getattr(request.state, "bhm_caller_principal", None)
-    return {
-        "ok": True,
-        **_UI_SESSIONS.snapshot(),
-        "authenticated": principal is not None,
-        "auth_kind": str(getattr(request.state, "bhm_auth_kind", "unknown")),
-        "caller_id": principal.caller_id if principal is not None else "",
-        "all_projects": bool(principal and principal.all_projects),
-        "allowed_project_count": len(principal.allowed_projects) if principal is not None else 0,
-    }
 
 
 @app.websocket("/bhm/ws")
@@ -16506,4 +16278,9 @@ galaxy_routes.configure(
     _memory_lifecycle=lambda *a, **k: _memory_lifecycle(*a, **k),
     _memory_matches_filters=lambda *a, **k: _memory_matches_filters(*a, **k),
     _require_typed_memory_boundary=lambda *a, **k: _require_typed_memory_boundary(*a, **k),
+)
+
+
+ui_routes.configure(
+    _read_boot_report=lambda *a, **k: _read_boot_report(*a, **k),
 )
