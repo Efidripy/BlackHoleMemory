@@ -26,6 +26,8 @@ if ($Authoritative) {
 $localLlmModelsProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'local_llm_models'
 $callerCredential = Initialize-BhmCallerCredential
 Write-Host "[INFO] BHM caller credential ready: source=$($callerCredential.source) fingerprint=$($callerCredential.fingerprint)"
+$adminCapability = Initialize-BhmAdminCapability
+Write-Host "[INFO] BHM admin capability ready: source=$($adminCapability.source) length=$($adminCapability.length)"
 
 function Import-ExplicitOperatorFeatureConfiguration {
   # Windows does not update the environment block of an already-open parent
