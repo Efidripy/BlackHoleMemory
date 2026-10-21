@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
-import logging
 import threading
 import time
 from typing import Any
@@ -22,7 +21,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import Receive, Scope, Send
 
 from .caller_auth import authorize_projects
-from .capability import ADMIN_CAPABILITY_HEADER, MCP_OPERATOR_SESSION, is_admin_capability_valid
+from .capability import ADMIN_CAPABILITY_HEADER, MCP_OPERATOR_HEADER_STATE, MCP_OPERATOR_SESSION, is_admin_capability_valid
 from .caller_auth import configured_caller_principal
 from .caller_auth import extract_request_projects
 from .caller_auth import is_caller_token_valid
@@ -827,12 +826,8 @@ class BhmStreamableHttpGateway:
                 headers = None
             supplied = headers.get(ADMIN_CAPABILITY_HEADER, "") if headers else ""
             operator = bool(supplied) and is_admin_capability_valid(supplied)
-            if name == "bhm_remember":
-                # State only, never the value: tells "client did not send it" from "sent a wrong one".
-                logging.getLogger("uvicorn.error").info(
-                    "mcp bhm_remember operator header: %s", "valid" if operator else ("invalid" if supplied else "absent")
-                )
             marker = MCP_OPERATOR_SESSION.set(operator)
+            state_marker = MCP_OPERATOR_HEADER_STATE.set("valid" if operator else ("invalid" if supplied else "absent"))
             try:
                 response = await self._dispatch(
                     {
@@ -843,6 +838,7 @@ class BhmStreamableHttpGateway:
                     }
                 )
             finally:
+                MCP_OPERATOR_HEADER_STATE.reset(state_marker)
                 MCP_OPERATOR_SESSION.reset(marker)
             return types.CallToolResult.model_validate(_result(response, method="tools/call"))
 
