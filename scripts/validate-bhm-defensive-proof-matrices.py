@@ -43,7 +43,7 @@ PROJECT_SINKS = (
     SinkExpectation("hook-queue", "project", "hook_queue_sqlite", "src/blackholememory/hook_queue.py", "project_filtered", ("_scoped_event_id", "AND project = ?"), "tests/unit/test_stream_e_integrity.py"),
     SinkExpectation("observations", "project", "observation_sqlite", "src/blackholememory/observation_store.py", "project_filtered", ("_scoped_event_id", "e.project = ?"), "tests/unit/test_stream_e_integrity.py"),
     SinkExpectation("repository-index", "project", "repository_index_sqlite", "src/blackholememory/repository_index.py", "project_filtered", ("current.project = ? AND current.root_id = ?", "snapshot.get(\"project\")"), "tests/unit/test_project_scope.py"),
-    SinkExpectation("code-graph", "project", "code_graph_sqlite", "src/blackholememory/code_graph.py", "project_filtered", ("WHERE current.project=? AND current.root_id=?", "snapshot.get(\"project\")"), "tests/unit/test_project_scope.py"),
+    SinkExpectation("code-graph", "project", "code_graph_sqlite", "src/blackholememory/code_graph/store.py", "project_filtered", ("WHERE current.project=? AND current.root_id=?", "snapshot.get(\"project\")"), "tests/unit/test_project_scope.py"),
     SinkExpectation("admin-export", "project", "export", "src/blackholememory/app.py", "project_required", ("/bhm/admin/export", "caller_project_scope_requires_explicit"), "tests/unit/test_admin_snapshot_contract.py"),
     SinkExpectation("llm-cache-status", "project", "llm_cache", "src/blackholememory/app.py", "auth_only_aggregate", ("def bhm_llm_cache_status", "without returning payloads"), "tests/integration/test_caller_auth_boundary.py"),
 )
