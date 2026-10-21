@@ -1038,7 +1038,7 @@
     "name": "bhm_galaxy_data",
     "operation_id": "bhm_galaxy_data_bhm_galaxy_data_get",
     "path": "/bhm/galaxy/data",
-    "response_model": "blackholememory.app.GalaxyDataResponse",
+    "response_model": "blackholememory.api_models.GalaxyDataResponse",
     "tags": []
   },
   {
@@ -1052,7 +1052,7 @@
     "name": "bhm_galaxy_stats",
     "operation_id": "bhm_galaxy_stats_bhm_galaxy_stats_get",
     "path": "/bhm/galaxy/stats",
-    "response_model": "blackholememory.app.GalaxyStatsResponse",
+    "response_model": "blackholememory.api_models.GalaxyStatsResponse",
     "tags": []
   },
   {
@@ -1080,7 +1080,7 @@
     "name": "bhm_launcher_stats",
     "operation_id": "bhm_launcher_stats_bhm_telemetry_launcher_get",
     "path": "/bhm/telemetry/launcher",
-    "response_model": "blackholememory.app.LauncherStatsResponse",
+    "response_model": "blackholememory.api_models.LauncherStatsResponse",
     "tags": []
   },
   {
