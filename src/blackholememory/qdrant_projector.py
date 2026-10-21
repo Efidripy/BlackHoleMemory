@@ -556,7 +556,11 @@ class QdrantProjector:
                         if memory.lifecycle is Lifecycle.TOMBSTONED:
                             continue
                         return False
-                except Exception:
+                except Exception as exc:  # broad: projection read checks degrade safely when client is unavailable
+                    _LOGGER.warning(
+                        "projection_collection_check_failed",
+                        extra={"collection": collection_name, "exception_type": type(exc).__name__},
+                    )
                     return False
             try:
                 points = retrieve(
@@ -565,7 +569,11 @@ class QdrantProjector:
                     with_payload=True,
                     with_vectors=False,
                 )
-            except Exception:
+            except Exception as exc:  # broad: projection read checks degrade safely when client is unavailable
+                _LOGGER.warning(
+                    "projection_point_retrieve_failed",
+                    extra={"collection": collection_name, "exception_type": type(exc).__name__},
+                )
                 return False
             if memory.lifecycle is Lifecycle.TOMBSTONED:
                 if points:
@@ -633,7 +641,11 @@ class QdrantProjector:
                     )
                     if len(points) == 1:
                         existing_payload = dict(getattr(points[0], "payload", None) or {})
-                except Exception:
+                except Exception as exc:  # broad: stale projection reads must not block authoritative replay
+                    _LOGGER.warning(
+                        "projection_existing_payload_read_failed",
+                        extra={"collection": collection_name, "exception_type": type(exc).__name__},
+                    )
                     existing_payload = {}
             identity_matches = bool(existing_payload) and all(
                 (
@@ -750,7 +762,7 @@ class QdrantProjector:
                 )
                 outcomes.append(outcome)
                 completed += 1
-            except Exception as exc:
+            except Exception as exc:  # broad: classify and record any per-event projection failure
                 if is_projection_infrastructure_error(exc):
                     classification = "infrastructure_unavailable"
                     infrastructure_error = bounded_projection_error(exc)
@@ -773,7 +785,7 @@ class QdrantProjector:
                                 lease_generation=lease_generation,
                             )
                             deferred += 1
-                        except Exception as record_exc:
+                        except Exception as record_exc:  # broad: failure recording must not abort remaining handling
                             _LOGGER.exception(
                                 "projection_deferral_recording_failed",
                                 extra={
@@ -831,7 +843,7 @@ class QdrantProjector:
                                 "error": str(exc)[:2000],
                             },
                         )
-                    except Exception as record_exc:
+                    except Exception as record_exc:  # broad: failure recording must not abort remaining handling
                         _LOGGER.exception(
                             "projection_failure_recording_failed",
                             extra={
