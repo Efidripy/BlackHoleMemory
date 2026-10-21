@@ -615,7 +615,7 @@ def test_launcher_quick_links_put_home_first_and_galaxy_second() -> None:
 
 
 def test_operator_drawer_foundation_is_collapsed_and_data_driven() -> None:
-    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8") + (SCRIPTS_ROOT / "bhm_launcher_theme.py").read_text(encoding="utf-8")
 
     assert launcher.OPERATOR_LINKS == ()
     assert 'button = QPushButton("TOOLS  ›", self)' in source
