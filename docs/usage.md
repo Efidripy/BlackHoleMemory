@@ -243,23 +243,17 @@ untrusted reverse proxy, and do not treat `X-Forwarded-*` headers as an
 authentication signal. A proxy deployment must preserve the loopback boundary
 and explicitly authenticate before forwarding requests.
 
-The launcher **Galaxy Viewer** link opens a local selector. It offers the
-current 3D **Galaxy / Night Sky** at `/bhm/galaxy/classic` and the separate
-read-only **Atlas knowledge map** at `/bhm/atlas`. Atlas is a local AntV G6
-3D map: it renders the existing bounded SQLite graph as spheres and 3D lines
-with local light and a perspective camera. Its project territories are derived
-only to keep existing memory records visibly separated; they are not a factual
-relationship or vector-distance claim, and raw observations never become
-visual nodes. The selector exchanges the
-one-time fragment bootstrap for the same-origin HttpOnly UI session before
-navigation, then forwards only the non-secret `project` query value. It never
-places the bootstrap token in a destination URL, persists it, or writes memory
-data. Atlas uses pinned local `@antv/g6` v`5.1.1` and
-`@antv/g6-extension-3d` v`0.1.23` bundles under the MIT license
-([G6 notice](../src/blackholememory/static/G6-LICENSE.txt),
-[3D extension notice](../src/blackholememory/static/G6-EXTENSION-3D-LICENSE.txt)),
-makes no third-party request, and reads the same launcher-bound Galaxy data
-contract.
+The launcher **Galaxy Viewer** link opens the **Atlas** at `/bhm/galaxy`: one
+read-only 3D map of every active memory. Points are placed from their real
+embeddings (cosine kNN, a minimum-spanning-tree skeleton and persisted memory
+links), grouped around one mother node per project. The layout is built in a
+background thread from Qdrant vectors and cached under
+`<runtime>/galaxy/atlas-cache.json`; the first build takes a few minutes. The page
+exchanges the one-time fragment bootstrap for the same-origin HttpOnly UI session,
+reads `GET /bhm/galaxy/atlas` (all-projects operator only), never places the
+bootstrap token in a URL, persists it, or writes memory data. The previous Night Sky
+viewer stays at `/bhm/galaxy/classic` and opens inside the Atlas **Инструменты**
+drawer.
 
 Atlas controls remain visual-only: drag a sphere directly to tug it, then watch
 it snap back to its derived territory; drag empty space to pan; use

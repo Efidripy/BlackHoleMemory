@@ -84,8 +84,7 @@ Canonical local endpoints:
 | --- | --- |
 | BHM API | `http://127.0.0.1:8000/bhm/` |
 | MCP | `http://127.0.0.1:8000/mcp` |
-| Galaxy UI | `http://127.0.0.1:8000/bhm/galaxy` (open through the trusted launcher) |
-| Atlas UI | `http://127.0.0.1:8000/bhm/atlas` (open through the trusted launcher) |
+| Galaxy UI (Atlas) | `http://127.0.0.1:8000/bhm/galaxy` (open through the trusted launcher) |
 | Readiness | `http://127.0.0.1:8000/health/ready` |
 | Qdrant dashboard | `http://127.0.0.1:6333/dashboard/` |
 
@@ -149,7 +148,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-bhm-authorit
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
 ```
 
-Точки доступа: API — `http://127.0.0.1:8000/bhm/`, MCP — `http://127.0.0.1:8000/mcp`, Galaxy — `http://127.0.0.1:8000/bhm/galaxy`, Atlas — `http://127.0.0.1:8000/bhm/atlas` через доверенный launcher. Galaxy — прежний Night Sky; Atlas — отдельная read-only AntV G6 3D knowledge map: локальные сферы, 3D-линии, свет и perspective camera. Project territories вычисляются только для читаемого разнесения существующих SQLite-записей, а не утверждают семантическое расстояние. Подробности: [`docs/getting-started.md`](docs/getting-started.md), [`docs/usage.md`](docs/usage.md), [`docs/mcp-caller-token-runbook.md`](docs/mcp-caller-token-runbook.md).
+Точки доступа: API — `http://127.0.0.1:8000/bhm/`, MCP — `http://127.0.0.1:8000/mcp`, Galaxy (Atlas) — `http://127.0.0.1:8000/bhm/galaxy` через доверенный launcher. Atlas — read-only 3D-карта всей памяти: каждая запись — светящаяся точка, расставленная по реальным эмбеддингам (kNN, скелет связей и сохранённые relations), с материнским узлом у каждого проекта, свободным вращением и «тягой». Раскладка строится в фоне и кешируется; прежний Night Sky остаётся на `/bhm/galaxy/classic` и открывается кнопкой «Инструменты». Подробности: [`docs/getting-started.md`](docs/getting-started.md), [`docs/usage.md`](docs/usage.md), [`docs/mcp-caller-token-runbook.md`](docs/mcp-caller-token-runbook.md).
 
 Benchmark в репозитории — frozen-fixture evidence, а не telemetry реальных пользователей. Основной прогон: 1,000 кейсов × 10 повторов; отдельный local-model replay: 111 × 3 для двух режимов, всего 666 вызовов. Отдельный [local-model quality gate](docs/local-model-quality.md) проверяет только уже загруженную точную модель на синтетическом answer-contract; `100%` в нём не является утверждением о всеобщей точности. Секреты, базы, `.runtime`, `.docs`, `.src` и ключи подписи не публикуются.
 
