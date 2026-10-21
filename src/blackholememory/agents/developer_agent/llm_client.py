@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from . import _core as _core_module
 from ._common import *  # noqa: F401,F403
 from ._common import _run_coroutine_sync
 from .swarm_tools import (
@@ -224,7 +223,7 @@ class LocalLLMClient:
             content, tokens = response
             if content:
                 solutions.append(content)
-            token_totals = _core_module._merge_tokens(token_totals, tokens)
+            token_totals = _merge_tokens(token_totals, tokens)
 
         if not solutions:
             raise RuntimeError("local LLM returned no usable solution variants: " + "; ".join(errors))
@@ -555,7 +554,7 @@ class LocalLLMClient:
             content, tokens = response
             if content:
                 solutions.append(content)
-            token_totals = _core_module._merge_tokens(token_totals, tokens)
+            token_totals = _merge_tokens(token_totals, tokens)
 
         if not solutions:
             raise RuntimeError("engineer-coder returned no usable code variants: " + "; ".join(errors))
@@ -664,7 +663,7 @@ async def analyze_screenshot(file_path: str, context_query: str) -> str:
         _read_bhm_env("OPENAI_BASE_URL", endpoint_url("llm_default")),
         _read_bhm_env("OPENAI_VISION_MODEL", _read_bhm_env("VISION_MODEL", _read_bhm_env("OPENAI_MODEL", "qwen2.5-coder-7b-instruct"))),
         _read_bhm_env("OPENAI_API_KEY", ""),
-        _core_module.BHMAgentExecutor.timeout,
+        LLM_HTTP_TIMEOUT_SECONDS,
     )
     prompt = (
         "Analyze this screenshot for the BHM Swarm agent before QA verdict.\n"
@@ -711,7 +710,7 @@ async def _call_local_llm_for_web_fact(
         },
     ]
     content, tokens = await llm._chat_completion_async(messages, temperature=0.0)
-    return _core_module._normalize_extracted_web_fact(_core_module._extract_json_object(content)), tokens
+    return _normalize_extracted_web_fact(_extract_json_object(content)), tokens
 
 
 async def call_local_llm(system_prompt: str, *, context: str) -> dict[str, Any] | None:
@@ -719,7 +718,7 @@ async def call_local_llm(system_prompt: str, *, context: str) -> dict[str, Any] 
         _read_bhm_env("OPENAI_BASE_URL", endpoint_url("llm_default")),
         _read_bhm_env("OPENAI_MODEL", "qwen2.5-coder-7b-instruct"),
         _read_bhm_env("OPENAI_API_KEY", ""),
-        _core_module.BHMAgentExecutor.timeout,
+        LLM_HTTP_TIMEOUT_SECONDS,
     )
     fact, _tokens = await _call_local_llm_for_web_fact(system_prompt, context=context, llm=llm)
     return fact
