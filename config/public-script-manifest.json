@@ -89,6 +89,11 @@
       "release": true
     },
     {
+      "path": "scripts/diff-route-table.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/dump-bhm-route-table.py",
       "role": "operator",
       "release": true
@@ -494,6 +499,11 @@
       "release": true
     },
     {
+      "path": "scripts/check-import-cycles.py",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/cutover-readiness.ps1",
       "role": "operator",
       "release": true
@@ -515,6 +525,16 @@
     },
     {
       "path": "scripts/list-app-source-readers.py",
+      "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/list-broad-excepts.py",
+      "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/list-long-functions.py",
       "role": "operator",
       "release": true
     },
@@ -601,6 +621,11 @@
     {
       "path": "scripts/recover-qdrant.ps1",
       "role": "runtime",
+      "release": true
+    },
+    {
+      "path": "scripts/report-module-sizes.py",
+      "role": "operator",
       "release": true
     },
     {
