@@ -1746,7 +1746,7 @@ def _offline_report(
         raise SemanticAssuranceReadinessError("readiness offline report has unsafe or missed-conflict outcomes")
     try:
         derived = recompute_semantic_assurance_results(value.get("results"))
-    except Exception as exc:
+    except Exception as exc:  # broad: convert derived-result failures into fail-closed readiness errors
         raise SemanticAssuranceReadinessError("readiness offline results cannot be recomputed") from exc
     if value.get("prediction_digest") != derived["prediction_digest"] or value.get("results_digest") != derived["results_digest"]:
         raise SemanticAssuranceReadinessError("readiness offline prediction or result digest is not derived from results")
@@ -1975,7 +1975,7 @@ def _risk_stratified_metrics(results: object) -> dict[str, dict[str, dict[str, d
         from .semantic_assurance_label_admission import _v6_sealed_risk_label_matrix_binding
 
         matrix = _v6_sealed_risk_label_matrix_binding(case_rows, adjudications)
-    except Exception as exc:
+    except Exception as exc:  # broad: convert risk-label matrix failures into fail-closed readiness errors
         raise SemanticAssuranceReadinessError("readiness risk-label matrix is invalid") from exc
     return {
         risk: {

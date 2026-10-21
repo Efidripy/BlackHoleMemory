@@ -256,7 +256,7 @@ def tool_write_scratchpad(
             needs_separator = current_size > 0
             append_bytes_safely(path, separator + encoded_entry if needs_separator else encoded_entry)
         return f"Scratchpad appended by {role}."
-    except Exception as exc:
+    except Exception as exc:  # broad: return a stable tool error for scratchpad write failures
         return f"{SCRATCHPAD_ERROR_PREFIX} {exc}"
 
 
@@ -282,7 +282,7 @@ def tool_read_scratchpad(
             return SCRATCHPAD_EMPTY_MESSAGE
         tail = "\n".join(_sanitize_controls(line) for line in lines[-line_count:])
         return f"{UNTRUSTED_HANDOFF_HEADER}\n{tail}"
-    except Exception as exc:
+    except Exception as exc:  # broad: return a stable tool error for scratchpad read failures
         return f"{SCRATCHPAD_ERROR_PREFIX} {exc}"
 
 
@@ -301,7 +301,7 @@ def tool_clear_scratchpad(
             path = _validate_path(path, isolated=isolated)
             replace_bytes_safely(path, b"")
         return "Scratchpad cleared."
-    except Exception as exc:
+    except Exception as exc:  # broad: return a stable tool error for scratchpad clear failures
         return f"{SCRATCHPAD_ERROR_PREFIX} {exc}"
 
 

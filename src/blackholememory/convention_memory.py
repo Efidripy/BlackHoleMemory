@@ -520,7 +520,7 @@ class SQLiteConventionMemoryStore:
                 connection.execute("INSERT OR IGNORE INTO repository_convention_meta(key,value) VALUES('extractor_version',?)", (CONVENTION_EXTRACTOR_VERSION,))
                 connection.commit()
                 self._initialized = True
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -593,7 +593,7 @@ class SQLiteConventionMemoryStore:
                 connection.execute("UPDATE repository_convention_snapshots SET status='completed', completed_at=? WHERE convention_snapshot_id=?", (_utc_now(), snapshot_id))
                 connection.execute("INSERT OR REPLACE INTO repository_convention_current(project,root_id,convention_snapshot_id,updated_at) VALUES(?,?,?,?)", (material.get("project"), material.get("root_id"), snapshot_id, _utc_now()))
                 connection.commit()
-            except Exception:
+            except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
                 connection.rollback()
                 raise
             finally:
@@ -634,7 +634,7 @@ class SQLiteConventionMemoryStore:
                 (_canonical_json(summary), current["convention_snapshot_id"]),
             )
             connection.commit()
-        except Exception:
+        except Exception:  # broad: rollback transaction before re-raising to preserve failure semantics
             connection.rollback()
             raise
         finally:

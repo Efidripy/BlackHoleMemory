@@ -282,7 +282,7 @@ def _issue_code(value: Any) -> str:
 def _adapter_record(generator: Any, adapter: Any, repo_root: Path) -> dict[str, Any]:
     try:
         raw = generator._check_adapter(adapter, repo_root=_admit_repo_root(repo_root))
-    except Exception:  # pragma: no cover - defensive boundary around a local tool
+    except Exception:  # broad: convert local adapter inspection failures into a redacted report entry
         raw = {"ok": False, "exists": False, "issues": ["adapter_check_failed"]}
     return {
         "client": _safe_label(getattr(adapter, "client", "unknown"), maximum=24),
@@ -583,7 +583,7 @@ def execute_reconnect(
                         manifest_digest = _sha256_file(manifest_path)
                         action_status = "client_reload_required"
                         reason_code = "client_restart_api_unavailable"
-                except Exception:  # pragma: no cover - defensive local filesystem boundary
+                except Exception:  # broad: fail closed when local adapter application cannot be verified
                     action_status = "blocked"
                     reason_code = "adapter_apply_failed"
 
@@ -686,7 +686,7 @@ def execute_rollback(
     generator, _adapters = _adapter_context(Path(repo_root), selected)
     try:
         raw = generator.run_rollback(backup_dir)
-    except Exception as exc:  # pragma: no cover - defensive local filesystem boundary
+    except Exception as exc:  # broad: convert local rollback failures into the public repair error
         raise McpRepairError("adapter rollback failed") from exc
     panel = dict(panel_after())
     adapters, _generator, _selected = _adapter_snapshot(Path(repo_root), selected)

@@ -400,7 +400,7 @@ class LLMCacheStore:
                     )
                     self._evict_locked(connection, now)
                     connection.commit()
-                except Exception:
+                except Exception:  # broad: rollback transaction before re-raising to preserve cache failure semantics
                     connection.rollback()
                     raise
             return {
@@ -521,7 +521,7 @@ class LLMCacheStore:
                     )
                     cursor = connection.execute(query, [invalidated_at, normalized_reason, *values])
                     connection.commit()
-                except Exception:
+                except Exception:  # broad: rollback transaction before re-raising to preserve cache failure semantics
                     connection.rollback()
                     raise
             return {

@@ -185,7 +185,7 @@ def _evaluate_model_case(case: Mapping[str, Any], completion: "_CountingCompleti
             retrieved_records=_canonical_records(case["records"]),
             completion=completion,
         )
-    except Exception as exc:  # evaluator must turn every local-model failure into a redacted receipt
+    except Exception as exc:  # broad: turn every local-model failure into a redacted receipt
         return _failed_result(case, _failure_class(exc), model_called=True)
     return _proposal_result(case, proposal, model_called=True)
 
@@ -217,7 +217,7 @@ def _evaluate_cross_project_preflight(case: Mapping[str, Any], completion: "_Cou
                 "no_auto_apply": True,
             },
         }
-    except Exception as exc:  # preserve the fail-closed preflight as a reportable evaluator failure
+    except Exception as exc:  # broad: preserve the fail-closed preflight as a reportable evaluator failure
         return _failed_result(case, _failure_class(exc), model_called=completion.calls > calls_before)
     return _failed_result(case, "cross_project_evidence_was_accepted", model_called=completion.calls > calls_before)
 
