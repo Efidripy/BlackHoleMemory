@@ -7,6 +7,7 @@ import types
 
 from . import _common as _common
 from . import _core as _core
+from . import executor_shared as executor_shared
 from . import llm_client as llm_client
 from . import quarantine as quarantine
 from . import swarm_tools as swarm_tools
@@ -42,14 +43,15 @@ class _DeveloperAgentFacadeModule(types.ModuleType):
     """Keep legacy facade monkeypatches bound to their owning split module."""
 
     _PATCH_TARGETS = {
-        "_MCP_PLAYWRIGHT_SEARCH_PROVIDER": (_common,),
-        "_SPECULATIVE_RAG_SEARCH_PROVIDER": (_common,),
-        "_read_bhm_env": (_common, _core, llm_client),
+        "_MCP_PLAYWRIGHT_SEARCH_PROVIDER": (_common, executor_shared),
+        "_SPECULATIVE_RAG_SEARCH_PROVIDER": (_common, executor_shared),
+        "_read_bhm_env": (_common, _core, llm_client, executor_shared),
         "configured_caller_token": (_common,),
         "analyze_screenshot": (swarm_tools,),
         "_repo_root": (_common, quarantine),
-        "_is_pid_running": (swarm_tools, _core),
+        "_is_pid_running": (swarm_tools, _core, executor_shared),
         "_grace_wait": (swarm_tools,),
+        "_terminate_spawned_pid_tree": (executor_shared, _core),
     }
 
     def __setattr__(self, name, value):
