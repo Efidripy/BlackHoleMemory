@@ -17,6 +17,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
+. (Join-Path $repoRoot 'scripts\bhm-caller-credential.ps1')
 $localLlmModelsProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'local_llm_models'
 $authoritativeHealthProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'authoritative_health'
 $authoritativeReadyProbeTimeoutSec = Get-BhmOperatorProbeTimeout -Name 'authoritative_ready'
@@ -375,6 +376,8 @@ if ($StopOnly) {
   } | ConvertTo-Json -Depth 4
   exit 0
 }
+$adminCapability = Initialize-BhmAdminCapability
+Write-Host "[INFO] BHM admin capability ready: source=$($adminCapability.source) length=$($adminCapability.length)"
 Set-AuthoritativeSourceIdentity
 Set-AuthoritativeEnvironment
 $initial = Get-ContractSnapshot -BaseUrl $BaseUrl
