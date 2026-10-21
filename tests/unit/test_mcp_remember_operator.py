@@ -39,8 +39,10 @@ def writes(monkeypatch) -> list[Any]:
     return calls
 
 
-async def _post(client: httpx.AsyncClient, message: dict[str, Any], *, session_id: str = "", admin: str | None = None):
+async def _post(client: httpx.AsyncClient, message: dict[str, Any], *, session_id: str = "", admin: str | None = None, bearer: str | None = None):
     headers = dict(BASE_HEADERS)
+    if bearer is not None:
+        headers["authorization"] = "Bearer " + bearer
     if session_id:
         headers["mcp-protocol-version"] = "2025-06-18"
         headers["mcp-session-id"] = session_id
@@ -149,3 +151,47 @@ def test_operator_bit_does_not_leak_between_requests_of_one_session(writes):
 
     asyncio.run(_exercise(scenario))
     assert len(writes) == 1
+
+
+def test_operator_capability_as_bearer_authenticates_and_writes(writes):
+    async def scenario(client):
+        init = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}},
+        }
+        response = await _post(client, init, bearer=ADMIN)
+        assert response.status_code == 200
+        sid = response.headers["mcp-session-id"]
+        await _post(client, {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}, session_id=sid, bearer=ADMIN)
+        call = {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "bhm_remember", "arguments": {"content": "durable fact", "project": "blackholememory"}}}
+        result = await _post(client, call, session_id=sid, bearer=ADMIN)
+        body = _structured(result.json())
+        assert body["success"] is True
+        assert ADMIN not in json.dumps(result.json())
+
+    asyncio.run(_exercise(scenario))
+    assert len(writes) == 1
+
+
+def test_unknown_bearer_is_still_unauthorized(writes):
+    async def scenario(client):
+        init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}}}
+        assert (await _post(client, init, bearer="not-the-capability")).status_code == 401
+
+    asyncio.run(_exercise(scenario))
+    assert writes == []
+
+
+def test_full_app_guard_lets_operator_bearer_reach_mcp_but_nothing_else(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("BHM_ADMIN_CAPABILITY", ADMIN)
+    client = TestClient(bhm_app.app, raise_server_exceptions=False)
+    mcp_wrong = client.get("/mcp", headers={"authorization": "Bearer nope", "accept": "text/event-stream"})
+    assert mcp_wrong.status_code == 401
+    mcp_admin = client.get("/mcp", headers={"authorization": "Bearer " + ADMIN, "accept": "text/event-stream"})
+    assert mcp_admin.status_code != 401
+    other = client.get("/bhm/projects", headers={"authorization": "Bearer " + ADMIN})
+    assert other.status_code == 401
