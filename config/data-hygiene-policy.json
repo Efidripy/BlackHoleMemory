@@ -7,6 +7,8 @@
     "bhm-surface-smoke-6dcc399c",
     "bhm-surface-smoke-6e194592",
     "bhm-surface-smoke-9ec5bc55",
+    "bhm-surface-smoke-adc89928",
+    "bonsai-demo",
     "jmaka-bhm-conformance-20260810t191325z",
     "jmaka-bhm-conformance-20260810t193504z",
     "jmaka-bhm-conformance-20260810t194101z",
@@ -38,8 +40,7 @@
     "lookatme",
     "multiserversubgen",
     "lnd-push",
-    "lnv-push",
-    "bonsai-demo"
+    "lnv-push"
   ],
   "purgeCompletedIndexStaging": true
 }
