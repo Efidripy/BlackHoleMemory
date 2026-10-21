@@ -16,6 +16,7 @@ from .agent_playbook_contract import build_agent_playbook
 from .config import settings
 from . import memory_contracts as _memory_contracts
 from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
+from .capability import MCP_OPERATOR_HEADER_STATE
 from .ingress_admission import IngressKind
 from .ingress_admission import admit_ingress
 from .local_endpoint_policy import MAX_RESPONSE_BYTES
@@ -78,7 +79,11 @@ def _mcp_authority_rejection(*, project: str | None, payload: Any) -> dict[str, 
         actor="mcp-tool",
         payload=payload,
     )
-    return {"success": False, "code": "ingress_admission_rejected", "admission": admission.receipt()}
+    receipt: dict[str, Any] = {"success": False, "code": "ingress_admission_rejected", "admission": admission.receipt()}
+    header_state = MCP_OPERATOR_HEADER_STATE.get()
+    if header_state:
+        receipt["operator_header"] = header_state
+    return receipt
 
 
 class BhmBatchUpsertItem(BaseModel):
