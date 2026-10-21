@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .executor_shared import *  # noqa: F401,F403
+from .executor_shared import _extract_upserted_id, _trim_context_for_llm
 
 class ExecutorNodesMixin:
     def quarantine_retrieve_node(self, state: DeveloperAgentState) -> DeveloperAgentState:

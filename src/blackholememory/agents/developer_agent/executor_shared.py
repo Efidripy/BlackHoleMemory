@@ -1195,6 +1195,36 @@ async def qa_node(state: DeveloperAgentState) -> dict[str, Any]:
     return await _qa_node_impl(state, llm)
 
 
+
+def _trim_context_for_llm(context: list[dict[str, Any]], max_chars: int) -> list[dict[str, Any]]:
+    trimmed = []
+    for item in context:
+        safe_item = dict(item)
+        safe_item["content"] = _limit_text(safe_item.get("content"), max_chars)
+        metadata = dict(safe_item.get("metadata") or {})
+        safe_item["metadata"] = {
+            key: _limit_text(value, max_chars) if isinstance(value, str) else value
+            for key, value in metadata.items()
+        }
+
+        trimmed.append(safe_item)
+    return trimmed
+
+
+def _extract_upserted_id(result: dict[str, Any], upsert_key: str) -> str | None:
+    upserted_ids = result.get("upserted_ids") or {}
+    if upserted_ids.get(upsert_key):
+        return str(upserted_ids[upsert_key])
+
+    for item in result.get("items") or []:
+        if item.get("upsert_key") == upsert_key and item.get("id"):
+            return str(item["id"])
+        memory = item.get("memory") or {}
+        if memory.get("upsert_key") == upsert_key and memory.get("id"):
+            return str(memory["id"])
+    return None
+
+
 __all__ = [name for name in globals() if not name.startswith("__")]
 
 
