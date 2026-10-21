@@ -5,6 +5,7 @@ import asyncio
 import pytest
 
 from blackholememory import app as bhm_app
+from blackholememory import memory_routes
 from blackholememory import app_runtime
 from blackholememory.memory_service import SQLiteMemoryService
 
@@ -77,7 +78,7 @@ def test_semantic_dependency_links_are_written_to_sqlite(service, monkeypatch) -
     async def fake_target(_project, _source_id, keyword):
         return targets[keyword]
 
-    monkeypatch.setattr(bhm_app, "_semantic_dependency_target_id", fake_target)
+    monkeypatch.setattr(memory_routes, "_semantic_dependency_target_id", fake_target)
     record = _record(
         "seed",
         metadata={

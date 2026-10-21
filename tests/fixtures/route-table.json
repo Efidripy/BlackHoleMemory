@@ -1236,7 +1236,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memories_list",
+    "endpoint": "blackholememory.memory_routes:bhm_memories_list",
     "include_in_schema": true,
     "index": 88,
     "kind": "APIRoute",
@@ -1250,7 +1250,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_update",
+    "endpoint": "blackholememory.memory_routes:bhm_memory_update",
     "include_in_schema": true,
     "index": 89,
     "kind": "APIRoute",
@@ -1264,7 +1264,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_archive",
+    "endpoint": "blackholememory.memory_routes:bhm_memory_archive",
     "include_in_schema": true,
     "index": 90,
     "kind": "APIRoute",
@@ -1278,9 +1278,695 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_forget_preview",
+    "endpoint": "blackholememory.memory_routes:bhm_memory_used",
     "include_in_schema": true,
     "index": 91,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_used",
+    "operation_id": "bhm_memory_used_bhm_memory_used_post",
+    "path": "/bhm/memory/used",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_upsert",
+    "include_in_schema": true,
+    "index": 92,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_upsert",
+    "operation_id": "bhm_memory_upsert_bhm_memory_upsert_post",
+    "path": "/bhm/memory/upsert",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_merge",
+    "include_in_schema": true,
+    "index": 93,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_merge",
+    "operation_id": "bhm_memory_merge_bhm_memory_merge_post",
+    "path": "/bhm/memory/merge",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_detect_duplicates",
+    "include_in_schema": true,
+    "index": 94,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_detect_duplicates",
+    "operation_id": "bhm_memory_detect_duplicates_bhm_memory_detect_duplicates_post",
+    "path": "/bhm/memory/detect-duplicates",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_detect_conflicts",
+    "include_in_schema": true,
+    "index": 95,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_detect_conflicts",
+    "operation_id": "bhm_memory_detect_conflicts_bhm_memory_detect_conflicts_post",
+    "path": "/bhm/memory/detect-conflicts",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_lint",
+    "include_in_schema": true,
+    "index": 96,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_lint",
+    "operation_id": "bhm_memory_lint_bhm_memory_lint_post",
+    "path": "/bhm/memory/lint",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_delete_hard",
+    "include_in_schema": true,
+    "index": 97,
+    "kind": "APIRoute",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "bhm_memory_delete_hard",
+    "operation_id": "bhm_memory_delete_hard_bhm_memory_hard_delete",
+    "path": "/bhm/memory/hard",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_batch_archive",
+    "include_in_schema": true,
+    "index": 98,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memories_batch_archive",
+    "operation_id": "bhm_memories_batch_archive_bhm_memories_batch_archive_post",
+    "path": "/bhm/memories/batch-archive",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_batch_delete",
+    "include_in_schema": true,
+    "index": 99,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memories_batch_delete",
+    "operation_id": "bhm_memories_batch_delete_bhm_memories_batch_delete_post",
+    "path": "/bhm/memories/batch-delete",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_batch_link",
+    "include_in_schema": true,
+    "index": 100,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memories_batch_link",
+    "operation_id": "bhm_memories_batch_link_bhm_memories_batch_link_post",
+    "path": "/bhm/memories/batch-link",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_batch_unlink",
+    "include_in_schema": true,
+    "index": 101,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memories_batch_unlink",
+    "operation_id": "bhm_memories_batch_unlink_bhm_memories_batch_unlink_post",
+    "path": "/bhm/memories/batch-unlink",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_by_concept",
+    "include_in_schema": true,
+    "index": 102,
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "bhm_memories_by_concept",
+    "operation_id": "bhm_memories_by_concept_bhm_memories_by_concept_get",
+    "path": "/bhm/memories/by-concept",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_by_type",
+    "include_in_schema": true,
+    "index": 103,
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "bhm_memories_by_type",
+    "operation_id": "bhm_memories_by_type_bhm_memories_by_type_get",
+    "path": "/bhm/memories/by-type",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_set_confidence",
+    "include_in_schema": true,
+    "index": 104,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_set_confidence",
+    "operation_id": "bhm_memory_set_confidence_bhm_memory_confidence_post",
+    "path": "/bhm/memory/confidence",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_pin",
+    "include_in_schema": true,
+    "index": 105,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_pin",
+    "operation_id": "bhm_memory_pin_bhm_memory_pin_post",
+    "path": "/bhm/memory/pin",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_vote_quality",
+    "include_in_schema": true,
+    "index": 106,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_vote_quality",
+    "operation_id": "bhm_memory_vote_quality_bhm_memory_vote_quality_post",
+    "path": "/bhm/memory/vote-quality",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_pinned",
+    "include_in_schema": true,
+    "index": 107,
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "bhm_memories_pinned",
+    "operation_id": "bhm_memories_pinned_bhm_memories_pinned_get",
+    "path": "/bhm/memories/pinned",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_archived",
+    "include_in_schema": true,
+    "index": 108,
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "bhm_memories_archived",
+    "operation_id": "bhm_memories_archived_bhm_memories_archived_get",
+    "path": "/bhm/memories/archived",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_source_refs_attach",
+    "include_in_schema": true,
+    "index": 109,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_source_refs_attach",
+    "operation_id": "bhm_memory_source_refs_attach_bhm_memory_source_refs_post",
+    "path": "/bhm/memory/source-refs",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_source_refs_get",
+    "include_in_schema": true,
+    "index": 110,
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "bhm_memory_source_refs_get",
+    "operation_id": "bhm_memory_source_refs_get_bhm_memory_source_refs_get",
+    "path": "/bhm/memory/source-refs",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_timeline",
+    "include_in_schema": true,
+    "index": 111,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_timeline",
+    "operation_id": "bhm_memory_timeline_bhm_memory_timeline_post",
+    "path": "/bhm/memory/timeline",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_source_refs_replace",
+    "include_in_schema": true,
+    "index": 112,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_source_refs_replace",
+    "operation_id": "bhm_memory_source_refs_replace_bhm_memory_source_refs_replace_post",
+    "path": "/bhm/memory/source-refs/replace",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_source_refs_detach",
+    "include_in_schema": true,
+    "index": 113,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_source_refs_detach",
+    "operation_id": "bhm_memory_source_refs_detach_bhm_memory_source_refs_detach_post",
+    "path": "/bhm/memory/source-refs/detach",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_restore",
+    "include_in_schema": true,
+    "index": 114,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_restore",
+    "operation_id": "bhm_memory_restore_bhm_memory_restore_post",
+    "path": "/bhm/memory/restore",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memories_batch_upsert",
+    "include_in_schema": true,
+    "index": 115,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memories_batch_upsert",
+    "operation_id": "bhm_memories_batch_upsert_bhm_memories_batch_upsert_post",
+    "path": "/bhm/memories/batch-upsert",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_source_refs_batch",
+    "include_in_schema": true,
+    "index": 116,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_source_refs_batch",
+    "operation_id": "bhm_memory_source_refs_batch_bhm_memory_source_refs_batch_post",
+    "path": "/bhm/memory/source-refs/batch",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_diff",
+    "include_in_schema": true,
+    "index": 117,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_diff",
+    "operation_id": "bhm_memory_diff_bhm_memory_diff_post",
+    "path": "/bhm/memory/diff",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_compact",
+    "include_in_schema": true,
+    "index": 118,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_compact",
+    "operation_id": "bhm_memory_compact_bhm_memory_compact_post",
+    "path": "/bhm/memory/compact",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_schema_validate",
+    "include_in_schema": true,
+    "index": 119,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_schema_validate",
+    "operation_id": "bhm_memory_schema_validate_bhm_memory_schema_validate_post",
+    "path": "/bhm/memory/schema-validate",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_type_migrate",
+    "include_in_schema": true,
+    "index": 120,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_type_migrate",
+    "operation_id": "bhm_memory_type_migrate_bhm_memory_type_migrate_post",
+    "path": "/bhm/memory/type-migrate",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_restore_batch",
+    "include_in_schema": true,
+    "index": 121,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_restore_batch",
+    "operation_id": "bhm_memory_restore_batch_bhm_memory_restore_batch_post",
+    "path": "/bhm/memory/restore-batch",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_staleness_report",
+    "include_in_schema": true,
+    "index": 122,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_staleness_report",
+    "operation_id": "bhm_memory_staleness_report_bhm_memory_staleness_report_post",
+    "path": "/bhm/memory/staleness-report",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_review_queue",
+    "include_in_schema": true,
+    "index": 123,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_review_queue",
+    "operation_id": "bhm_memory_review_queue_bhm_memory_review_queue_post",
+    "path": "/bhm/memory/review-queue",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_triage_queue",
+    "include_in_schema": true,
+    "index": 124,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_triage_queue",
+    "operation_id": "bhm_memory_triage_queue_bhm_memory_triage_queue_post",
+    "path": "/bhm/memory/triage-queue",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_merge_preview",
+    "include_in_schema": true,
+    "index": 125,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_merge_preview",
+    "operation_id": "bhm_memory_merge_preview_bhm_memory_merge_preview_post",
+    "path": "/bhm/memory/merge-preview",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_redact",
+    "include_in_schema": true,
+    "index": 126,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_redact",
+    "operation_id": "bhm_memory_redact_bhm_memory_redact_post",
+    "path": "/bhm/memory/redact",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_secret_scan_existing_memories",
+    "include_in_schema": true,
+    "index": 127,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_secret_scan_existing_memories",
+    "operation_id": "bhm_secret_scan_existing_memories_bhm_memory_secret_scan_post",
+    "path": "/bhm/memory/secret-scan",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_alias_add",
+    "include_in_schema": true,
+    "index": 128,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_alias_add",
+    "operation_id": "bhm_memory_alias_add_bhm_memory_alias_add_post",
+    "path": "/bhm/memory/alias/add",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_alias_remove",
+    "include_in_schema": true,
+    "index": 129,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_alias_remove",
+    "operation_id": "bhm_memory_alias_remove_bhm_memory_alias_remove_post",
+    "path": "/bhm/memory/alias/remove",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_alias_resolve",
+    "include_in_schema": true,
+    "index": 130,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_alias_resolve",
+    "operation_id": "bhm_alias_resolve_bhm_memory_alias_resolve_post",
+    "path": "/bhm/memory/alias/resolve",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_usage_stats",
+    "include_in_schema": true,
+    "index": 131,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_usage_stats",
+    "operation_id": "bhm_memory_usage_stats_bhm_memory_usage_stats_post",
+    "path": "/bhm/memory/usage-stats",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_restore_hard_deleted_preview",
+    "include_in_schema": true,
+    "index": 132,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_restore_hard_deleted_preview",
+    "operation_id": "bhm_memory_restore_hard_deleted_preview_bhm_memory_restore_hard_deleted_preview_post",
+    "path": "/bhm/memory/restore-hard-deleted-preview",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_gc_candidates",
+    "include_in_schema": true,
+    "index": 133,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_gc_candidates",
+    "operation_id": "bhm_memory_gc_candidates_bhm_memory_gc_candidates_post",
+    "path": "/bhm/memory/gc-candidates",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_compaction_report",
+    "include_in_schema": true,
+    "index": 134,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_compaction_report",
+    "operation_id": "bhm_memory_compaction_report_bhm_memory_compaction_report_post",
+    "path": "/bhm/memory/compaction-report",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_changelog",
+    "include_in_schema": true,
+    "index": 135,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_changelog",
+    "operation_id": "bhm_memory_changelog_bhm_memory_changelog_post",
+    "path": "/bhm/memory/changelog",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_normalize_metadata",
+    "include_in_schema": true,
+    "index": 136,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_normalize_metadata",
+    "operation_id": "bhm_memory_normalize_metadata_bhm_memory_normalize_metadata_post",
+    "path": "/bhm/memory/normalize-metadata",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_links_get",
+    "include_in_schema": true,
+    "index": 137,
+    "kind": "APIRoute",
+    "methods": [
+      "GET"
+    ],
+    "name": "bhm_memory_links_get",
+    "operation_id": "bhm_memory_links_get_bhm_memory_links_get",
+    "path": "/bhm/memory/links",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_link_create",
+    "include_in_schema": true,
+    "index": 138,
+    "kind": "APIRoute",
+    "methods": [
+      "POST"
+    ],
+    "name": "bhm_memory_link_create",
+    "operation_id": "bhm_memory_link_create_bhm_memory_link_post",
+    "path": "/bhm/memory/link",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.memory_routes:bhm_memory_link_delete",
+    "include_in_schema": true,
+    "index": 139,
+    "kind": "APIRoute",
+    "methods": [
+      "DELETE"
+    ],
+    "name": "bhm_memory_link_delete",
+    "operation_id": "bhm_memory_link_delete_bhm_memory_link_delete",
+    "path": "/bhm/memory/link",
+    "response_model": "builtins.dict",
+    "tags": []
+  },
+  {
+    "endpoint": "blackholememory.app:bhm_forget_preview",
+    "include_in_schema": true,
+    "index": 140,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1294,7 +1980,7 @@
   {
     "endpoint": "blackholememory.app:bhm_forget_apply",
     "include_in_schema": true,
-    "index": 92,
+    "index": 141,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1308,7 +1994,7 @@
   {
     "endpoint": "blackholememory.app:bhm_search_advanced",
     "include_in_schema": true,
-    "index": 93,
+    "index": 142,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1322,7 +2008,7 @@
   {
     "endpoint": "blackholememory.app:bhm_search",
     "include_in_schema": true,
-    "index": 94,
+    "index": 143,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1336,7 +2022,7 @@
   {
     "endpoint": "blackholememory.app:bhm_context_compile",
     "include_in_schema": true,
-    "index": 95,
+    "index": 144,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1350,7 +2036,7 @@
   {
     "endpoint": "blackholememory.app:bhm_agent_context",
     "include_in_schema": true,
-    "index": 96,
+    "index": 145,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1364,7 +2050,7 @@
   {
     "endpoint": "blackholememory.app:bhm_explain_retrieval",
     "include_in_schema": true,
-    "index": 97,
+    "index": 146,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1376,23 +2062,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_used",
-    "include_in_schema": true,
-    "index": 98,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_used",
-    "operation_id": "bhm_memory_used_bhm_memory_used_post",
-    "path": "/bhm/memory/used",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_recent_activity",
     "include_in_schema": true,
-    "index": 99,
+    "index": 147,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1404,23 +2076,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_upsert",
-    "include_in_schema": true,
-    "index": 100,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_upsert",
-    "operation_id": "bhm_memory_upsert_bhm_memory_upsert_post",
-    "path": "/bhm/memory/upsert",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_crystallize",
     "include_in_schema": true,
-    "index": 101,
+    "index": 148,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1434,7 +2092,7 @@
   {
     "endpoint": "blackholememory.app:bhm_hook_compact",
     "include_in_schema": true,
-    "index": 102,
+    "index": 149,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1448,7 +2106,7 @@
   {
     "endpoint": "blackholememory.app:bhm_hook_idle",
     "include_in_schema": true,
-    "index": 103,
+    "index": 150,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1462,7 +2120,7 @@
   {
     "endpoint": "blackholememory.app:bhm_hook_queue_status",
     "include_in_schema": true,
-    "index": 104,
+    "index": 151,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1476,7 +2134,7 @@
   {
     "endpoint": "blackholememory.app:bhm_hook_job_status",
     "include_in_schema": true,
-    "index": 105,
+    "index": 152,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1490,7 +2148,7 @@
   {
     "endpoint": "blackholememory.app:bhm_synthesis_fact_crystal",
     "include_in_schema": true,
-    "index": 106,
+    "index": 153,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1504,7 +2162,7 @@
   {
     "endpoint": "blackholememory.app:bhm_checkpoint_create",
     "include_in_schema": true,
-    "index": 107,
+    "index": 154,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1518,7 +2176,7 @@
   {
     "endpoint": "blackholememory.app:bhm_checkpoint_list",
     "include_in_schema": true,
-    "index": 108,
+    "index": 155,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1532,7 +2190,7 @@
   {
     "endpoint": "blackholememory.app:bhm_checkpoint_get_latest",
     "include_in_schema": true,
-    "index": 109,
+    "index": 156,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1546,7 +2204,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_map_get",
     "include_in_schema": true,
-    "index": 110,
+    "index": 157,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1560,7 +2218,7 @@
   {
     "endpoint": "blackholememory.app:bhm_projects",
     "include_in_schema": true,
-    "index": 111,
+    "index": 158,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1574,7 +2232,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_resolve",
     "include_in_schema": true,
-    "index": 112,
+    "index": 159,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1588,7 +2246,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_retirement_preview",
     "include_in_schema": true,
-    "index": 113,
+    "index": 160,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1602,7 +2260,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_retirement_apply",
     "include_in_schema": true,
-    "index": 114,
+    "index": 161,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1616,7 +2274,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_map_upsert",
     "include_in_schema": true,
-    "index": 115,
+    "index": 162,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1628,65 +2286,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_merge",
-    "include_in_schema": true,
-    "index": 116,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_merge",
-    "operation_id": "bhm_memory_merge_bhm_memory_merge_post",
-    "path": "/bhm/memory/merge",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_detect_duplicates",
-    "include_in_schema": true,
-    "index": 117,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_detect_duplicates",
-    "operation_id": "bhm_memory_detect_duplicates_bhm_memory_detect_duplicates_post",
-    "path": "/bhm/memory/detect-duplicates",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_detect_conflicts",
-    "include_in_schema": true,
-    "index": 118,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_detect_conflicts",
-    "operation_id": "bhm_memory_detect_conflicts_bhm_memory_detect_conflicts_post",
-    "path": "/bhm/memory/detect-conflicts",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_lint",
-    "include_in_schema": true,
-    "index": 119,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_lint",
-    "operation_id": "bhm_memory_lint_bhm_memory_lint_post",
-    "path": "/bhm/memory/lint",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_memory_delete",
     "include_in_schema": true,
-    "index": 120,
+    "index": 163,
     "kind": "APIRoute",
     "methods": [
       "DELETE"
@@ -1698,177 +2300,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_delete_hard",
-    "include_in_schema": true,
-    "index": 121,
-    "kind": "APIRoute",
-    "methods": [
-      "DELETE"
-    ],
-    "name": "bhm_memory_delete_hard",
-    "operation_id": "bhm_memory_delete_hard_bhm_memory_hard_delete",
-    "path": "/bhm/memory/hard",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_batch_archive",
-    "include_in_schema": true,
-    "index": 122,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memories_batch_archive",
-    "operation_id": "bhm_memories_batch_archive_bhm_memories_batch_archive_post",
-    "path": "/bhm/memories/batch-archive",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_batch_delete",
-    "include_in_schema": true,
-    "index": 123,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memories_batch_delete",
-    "operation_id": "bhm_memories_batch_delete_bhm_memories_batch_delete_post",
-    "path": "/bhm/memories/batch-delete",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_batch_link",
-    "include_in_schema": true,
-    "index": 124,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memories_batch_link",
-    "operation_id": "bhm_memories_batch_link_bhm_memories_batch_link_post",
-    "path": "/bhm/memories/batch-link",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_batch_unlink",
-    "include_in_schema": true,
-    "index": 125,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memories_batch_unlink",
-    "operation_id": "bhm_memories_batch_unlink_bhm_memories_batch_unlink_post",
-    "path": "/bhm/memories/batch-unlink",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_by_concept",
-    "include_in_schema": true,
-    "index": 126,
-    "kind": "APIRoute",
-    "methods": [
-      "GET"
-    ],
-    "name": "bhm_memories_by_concept",
-    "operation_id": "bhm_memories_by_concept_bhm_memories_by_concept_get",
-    "path": "/bhm/memories/by-concept",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_by_type",
-    "include_in_schema": true,
-    "index": 127,
-    "kind": "APIRoute",
-    "methods": [
-      "GET"
-    ],
-    "name": "bhm_memories_by_type",
-    "operation_id": "bhm_memories_by_type_bhm_memories_by_type_get",
-    "path": "/bhm/memories/by-type",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_set_confidence",
-    "include_in_schema": true,
-    "index": 128,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_set_confidence",
-    "operation_id": "bhm_memory_set_confidence_bhm_memory_confidence_post",
-    "path": "/bhm/memory/confidence",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_pin",
-    "include_in_schema": true,
-    "index": 129,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_pin",
-    "operation_id": "bhm_memory_pin_bhm_memory_pin_post",
-    "path": "/bhm/memory/pin",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_vote_quality",
-    "include_in_schema": true,
-    "index": 130,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_vote_quality",
-    "operation_id": "bhm_memory_vote_quality_bhm_memory_vote_quality_post",
-    "path": "/bhm/memory/vote-quality",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_pinned",
-    "include_in_schema": true,
-    "index": 131,
-    "kind": "APIRoute",
-    "methods": [
-      "GET"
-    ],
-    "name": "bhm_memories_pinned",
-    "operation_id": "bhm_memories_pinned_bhm_memories_pinned_get",
-    "path": "/bhm/memories/pinned",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_archived",
-    "include_in_schema": true,
-    "index": 132,
-    "kind": "APIRoute",
-    "methods": [
-      "GET"
-    ],
-    "name": "bhm_memories_archived",
-    "operation_id": "bhm_memories_archived_bhm_memories_archived_get",
-    "path": "/bhm/memories/archived",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_adr_create",
     "include_in_schema": true,
-    "index": 133,
+    "index": 164,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1882,7 +2316,7 @@
   {
     "endpoint": "blackholememory.app:bhm_adr_list",
     "include_in_schema": true,
-    "index": 134,
+    "index": 165,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1896,7 +2330,7 @@
   {
     "endpoint": "blackholememory.app:bhm_adr_supersede",
     "include_in_schema": true,
-    "index": 135,
+    "index": 166,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1910,7 +2344,7 @@
   {
     "endpoint": "blackholememory.app:bhm_handoff_create",
     "include_in_schema": true,
-    "index": 136,
+    "index": 167,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1924,7 +2358,7 @@
   {
     "endpoint": "blackholememory.app:bhm_handoff_list",
     "include_in_schema": true,
-    "index": 137,
+    "index": 168,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1938,7 +2372,7 @@
   {
     "endpoint": "blackholememory.app:bhm_session_record_create",
     "include_in_schema": true,
-    "index": 138,
+    "index": 169,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1952,7 +2386,7 @@
   {
     "endpoint": "blackholememory.app:bhm_session_record_list",
     "include_in_schema": true,
-    "index": 139,
+    "index": 170,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -1966,7 +2400,7 @@
   {
     "endpoint": "blackholememory.app:bhm_task_open",
     "include_in_schema": true,
-    "index": 140,
+    "index": 171,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1980,7 +2414,7 @@
   {
     "endpoint": "blackholememory.app:bhm_task_close",
     "include_in_schema": true,
-    "index": 141,
+    "index": 172,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -1994,7 +2428,7 @@
   {
     "endpoint": "blackholememory.app:bhm_task_get",
     "include_in_schema": true,
-    "index": 142,
+    "index": 173,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2008,7 +2442,7 @@
   {
     "endpoint": "blackholememory.app:bhm_task_list",
     "include_in_schema": true,
-    "index": 143,
+    "index": 174,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2022,7 +2456,7 @@
   {
     "endpoint": "blackholememory.app:bhm_task_context_update",
     "include_in_schema": true,
-    "index": 144,
+    "index": 175,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2036,7 +2470,7 @@
   {
     "endpoint": "blackholememory.app:bhm_task_context_get",
     "include_in_schema": true,
-    "index": 145,
+    "index": 176,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2050,7 +2484,7 @@
   {
     "endpoint": "blackholememory.app:bhm_risk_register_update",
     "include_in_schema": true,
-    "index": 146,
+    "index": 177,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2064,7 +2498,7 @@
   {
     "endpoint": "blackholememory.app:bhm_risk_register_get",
     "include_in_schema": true,
-    "index": 147,
+    "index": 178,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2078,7 +2512,7 @@
   {
     "endpoint": "blackholememory.app:bhm_validation_snapshot_save",
     "include_in_schema": true,
-    "index": 148,
+    "index": 179,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2092,7 +2526,7 @@
   {
     "endpoint": "blackholememory.app:bhm_validation_snapshot_get",
     "include_in_schema": true,
-    "index": 149,
+    "index": 180,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2104,51 +2538,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_source_refs_attach",
-    "include_in_schema": true,
-    "index": 150,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_source_refs_attach",
-    "operation_id": "bhm_memory_source_refs_attach_bhm_memory_source_refs_post",
-    "path": "/bhm/memory/source-refs",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_source_refs_get",
-    "include_in_schema": true,
-    "index": 151,
-    "kind": "APIRoute",
-    "methods": [
-      "GET"
-    ],
-    "name": "bhm_memory_source_refs_get",
-    "operation_id": "bhm_memory_source_refs_get_bhm_memory_source_refs_get",
-    "path": "/bhm/memory/source-refs",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_timeline",
-    "include_in_schema": true,
-    "index": 152,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_timeline",
-    "operation_id": "bhm_memory_timeline_bhm_memory_timeline_post",
-    "path": "/bhm/memory/timeline",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_query_suggestions",
     "include_in_schema": true,
-    "index": 153,
+    "index": 181,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2160,79 +2552,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_source_refs_replace",
-    "include_in_schema": true,
-    "index": 154,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_source_refs_replace",
-    "operation_id": "bhm_memory_source_refs_replace_bhm_memory_source_refs_replace_post",
-    "path": "/bhm/memory/source-refs/replace",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_source_refs_detach",
-    "include_in_schema": true,
-    "index": 155,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_source_refs_detach",
-    "operation_id": "bhm_memory_source_refs_detach_bhm_memory_source_refs_detach_post",
-    "path": "/bhm/memory/source-refs/detach",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_restore",
-    "include_in_schema": true,
-    "index": 156,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_restore",
-    "operation_id": "bhm_memory_restore_bhm_memory_restore_post",
-    "path": "/bhm/memory/restore",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memories_batch_upsert",
-    "include_in_schema": true,
-    "index": 157,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memories_batch_upsert",
-    "operation_id": "bhm_memories_batch_upsert_bhm_memories_batch_upsert_post",
-    "path": "/bhm/memories/batch-upsert",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_source_refs_batch",
-    "include_in_schema": true,
-    "index": 158,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_source_refs_batch",
-    "operation_id": "bhm_memory_source_refs_batch_bhm_memory_source_refs_batch_post",
-    "path": "/bhm/memory/source-refs/batch",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_integrity_audit",
     "include_in_schema": true,
-    "index": 159,
+    "index": 182,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2246,7 +2568,7 @@
   {
     "endpoint": "blackholememory.app:bhm_audit",
     "include_in_schema": true,
-    "index": 160,
+    "index": 183,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2260,7 +2582,7 @@
   {
     "endpoint": "blackholememory.app:bhm_artifact_integrity_audit",
     "include_in_schema": true,
-    "index": 161,
+    "index": 184,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2274,7 +2596,7 @@
   {
     "endpoint": "blackholememory.app:bhm_repair_live_indexes",
     "include_in_schema": true,
-    "index": 162,
+    "index": 185,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2288,7 +2610,7 @@
   {
     "endpoint": "blackholememory.app:bhm_rebuild_project_summary",
     "include_in_schema": true,
-    "index": 163,
+    "index": 186,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2302,7 +2624,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_summary_get",
     "include_in_schema": true,
-    "index": 164,
+    "index": 187,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2316,7 +2638,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_summary_pin",
     "include_in_schema": true,
-    "index": 165,
+    "index": 188,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2330,7 +2652,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_summary_list",
     "include_in_schema": true,
-    "index": 166,
+    "index": 189,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2344,7 +2666,7 @@
   {
     "endpoint": "blackholememory.app:bhm_entity_extract",
     "include_in_schema": true,
-    "index": 167,
+    "index": 190,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2358,7 +2680,7 @@
   {
     "endpoint": "blackholememory.app:bhm_relation_suggest",
     "include_in_schema": true,
-    "index": 168,
+    "index": 191,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2370,37 +2692,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_diff",
-    "include_in_schema": true,
-    "index": 169,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_diff",
-    "operation_id": "bhm_memory_diff_bhm_memory_diff_post",
-    "path": "/bhm/memory/diff",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_compact",
-    "include_in_schema": true,
-    "index": 170,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_compact",
-    "operation_id": "bhm_memory_compact_bhm_memory_compact_post",
-    "path": "/bhm/memory/compact",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_link_graph_stats",
     "include_in_schema": true,
-    "index": 171,
+    "index": 192,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2414,7 +2708,7 @@
   {
     "endpoint": "blackholememory.app:bhm_reindex_memory_metadata",
     "include_in_schema": true,
-    "index": 172,
+    "index": 193,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2426,37 +2720,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_schema_validate",
-    "include_in_schema": true,
-    "index": 173,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_schema_validate",
-    "operation_id": "bhm_memory_schema_validate_bhm_memory_schema_validate_post",
-    "path": "/bhm/memory/schema-validate",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_type_migrate",
-    "include_in_schema": true,
-    "index": 174,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_type_migrate",
-    "operation_id": "bhm_memory_type_migrate_bhm_memory_type_migrate_post",
-    "path": "/bhm/memory/type-migrate",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_search_hybrid",
     "include_in_schema": true,
-    "index": 175,
+    "index": 194,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2470,7 +2736,7 @@
   {
     "endpoint": "blackholememory.app:bhm_search_by_source_ref",
     "include_in_schema": true,
-    "index": 176,
+    "index": 195,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2484,7 +2750,7 @@
   {
     "endpoint": "blackholememory.app:bhm_search_by_upsert_key",
     "include_in_schema": true,
-    "index": 177,
+    "index": 196,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2496,23 +2762,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_restore_batch",
-    "include_in_schema": true,
-    "index": 178,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_restore_batch",
-    "operation_id": "bhm_memory_restore_batch_bhm_memory_restore_batch_post",
-    "path": "/bhm/memory/restore-batch",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_artifact_restore",
     "include_in_schema": true,
-    "index": 179,
+    "index": 197,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2526,7 +2778,7 @@
   {
     "endpoint": "blackholememory.app:bhm_orphan_artifact_relink",
     "include_in_schema": true,
-    "index": 180,
+    "index": 198,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2538,51 +2790,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_staleness_report",
-    "include_in_schema": true,
-    "index": 181,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_staleness_report",
-    "operation_id": "bhm_memory_staleness_report_bhm_memory_staleness_report_post",
-    "path": "/bhm/memory/staleness-report",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_review_queue",
-    "include_in_schema": true,
-    "index": 182,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_review_queue",
-    "operation_id": "bhm_memory_review_queue_bhm_memory_review_queue_post",
-    "path": "/bhm/memory/review-queue",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_triage_queue",
-    "include_in_schema": true,
-    "index": 183,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_triage_queue",
-    "operation_id": "bhm_memory_triage_queue_bhm_memory_triage_queue_post",
-    "path": "/bhm/memory/triage-queue",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_project_summary_refresh_all",
     "include_in_schema": true,
-    "index": 184,
+    "index": 199,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2596,7 +2806,7 @@
   {
     "endpoint": "blackholememory.app:bhm_relation_apply_suggestions",
     "include_in_schema": true,
-    "index": 185,
+    "index": 200,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2608,23 +2818,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_merge_preview",
-    "include_in_schema": true,
-    "index": 186,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_merge_preview",
-    "operation_id": "bhm_memory_merge_preview_bhm_memory_merge_preview_post",
-    "path": "/bhm/memory/merge-preview",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_ontology_quarantine_list",
     "include_in_schema": true,
-    "index": 187,
+    "index": 201,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -2638,7 +2834,7 @@
   {
     "endpoint": "blackholememory.app:bhm_schema_upgrade_all",
     "include_in_schema": true,
-    "index": 188,
+    "index": 202,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2650,37 +2846,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_redact",
-    "include_in_schema": true,
-    "index": 189,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_redact",
-    "operation_id": "bhm_memory_redact_bhm_memory_redact_post",
-    "path": "/bhm/memory/redact",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_secret_scan_existing_memories",
-    "include_in_schema": true,
-    "index": 190,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_secret_scan_existing_memories",
-    "operation_id": "bhm_secret_scan_existing_memories_bhm_memory_secret_scan_post",
-    "path": "/bhm/memory/secret-scan",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_agent_activity_rollup",
     "include_in_schema": true,
-    "index": 191,
+    "index": 203,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2694,7 +2862,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_memory_heatmap",
     "include_in_schema": true,
-    "index": 192,
+    "index": 204,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2708,7 +2876,7 @@
   {
     "endpoint": "blackholememory.app:bhm_relation_confidence_set",
     "include_in_schema": true,
-    "index": 193,
+    "index": 205,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2722,7 +2890,7 @@
   {
     "endpoint": "blackholememory.app:bhm_relation_vote_quality",
     "include_in_schema": true,
-    "index": 194,
+    "index": 206,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2734,51 +2902,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_alias_add",
-    "include_in_schema": true,
-    "index": 195,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_alias_add",
-    "operation_id": "bhm_memory_alias_add_bhm_memory_alias_add_post",
-    "path": "/bhm/memory/alias/add",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_alias_remove",
-    "include_in_schema": true,
-    "index": 196,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_alias_remove",
-    "operation_id": "bhm_memory_alias_remove_bhm_memory_alias_remove_post",
-    "path": "/bhm/memory/alias/remove",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_alias_resolve",
-    "include_in_schema": true,
-    "index": 197,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_alias_resolve",
-    "operation_id": "bhm_alias_resolve_bhm_memory_alias_resolve_post",
-    "path": "/bhm/memory/alias/resolve",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_entity_catalog_get",
     "include_in_schema": true,
-    "index": 198,
+    "index": 207,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2792,7 +2918,7 @@
   {
     "endpoint": "blackholememory.app:bhm_entity_catalog_rebuild",
     "include_in_schema": true,
-    "index": 199,
+    "index": 208,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2806,7 +2932,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_summary_compare",
     "include_in_schema": true,
-    "index": 200,
+    "index": 209,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2818,23 +2944,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_usage_stats",
-    "include_in_schema": true,
-    "index": 201,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_usage_stats",
-    "operation_id": "bhm_memory_usage_stats_bhm_memory_usage_stats_post",
-    "path": "/bhm/memory/usage-stats",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_recent_failures_feed",
     "include_in_schema": true,
-    "index": 202,
+    "index": 210,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2846,23 +2958,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_restore_hard_deleted_preview",
-    "include_in_schema": true,
-    "index": 203,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_restore_hard_deleted_preview",
-    "operation_id": "bhm_memory_restore_hard_deleted_preview_bhm_memory_restore_hard_deleted_preview_post",
-    "path": "/bhm/memory/restore-hard-deleted-preview",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_artifact_delete",
     "include_in_schema": true,
-    "index": 204,
+    "index": 211,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2876,7 +2974,7 @@
   {
     "endpoint": "blackholememory.app:bhm_artifact_list_by_type",
     "include_in_schema": true,
-    "index": 205,
+    "index": 212,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2890,7 +2988,7 @@
   {
     "endpoint": "blackholememory.app:bhm_artifact_usage_stats",
     "include_in_schema": true,
-    "index": 206,
+    "index": 213,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2902,37 +3000,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_gc_candidates",
-    "include_in_schema": true,
-    "index": 207,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_gc_candidates",
-    "operation_id": "bhm_memory_gc_candidates_bhm_memory_gc_candidates_post",
-    "path": "/bhm/memory/gc-candidates",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_compaction_report",
-    "include_in_schema": true,
-    "index": 208,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_compaction_report",
-    "operation_id": "bhm_memory_compaction_report_bhm_memory_compaction_report_post",
-    "path": "/bhm/memory/compaction-report",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_link_cycle_detect",
     "include_in_schema": true,
-    "index": 209,
+    "index": 214,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2946,7 +3016,7 @@
   {
     "endpoint": "blackholememory.app:bhm_link_orphan_scan",
     "include_in_schema": true,
-    "index": 210,
+    "index": 215,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2960,7 +3030,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_map_compare",
     "include_in_schema": true,
-    "index": 211,
+    "index": 216,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2974,7 +3044,7 @@
   {
     "endpoint": "blackholememory.app:bhm_validation_trend_report",
     "include_in_schema": true,
-    "index": 212,
+    "index": 217,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -2988,7 +3058,7 @@
   {
     "endpoint": "blackholememory.app:bhm_entity_search",
     "include_in_schema": true,
-    "index": 213,
+    "index": 218,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3002,7 +3072,7 @@
   {
     "endpoint": "blackholememory.app:bhm_entity_link_memories",
     "include_in_schema": true,
-    "index": 214,
+    "index": 219,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3016,7 +3086,7 @@
   {
     "endpoint": "blackholememory.app:bhm_alias_stats",
     "include_in_schema": true,
-    "index": 215,
+    "index": 220,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3030,7 +3100,7 @@
   {
     "endpoint": "blackholememory.app:bhm_relation_prune_low_quality",
     "include_in_schema": true,
-    "index": 216,
+    "index": 221,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3044,7 +3114,7 @@
   {
     "endpoint": "blackholememory.app:bhm_project_similarity_report",
     "include_in_schema": true,
-    "index": 217,
+    "index": 222,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3056,23 +3126,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_changelog",
-    "include_in_schema": true,
-    "index": 218,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_changelog",
-    "operation_id": "bhm_memory_changelog_bhm_memory_changelog_post",
-    "path": "/bhm/memory/changelog",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_review_queue_apply",
     "include_in_schema": true,
-    "index": 219,
+    "index": 223,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3086,7 +3142,7 @@
   {
     "endpoint": "blackholememory.app:bhm_triage_queue_apply",
     "include_in_schema": true,
-    "index": 220,
+    "index": 224,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3100,7 +3156,7 @@
   {
     "endpoint": "blackholememory.app:bhm_artifact_batch_delete",
     "include_in_schema": true,
-    "index": 221,
+    "index": 225,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3114,7 +3170,7 @@
   {
     "endpoint": "blackholememory.app:bhm_artifact_batch_relink",
     "include_in_schema": true,
-    "index": 222,
+    "index": 226,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3128,7 +3184,7 @@
   {
     "endpoint": "blackholememory.app:bhm_artifact_batch_restore",
     "include_in_schema": true,
-    "index": 223,
+    "index": 227,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3142,7 +3198,7 @@
   {
     "endpoint": "blackholememory.app:bhm_schema_validate_strict",
     "include_in_schema": true,
-    "index": 224,
+    "index": 228,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3156,7 +3212,7 @@
   {
     "endpoint": "blackholememory.app:bhm_integrity_repair_strict",
     "include_in_schema": true,
-    "index": 225,
+    "index": 229,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3168,23 +3224,9 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app:bhm_memory_normalize_metadata",
-    "include_in_schema": true,
-    "index": 226,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_normalize_metadata",
-    "operation_id": "bhm_memory_normalize_metadata_bhm_memory_normalize_metadata_post",
-    "path": "/bhm/memory/normalize-metadata",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
     "endpoint": "blackholememory.app:bhm_admin_export",
     "include_in_schema": true,
-    "index": 227,
+    "index": 230,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3198,7 +3240,7 @@
   {
     "endpoint": "blackholememory.app:bhm_admin_import_preview",
     "include_in_schema": true,
-    "index": 228,
+    "index": 231,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3212,7 +3254,7 @@
   {
     "endpoint": "blackholememory.app:bhm_admin_import_apply",
     "include_in_schema": true,
-    "index": 229,
+    "index": 232,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3226,7 +3268,7 @@
   {
     "endpoint": "blackholememory.app:bhm_admin_task_ingress_status",
     "include_in_schema": true,
-    "index": 230,
+    "index": 233,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -3240,7 +3282,7 @@
   {
     "endpoint": "blackholememory.app:bhm_admin_task_ingress_freeze",
     "include_in_schema": true,
-    "index": 231,
+    "index": 234,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3254,7 +3296,7 @@
   {
     "endpoint": "blackholememory.app:bhm_admin_task_ingress_resume",
     "include_in_schema": true,
-    "index": 232,
+    "index": 235,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3268,7 +3310,7 @@
   {
     "endpoint": "blackholememory.app:bhm_policy_profile_get",
     "include_in_schema": true,
-    "index": 233,
+    "index": 236,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -3282,7 +3324,7 @@
   {
     "endpoint": "blackholememory.app:bhm_policy_profile_set",
     "include_in_schema": true,
-    "index": 234,
+    "index": 237,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3296,7 +3338,7 @@
   {
     "endpoint": "blackholememory.app:bhm_policy_enforce_memory",
     "include_in_schema": true,
-    "index": 235,
+    "index": 238,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3310,7 +3352,7 @@
   {
     "endpoint": "blackholememory.app:bhm_overlap_report",
     "include_in_schema": true,
-    "index": 236,
+    "index": 239,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3324,7 +3366,7 @@
   {
     "endpoint": "blackholememory.app:bhm_overlap_cleanup_apply",
     "include_in_schema": true,
-    "index": 237,
+    "index": 240,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3338,7 +3380,7 @@
   {
     "endpoint": "blackholememory.app:bhm_policy_guard",
     "include_in_schema": true,
-    "index": 238,
+    "index": 241,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3352,7 +3394,7 @@
   {
     "endpoint": "blackholememory.app:bhm_reflect",
     "include_in_schema": true,
-    "index": 239,
+    "index": 242,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3366,7 +3408,7 @@
   {
     "endpoint": "blackholememory.app:bhm_insights_search",
     "include_in_schema": true,
-    "index": 240,
+    "index": 243,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3380,7 +3422,7 @@
   {
     "endpoint": "blackholememory.app:bhm_lessons_list",
     "include_in_schema": true,
-    "index": 241,
+    "index": 244,
     "kind": "APIRoute",
     "methods": [
       "GET"
@@ -3394,7 +3436,7 @@
   {
     "endpoint": "blackholememory.app:bhm_lessons_strengthen",
     "include_in_schema": true,
-    "index": 242,
+    "index": 245,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3408,7 +3450,7 @@
   {
     "endpoint": "blackholememory.app:bhm_verify",
     "include_in_schema": true,
-    "index": 243,
+    "index": 246,
     "kind": "APIRoute",
     "methods": [
       "POST"
@@ -3416,48 +3458,6 @@
     "name": "bhm_verify",
     "operation_id": "bhm_verify_bhm_verify_post",
     "path": "/bhm/verify",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_links_get",
-    "include_in_schema": true,
-    "index": 244,
-    "kind": "APIRoute",
-    "methods": [
-      "GET"
-    ],
-    "name": "bhm_memory_links_get",
-    "operation_id": "bhm_memory_links_get_bhm_memory_links_get",
-    "path": "/bhm/memory/links",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_link_create",
-    "include_in_schema": true,
-    "index": 245,
-    "kind": "APIRoute",
-    "methods": [
-      "POST"
-    ],
-    "name": "bhm_memory_link_create",
-    "operation_id": "bhm_memory_link_create_bhm_memory_link_post",
-    "path": "/bhm/memory/link",
-    "response_model": "builtins.dict",
-    "tags": []
-  },
-  {
-    "endpoint": "blackholememory.app:bhm_memory_link_delete",
-    "include_in_schema": true,
-    "index": 246,
-    "kind": "APIRoute",
-    "methods": [
-      "DELETE"
-    ],
-    "name": "bhm_memory_link_delete",
-    "operation_id": "bhm_memory_link_delete_bhm_memory_link_delete",
-    "path": "/bhm/memory/link",
     "response_model": "builtins.dict",
     "tags": []
   },
