@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from blackholememory import app as bhm_app
+from blackholememory import galaxy_routes
 from blackholememory import code_tools_service
 from blackholememory import app_runtime
 from blackholememory import caller_auth
@@ -193,9 +194,9 @@ def test_galaxy_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> Non
             "links": [{"source": "node-a", "target": "node-b", "type": "DEPENDS_ON"}],
         }
 
-    monkeypatch.setattr(bhm_app, "_build_galaxy_data", fake_build)
-    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE", None)
-    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE_EXPIRES_AT", 0.0)
+    monkeypatch.setattr(galaxy_routes, "_build_galaxy_data", fake_build)
+    monkeypatch.setattr(galaxy_routes, "_GALAXY_STATS_CACHE", None)
+    monkeypatch.setattr(galaxy_routes, "_GALAXY_STATS_CACHE_EXPIRES_AT", 0.0)
 
     anonymous = _client(authorization="").get("/bhm/galaxy/stats")
     response = _client().get("/bhm/galaxy/stats")
@@ -225,14 +226,14 @@ def test_galaxy_stats_cache_is_single_flight_and_reused(monkeypatch) -> None:
         await asyncio.sleep(0)
         return {"nodes": [{"id": "node-a"}], "links": []}
 
-    monkeypatch.setattr(bhm_app, "_build_galaxy_data", fake_build)
-    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE", None)
-    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE_EXPIRES_AT", 0.0)
-    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE_TTL_SECONDS", 300.0)
-    monkeypatch.setattr(bhm_app, "_GALAXY_STATS_CACHE_LOCK", asyncio.Lock())
+    monkeypatch.setattr(galaxy_routes, "_build_galaxy_data", fake_build)
+    monkeypatch.setattr(galaxy_routes, "_GALAXY_STATS_CACHE", None)
+    monkeypatch.setattr(galaxy_routes, "_GALAXY_STATS_CACHE_EXPIRES_AT", 0.0)
+    monkeypatch.setattr(galaxy_routes, "_GALAXY_STATS_CACHE_TTL_SECONDS", 300.0)
+    monkeypatch.setattr(galaxy_routes, "_GALAXY_STATS_CACHE_LOCK", asyncio.Lock())
 
     async def exercise():
-        return await asyncio.gather(*(bhm_app._get_global_galaxy_stats() for _ in range(6)))
+        return await asyncio.gather(*(galaxy_routes._get_global_galaxy_stats() for _ in range(6)))
 
     results = asyncio.run(exercise())
 
@@ -823,7 +824,7 @@ def test_ui_session_can_read_galaxy_global_stats_without_bearer(monkeypatch) -> 
         }
 
     bhm_app._UI_SESSIONS.reset()
-    monkeypatch.setattr(bhm_app, "_get_global_galaxy_stats", fake_global_stats)
+    monkeypatch.setattr(galaxy_routes, "_get_global_galaxy_stats", fake_global_stats)
     minted = _client().post("/bhm/ui/session/mint")
     browser = _client(authorization="")
     exchanged = browser.post(
