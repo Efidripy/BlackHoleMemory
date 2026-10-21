@@ -2316,7 +2316,7 @@ def bhm_context_tier_promotion_rollback(
     )
 
 
-@mcp.tool(name="bhm_remember", description="Reject direct MCP authority writes; use a future typed review and promotion flow.")
+@mcp.tool(name="bhm_remember", description="Writes memory as operator when the MCP HTTP session carries a valid x-bhm-admin-capability header (same path as REST /bhm/remember); otherwise rejects as non-authoritative ingress.")
 def bhm_remember(
     content: str,
     project: str = DEFAULT_PROJECT,

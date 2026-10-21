@@ -21,6 +21,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import Receive, Scope, Send
 
 from .caller_auth import authorize_projects
+from .capability import ADMIN_CAPABILITY_HEADER, MCP_OPERATOR_SESSION, is_admin_capability_valid
 from .caller_auth import configured_caller_principal
 from .caller_auth import extract_request_projects
 from .caller_auth import is_caller_token_valid
@@ -818,14 +819,24 @@ class BhmStreamableHttpGateway:
         @self.server.call_tool(validate_input=False)
         async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
             await self._confirm_validated_tool_call()
-            response = await self._dispatch(
-                {
-                    "jsonrpc": "2.0",
-                    "id": "http-tools-call",
-                    "method": "tools/call",
-                    "params": {"name": name, "arguments": arguments},
-                }
-            )
+            # The session task outlives each POST, so the operator bit is read from this call's own HTTP request.
+            try:
+                headers = getattr(self.server.request_context.request, "headers", None)
+            except LookupError:
+                headers = None
+            operator = bool(headers) and is_admin_capability_valid(headers.get(ADMIN_CAPABILITY_HEADER, ""))
+            marker = MCP_OPERATOR_SESSION.set(operator)
+            try:
+                response = await self._dispatch(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "http-tools-call",
+                        "method": "tools/call",
+                        "params": {"name": name, "arguments": arguments},
+                    }
+                )
+            finally:
+                MCP_OPERATOR_SESSION.reset(marker)
             return types.CallToolResult.model_validate(_result(response, method="tools/call"))
 
         @self.server.list_resources()
