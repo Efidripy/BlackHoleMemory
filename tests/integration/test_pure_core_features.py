@@ -30,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from blackholememory import app as bhm_app
+from blackholememory import memory_routes
 from blackholememory import galaxy_routes
 from blackholememory import app_runtime
 from blackholememory import bhm_mcp
@@ -2847,7 +2848,7 @@ def test_search_does_not_mutate_access_feedback_on_simple_display(monkeypatch):
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
-    monkeypatch.setattr(bhm_app, "_schedule_vector_access_updates", lambda hits: scheduled.append(hits))
+    monkeypatch.setattr(memory_routes, "_schedule_vector_access_updates", lambda hits: scheduled.append(hits))
 
     response = TestClient(bhm_app.app).post(
         "/bhm/search",
@@ -3389,7 +3390,7 @@ def test_memory_used_records_only_explicit_live_project_access(monkeypatch):
     )
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
     monkeypatch.setattr(bhm_app, "_fetch_qdrant_hit_by_source_id", fake_fetch)
-    monkeypatch.setattr(bhm_app, "_schedule_vector_access_updates", lambda items: scheduled.append(items))
+    monkeypatch.setattr(memory_routes, "_schedule_vector_access_updates", lambda items: scheduled.append(items))
 
     response = TestClient(bhm_app.app).post(
         "/bhm/memory/used",
