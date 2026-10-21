@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import threading
 import time
 from typing import Any
@@ -824,7 +825,13 @@ class BhmStreamableHttpGateway:
                 headers = getattr(self.server.request_context.request, "headers", None)
             except LookupError:
                 headers = None
-            operator = bool(headers) and is_admin_capability_valid(headers.get(ADMIN_CAPABILITY_HEADER, ""))
+            supplied = headers.get(ADMIN_CAPABILITY_HEADER, "") if headers else ""
+            operator = bool(supplied) and is_admin_capability_valid(supplied)
+            if name == "bhm_remember":
+                # State only, never the value: tells "client did not send it" from "sent a wrong one".
+                logging.getLogger("uvicorn.error").info(
+                    "mcp bhm_remember operator header: %s", "valid" if operator else ("invalid" if supplied else "absent")
+                )
             marker = MCP_OPERATOR_SESSION.set(operator)
             try:
                 response = await self._dispatch(
