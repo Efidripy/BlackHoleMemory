@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+
 from ._common import *  # noqa: F401,F403
 from ._common import _limit_text, _run_coroutine_sync, _stable_key
+
+_logger = logging.getLogger(__name__)
 
 def _failed_sandbox_result(error: str, exit_code: int = 1, stdout: str = "", stderr: str = "") -> dict[str, Any]:
     return {
@@ -163,6 +167,7 @@ def sandbox_exec(code_to_run: str, timeout_seconds: int = DEFAULT_SANDBOX_TIMEOU
         "import sys\n"
         "try:\n"
         f"{indented_code or '    pass'}\n"
+        "    # broad: sandboxed user code must convert all runtime failures to a bounded stderr result.\n"
         "except Exception as e:\n"
         "    print(f\"RUNTIME_ERROR: {e}\", file=sys.stderr)\n"
         "    sys.exit(1)\n"
@@ -216,6 +221,7 @@ def sandbox_exec(code_to_run: str, timeout_seconds: int = DEFAULT_SANDBOX_TIMEOU
         return _failed_sandbox_result(f"Ошибка контейнера: {exc}")
     except docker_errors.DockerException as exc:
         return _failed_sandbox_result(f"Сбой Docker runtime: {exc}")
+    # broad: sandbox runtime is a security boundary; convert every unexpected failure to a failed result.
     except Exception as exc:
         error_name = exc.__class__.__name__.lower()
         if "timeout" in error_name or "connection" in error_name:
@@ -225,12 +231,14 @@ def sandbox_exec(code_to_run: str, timeout_seconds: int = DEFAULT_SANDBOX_TIMEOU
         if container:
             try:
                 container.kill()
-            except Exception:
-                pass
+            # broad: cleanup must not mask the sandbox result; record the failure for diagnostics.
+            except Exception as exc:
+                _logger.warning("sandbox container kill failed: %s", type(exc).__name__)
             try:
                 container.remove()
-            except Exception:
-                pass
+            # broad: cleanup must not mask the sandbox result; record the failure for diagnostics.
+            except Exception as exc:
+                _logger.warning("sandbox container removal failed: %s", type(exc).__name__)
 
 def _normalize_sandbox_result(result: dict[str, Any] | None) -> dict[str, Any]:
     raw_result = dict(result or {})
@@ -783,6 +791,7 @@ def _execute_swarm_tool_call(
                 stdout=result["stdout"],
                 stderr=result["stderr"],
             )
+        # broad: tool dispatch is a boundary and returns a structured failure instead of raising.
         except Exception as exc:
             return _tool_result(call, success=False, exit_code=1, stderr=f"python tool exception: {exc}", error=str(exc))
 
@@ -850,6 +859,7 @@ def _execute_swarm_tool_call(
                 stdout=analysis,
                 stderr="" if success else analysis,
             )
+        # broad: screenshot tooling is a boundary and returns a structured failure instead of raising.
         except Exception as exc:
             message = f"{VISION_ANALYSIS_ERROR_PREFIX} screenshot tool exception: {exc}"
             return _tool_result(call, success=False, exit_code=1, stdout=message, stderr=message, error=str(exc))
