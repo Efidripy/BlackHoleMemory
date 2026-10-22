@@ -8,6 +8,7 @@ import copy
 import functools
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -116,6 +117,8 @@ from .temporal_contract import temporal_matches
 
 
 MemoryMetadata = _memory_contracts.MemoryMetadata
+
+_LOGGER = logging.getLogger(__name__)
 
 
 MemoryClass = _memory_contracts.MemoryClass
@@ -673,7 +676,8 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
                         },
                     )
                 return _jsonrpc_error(request_id, -32603, _safe_exception_text(exc))
-            except Exception as exc:
+            except Exception as exc:  # broad: MCP operator boundary must return JSON-RPC errors
+                _LOGGER.warning("MCP remember operation failed (%s)", type(exc).__name__)
                 return _jsonrpc_error(request_id, -32603, f"{name} failed: {redact_secret_text(str(exc)).value}")
             return _jsonrpc_success(
                 request_id,
@@ -687,7 +691,8 @@ async def _handle_mcp_gateway_jsonrpc_core(message: dict[str, Any]) -> dict[str,
             from . import bhm_mcp
 
             content = await bhm_mcp.mcp.call_tool(name, arguments)
-        except Exception as exc:
+        except Exception as exc:  # broad: MCP tool boundary must return JSON-RPC errors
+            _LOGGER.warning("MCP tool operation failed (%s)", type(exc).__name__)
             return _jsonrpc_error(request_id, -32603, f"{name} failed: {redact_secret_text(str(exc)).value}")
         dumped = _mcp_model_dump(content)
         if isinstance(dumped, dict):
@@ -748,7 +753,8 @@ async def _handle_mcp_gateway_jsonrpc_async(message: dict[str, Any]) -> dict[str
         status = "timeout"
         timed_out = True
         raise
-    except Exception:
+    except Exception as exc:  # broad: telemetry records status before propagating failures
+        _LOGGER.warning("MCP gateway operation failed (%s)", type(exc).__name__)
         status = "exception"
         raise
     finally:
@@ -2080,7 +2086,8 @@ def _write_vector_record(
     for mem0_id in existing_ids:
         try:
             memory.update(mem0_id, data=content, metadata=metadata)
-        except Exception:
+        except Exception as exc:  # broad: best-effort Mem0 update must not block authoritative flow
+            _LOGGER.warning("Mem0 vector update skipped (%s)", type(exc).__name__)
             continue
         updated_ids.append(mem0_id)
     if updated_ids:
@@ -3158,7 +3165,8 @@ def _fetch_qdrant_hit_by_source_id_sync(target_id: str, project_name: str) -> di
                 with_payload=True,
                 with_vectors=False,
             )
-        except Exception:
+        except Exception as exc:  # broad: Qdrant fallback probe must continue across unavailable collections
+            _LOGGER.warning("Qdrant scroll probe skipped (%s)", type(exc).__name__)
             continue
         if not points:
             continue
@@ -3172,7 +3180,8 @@ def _fetch_qdrant_hit_by_source_id_sync(target_id: str, project_name: str) -> di
                 with_payload=True,
                 with_vectors=False,
             )
-        except Exception:
+        except Exception as exc:  # broad: Qdrant fallback probe must continue across unavailable collections
+            _LOGGER.warning("Qdrant retrieve probe skipped (%s)", type(exc).__name__)
             continue
         if not points:
             continue
@@ -3368,7 +3377,7 @@ def _consume_late_read_worker(task: asyncio.Task[Any]) -> None:
 
     try:
         task.result()
-    except (asyncio.CancelledError, Exception):
+    except (asyncio.CancelledError, Exception):  # broad: consume late timed-out worker completion
         pass
 
 
@@ -3738,7 +3747,7 @@ async def _run_timed_retrieval_contour(name: str, worker: Any, /, *args: Any, **
         def consume_late_result(task: asyncio.Task[Any]) -> None:
             try:
                 task.result()
-            except (asyncio.CancelledError, Exception):
+            except (asyncio.CancelledError, Exception):  # broad: consume late timed-out worker completion
                 pass
 
         worker_task.add_done_callback(consume_late_result)
@@ -3748,7 +3757,8 @@ async def _run_timed_retrieval_contour(name: str, worker: Any, /, *args: Any, **
             error=exc,
             timed_out=True,
         )
-    except Exception as exc:
+    except Exception as exc:  # broad: retrieval contour reports failures as data
+        _LOGGER.warning("Retrieval contour failed (%s)", type(exc).__name__)
         return _TimedRetrievalContour(
             name=name,
             duration_ms=(time.perf_counter() - started) * 1000.0,
@@ -3983,7 +3993,8 @@ async def federated_search(
     if query.strip():
         try:
             query_embedding, embedding_duration_ms = await _prepare_federated_query_embedding(project_name, query)
-        except Exception:
+        except Exception as exc:  # broad: embedding failure must cancel late workers before propagating
+            _LOGGER.warning("Federated embedding preparation failed (%s)", type(exc).__name__)
             if exact_task is not None:
                 exact_task.add_done_callback(_consume_late_read_worker)
             raise

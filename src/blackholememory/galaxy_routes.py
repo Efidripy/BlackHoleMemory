@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 import asyncio
+import logging
 import json
 import re
 import sqlite3
@@ -32,6 +33,8 @@ from .runtime_storage import resolve_runtime_storage_config
 from .projection_generation_binding import active_projection_generation_bindings
 from .retrieval_scope import resolve_history_scope
 from . import memory_contracts as _memory_contracts
+
+_LOGGER = logging.getLogger(__name__)
 
 
 MemoryClass = _memory_contracts.MemoryClass
@@ -82,7 +85,8 @@ def _galaxy_memory_collection_names(client: Any, project: str | None) -> list[st
 
     try:
         collections = client.get_collections().collections
-    except Exception:
+    except Exception as exc:  # broad: collection discovery fallback keeps galaxy route available
+        _LOGGER.warning("Qdrant collection discovery failed (%s)", type(exc).__name__)
         route = rt._project_projection_route(settings.qdrant_collection)
         names = [global_name]
         if route.collection_name is not None:
@@ -248,7 +252,8 @@ def _load_galaxy_active_nodes_sync(project: str | None, limit: int) -> tuple[lis
                     with_payload=True,
                     with_vectors=False,
                 )
-            except Exception:
+            except Exception as exc:  # broad: collection scan stops safely when backend is unavailable
+                _LOGGER.warning("Qdrant galaxy scan failed (%s)", type(exc).__name__)
                 break
             if not points:
                 break
