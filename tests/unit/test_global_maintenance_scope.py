@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
+from blackholememory import app_core
+from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -11,27 +13,27 @@ from blackholememory import app_runtime
     ("call", "code"),
     [
         (
-            lambda: bhm_app._schema_upgrade_all(bhm_app.SchemaUpgradeAllRequest()),
+            lambda: app_ops._schema_upgrade_all(bhm_app.SchemaUpgradeAllRequest()),
             "schema_upgrade_scope_required",
         ),
         (
-            lambda: bhm_app._reindex_memory_metadata(),
+            lambda: app_ops._reindex_memory_metadata(),
             "reindex_scope_required",
         ),
         (
-            lambda: bhm_app._entity_catalog_rebuild(),
+            lambda: app_ops._entity_catalog_rebuild(),
             "entity_catalog_scope_required",
         ),
         (
-            lambda: bhm_app._relation_apply_suggestions(bhm_app.RelationApplySuggestionsRequest()),
+            lambda: app_ops._relation_apply_suggestions(bhm_app.RelationApplySuggestionsRequest()),
             "relation_apply_scope_required",
         ),
         (
-            lambda: bhm_app._relation_prune_low_quality(bhm_app.RelationPruneLowQualityRequest()),
+            lambda: app_ops._relation_prune_low_quality(bhm_app.RelationPruneLowQualityRequest()),
             "relation_prune_scope_required",
         ),
         (
-            lambda: bhm_app._overlap_cleanup_apply(bhm_app.OverlapCleanupApplyRequest()),
+            lambda: app_ops._overlap_cleanup_apply(bhm_app.OverlapCleanupApplyRequest()),
             "overlap_cleanup_scope_required",
         ),
     ],
@@ -46,15 +48,15 @@ def test_global_maintenance_requires_explicit_scope(call, code: str) -> None:
 
 def test_global_maintenance_accepts_explicit_aggregate(monkeypatch) -> None:
     monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: [])
-    monkeypatch.setattr(bhm_app, "_save_live_memories", lambda _items: None)
+    monkeypatch.setattr(app_core, "_save_live_memories", lambda _items: None)
     monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: [])
     monkeypatch.setattr(app_runtime, "_save_memory_links", lambda _items: None)
-    monkeypatch.setattr(bhm_app, "_load_entity_catalogs", lambda: [])
-    monkeypatch.setattr(bhm_app, "_save_entity_catalogs", lambda _items: None)
+    monkeypatch.setattr(app_ops, "_load_entity_catalogs", lambda: [])
+    monkeypatch.setattr(app_ops, "_save_entity_catalogs", lambda _items: None)
 
-    assert bhm_app._schema_upgrade_all(bhm_app.SchemaUpgradeAllRequest(aggregate=True))["project"] is None
-    assert bhm_app._reindex_memory_metadata(aggregate=True)["project"] is None
-    assert bhm_app._entity_catalog_rebuild(aggregate=True)["project"] is None
-    assert bhm_app._relation_prune_low_quality(
+    assert app_ops._schema_upgrade_all(bhm_app.SchemaUpgradeAllRequest(aggregate=True))["project"] is None
+    assert app_ops._reindex_memory_metadata(aggregate=True)["project"] is None
+    assert app_ops._entity_catalog_rebuild(aggregate=True)["project"] is None
+    assert app_ops._relation_prune_low_quality(
         bhm_app.RelationPruneLowQualityRequest(aggregate=True)
     )["project"] is None

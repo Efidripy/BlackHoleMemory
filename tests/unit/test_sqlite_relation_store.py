@@ -4,6 +4,8 @@ import asyncio
 
 import pytest
 
+from blackholememory import app_core
+from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import memory_routes
 from blackholememory import app_runtime
@@ -48,7 +50,7 @@ def service(tmp_path, monkeypatch) -> SQLiteMemoryService:
     service.tombstone("gone", project=PROJECT)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
     monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
-    monkeypatch.setattr(bhm_app, "_active_ontology_schema", lambda _project: None)
+    monkeypatch.setattr(app_ops, "_active_ontology_schema", lambda _project: None)
     return service
 
 
@@ -64,7 +66,7 @@ def test_graph_expansion_reads_sqlite_links_and_skips_inactive_targets(service) 
         ]
     )
 
-    links = bhm_app._authoritative_graph_links_sync(["seed"], "BlackHoleMemory")
+    links = app_core._authoritative_graph_links_sync(["seed"], "BlackHoleMemory")
 
     assert sorted(links, key=lambda item: item["target_id"]) == [
         {"target_id": "dep", "edge_type": "DEPENDS_ON"},
@@ -103,11 +105,11 @@ def test_link_snapshot_load_and_save_share_one_lock(monkeypatch) -> None:
     # replace_links deletes rows absent from the snapshot, so load->save must not interleave.
     owned: list[bool] = []
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda memory_id, _project: {"source_id": memory_id})
-    monkeypatch.setattr(bhm_app, "_active_ontology_schema", lambda _project: None)
+    monkeypatch.setattr(app_ops, "_active_ontology_schema", lambda _project: None)
     monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: owned.append(app_runtime._LINK_STORE_LOCK._is_owned()) or [])
     monkeypatch.setattr(app_runtime, "_save_memory_links", lambda _links: owned.append(app_runtime._LINK_STORE_LOCK._is_owned()))
 
-    bhm_app._create_memory_link(
+    app_ops._create_memory_link(
         bhm_app.MemoryLinkRequest(source_id="seed", target_id="dep", relation="depends_on", project=PROJECT)
     )
 

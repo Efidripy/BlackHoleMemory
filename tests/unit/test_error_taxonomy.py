@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from blackholememory import app as bhm_app
+from blackholememory import app_core
 from blackholememory.error_taxonomy import ERROR_TAXONOMY_SCHEMA_VERSION
 from blackholememory.error_taxonomy import classify_jsonrpc_error
 from blackholememory.error_taxonomy import classify_rest_error
@@ -31,7 +31,7 @@ def test_rest_classification_prefers_structured_code_and_falls_back_to_status():
 
 
 def test_jsonrpc_error_data_exposes_stable_class_without_leaking_message():
-    response = bhm_app._jsonrpc_error(7, -32602, "invalid token=super-secret")
+    response = app_core._jsonrpc_error(7, -32602, "invalid token=super-secret")
     error = response["error"]
     assert error["code"] == -32602
     assert error["data"] == {

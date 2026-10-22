@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_core
+from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.retrieval_filters import build_candidate_filters
@@ -66,11 +69,11 @@ def test_authoritative_post_filter_excludes_trace_unless_history_is_explicit():
         "metadata": {"event_role": "trace"},
     }
 
-    assert bhm_app._memory_matches_filters(trace, project="blackholememory") is False
-    assert bhm_app._memory_matches_filters(
+    assert app_core._memory_matches_filters(trace, project="blackholememory") is False
+    assert app_core._memory_matches_filters(
         trace, project="blackholememory", include_historical=True
     ) is True
-    assert bhm_app._memory_matches_filters(
+    assert app_core._memory_matches_filters(
         trace, project="blackholememory", event_role="trace"
     ) is True
 
@@ -113,8 +116,8 @@ def test_memory_listing_and_fallback_keep_trace_history_opt_in(monkeypatch):
     assert [item["source_id"] for item in current_window] == ["mem-current"]
     assert history_total == 2
     assert {item["source_id"] for item in history_window} == {"mem-current", "mem-trace"}
-    assert [item["source_id"] for item in bhm_app._fallback_memory_records(project="blackholememory")] == ["mem-current"]
-    assert {item["source_id"] for item in bhm_app._fallback_memory_records(
+    assert [item["source_id"] for item in app_core._fallback_memory_records(project="blackholememory")] == ["mem-current"]
+    assert {item["source_id"] for item in app_core._fallback_memory_records(
         project="blackholememory", include_historical=True
     )} == {"mem-current", "mem-trace"}
 
@@ -145,7 +148,7 @@ def test_advanced_search_freshness_filters_updated_at_before_pagination(monkeypa
     ]
     monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
-    window, total = bhm_app._advanced_search_live_memories(
+    window, total = app_retrieval._advanced_search_live_memories(
         bhm_app.MemoryAdvancedSearchRequest(
             query="workflow receipt",
             project="blackholememory",
@@ -198,7 +201,7 @@ def test_advanced_search_recent_scope_includes_only_recent_history(monkeypatch):
         },
     ]
     monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
-    window, total = bhm_app._advanced_search_live_memories(
+    window, total = app_retrieval._advanced_search_live_memories(
         bhm_app.MemoryAdvancedSearchRequest(
             project="blackholememory", history_scope="recent", limit=10
         )
@@ -224,12 +227,12 @@ def test_federated_search_pushes_the_same_project_boundary_to_both_contours(monk
         captured[context_origin] = candidate_filters
         return []
 
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
-    monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(app_core, "_search_memory_collection", fake_search_memory_collection)
     monkeypatch.setattr(bhm_app.asyncio, "to_thread", fake_to_thread)
 
     hits, total = asyncio.run(
-        bhm_app.federated_search(
+        app_core.federated_search(
             "scope boundary",
             "BlackHoleMemory",
             limit=5,

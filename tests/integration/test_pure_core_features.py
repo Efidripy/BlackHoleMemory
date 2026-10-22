@@ -29,6 +29,13 @@ if str(SRC_ROOT) not in sys.path:
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_core
+from blackholememory import app_hooks
+from blackholememory import app_ops
+from blackholememory import app_projects
+from blackholememory import app_retrieval
+from blackholememory import app_telemetry
 from blackholememory import app as bhm_app
 from blackholememory import memory_routes
 from blackholememory import galaxy_routes
@@ -106,16 +113,16 @@ def _profile_registry_snapshot() -> dict:
 @pytest.fixture
 def profile_contract(monkeypatch):
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_fallback_memory_records",
         lambda **kwargs: [
             {"source_id": "mem_bhm_profile_001", "project": kwargs.get("project"), "content": "profile fact"}
         ],
     )
-    monkeypatch.setattr(bhm_app, "_load_policy_profile_snapshot", _profile_policy_snapshot)
-    monkeypatch.setattr(bhm_app, "_load_mcp_registry_snapshot", _profile_registry_snapshot)
+    monkeypatch.setattr(app_core, "_load_policy_profile_snapshot", _profile_policy_snapshot)
+    monkeypatch.setattr(app_projects, "_load_mcp_registry_snapshot", _profile_registry_snapshot)
     monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True, "phase": "ready"})
-    monkeypatch.setattr(bhm_app, "mem0_runtime_plan", lambda: {"enabled": True, "mode": "test"})
+    patch_app_import(monkeypatch, "mem0_runtime_plan", lambda: {"enabled": True, "mode": "test"})
 
 
 def test_async_profile_latency_under_load(profile_contract, monkeypatch):
@@ -136,7 +143,7 @@ def test_async_profile_latency_under_load(profile_contract, monkeypatch):
 
     async def run_load() -> float:
         started = time.perf_counter()
-        responses = await asyncio.gather(*(bhm_app.bhm_profile(project="blackholememory") for _ in range(25)))
+        responses = await asyncio.gather(*(app_projects.bhm_profile(project="blackholememory") for _ in range(25)))
         duration = time.perf_counter() - started
         assert all(response["status"] == "ready" for response in responses)
         return duration
@@ -147,7 +154,7 @@ def test_async_profile_latency_under_load(profile_contract, monkeypatch):
 
 
 def test_profile_payload_contract(profile_contract):
-    response = asyncio.run(bhm_app.bhm_profile(project="blackholememory"))
+    response = asyncio.run(app_projects.bhm_profile(project="blackholememory"))
 
     assert {"status", "readiness", "context_flags", "profile"}.issubset(response)
     assert response["status"] == "ready"
@@ -158,8 +165,8 @@ def test_profile_payload_contract(profile_contract):
 
 
 def test_health_payload_exposes_explicit_storage_state():
-    ready = bhm_app.health_ready()
-    health = bhm_app.bhm_health()
+    ready = app_telemetry.health_ready()
+    health = app_telemetry.bhm_health()
 
     assert "storage" in ready
     assert "memory_store" in ready
@@ -180,11 +187,11 @@ def test_health_ready_is_not_green_when_storage_state_is_not_ready(monkeypatch):
             "ready": False,
         },
     )
-    monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: state)
-    monkeypatch.setattr(bhm_app, "dependency_report", lambda: {"ok": True, "dependencies": []})
-    monkeypatch.setattr(bhm_app, "mem0_runtime_plan", lambda: {"storage_readiness": "not-ready"})
+    patch_app_import(monkeypatch, "storage_runtime_state", lambda: state)
+    patch_app_import(monkeypatch, "dependency_report", lambda: {"ok": True, "dependencies": []})
+    patch_app_import(monkeypatch, "mem0_runtime_plan", lambda: {"storage_readiness": "not-ready"})
 
-    response = bhm_app.health_ready()
+    response = app_telemetry.health_ready()
 
     assert response["ok"] is False
     assert response["storage"]["reason"] == "remote_qdrant_required_but_unavailable"
@@ -200,9 +207,9 @@ def test_health_ready_fails_closed_on_invalid_authoritative_sqlite_target(tmp_pa
     monkeypatch.setenv("BHM_MEMORY_STORE_PARITY_CONFIRMED", "true")
     monkeypatch.setenv("BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED", "true")
 
-    response = bhm_app.health_ready()
-    health = bhm_app.bhm_health()
-    cutover = bhm_app.health_cutover()
+    response = app_telemetry.health_ready()
+    health = app_telemetry.bhm_health()
+    cutover = app_telemetry.health_cutover()
 
     assert response["ok"] is False
     assert response["memory_store"]["database_schema_ready"] is False
@@ -261,10 +268,10 @@ def test_sqlite_authoritative_memory_helpers_use_service_and_tombstones(tmp_path
     assert loaded[0]["source_id"] == record["source_id"]
     loaded[0]["content"] = "authoritative service updated"
     loaded[0]["updated_at"] = "2026-07-13T12:01:00Z"
-    bhm_app._save_live_memories(loaded)
+    app_core._save_live_memories(loaded)
 
     assert service.repository.get_memory(record["source_id"]).current_revision.content == "authoritative service updated"
-    deleted = bhm_app._delete_live_memory(
+    deleted = app_ops._delete_live_memory(
         bhm_app.MemoryDeleteRequest(id=record["source_id"], project="blackholememory")
     )
 
@@ -295,13 +302,13 @@ def test_sqlite_authoritative_save_skips_unchanged_full_list_records(tmp_path, m
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
 
     before = len([event for event in service.repository.list_outbox(limit=50) if event.status.value == "pending"])
-    bhm_app._save_live_memories([record])
+    app_core._save_live_memories([record])
     unchanged = len([event for event in service.repository.list_outbox(limit=50) if event.status.value == "pending"])
 
     changed = dict(record)
     changed["content"] = "changed full-list record"
     changed["metadata"] = dict(record["metadata"])
-    bhm_app._save_live_memories([changed])
+    app_core._save_live_memories([changed])
     after_change = len([event for event in service.repository.list_outbox(limit=50) if event.status.value == "pending"])
 
     assert before == 1
@@ -329,9 +336,9 @@ def test_sqlite_authoritative_memory_sync_does_not_write_mem0(monkeypatch):
     def fail_direct_vector_write(**_kwargs):
         raise AssertionError("authoritative route must not write directly to Mem0/Qdrant")
 
-    monkeypatch.setattr(bhm_app, "_write_vector_record", fail_direct_vector_write)
+    monkeypatch.setattr(app_core, "_write_vector_record", fail_direct_vector_write)
 
-    result = bhm_app._sync_mem0_record(record)
+    result = app_core._sync_mem0_record(record)
 
     assert result == {"local": ["legacy-vector-id"], "global": []}
     assert record["metadata"]["vector_targets"] == ["local"]
@@ -388,7 +395,7 @@ def test_admin_openapi_schema_is_capability_gated_and_explicit(monkeypatch):
 
 def test_required_storage_startup_gate_fails_closed(monkeypatch):
     state = SimpleNamespace(ready=False, configured_mode="remote-required", reason="qdrant_down")
-    monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: state)
+    patch_app_import(monkeypatch, "storage_runtime_state", lambda: state)
 
     with pytest.raises(StorageNotReady, match="did not become ready"):
         asyncio.run(bhm_app._wait_for_required_storage_ready(timeout_seconds=0))
@@ -396,7 +403,7 @@ def test_required_storage_startup_gate_fails_closed(monkeypatch):
 
 def test_required_storage_startup_gate_allows_explicit_degraded_mode(monkeypatch):
     state = SimpleNamespace(ready=False, configured_mode="remote-preferred", reason="explicit_fallback")
-    monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: state)
+    patch_app_import(monkeypatch, "storage_runtime_state", lambda: state)
 
     result = asyncio.run(bhm_app._wait_for_required_storage_ready(timeout_seconds=0))
 
@@ -405,7 +412,7 @@ def test_required_storage_startup_gate_allows_explicit_degraded_mode(monkeypatch
 
 def test_fallback_grace_is_explicitly_degraded_and_read_only(monkeypatch):
     monkeypatch.setenv("BHM_FALLBACK_MODE", "explicit")
-    metadata = bhm_app._fallback_grace_meta("test.route", TimeoutError("provider timeout"))
+    metadata = app_core._fallback_grace_meta("test.route", TimeoutError("provider timeout"))
 
     assert metadata["mode"] == "degraded"
     assert metadata["policy"] == "explicit"
@@ -417,13 +424,13 @@ def test_fallback_grace_is_explicitly_degraded_and_read_only(monkeypatch):
 def test_fallback_grace_stage_is_content_free_and_typed(monkeypatch):
     monkeypatch.setenv("BHM_FALLBACK_MODE", "explicit")
 
-    embedding = bhm_app._fallback_grace_meta(
+    embedding = app_core._fallback_grace_meta(
         "mem0.search",
-        bhm_app.EmbeddingPreparationTimeout("provider detail must not escape"),
+        app_core.EmbeddingPreparationTimeout("provider detail must not escape"),
     )
-    contour = bhm_app._fallback_grace_meta("mem0.search", app_runtime.ResponseTimeout("slow contour"))
-    transport = bhm_app._fallback_grace_meta("mem0.search", ConnectionError("private endpoint"))
-    http = bhm_app._fallback_grace_meta("mem0.search", HTTPException(status_code=503, detail="private detail"))
+    contour = app_core._fallback_grace_meta("mem0.search", app_runtime.ResponseTimeout("slow contour"))
+    transport = app_core._fallback_grace_meta("mem0.search", ConnectionError("private endpoint"))
+    http = app_core._fallback_grace_meta("mem0.search", HTTPException(status_code=503, detail="private detail"))
 
     assert embedding["stage"] == "embedding_preparation"
     assert contour["stage"] == "retrieval_contour"
@@ -437,9 +444,8 @@ def test_fallback_grace_stage_is_content_free_and_typed(monkeypatch):
 
 def test_fallback_grace_does_not_disclose_exception_text_or_filesystem_paths(monkeypatch):
     monkeypatch.setenv("BHM_FALLBACK_MODE", "explicit")
-    monkeypatch.setattr(bhm_app, "_read_json_snapshot", lambda _path: None)
-    monkeypatch.setattr(
-        bhm_app,
+    monkeypatch.setattr(app_core, "_read_json_snapshot", lambda _path: None)
+    patch_app_import(monkeypatch,
         "storage_runtime_state",
         lambda: SimpleNamespace(
             as_dict=lambda: {
@@ -456,7 +462,7 @@ def test_fallback_grace_does_not_disclose_exception_text_or_filesystem_paths(mon
         ),
     )
 
-    metadata = bhm_app._fallback_grace_meta(
+    metadata = app_core._fallback_grace_meta(
         "test.route",
         RuntimeError("secret=should-not-leak C:/private/secret/memories.sqlite3"),
     )
@@ -474,20 +480,20 @@ def test_admin_rest_route_snapshot_path_is_confined_to_admin_exports(monkeypatch
     export_root = tmp_path / "admin-exports"
     export_root.mkdir()
 
-    assert bhm_app._admin_snapshot_path("snapshot.json", require_leaf=True) == export_root.resolve() / "snapshot.json"
+    assert app_ops._admin_snapshot_path("snapshot.json", require_leaf=True) == export_root.resolve() / "snapshot.json"
     with pytest.raises(HTTPException) as traversal:
-        bhm_app._admin_snapshot_path("..\\outside.json", require_leaf=True)
+        app_ops._admin_snapshot_path("..\\outside.json", require_leaf=True)
     assert traversal.value.status_code == 400
     with pytest.raises(HTTPException) as nested:
-        bhm_app._admin_snapshot_path("nested\\snapshot.json", require_leaf=True)
+        app_ops._admin_snapshot_path("nested\\snapshot.json", require_leaf=True)
     assert nested.value.status_code == 400
 
 
 def test_disabled_fallback_policy_fails_closed(monkeypatch):
     monkeypatch.setenv("BHM_FALLBACK_MODE", "disabled")
 
-    assert bhm_app._configured_fallback_mode() == "disabled"
-    assert bhm_app._is_fallback_grace_error(TimeoutError("provider timeout")) is False
+    assert app_core._configured_fallback_mode() == "disabled"
+    assert app_retrieval._is_fallback_grace_error(TimeoutError("provider timeout")) is False
 
 
 def test_health_is_not_green_during_fallback_grace(monkeypatch):
@@ -495,9 +501,9 @@ def test_health_is_not_green_during_fallback_grace(monkeypatch):
     # the degraded health contract, not a one-second timing boundary.
     # health_ready() may perform a full quick_check on the live-sized SQLite
     # database; keep the test assertion independent of host I/O latency.
-    monkeypatch.setattr(bhm_app, "_FALLBACK_GRACE_ACTIVE_UNTIL", time.monotonic() + 60.0)
-    monkeypatch.setattr(bhm_app, "dependency_report", lambda: {"ok": True, "dependencies": []})
-    monkeypatch.setattr(bhm_app, "mem0_runtime_plan", lambda: {"storage_readiness": "ready"})
+    monkeypatch.setattr(app_core, "_FALLBACK_GRACE_ACTIVE_UNTIL", time.monotonic() + 60.0)
+    patch_app_import(monkeypatch, "dependency_report", lambda: {"ok": True, "dependencies": []})
+    patch_app_import(monkeypatch, "mem0_runtime_plan", lambda: {"storage_readiness": "ready"})
     state = SimpleNamespace(
         ready=True,
         as_dict=lambda: {
@@ -509,9 +515,9 @@ def test_health_is_not_green_during_fallback_grace(monkeypatch):
             "ready": True,
         },
     )
-    monkeypatch.setattr(bhm_app, "storage_runtime_state", lambda: state)
+    patch_app_import(monkeypatch, "storage_runtime_state", lambda: state)
 
-    response = bhm_app.health_ready()
+    response = app_telemetry.health_ready()
 
     assert response["ok"] is False
     assert response["fallback"]["active"] is True
@@ -535,9 +541,9 @@ def test_pure_cutover_legacy_routes_not_registered():
 def test_mcp_gateway_core_surface_lists_only_approved_tools(monkeypatch):
     monkeypatch.delenv("BHM_MCP_SURFACE", raising=False)
     request = {"jsonrpc": "2.0", "id": 70, "method": "tools/list", "params": {}}
-    asyncio.run(bhm_app._handle_mcp_gateway_jsonrpc_async(request))
+    asyncio.run(app_core._handle_mcp_gateway_jsonrpc_async(request))
     started = time.perf_counter()
-    response = asyncio.run(bhm_app._handle_mcp_gateway_jsonrpc_async(request))
+    response = asyncio.run(app_core._handle_mcp_gateway_jsonrpc_async(request))
     elapsed = time.perf_counter() - started
 
     assert response is not None
@@ -566,7 +572,7 @@ def test_mcp_gateway_admin_surface_exposes_full_registered_catalog(monkeypatch):
     monkeypatch.setenv("BHM_MCP_SURFACE", "admin")
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "unit-admin-capability")
     response = asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {
                 "jsonrpc": "2.0",
                 "id": 71,
@@ -589,7 +595,7 @@ def test_mcp_gateway_admin_surface_without_capability_falls_back_to_core(monkeyp
     monkeypatch.delenv("BHM_ADMIN_CAPABILITY", raising=False)
     monkeypatch.delenv("BHM_MCP_ADMIN_CAPABILITY", raising=False)
     response = asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {"jsonrpc": "2.0", "id": 74, "method": "tools/list", "params": {}}
         )
     )
@@ -604,7 +610,7 @@ def test_mcp_gateway_admin_tool_requires_capability(monkeypatch):
     monkeypatch.setenv("BHM_MCP_SURFACE", "admin")
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "unit-admin-capability")
     response = asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {
                 "jsonrpc": "2.0",
                 "id": 75,
@@ -646,7 +652,7 @@ def test_admin_rest_route_requires_capability(monkeypatch):
 def test_mcp_gateway_core_surface_rejects_admin_tool_before_dispatch(monkeypatch):
     monkeypatch.delenv("BHM_MCP_SURFACE", raising=False)
     response = asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {
                 "jsonrpc": "2.0",
                 "id": 72,
@@ -664,7 +670,7 @@ def test_mcp_gateway_core_surface_rejects_admin_tool_before_dispatch(monkeypatch
 def test_mcp_gateway_initialize_reports_selected_surface(monkeypatch):
     monkeypatch.setenv("BHM_MCP_SURFACE", "operator")
     response = asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {
                 "jsonrpc": "2.0",
                 "id": 73,
@@ -737,7 +743,7 @@ def test_mcp_broker_accepts_strict_bhm_remember_arguments():
 
 def test_mcp_gateway_invalid_params_is_invalid_request():
     response = asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {
                 "jsonrpc": "2.0",
                 "id": 15,
@@ -754,7 +760,7 @@ def test_mcp_gateway_invalid_params_is_invalid_request():
 
 def test_mcp_gateway_rejects_bhm_remember_string_concepts():
     response = asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {
                 "jsonrpc": "2.0",
                 "id": 16,
@@ -822,7 +828,7 @@ def test_fact_synthesis_uses_shared_sync_gateway_transport(monkeypatch):
         calls["thread_target"] = func
         return func(*args, **kwargs)
 
-    monkeypatch.setattr(bhm_app, "LocalOpenAICompatibleAdapter", SyncOnlyAdapter)
+    patch_app_import(monkeypatch, "LocalOpenAICompatibleAdapter", SyncOnlyAdapter)
     monkeypatch.setattr(bhm_app.asyncio, "to_thread", fake_to_thread)
 
     request = bhm_app.FactSynthesisRequest(
@@ -835,7 +841,7 @@ def test_fact_synthesis_uses_shared_sync_gateway_transport(monkeypatch):
         ),
     )
 
-    fact, tokens = asyncio.run(bhm_app._call_fact_synthesis_llm(request))
+    fact, tokens = asyncio.run(app_hooks._call_fact_synthesis_llm(request))
 
     assert fact["core_insight"] == "shared transport is enforced"
     assert tokens == {"prompt": 11, "completion": 13, "total": 24}
@@ -850,7 +856,7 @@ def test_fact_synthesis_provider_failure_uses_explicit_safe_fallback(monkeypatch
     async def fail_provider(_request):
         raise TimeoutError("provider timeout")
 
-    monkeypatch.setattr(bhm_app, "_call_fact_synthesis_llm", fail_provider)
+    monkeypatch.setattr(app_hooks, "_call_fact_synthesis_llm", fail_provider)
     monkeypatch.setenv("BHM_FALLBACK_MODE", "explicit")
 
     request = bhm_app.FactSynthesisRequest(
@@ -859,7 +865,7 @@ def test_fact_synthesis_provider_failure_uses_explicit_safe_fallback(monkeypatch
         three_zone_context=bhm_app.FactSynthesisThreeZoneContext(Active=["safe fallback evidence"]),
     )
 
-    response = asyncio.run(bhm_app.bhm_synthesis_fact_crystal(request))
+    response = asyncio.run(app_hooks.bhm_synthesis_fact_crystal(request))
 
     assert response["ok"] is True
     assert response["synthesis"]["mode"] == "fallback"
@@ -900,7 +906,7 @@ def test_hook_compact_triggers_crystallization(monkeypatch):
         )
 
     monkeypatch.setattr(bhm_app, "_append_hook_observation", fake_observation)
-    monkeypatch.setattr(bhm_app, "_crystallize_memories", fake_crystallize)
+    monkeypatch.setattr(app_core, "_crystallize_memories", fake_crystallize)
 
     request = bhm_app.BhmHookCompactRequest.model_validate(
         {
@@ -935,8 +941,8 @@ def test_hook_compact_triggers_crystallization(monkeypatch):
 def test_hook_idle_durable_enqueue(monkeypatch, tmp_path):
     bearer_value = "Bearer " + ("y" * 32)
     queue = HookJobQueue(tmp_path / "hook-jobs.sqlite3", capacity=4)
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_ACCEPTING", True)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_ACCEPTING", True)
 
     client = TestClient(bhm_app.app)
     started = time.perf_counter()
@@ -976,7 +982,7 @@ def test_hook_compact_empty_state_handling(monkeypatch):
         raise AssertionError("crystallize should not run for empty hook state")
 
     monkeypatch.setattr(bhm_app, "_append_hook_observation", lambda request, endpoint: {"id": "obs_hook_75"})
-    monkeypatch.setattr(bhm_app, "_crystallize_memories", fail_crystallize)
+    monkeypatch.setattr(app_core, "_crystallize_memories", fail_crystallize)
 
     request = bhm_app.BhmHookCompactRequest.model_validate(
         {
@@ -1129,7 +1135,7 @@ def test_hook_queue_status_tolerates_sidecar_checkpoint_race(tmp_path, monkeypat
 def test_hook_job_status_rechecks_stored_project_scope(monkeypatch, tmp_path):
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     queue = HookJobQueue(tmp_path / "hook-jobs-scoped.sqlite3", capacity=4)
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
     payload = {**_hook_queue_payload("obs_hook_queue_scoped"), "project": "other-project"}
     created = queue.enqueue("compact", payload, priority=10)
 
@@ -1196,8 +1202,8 @@ os._exit(23)
 
 def test_hook_endpoints_apply_durable_backpressure(monkeypatch, tmp_path):
     queue = HookJobQueue(tmp_path / "hook-jobs.sqlite3", capacity=1)
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_ACCEPTING", True)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_ACCEPTING", True)
     client = TestClient(bhm_app.app)
     payload = _hook_queue_payload("obs_hook_queue_005")
 
@@ -1216,7 +1222,7 @@ def test_hook_endpoints_apply_durable_backpressure(monkeypatch, tmp_path):
     assert duplicate.json()["job"]["inserted"] is False
     assert saturated.status_code == 429
     assert saturated.json()["detail"]["error"] == "hook_queue_full"
-    assert saturated.headers["retry-after"] == str(bhm_app._HOOK_QUEUE_RETRY_AFTER_SECONDS)
+    assert saturated.headers["retry-after"] == str(app_hooks._HOOK_QUEUE_RETRY_AFTER_SECONDS)
 
     queue_status = client.get("/bhm/hooks/queue/status?integrity=true")
     job_status = client.get(f"/bhm/hooks/jobs/{first.json()['job']['id']}")
@@ -1242,10 +1248,10 @@ def test_hook_queue_worker_processes_compact_job(monkeypatch, tmp_path):
             "memory": {"id": "mem_hook_queue_007"},
         }
 
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
     monkeypatch.setattr(bhm_app, "_handle_compact_hook", fake_handle)
     monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_LEASE_SECONDS", 5.0)
+    monkeypatch.setattr(app_core, "_HOOK_QUEUE_LEASE_SECONDS", 5.0)
 
     async def run_worker() -> None:
         stop_event = asyncio.Event()
@@ -1280,7 +1286,7 @@ def test_hook_queue_worker_logs_retryable_and_terminal_failure_context(monkeypat
     async def fail_execute(_job):
         raise RuntimeError("synthetic processing failure")
 
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
     monkeypatch.setattr(bhm_app, "_execute_hook_job", fail_execute)
     monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_RETRY_BASE_SECONDS", 0.0)
@@ -1334,7 +1340,7 @@ def test_hook_queue_worker_does_not_hide_failure_recording_error(monkeypatch, tm
         raise RuntimeError("synthetic processing failure")
 
     monkeypatch.setattr(queue, "fail", fail_once)
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
     monkeypatch.setattr(bhm_app, "_execute_hook_job", fail_execute)
     monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     caplog.set_level("ERROR")
@@ -1379,7 +1385,7 @@ def test_hook_queue_worker_cancellation_is_recovered_not_terminal(monkeypatch, t
         await release.wait()
         return {"success": True}
 
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
     monkeypatch.setattr(bhm_app, "_execute_hook_job", blocked_execute)
     caplog.set_level("INFO")
 
@@ -1424,15 +1430,15 @@ def test_hook_queue_manager_starts_and_drains_fixed_workers(monkeypatch, tmp_pat
             "observation": {"id": job["eventId"]},
         }
 
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
     monkeypatch.setattr(bhm_app, "_execute_hook_job", fake_execute)
-    monkeypatch.setattr(bhm_app, "_HOOK_COMPACT_WORKERS", 1)
-    monkeypatch.setattr(bhm_app, "_HOOK_IDLE_WORKERS", 1)
+    monkeypatch.setattr(app_core, "_HOOK_COMPACT_WORKERS", 1)
+    monkeypatch.setattr(app_core, "_HOOK_IDLE_WORKERS", 1)
     monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_DRAIN_SECONDS", 2.0)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_TASKS", [])
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_STOP_EVENT", None)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_ACCEPTING", True)
+    monkeypatch.setattr(app_core, "_HOOK_QUEUE_DRAIN_SECONDS", 2.0)
+    monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_TASKS", [])
+    monkeypatch.setattr(app_core, "_HOOK_QUEUE_STOP_EVENT", None)
+    monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_ACCEPTING", True)
 
     async def run_manager() -> None:
         await bhm_app._start_hook_queue_workers()
@@ -1448,9 +1454,9 @@ def test_hook_queue_manager_starts_and_drains_fixed_workers(monkeypatch, tmp_pat
 
     assert queue.get(compact.job_id)["status"] == "completed"
     assert queue.get(idle.job_id)["status"] == "completed"
-    assert bhm_app._HOOK_QUEUE_TASKS == []
-    assert bhm_app._HOOK_QUEUE_STOP_EVENT is None
-    assert bhm_app._HOOK_QUEUE_ACCEPTING is False
+    assert app_hooks._HOOK_QUEUE_TASKS == []
+    assert app_core._HOOK_QUEUE_STOP_EVENT is None
+    assert app_hooks._HOOK_QUEUE_ACCEPTING is False
 
 
 def test_hook_queue_terminal_expiration_preserves_idempotency_tombstone(tmp_path):
@@ -1546,7 +1552,7 @@ def test_observation_contract_preserves_explicit_v1_identity():
 
 def test_observe_endpoint_emits_versioned_record(monkeypatch):
     captured: list[dict] = []
-    monkeypatch.setattr(bhm_app, "_append_observation", captured.append)
+    monkeypatch.setattr(app_core, "_append_observation", captured.append)
     bearer_value = "Bearer " + ("x" * 32)
 
     client = TestClient(bhm_app.app)
@@ -1603,7 +1609,7 @@ def test_observe_endpoint_rejects_unknown_top_level_fields():
 
 def test_hook_observation_uses_versioned_contract(monkeypatch):
     captured: list[dict] = []
-    monkeypatch.setattr(bhm_app, "_append_observation", captured.append)
+    monkeypatch.setattr(app_core, "_append_observation", captured.append)
     request = bhm_app.BhmHookRequest(
         schemaVersion="1.0",
         eventId="obs_workspace_hook_001",
@@ -1621,7 +1627,7 @@ def test_hook_observation_uses_versioned_contract(monkeypatch):
         metadata={"identityResolver": "workspace-v1"},
     )
 
-    secured_request = bhm_app._secure_observation_request_model(
+    secured_request = app_hooks._secure_observation_request_model(
         request,
         max_input_bytes=bhm_app.OBSERVATION_COMPACT_MAX_INPUT_BYTES,
     )
@@ -1757,7 +1763,7 @@ def test_observation_security_redacts_before_long_key_truncation():
 def test_p1_9_secret_ingress_matrix_redacts_before_persistence(monkeypatch, tmp_path):
     secret = "token=synthetic-p1-9-secret-123456789"
     captured_observations: list[dict] = []
-    monkeypatch.setattr(bhm_app, "_append_observation", captured_observations.append)
+    monkeypatch.setattr(app_core, "_append_observation", captured_observations.append)
     client = TestClient(bhm_app.app)
 
     observe_response = client.post(
@@ -1777,8 +1783,8 @@ def test_p1_9_secret_ingress_matrix_redacts_before_persistence(monkeypatch, tmp_
     assert captured_observations
 
     queue = HookJobQueue(tmp_path / "hook-jobs.sqlite3", capacity=4)
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_ACCEPTING", True)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_ACCEPTING", True)
     hook_response = client.post(
         "/bhm/hooks/compact",
         json={
@@ -2126,9 +2132,9 @@ def test_retention_status_endpoint_is_read_only(monkeypatch, tmp_path):
     assert claimed
     hook_queue.complete(queued.job_id, owner="retention-status", result={"success": True})
     policy_path = _write_retention_test_policy(tmp_path / "policy.json")
-    monkeypatch.setattr(bhm_app, "_observation_store", lambda: observation_store)
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: hook_queue)
-    monkeypatch.setattr(bhm_app, "_retention_policy_path", lambda: policy_path)
+    monkeypatch.setattr(app_core, "_observation_store", lambda: observation_store)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: hook_queue)
+    monkeypatch.setattr(app_ops, "_retention_policy_path", lambda: policy_path)
 
     client = TestClient(bhm_app.app)
     response = client.get("/bhm/retention/status?as_of=2026-07-12T00:00:00Z")
@@ -2223,7 +2229,7 @@ raise SystemExit(31)
 
 def test_observe_endpoint_rejects_oversized_content_length(monkeypatch):
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_append_observation",
         lambda _item: (_ for _ in ()).throw(AssertionError("oversized payload must not be stored")),
     )
@@ -2247,8 +2253,8 @@ def test_observe_endpoint_rejects_oversized_content_length(monkeypatch):
 def test_compact_hook_sanitizes_transit_before_durable_enqueue(monkeypatch, tmp_path):
     secret_value = "password=synthetic-compact-secret-123456"
     queue = HookJobQueue(tmp_path / "hook-jobs.sqlite3", capacity=4)
-    monkeypatch.setattr(bhm_app, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_ACCEPTING", True)
+    monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_ACCEPTING", True)
     client = TestClient(bhm_app.app)
     response = client.post(
         "/bhm/hooks/compact",
@@ -2285,10 +2291,10 @@ def test_memory_redaction_never_persists_plaintext_original(monkeypatch):
     }
     persisted: list[dict] = []
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda _id, _project: record)
-    monkeypatch.setattr(bhm_app, "_replace_live_memory", lambda item: persisted.append(dict(item)))
-    monkeypatch.setattr(bhm_app, "_append_memory_changelog", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(app_core, "_replace_live_memory", lambda item: persisted.append(dict(item)))
+    monkeypatch.setattr(app_core, "_append_memory_changelog", lambda *_args, **_kwargs: None)
 
-    result = bhm_app._memory_redact(
+    result = app_ops._memory_redact(
         bhm_app.MemoryRedactRequest(id="mem_security_001", project="blackholememory")
     )
 
@@ -2312,7 +2318,7 @@ def test_memory_redaction_rejects_unsafe_custom_regex(monkeypatch):
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda _id, _project: record)
 
     with pytest.raises(HTTPException) as raised:
-        bhm_app._memory_redact(
+        app_ops._memory_redact(
             bhm_app.MemoryRedactRequest(
                 id="mem_security_regex",
                 project="blackholememory",
@@ -2604,14 +2610,14 @@ def test_federated_search_concurrency(monkeypatch):
             },
         }
 
-    monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeEmbeddingMemory())
-    monkeypatch.setattr(bhm_app, "_authoritative_graph_links_sync", fake_authoritative_graph_links)
-    monkeypatch.setattr(bhm_app, "_fetch_qdrant_hit_by_source_id", fake_fetch_qdrant_hit_by_source_id)
+    monkeypatch.setattr(app_core, "_search_memory_collection", fake_search_memory_collection)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeEmbeddingMemory())
+    monkeypatch.setattr(app_core, "_authoritative_graph_links_sync", fake_authoritative_graph_links)
+    monkeypatch.setattr(app_core, "_fetch_qdrant_hit_by_source_id", fake_fetch_qdrant_hit_by_source_id)
 
     async def run_search():
         started = time.perf_counter()
-        hits, total = await bhm_app.federated_search("async memory", "blackholememory", limit=5)
+        hits, total = await app_core.federated_search("async memory", "blackholememory", limit=5)
         return time.perf_counter() - started, hits, total
 
     elapsed, hits, total = asyncio.run(run_search())
@@ -2640,7 +2646,7 @@ def test_federated_search_concurrency(monkeypatch):
 
 
 def test_federated_search_reuses_one_query_embedding(monkeypatch):
-    bhm_app._QUERY_EMBEDDING_CACHE.clear()
+    app_core._QUERY_EMBEDDING_CACHE.clear()
     class FakeEmbedder:
         def __init__(self):
             self.calls = 0
@@ -2660,11 +2666,11 @@ def test_federated_search_reuses_one_query_embedding(monkeypatch):
         embeddings.append(query_embedding)
         return []
 
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: memory)
-    monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: memory)
+    monkeypatch.setattr(app_core, "_search_memory_collection", fake_search_memory_collection)
 
     outcome = asyncio.run(
-        bhm_app.federated_search(
+        app_core.federated_search(
             "single embedding",
             "blackholememory",
             limit=5,
@@ -2794,11 +2800,11 @@ def test_hybrid_search_pipeline(monkeypatch):
             },
         ]
 
-    monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeEmbeddingMemory())
+    monkeypatch.setattr(app_core, "_search_memory_collection", fake_search_memory_collection)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeEmbeddingMemory())
 
     hits, total = asyncio.run(
-        bhm_app.federated_search(
+        app_core.federated_search(
             "exactneedle",
             "blackholememory",
             limit=2,
@@ -2847,7 +2853,7 @@ def test_search_does_not_mutate_access_feedback_on_simple_display(monkeypatch):
         )
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
-    monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
+    monkeypatch.setattr(app_core, "federated_search", fake_federated_search)
     monkeypatch.setattr(memory_routes, "_schedule_vector_access_updates", lambda hits: scheduled.append(hits))
 
     response = TestClient(bhm_app.app).post(
@@ -2939,7 +2945,7 @@ def test_context_compile_is_bounded_and_fails_closed_on_project_archive_and_log_
         return hits, len(hits)
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
-    monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
+    monkeypatch.setattr(app_core, "federated_search", fake_federated_search)
 
     response = TestClient(bhm_app.app).post(
         "/bhm/context/compile",
@@ -3054,8 +3060,8 @@ def test_context_compile_recent_scope_uses_authoritative_sqlite_without_provider
         return records, len(records)
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", unexpected_warmup)
-    monkeypatch.setattr(bhm_app, "federated_search", unexpected_federated)
-    monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", fake_authoritative)
+    monkeypatch.setattr(app_core, "federated_search", unexpected_federated)
+    monkeypatch.setattr(app_retrieval, "_advanced_search_live_memories", fake_authoritative)
 
     response = TestClient(bhm_app.app).post(
         "/bhm/context/compile",
@@ -3089,8 +3095,8 @@ def test_context_compile_recovers_to_authoritative_sqlite_when_provider_warmup_t
         raise app_runtime.ResponseTimeout("provider warmup is still in progress")
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", timeout_warmup)
-    monkeypatch.setattr(bhm_app, "_is_fallback_grace_error", lambda _exc: True)
-    monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", lambda _request: (records, len(records)))
+    monkeypatch.setattr(app_retrieval, "_is_fallback_grace_error", lambda _exc: True)
+    monkeypatch.setattr(app_retrieval, "_advanced_search_live_memories", lambda _request: (records, len(records)))
 
     response = TestClient(bhm_app.app).post(
         "/bhm/context/compile",
@@ -3153,8 +3159,8 @@ def test_context_compile_can_explicitly_apply_deterministic_tiers(monkeypatch):
         return hits, len(hits)
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
-    monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
-    monkeypatch.setattr(bhm_app, "_strict_retrieval_hits", lambda items, **_kwargs: items)
+    monkeypatch.setattr(app_core, "federated_search", fake_federated_search)
+    monkeypatch.setattr(app_core, "_strict_retrieval_hits", lambda items, **_kwargs: items)
 
     response = TestClient(bhm_app.app).post(
         "/bhm/context/compile",
@@ -3239,7 +3245,7 @@ def test_explain_retrieval_returns_rank_and_routing_diagnostics_without_raw_meta
             ]
         ),
     )
-    monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
+    monkeypatch.setattr(app_core, "federated_search", fake_federated_search)
 
     response = TestClient(bhm_app.app).post(
         "/bhm/retrieval/explain",
@@ -3389,7 +3395,7 @@ def test_memory_used_records_only_explicit_live_project_access(monkeypatch):
         ),
     )
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
-    monkeypatch.setattr(bhm_app, "_fetch_qdrant_hit_by_source_id", fake_fetch)
+    monkeypatch.setattr(app_core, "_fetch_qdrant_hit_by_source_id", fake_fetch)
     monkeypatch.setattr(memory_routes, "_schedule_vector_access_updates", lambda items: scheduled.append(items))
 
     response = TestClient(bhm_app.app).post(
@@ -3456,7 +3462,7 @@ def test_federated_merge_and_deduplication(tmp_path):
         ]
     }
 
-    local = bhm_app._normalize_collection_hit(
+    local = app_core._normalize_collection_hit(
         {
             "id": "local-low",
             "content": "same durable root cause",
@@ -3466,7 +3472,7 @@ def test_federated_merge_and_deduplication(tmp_path):
         collection_name="bhm_local_memory_blackholememory",
         context_origin="LOCAL",
     )
-    global_hit = bhm_app._normalize_collection_hit(
+    global_hit = app_core._normalize_collection_hit(
         {
             "id": "global-high",
             "content": "same durable root cause",
@@ -3477,7 +3483,7 @@ def test_federated_merge_and_deduplication(tmp_path):
         context_origin="GLOBAL",
     )
 
-    merged = bhm_app.merge_and_sort_hits([local], [global_hit])
+    merged = app_core.merge_and_sort_hits([local], [global_hit])
 
     assert len(merged) == 1
     assert merged[0]["score"] == 0.9
@@ -3485,12 +3491,12 @@ def test_federated_merge_and_deduplication(tmp_path):
 
 
 def test_context_origin_metadata_tagging():
-    local = bhm_app._normalize_collection_hit(
+    local = app_core._normalize_collection_hit(
         {"content": "local fact", "metadata": {}},
         collection_name="bhm_local_memory_blackholememory",
         context_origin="LOCAL",
     )
-    global_hit = bhm_app._normalize_collection_hit(
+    global_hit = app_core._normalize_collection_hit(
         {"content": "global fact", "metadata": {}},
         collection_name="bhm_global_core_knowledge",
         context_origin="GLOBAL",
@@ -3978,14 +3984,14 @@ def test_galaxy_typed_filters_use_authoritative_service_and_expose_typed_metadat
             return []
 
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeMemoryService())
-    monkeypatch.setattr(bhm_app, "_require_typed_memory_boundary", lambda **_kwargs: None)
+    monkeypatch.setattr(app_core, "_require_typed_memory_boundary", lambda **_kwargs: None)
 
     data = asyncio.run(
         galaxy_routes._build_galaxy_data(
             "blackholememory",
             50,
-            memory_class=bhm_app.MemoryClass.SEMANTIC,
-            event_role=bhm_app.MemoryEventRole.FACT,
+            memory_class=app_core.MemoryClass.SEMANTIC,
+            event_role=app_core.MemoryEventRole.FACT,
         )
     )
 

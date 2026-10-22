@@ -8,6 +8,10 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_core
+from blackholememory import app_ops
+from blackholememory import app_projects
 from blackholememory import app as bhm_app
 from blackholememory import galaxy_routes
 from blackholememory import code_tools_service
@@ -64,7 +68,7 @@ def test_registered_route_inventory_has_no_implicit_auth_policy() -> None:
 
 
 def test_missing_configuration_fails_closed_without_lifespan(monkeypatch) -> None:
-    monkeypatch.setattr(bhm_app, "configured_caller_principal", lambda: None)
+    patch_app_import(monkeypatch, "configured_caller_principal", lambda: None)
     response = _client(authorization="").get("/bhm/memory", params={"id": "missing"})
 
     assert response.status_code == 503
@@ -244,7 +248,7 @@ def test_galaxy_stats_cache_is_single_flight_and_reused(monkeypatch) -> None:
 def test_launcher_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
-    monkeypatch.setattr(bhm_app, "_load_session_records", lambda: [{"id": index} for index in range(3)])
+    monkeypatch.setattr(app_core, "_load_session_records", lambda: [{"id": index} for index in range(3)])
 
     class MemoryService:
         @staticmethod
@@ -363,7 +367,7 @@ def test_project_summary_refresh_all_does_not_ignore_project_field(monkeypatch) 
         captured["projects"] = request.projects
         return {"projects": [request.project], "count": 0, "items": []}
 
-    monkeypatch.setattr(bhm_app, "_project_summary_refresh_all", fake_refresh)
+    monkeypatch.setattr(app_projects, "_project_summary_refresh_all", fake_refresh)
     response = _client().post(
         "/bhm/project-summary/refresh-all",
         json={"project": "blackholememory"},
@@ -416,7 +420,7 @@ def test_project_similarity_report_is_operator_only(monkeypatch) -> None:
 def test_all_projects_caller_cannot_use_audit_default_scope(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "*")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
-    monkeypatch.setattr(bhm_app, "_integrity_audit", lambda project: {"project": project, "ok": True})
+    monkeypatch.setattr(app_ops, "_integrity_audit", lambda project: {"project": project, "ok": True})
 
     response = _client().get("/bhm/audit")
 
@@ -428,7 +432,7 @@ def test_project_summary_compare_returns_canonical_project_labels(monkeypatch) -
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory,e-github-workspace")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_project_summary_get",
         lambda project: {"project": project, "content": f"summary:{project}"},
     )
@@ -518,7 +522,7 @@ def test_project_labelled_reports_canonicalize_alias_filters(monkeypatch) -> Non
         ],
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_load_validation_snapshots",
         lambda: [
             {"id": "v-a", "project": "BlackHoleMemory", "overall_status": "failed"},
@@ -601,7 +605,7 @@ def test_admin_import_snapshot_rejects_cross_project_link_endpoint(monkeypatch, 
             {"source_id": "foreign", "project": "e-github-workspace"},
         ],
     )
-    monkeypatch.setattr(bhm_app, "_artifact_store_pairs", lambda: {})
+    monkeypatch.setattr(app_ops, "_artifact_store_pairs", lambda: {})
 
     response = _client().post(
         "/bhm/admin/import-preview",
@@ -1110,7 +1114,7 @@ def test_scoped_repository_intelligence_rejects_foreign_project_before_filesyste
         probes.append(str(root))
         return []
 
-    monkeypatch.setattr(bhm_app, "collect_repository_files", record_collect)
+    patch_app_import(monkeypatch, "collect_repository_files", record_collect)
     response = _client().post(
         "/bhm/llm/repository-intelligence/preview",
         json={"project": "project-b", "root": "."},
@@ -1135,7 +1139,7 @@ def test_repository_intelligence_root_escape_is_rejected_before_collection(monke
         probes.append(str(root))
         return []
 
-    monkeypatch.setattr(bhm_app, "collect_repository_files", record_collect)
+    patch_app_import(monkeypatch, "collect_repository_files", record_collect)
     response = _client().post(
         "/bhm/llm/repository-intelligence/preview",
         json={"project": "blackholememory", "root": str(outside)},

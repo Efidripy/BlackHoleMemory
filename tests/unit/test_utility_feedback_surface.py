@@ -9,6 +9,10 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_core
+from blackholememory import app_governed
+from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.caller_auth import CallerPrincipal
@@ -57,9 +61,9 @@ def test_utility_feedback_binds_actor_to_authenticated_principal_and_is_replay_s
         return {"id": event.event_id}, True
 
     monkeypatch.setattr(app_runtime, "_memory_service", _Service)
-    monkeypatch.setattr(bhm_app, "append_utility_event", fake_append)
+    patch_app_import(monkeypatch, "append_utility_event", fake_append)
 
-    result = bhm_app._record_utility_feedback_event(_request(), principal=_principal())
+    result = app_retrieval._record_utility_feedback_event(_request(), principal=_principal())
 
     event = captured["event"]
     assert isinstance(event, UtilityEvent)
@@ -80,11 +84,11 @@ def test_utility_feedback_rejects_unauthenticated_and_cross_project_memory(monke
     monkeypatch.setattr(app_runtime, "_memory_service", _Service)
 
     with pytest.raises(HTTPException) as unauthenticated:
-        bhm_app._record_utility_feedback_event(_request(), principal=None)
+        app_retrieval._record_utility_feedback_event(_request(), principal=None)
     assert unauthenticated.value.status_code == 401
 
     with pytest.raises(HTTPException) as cross_project:
-        bhm_app._record_utility_feedback_event(
+        app_retrieval._record_utility_feedback_event(
             _request(project="other-project"),
             principal=_principal(),
         )
@@ -109,7 +113,7 @@ def test_utility_feedback_rest_surface_requires_caller_and_derives_actor(monkeyp
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
     monkeypatch.setattr(app_runtime, "_memory_service", _Service)
-    monkeypatch.setattr(bhm_app, "append_utility_event", fake_append)
+    patch_app_import(monkeypatch, "append_utility_event", fake_append)
     client = TestClient(bhm_app.app)
     payload = _request().model_dump(mode="json")
 
@@ -143,9 +147,9 @@ def test_utility_feedback_report_is_project_scoped_and_read_only(monkeypatch) ->
         return (event,)
 
     monkeypatch.setattr(app_runtime, "_memory_service", _Service)
-    monkeypatch.setattr(bhm_app, "load_utility_events", fake_load)
+    patch_app_import(monkeypatch, "load_utility_events", fake_load)
 
-    result = bhm_app._utility_feedback_report(
+    result = app_core._utility_feedback_report(
         project="blackholememory",
         as_of="2026-08-23T12:00:00Z",
         half_life_days=30.0,
@@ -178,9 +182,9 @@ def test_utility_feedback_consolidation_preview_is_read_only(monkeypatch) -> Non
 
     events = tuple(event.model_copy(update={"event_id": f"utility-event-{index}"}) for index in range(1, 4))
     monkeypatch.setattr(app_runtime, "_memory_service", _Service)
-    monkeypatch.setattr(bhm_app, "load_utility_events", lambda *_args, **_kwargs: events)
+    patch_app_import(monkeypatch, "load_utility_events", lambda *_args, **_kwargs: events)
 
-    result = bhm_app._utility_feedback_consolidation_preview(
+    result = app_retrieval._utility_feedback_consolidation_preview(
         project="blackholememory",
         as_of="2026-08-23T12:00:00Z",
         half_life_days=30.0,
@@ -269,17 +273,17 @@ def test_utility_feedback_change_set_preview_rest_surface_is_authenticated_and_r
         "detector_digest": "a" * 64,
         "confidence": 0.9,
     }
-    monkeypatch.setattr(bhm_app, "_utility_feedback_report", lambda **_: report)
-    monkeypatch.setattr(bhm_app, "load_authoritative_sqlite_snapshot", lambda *_args, **_kwargs: snapshot)
-    monkeypatch.setattr(bhm_app, "run_authoritative_sqlite_memory_doctor", lambda *_args, **_kwargs: doctor)
-    monkeypatch.setattr(bhm_app, "resolve_runtime_storage_config", lambda **_: SimpleNamespace(database_path="ignored"))
+    monkeypatch.setattr(app_core, "_utility_feedback_report", lambda **_: report)
+    patch_app_import(monkeypatch, "load_authoritative_sqlite_snapshot", lambda *_args, **_kwargs: snapshot)
+    patch_app_import(monkeypatch, "run_authoritative_sqlite_memory_doctor", lambda *_args, **_kwargs: doctor)
+    patch_app_import(monkeypatch, "resolve_runtime_storage_config", lambda **_: SimpleNamespace(database_path="ignored"))
 
     request = bhm_app.ConsolidationChangeSetPreviewRequest(
         project="blackholememory",
         as_of="2026-08-23T12:00:00Z",
         candidates=[candidate],
     )
-    result = bhm_app._utility_feedback_change_set_preview(request)
+    result = app_governed._utility_feedback_change_set_preview(request)
     assert result["action_count"] == 1
     assert result["side_effects"] == {
         "read_only": True,

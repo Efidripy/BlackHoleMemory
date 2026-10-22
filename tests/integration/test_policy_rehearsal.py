@@ -12,6 +12,8 @@ import threading
 from fastapi.testclient import TestClient
 import pytest
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_governed
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.caller_auth import CallerPrincipal
@@ -142,8 +144,8 @@ def test_policy_preflight_keeps_shared_io_disabled_and_has_no_projection_call(
         return event.to_artifact().to_record(), True
 
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
-    monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
-    result = bhm_app._shared_memory_policy_preflight(
+    patch_app_import(monkeypatch, "append_shared_memory_audit", fake_append)
+    result = app_governed._shared_memory_policy_preflight(
         bhm_app.SharedMemoryPolicyPreflightRequest(
             project="blackholememory",
             request_id="preflight-rehearsal",
@@ -214,7 +216,7 @@ def test_governed_read_is_disabled_by_default_without_touching_storage(monkeypat
     monkeypatch.delenv("BHM_SHARED_MEMORY_READ_ENABLED", raising=False)
 
     with pytest.raises(bhm_app.HTTPException) as error:
-        bhm_app._shared_memory_read(
+        app_governed._shared_memory_read(
             bhm_app.SharedMemoryReadRequest(
                 project="blackholememory",
                 request_id="disabled-read",
@@ -266,9 +268,9 @@ def test_governed_read_requires_grant_then_returns_bounded_sqlite_record(monkeyp
             "lifecycle": "active",
         },
     )
-    monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
+    patch_app_import(monkeypatch, "append_shared_memory_audit", fake_append)
 
-    result = bhm_app._shared_memory_read(
+    result = app_governed._shared_memory_read(
         bhm_app.SharedMemoryReadRequest(
             project="blackholememory",
             request_id="allowed-read",
@@ -352,7 +354,7 @@ def test_identical_concurrent_governed_reads_use_sqlite_ledger_and_replay_one_au
 
     def run_read(_index: int) -> dict[str, object]:
         barrier.wait(timeout=5)
-        return bhm_app._shared_memory_read(
+        return app_governed._shared_memory_read(
             request,
             principal=_principal(),
             auth_kind="caller_bearer",
@@ -432,7 +434,7 @@ def test_expired_or_revoked_governed_read_retry_keeps_one_content_free_audit(
 
     for request in (first, retry):
         with pytest.raises(bhm_app.HTTPException) as error:
-            bhm_app._shared_memory_read(request, principal=_principal(), auth_kind="caller_bearer")
+            app_governed._shared_memory_read(request, principal=_principal(), auth_kind="caller_bearer")
         assert error.value.status_code == 403
         assert error.value.detail["code"] == "shared_memory_policy_denied"
         assert error.value.detail["reason_code"] == expected_reason
@@ -463,10 +465,10 @@ def test_governed_read_audits_policy_deny_without_disclosing_memory(monkeypatch)
 
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "agent-owner", "content": "private content", "metadata": {"shared_visibility": "project", "sensitivity": "internal"}, "lifecycle": "active"})
-    monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
+    patch_app_import(monkeypatch, "append_shared_memory_audit", fake_append)
 
     with pytest.raises(bhm_app.HTTPException) as error:
-        bhm_app._shared_memory_read(
+        app_governed._shared_memory_read(
             bhm_app.SharedMemoryReadRequest(
                 project="blackholememory",
                 request_id="denied-read",
@@ -496,7 +498,7 @@ def test_governed_read_rejects_client_supplied_owner_that_disagrees_with_sqlite(
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda *_args: {"source_id": "memory-fixture", "project": "blackholememory", "agent_id": "actual-owner", "metadata": {"shared_visibility": "project", "sensitivity": "internal"}, "lifecycle": "active"})
 
     with pytest.raises(bhm_app.HTTPException) as error:
-        bhm_app._shared_memory_read(
+        app_governed._shared_memory_read(
             bhm_app.SharedMemoryReadRequest(
                 project="blackholememory",
                 request_id="owner-mismatch",
@@ -527,8 +529,7 @@ def test_governed_read_uses_canonical_visibility_sensitivity_and_server_time(mon
             return []
 
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
-    monkeypatch.setattr(
-        bhm_app,
+    patch_app_import(monkeypatch,
         "append_shared_memory_audit",
         lambda _service, event: (event.to_artifact().to_record(), True),
     )
@@ -546,7 +547,7 @@ def test_governed_read_uses_canonical_visibility_sensitivity_and_server_time(mon
     )
 
     with pytest.raises(bhm_app.HTTPException) as mismatch:
-        bhm_app._shared_memory_read(
+        app_governed._shared_memory_read(
             bhm_app.SharedMemoryReadRequest(
                 project="blackholememory",
                 request_id="downgrade-attempt",
@@ -562,7 +563,7 @@ def test_governed_read_uses_canonical_visibility_sensitivity_and_server_time(mon
     assert mismatch.value.detail["code"] == "shared_memory_sensitivity_mismatch"
 
     with pytest.raises(bhm_app.HTTPException) as expired_error:
-        bhm_app._shared_memory_read(
+        app_governed._shared_memory_read(
             bhm_app.SharedMemoryReadRequest(
                 project="blackholememory",
                 request_id="backdate-attempt",

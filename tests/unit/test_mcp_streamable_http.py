@@ -10,7 +10,7 @@ import httpx
 from mcp import types
 import pytest
 
-from blackholememory import app as bhm_app
+from blackholememory import app_core
 from blackholememory.mcp_streamable_http import BhmStreamableHttpGateway
 from blackholememory.mcp_streamable_http import HttpMcpSessionRegistry
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
@@ -95,7 +95,7 @@ async def _initialize_named(
 def test_core_catalog_input_schemas_are_not_depth_truncated():
     # Strict clients (Anthropic API) drop a tool whose schema has a string where a subschema belongs.
     response = asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_core({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
+        app_core._handle_mcp_gateway_jsonrpc_core({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}})
     )
     assert response is not None
     tools = response["result"]["tools"]
@@ -106,10 +106,10 @@ def test_core_catalog_input_schemas_are_not_depth_truncated():
 def test_streamable_http_matches_core_catalog_and_recovers_after_disconnect():
     async def exercise() -> None:
         gateway = BhmStreamableHttpGateway(
-            bhm_app._handle_mcp_gateway_jsonrpc_async,
+            app_core._handle_mcp_gateway_jsonrpc_async,
             server_version="test",
         )
-        direct = await bhm_app._handle_mcp_gateway_jsonrpc_core(
+        direct = await app_core._handle_mcp_gateway_jsonrpc_core(
             {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}
         )
         assert direct is not None
@@ -592,7 +592,7 @@ def test_streamable_http_records_transport_loss_and_recovers_with_new_session():
 def test_streamable_http_rejects_untrusted_origin():
     async def exercise() -> None:
         gateway = BhmStreamableHttpGateway(
-            bhm_app._handle_mcp_gateway_jsonrpc_async,
+            app_core._handle_mcp_gateway_jsonrpc_async,
             server_version="test",
         )
         async with gateway.run():
@@ -620,7 +620,7 @@ def test_streamable_http_rejects_untrusted_origin():
 def test_streamable_http_rejects_missing_bearer_before_session_creation():
     async def exercise() -> None:
         gateway = BhmStreamableHttpGateway(
-            bhm_app._handle_mcp_gateway_jsonrpc_async,
+            app_core._handle_mcp_gateway_jsonrpc_async,
             server_version="test",
         )
         async with gateway.run():
@@ -793,15 +793,15 @@ def test_streamable_http_tool_call_does_not_block_event_loop():
 
 def test_jsonrpc_errors_and_results_redact_secret_assignments() -> None:
     secret_name = "BHM_CALLER_" + "TOKEN"
-    error = bhm_app._jsonrpc_error(1, -32603, f"tool failed: {secret_name}=super-secret-token")
+    error = app_core._jsonrpc_error(1, -32603, f"tool failed: {secret_name}=super-secret-token")
     assert "super-secret-token" not in error["error"]["message"]
     assert "REDACTED" in error["error"]["message"]
 
-    success = bhm_app._jsonrpc_success(2, {"content": [{"text": "authorization: Bearer super-secret-token"}]})
+    success = app_core._jsonrpc_success(2, {"content": [{"text": "authorization: Bearer super-secret-token"}]})
     assert "super-secret-token" not in success["result"]["content"][0]["text"]
     assert "REDACTED" in success["result"]["content"][0]["text"]
 
-    nested = bhm_app._jsonrpc_success(
+    nested = app_core._jsonrpc_success(
         3,
         {"outer": {"password": "fixture-password-value", "safe": "retain-me"}},
     )

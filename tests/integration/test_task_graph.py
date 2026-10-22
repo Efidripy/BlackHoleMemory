@@ -1,3 +1,4 @@
+from blackholememory import app_graphs
 from blackholememory import app as bhm_app
 
 
@@ -6,4 +7,4 @@ def test_task_graph_routes_are_hidden_and_share_sqlite_authority():
     for path in ("/bhm/task-graph/query", "/bhm/task-graph/explain"):
         assert path in routes
         assert routes[path].include_in_schema is False
-    assert bhm_app._memory_graph_database_path().name == "memories.sqlite3"
+    assert app_graphs._memory_graph_database_path().name == "memories.sqlite3"

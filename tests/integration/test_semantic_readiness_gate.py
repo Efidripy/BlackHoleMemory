@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from blackholememory import app_core
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.code_graph import build_code_graph
@@ -31,7 +32,7 @@ def test_operator_readiness_gate_blocks_provider_on_not_ready_receipt(monkeypatc
     monkeypatch.setattr(bhm_app.settings, "repo_root", root)
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
     monkeypatch.setenv("BHM_CODE_SEMANTIC_FUSION", "1")
-    monkeypatch.setattr(bhm_app, "_SEMANTIC_READINESS_GATE_ENABLED", True)
+    monkeypatch.setattr(app_core, "_SEMANTIC_READINESS_GATE_ENABLED", True)
 
     calls = {"provider": 0}
 
@@ -51,8 +52,8 @@ def test_operator_readiness_gate_blocks_provider_on_not_ready_receipt(monkeypatc
         calls["provider"] += 1
         raise AssertionError("provider must not be called when readiness is not ready")
 
-    monkeypatch.setattr(bhm_app, "_semantic_readiness_receipt", fake_readiness)
-    monkeypatch.setattr(bhm_app, "federated_search", fake_provider)
+    monkeypatch.setattr(app_core, "_semantic_readiness_receipt", fake_readiness)
+    monkeypatch.setattr(app_core, "federated_search", fake_provider)
     response = TestClient(bhm_app.app).post(
         "/bhm/code-tools",
         json={
@@ -90,10 +91,10 @@ def test_project_scoped_warmup_blocks_unlisted_project_before_provider(monkeypat
     )
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _FakeMemoryService())
     monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
-    monkeypatch.setattr(bhm_app, "_semantic_projected_code_metadata_count", lambda **_kwargs: 3)
+    monkeypatch.setattr(app_core, "_semantic_projected_code_metadata_count", lambda **_kwargs: 3)
 
     receipt = asyncio.run(
-        bhm_app._semantic_readiness_receipt(
+        app_core._semantic_readiness_receipt(
             project="Bonsai-Demo",
             current_graph={
                 "graph_snapshot_id": "graph-1",
@@ -116,7 +117,7 @@ def test_project_scoped_warmup_blocks_unlisted_project_before_provider(monkeypat
     assert receipt["execution"]["provider_called"] is False
 
     warmed = asyncio.run(
-        bhm_app._semantic_readiness_receipt(
+        app_core._semantic_readiness_receipt(
             project="SOJMIEBLO",
             current_graph={
                 "graph_snapshot_id": "graph-1",
@@ -140,7 +141,7 @@ def test_code_tools_returns_not_ready_for_indexed_but_unwarmed_project(monkeypat
     monkeypatch.setattr(bhm_app.settings, "repo_root", root)
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
     monkeypatch.setenv("BHM_CODE_SEMANTIC_FUSION", "1")
-    monkeypatch.setattr(bhm_app, "_SEMANTIC_READINESS_GATE_ENABLED", True)
+    monkeypatch.setattr(app_core, "_SEMANTIC_READINESS_GATE_ENABLED", True)
     monkeypatch.setattr(
         app_runtime,
         "_get_provider_warmup_status",
@@ -158,14 +159,14 @@ def test_code_tools_returns_not_ready_for_indexed_but_unwarmed_project(monkeypat
 
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _FakeMemoryService())
     monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: True)
-    monkeypatch.setattr(bhm_app, "_semantic_projected_code_metadata_count", lambda **_kwargs: 1)
+    monkeypatch.setattr(app_core, "_semantic_projected_code_metadata_count", lambda **_kwargs: 1)
     calls = {"provider": 0}
 
     async def fake_provider(*_args, **_kwargs):
         calls["provider"] += 1
         raise AssertionError("provider must not run for an unwarmed project")
 
-    monkeypatch.setattr(bhm_app, "federated_search", fake_provider)
+    monkeypatch.setattr(app_core, "federated_search", fake_provider)
     response = TestClient(bhm_app.app).post(
         "/bhm/code-tools",
         json={
@@ -192,7 +193,7 @@ def test_code_tools_rejects_unregistered_project_before_readiness_or_provider(mo
     root, runtime_dir = _prepare(tmp_path)
     monkeypatch.setattr(bhm_app.settings, "repo_root", root)
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
-    monkeypatch.setattr(bhm_app, "_SEMANTIC_READINESS_GATE_ENABLED", True)
+    monkeypatch.setattr(app_core, "_SEMANTIC_READINESS_GATE_ENABLED", True)
     readiness_calls = {"count": 0}
     provider_calls = {"count": 0}
 
@@ -204,8 +205,8 @@ def test_code_tools_rejects_unregistered_project_before_readiness_or_provider(mo
         provider_calls["count"] += 1
         raise AssertionError("provider must not run without a registered snapshot")
 
-    monkeypatch.setattr(bhm_app, "_semantic_readiness_receipt", unexpected_readiness)
-    monkeypatch.setattr(bhm_app, "federated_search", unexpected_provider)
+    monkeypatch.setattr(app_core, "_semantic_readiness_receipt", unexpected_readiness)
+    monkeypatch.setattr(app_core, "federated_search", unexpected_provider)
     response = TestClient(bhm_app.app).post(
         "/bhm/code-tools",
         json={

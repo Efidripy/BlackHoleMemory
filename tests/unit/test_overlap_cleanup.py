@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 
+from blackholememory import app_core
+from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -23,14 +25,14 @@ def test_overlap_cleanup_plans_non_overlapping_pairs_and_saves_once(monkeypatch)
     monkeypatch.setattr(app_runtime, "_canonical_project", lambda value: str(value or "").lower())
     monkeypatch.setattr(app_runtime, "_memory_store_is_authoritative", lambda: False)
     monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: copy.deepcopy(records))
-    monkeypatch.setattr(bhm_app, "_save_live_memories", lambda items: writes.append(items))
+    monkeypatch.setattr(app_core, "_save_live_memories", lambda items: writes.append(items))
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_detect_duplicates",
         lambda _request: [{"left_id": "target-1", "right_id": "source-1"}],
     )
 
-    result = bhm_app._overlap_cleanup_apply(
+    result = app_ops._overlap_cleanup_apply(
         bhm_app.OverlapCleanupApplyRequest(project="Jmaka", limit=10)
     )
 
@@ -46,7 +48,7 @@ def test_merge_memory_records_is_pure_and_archives_source() -> None:
     source = _memory("source", "source content")
     target = _memory("target", "target content")
 
-    merged_target, merged_source = bhm_app._merge_memory_records(
+    merged_target, merged_source = app_core._merge_memory_records(
         source,
         target,
         archive_source=True,

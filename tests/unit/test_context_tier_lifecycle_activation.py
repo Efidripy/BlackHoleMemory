@@ -4,7 +4,7 @@ import json
 
 from blackholememory.app import BhmHookRequest
 from blackholememory.app import _with_context_tier_lifecycle_receipt
-from blackholememory.app import _with_observation_tier_lifecycle_receipt
+from blackholememory.app_hooks import _with_observation_tier_lifecycle_receipt
 from blackholememory.observation_contract import ObservationIngressV1
 
 

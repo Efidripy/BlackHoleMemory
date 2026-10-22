@@ -7,6 +7,8 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
+from blackholememory import app_core
+from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -101,7 +103,7 @@ def _install_forget_store(monkeypatch):
         records[:] = copy.deepcopy(items)
         return Path("memories.sqlite3")
 
-    monkeypatch.setattr(bhm_app, "_save_live_memories", save)
+    monkeypatch.setattr(app_core, "_save_live_memories", save)
     return records
 
 
@@ -113,7 +115,7 @@ def test_forget_preview_apply_retry_and_undo_are_bounded_and_reversible(monkeypa
         reason="remove stale workflow",
     )
 
-    preview = bhm_app._forget_preview(preview_request)
+    preview = app_ops._forget_preview(preview_request)
     assert preview["read_only"] is True
     assert preview["candidate_count"] == 1
     assert records[0]["metadata"].get("lifecycle") is None
@@ -123,16 +125,16 @@ def test_forget_preview_apply_retry_and_undo_are_bounded_and_reversible(monkeypa
         preview_digest=preview["plan_digest"],
         confirm=True,
     )
-    applied = bhm_app._forget_apply(apply_request)
-    repeated = bhm_app._forget_apply(apply_request)
+    applied = app_ops._forget_apply(apply_request)
+    repeated = app_ops._forget_apply(apply_request)
 
     assert applied["results"][0]["action"] == "tombstoned"
     assert repeated["results"][0]["action"] == "already_tombstoned"
     assert records[0]["metadata"]["lifecycle"] == "tombstoned"
 
     undo_preview_request = preview_request.model_copy(update={"operation": "undo", "reason": "undo forget"})
-    undo_preview = bhm_app._forget_preview(undo_preview_request)
-    undone = bhm_app._forget_apply(
+    undo_preview = app_ops._forget_preview(undo_preview_request)
+    undone = app_ops._forget_apply(
         bhm_app.ForgetApplyRequest(
             **undo_preview_request.model_dump(),
             preview_digest=undo_preview["plan_digest"],
@@ -147,7 +149,7 @@ def test_forget_preview_apply_retry_and_undo_are_bounded_and_reversible(monkeypa
 def test_forget_preview_requires_explicit_selector(monkeypatch):
     _install_forget_store(monkeypatch)
     with pytest.raises(HTTPException, match="requires memory_ids or upsert_keys"):
-        bhm_app._forget_preview(bhm_app.ForgetPreviewRequest())
+        app_ops._forget_preview(bhm_app.ForgetPreviewRequest())
 
 
 def test_forget_undo_rejects_expired_tombstone(monkeypatch):
@@ -166,9 +168,9 @@ def test_forget_undo_rejects_expired_tombstone(monkeypatch):
         operation="undo",
         undo_window_seconds=900,
     )
-    preview = bhm_app._forget_preview(request)
+    preview = app_ops._forget_preview(request)
     with pytest.raises(HTTPException, match="undo window expired"):
-        bhm_app._forget_apply(
+        app_ops._forget_apply(
             bhm_app.ForgetApplyRequest(
                 **request.model_dump(),
                 preview_digest=preview["plan_digest"],
@@ -183,10 +185,10 @@ def test_forget_apply_rejects_content_changed_after_preview(monkeypatch):
         project="blackholememory",
         memory_ids=["mem_bhm_forget_001"],
     )
-    preview = bhm_app._forget_preview(request)
+    preview = app_ops._forget_preview(request)
     records[0]["content"] = "mutated after preview"
     with pytest.raises(HTTPException) as error:
-        bhm_app._forget_apply(
+        app_ops._forget_apply(
             bhm_app.ForgetApplyRequest(
                 **request.model_dump(),
                 preview_digest=preview["plan_digest"],

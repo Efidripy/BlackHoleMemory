@@ -1,0 +1,27 @@
+"""Test helper (FIX-017): patch an imported dependency on the app module and every domain module that imports it."""
+
+from __future__ import annotations
+
+import importlib
+
+_MODULES = ['app', 'app_core', 'app_governed', 'app_graphs', 'app_hooks', 'app_mcp', 'app_ops', 'app_projects', 'app_retrieval', 'app_telemetry', 'app_runtime', 'code_tools_service', 'llm_routes', 'galaxy_routes', 'ui_routes', 'memory_routes']
+
+
+def patch_app_import(monkeypatch, name, value) -> None:
+    hit = False
+    for module_name in _MODULES:
+        module = importlib.import_module(f"blackholememory.{module_name}")
+        if hasattr(module, name):
+            monkeypatch.setattr(module, name, value)
+            hit = True
+    if not hit:
+        raise AttributeError(name)
+
+
+def app_source_text() -> str:
+    """Concatenated source of app.py and every app_* / route module (for tests that read the source as text)."""
+    from pathlib import Path
+
+    base = Path(__file__).resolve().parents[1] / "src" / "blackholememory"
+    names = ["app.py"] + sorted(p.name for p in base.glob("app_*.py")) + ["code_tools_service.py", "llm_routes.py", "galaxy_routes.py", "ui_routes.py", "memory_routes.py"]
+    return "\n".join((base / n).read_text(encoding="utf-8") for n in names if (base / n).exists())

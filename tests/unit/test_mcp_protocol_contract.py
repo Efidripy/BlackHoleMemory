@@ -1,6 +1,6 @@
 import pytest
 
-from blackholememory import app as bhm_app
+from blackholememory import app_core
 from blackholememory.infra.mcp_broker import McpIpcBroker
 from blackholememory.mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
 from blackholememory.mcp_protocol_contract import BHM_REMEMBER_ALLOWED_ARGUMENTS
@@ -133,5 +133,5 @@ def test_bhm_remember_transport_wrappers_preserve_canonical_contract(arguments):
             "arguments": arguments,
         }
     }
-    assert bhm_app._validate_bhm_remember_mcp_arguments(arguments) == expected
+    assert app_core._validate_bhm_remember_mcp_arguments(arguments) == expected
     assert McpIpcBroker._validate_bhm_remember_arguments(payload) == expected

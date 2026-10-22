@@ -10,6 +10,8 @@ from concurrent.futures import ThreadPoolExecutor
 from fastapi.testclient import TestClient
 import httpx
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_core
 from blackholememory import app as bhm_app
 from blackholememory import code_tools_service
 from blackholememory import graph_build_jobs
@@ -103,8 +105,7 @@ def test_public_architecture_response_is_transport_bounded(monkeypatch, tmp_path
     monkeypatch.setattr(code_tools_service, "build_architecture_intelligence", lambda *_args, **_kwargs: dict(intelligence))
     monkeypatch.setattr(code_tools_service, "build_architecture_explain_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
     monkeypatch.setattr(code_tools_service, "build_graph_analysis_quality_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
-    monkeypatch.setattr(
-        bhm_app,
+    patch_app_import(monkeypatch,
         "build_architecture_memory",
         lambda *_args, **_kwargs: {"proposals": {"clusters": clusters}, "execution": {"raw_source_returned": False}},
     )
@@ -473,7 +474,7 @@ def test_metadata_code_search_reports_semantic_fusion_state(monkeypatch, tmp_pat
     async def fake_federated_search(*_args, **_kwargs):
         return ([{"path": "module.py", "score": 0.99, "metadata": {"source_id": "module.py"}}], 1)
 
-    monkeypatch.setattr(bhm_app, "federated_search", fake_federated_search)
+    monkeypatch.setattr(app_core, "federated_search", fake_federated_search)
     client = TestClient(bhm_app.app)
     response = client.post(
         "/bhm/code-tools",

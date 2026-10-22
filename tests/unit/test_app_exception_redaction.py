@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from blackholememory import app_hooks
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.hook_queue import HookQueueError
@@ -55,11 +56,11 @@ def test_hook_queue_rest_boundary_redacts_queue_exception(monkeypatch: pytest.Mo
     async def failing_to_thread(*_args, **_kwargs):
         raise HookQueueError(_SECRET_MESSAGE)
 
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_ACCEPTING", True)
+    monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_ACCEPTING", True)
     monkeypatch.setattr(bhm_app.asyncio, "to_thread", failing_to_thread)
 
     with pytest.raises(HTTPException) as raised:
-        asyncio.run(bhm_app._enqueue_hook_request("compact", request))
+        asyncio.run(app_hooks._enqueue_hook_request("compact", request))
 
     detail = raised.value.detail
     assert detail["error"] == "hook_queue_unavailable"

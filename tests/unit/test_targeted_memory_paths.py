@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from blackholememory import app_core
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -55,10 +56,10 @@ def test_targeted_find_and_replace_avoid_full_store_materialization(monkeypatch)
 
     record = app_runtime._find_live_memory("memory-1", "BlackHoleMemory")
     assert record is service.records["memory-1"]
-    assert bhm_app._find_live_memory_by_upsert_key("BlackHoleMemory", "key-1") is record
+    assert app_core._find_live_memory_by_upsert_key("BlackHoleMemory", "key-1") is record
 
     updated = {**record, "content": "updated"}
-    bhm_app._replace_live_memory(updated)
+    app_core._replace_live_memory(updated)
 
     assert service.saved == [[updated]]
 
@@ -68,7 +69,7 @@ def test_save_live_memories_delegates_atomic_diffing_to_service(monkeypatch) -> 
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
     items = [service.records["memory-1"]]
 
-    result = bhm_app._save_live_memories(items)
+    result = app_core._save_live_memories(items)
 
     assert result == Path("memories.sqlite3")
     assert service.saved == [items]

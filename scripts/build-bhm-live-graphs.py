@@ -6,7 +6,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from blackholememory import app as bhm_app
+from blackholememory import app_core
+from blackholememory import app_ops
 from blackholememory import app_runtime
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.memory_graph import build_memory_graph
@@ -27,9 +28,9 @@ def _write_report(path: Path, report: dict) -> None:
 def main() -> int:
     project = "blackholememory"
     memories = [item for item in app_runtime._load_live_memories() if item.get("project") in {None, project}]
-    sessions = [item for item in bhm_app._load_session_records() if item.get("project") in {None, project}]
+    sessions = [item for item in app_core._load_session_records() if item.get("project") in {None, project}]
     tasks = [item for item in app_runtime._load_tasks() if item.get("project") in {None, project}]
-    adrs = [item for item in bhm_app._load_adrs() if item.get("project") in {None, project}]
+    adrs = [item for item in app_ops._load_adrs() if item.get("project") in {None, project}]
     memory = build_memory_graph(
         DATABASE,
         project=project,

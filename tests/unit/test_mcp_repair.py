@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.app_patch import patch_app_import
+
 import json
 import shutil
 from pathlib import Path
@@ -7,7 +9,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import app as bhm_app
+from blackholememory import app_mcp
 from blackholememory import mcp_repair
 from blackholememory.mcp_repair import McpRepairError
 from blackholememory.mcp_repair import build_repair_preview
@@ -317,15 +319,15 @@ def test_repair_rejects_symlinked_backup_directory(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("route", "patch_name", "expected_code"),
     [
-        (bhm_app.bhm_mcp_repair_preview, "build_repair_preview", "mcp_repair_preview_failed"),
-        (bhm_app.bhm_mcp_repair_reprobe, "build_reprobe", "mcp_repair_reprobe_failed"),
+        (app_mcp.bhm_mcp_repair_preview, "build_repair_preview", "mcp_repair_preview_failed"),
+        (app_mcp.bhm_mcp_repair_reprobe, "build_reprobe", "mcp_repair_reprobe_failed"),
     ],
 )
 def test_repair_read_routes_redact_secret_like_errors(monkeypatch, route, patch_name, expected_code):
     def fail(*_args, **_kwargs):
         raise McpRepairError("upstream token=sk-live-abcdefghijklmnopqrstuvwxyz1234567890")
 
-    monkeypatch.setattr(bhm_app, patch_name, fail)
+    patch_app_import(monkeypatch, patch_name, fail)
     with pytest.raises(HTTPException) as caught:
         route()
 

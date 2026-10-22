@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from blackholememory import app_core
 from blackholememory import app as bhm_app
 from blackholememory.usage_telemetry import UsageTelemetry
 from blackholememory.usage_telemetry import normalize_operation
@@ -93,7 +94,7 @@ def test_usage_storage_is_bounded_and_resettable():
 
 
 def test_rest_usage_endpoint_reports_route_template_without_query():
-    bhm_app._USAGE_TELEMETRY.reset()
+    app_core._USAGE_TELEMETRY.reset()
     client = TestClient(bhm_app.app)
 
     response = client.get("/bhm/projects?secret=never-store")

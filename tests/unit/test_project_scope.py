@@ -6,6 +6,11 @@ import threading
 import pytest
 from fastapi import HTTPException
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_core
+from blackholememory import app_ops
+from blackholememory import app_projects
+from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -65,11 +70,11 @@ def test_authoritative_link_adapter_preserves_legacy_metadata_provenance(monkeyp
 def test_public_search_scope_defaults_to_configured_project_and_reserves_global(monkeypatch):
     monkeypatch.setattr(bhm_app.settings, "qdrant_collection", "blackholememory")
 
-    assert bhm_app._effective_search_project(None) == "blackholememory"
-    assert bhm_app._effective_search_project("BlackHoleMemory") == "blackholememory"
+    assert app_core._effective_search_project(None) == "blackholememory"
+    assert app_core._effective_search_project("BlackHoleMemory") == "blackholememory"
 
     with pytest.raises(HTTPException) as exc_info:
-        bhm_app._effective_search_project("GLOBAL")
+        app_core._effective_search_project("GLOBAL")
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["code"] == "global_scope_requires_explicit_internal_capability"
@@ -83,7 +88,7 @@ def test_fallback_search_does_not_turn_missing_project_into_all_projects(monkeyp
         lambda: [_record("blackholememory", "needle A"), _record("other-project", "needle B")],
     )
 
-    response = bhm_app._fallback_grace_mem0_search(
+    response = app_retrieval._fallback_grace_mem0_search(
         bhm_app.SearchRequest(query="needle"),
         RuntimeError("provider timeout"),
     )
@@ -121,11 +126,11 @@ def test_federated_search_filters_each_contour_and_rejects_missing_project_metad
             for item_id, item_project in items
         ]
 
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
-    monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(app_core, "_search_memory_collection", fake_search_memory_collection)
 
     hits, total = asyncio.run(
-        bhm_app.federated_search(
+        app_core.federated_search(
             "scope boundary",
             "blackholememory",
             limit=10,
@@ -163,9 +168,9 @@ def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(mon
         },
     }
 
-    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: True)
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
-    monkeypatch.setattr(bhm_app, "_search_memory_collection", lambda **_kwargs: [])
+    patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: True)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(app_core, "_search_memory_collection", lambda **_kwargs: [])
 
     class FakeService:
         @staticmethod
@@ -187,7 +192,7 @@ def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(mon
     )
 
     hits, total = asyncio.run(
-        bhm_app.federated_search(
+        app_core.federated_search(
             "find contract_009_anchor",
             "blackholememory",
             limit=5,
@@ -249,15 +254,15 @@ def test_opt_in_exact_identifier_snapshot_work_overlaps_vector_contours(monkeypa
         vector_started.set()
         return []
 
-    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: True)
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
+    patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: True)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
     monkeypatch.setattr(app_runtime, "_load_live_memories", blocking_snapshot)
-    monkeypatch.setattr(bhm_app, "_search_memory_collection", vector_contour)
+    monkeypatch.setattr(app_core, "_search_memory_collection", vector_contour)
 
     async def exercise():
         task = asyncio.create_task(
-            bhm_app.federated_search(
+            app_core.federated_search(
                 "find contract_010_anchor",
                 "blackholememory",
                 limit=5,
@@ -285,7 +290,7 @@ def test_timed_retrieval_contour_measures_completed_worker_duration(monkeypatch)
     ticks = iter((100.0, 100.125))
     monkeypatch.setattr(bhm_app.time, "perf_counter", lambda: next(ticks))
 
-    outcome = asyncio.run(bhm_app._run_timed_retrieval_contour("local_vector", lambda: ["ok"]))
+    outcome = asyncio.run(app_core._run_timed_retrieval_contour("local_vector", lambda: ["ok"]))
 
     assert outcome.result == ["ok"]
     assert outcome.error is None
@@ -315,15 +320,15 @@ def test_federated_search_uses_remaining_contour_after_one_contour_times_out(mon
             "metadata": {"project": "blackholememory", "memory_type": "fact", "tags": [], "files": []},
         }]
 
-    monkeypatch.setattr(bhm_app, "BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS", 0.1)
-    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: False)
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
-    monkeypatch.setattr(bhm_app, "get_global_core_memory", lambda: FakeMemory())
-    monkeypatch.setattr(bhm_app, "_search_memory_collection", fake_search_memory_collection)
+    patch_app_import(monkeypatch, "BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS", 0.1)
+    patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: False)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
+    patch_app_import(monkeypatch, "get_global_core_memory", lambda: FakeMemory())
+    monkeypatch.setattr(app_core, "_search_memory_collection", fake_search_memory_collection)
 
     try:
         outcome = asyncio.run(
-            bhm_app.federated_search(
+            app_core.federated_search(
                 "timeout boundary",
                 "blackholememory",
                 limit=5,
@@ -359,19 +364,19 @@ def test_federated_search_bounds_cold_embedding_before_vector_contours(monkeypat
 
     embedder = BlockingEmbedder()
     contour_calls: list[str] = []
-    monkeypatch.setattr(bhm_app, "BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS", 0.1)
-    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: False)
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory(embedder))
+    patch_app_import(monkeypatch, "BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS", 0.1)
+    patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: False)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory(embedder))
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_search_memory_collection",
         lambda *, context_origin, **_kwargs: contour_calls.append(context_origin),
     )
 
     async def exercise() -> None:
         try:
-            with pytest.raises(bhm_app.EmbeddingPreparationTimeout):
-                await bhm_app.federated_search(
+            with pytest.raises(app_core.EmbeddingPreparationTimeout):
+                await app_core.federated_search(
                     "cold embedding boundary",
                     "blackholememory",
                     limit=5,
@@ -387,12 +392,12 @@ def test_federated_search_bounds_cold_embedding_before_vector_contours(monkeypat
 
 
 def test_provider_call_fails_fast_when_late_calls_fill_capacity():
-    slots = bhm_app._RETRIEVAL_PROVIDER_SLOTS
-    acquired = [slots.acquire(blocking=False) for _ in range(bhm_app._RETRIEVAL_PROVIDER_WORKERS)]
+    slots = app_core._RETRIEVAL_PROVIDER_SLOTS
+    acquired = [slots.acquire(blocking=False) for _ in range(app_core._RETRIEVAL_PROVIDER_WORKERS)]
     assert all(acquired)
     try:
-        with pytest.raises(bhm_app.RetrievalProviderCapacityExceeded):
-            asyncio.run(bhm_app._run_bounded_provider_call(lambda: "never-called"))
+        with pytest.raises(app_core.RetrievalProviderCapacityExceeded):
+            asyncio.run(app_core._run_bounded_provider_call(lambda: "never-called"))
     finally:
         for was_acquired in acquired:
             if was_acquired:
@@ -408,17 +413,17 @@ def test_embedding_provider_connection_error_remains_fallback_grace_eligible(mon
     class FakeMemory:
         embedding_model = FailingEmbedder()
 
-    monkeypatch.setattr(bhm_app, "exact_identifier_enabled", lambda: False)
-    monkeypatch.setattr(bhm_app, "get_project_mem0_memory", lambda _project: FakeMemory())
+    patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: False)
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_search_memory_collection",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("contours must not retry failed embedding")),
     )
 
     with pytest.raises(ConnectionError) as exc_info:
         asyncio.run(
-            bhm_app.federated_search(
+            app_core.federated_search(
                 "provider exception boundary",
                 "blackholememory",
                 limit=5,
@@ -426,7 +431,7 @@ def test_embedding_provider_connection_error_remains_fallback_grace_eligible(mon
             )
         )
 
-    assert bhm_app._is_fallback_grace_error(exc_info.value) is True
+    assert app_retrieval._is_fallback_grace_error(exc_info.value) is True
 
 
 def test_advanced_search_without_project_is_scoped_and_missing_vector_metadata_fails_closed(monkeypatch):
@@ -440,14 +445,14 @@ def test_advanced_search_without_project_is_scoped_and_missing_vector_metadata_f
         ],
     )
 
-    memories, total = bhm_app._advanced_search_live_memories(
+    memories, total = app_retrieval._advanced_search_live_memories(
         bhm_app.MemoryAdvancedSearchRequest(query="needle")
     )
     assert total == 1
     assert [item["project"] for item in memories] == ["blackholememory"]
 
     request = bhm_app.SearchRequest(query="needle")
-    assert not bhm_app._vector_item_matches_search_request(
+    assert not app_core._vector_item_matches_search_request(
         {"id": "legacy-without-project", "memory": "needle", "metadata": {}},
         request,
     )
@@ -457,7 +462,7 @@ def test_rest_search_rejects_reserved_global_scope_before_provider_work():
     request = bhm_app.MemoryAdvancedSearchRequest(query="needle", project="global")
 
     with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(bhm_app.bhm_search(request))
+        asyncio.run(app_retrieval.bhm_search(request))
 
     assert exc_info.value.status_code == 403
 
@@ -488,7 +493,7 @@ def test_repair_live_indexes_isolates_project_scope(monkeypatch):
         "_load_risk_registers",
         "_load_validation_snapshots",
     ):
-        monkeypatch.setattr(bhm_app, name, lambda: artifacts)
+        patch_app_import(monkeypatch, name, lambda: artifacts)
     for name in (
         "_save_checkpoints",
         "_save_project_maps",
@@ -499,9 +504,9 @@ def test_repair_live_indexes_isolates_project_scope(monkeypatch):
         "_save_risk_registers",
         "_save_validation_snapshots",
     ):
-        monkeypatch.setattr(bhm_app, name, lambda value, key=name: saved_artifacts.setdefault(key, value))
+        patch_app_import(monkeypatch, name, lambda value, key=name: saved_artifacts.setdefault(key, value))
 
-    result = bhm_app._repair_live_indexes(
+    result = app_ops._repair_live_indexes(
         bhm_app.RepairLiveIndexesRequest(
             project="BlackHoleMemory",
             remove_orphan_links=True,
@@ -521,7 +526,7 @@ def test_repair_live_indexes_isolates_project_scope(monkeypatch):
 
 def test_repair_live_indexes_requires_project_or_explicit_aggregate():
     with pytest.raises(HTTPException) as exc_info:
-        bhm_app._repair_live_indexes(bhm_app.RepairLiveIndexesRequest())
+        app_ops._repair_live_indexes(bhm_app.RepairLiveIndexesRequest())
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["code"] == "repair_scope_required"
@@ -531,22 +536,22 @@ def test_strict_repair_forwards_project_scope(monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
-        bhm_app,
+        app_ops,
         "_normalize_memory_metadata",
         lambda project: captured.setdefault("normalize", project) or {"updated": 0},
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_ops,
         "_repair_live_indexes",
         lambda request: captured.setdefault("repair", request) or {"removed_links": 0},
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_ops,
         "_schema_validate_strict",
         lambda request: captured.setdefault("validate", request) or {"ok": True},
     )
 
-    result = bhm_app._integrity_repair_strict(
+    result = app_ops._integrity_repair_strict(
         bhm_app.IntegrityRepairStrictRequest(project="BlackHoleMemory")
     )
 
@@ -559,7 +564,7 @@ def test_strict_repair_forwards_project_scope(monkeypatch):
 
 def test_hard_delete_preserves_foreign_project_references(monkeypatch):
     target = _record("blackholememory", "target")
-    monkeypatch.setattr(bhm_app, "_delete_live_memory", lambda _request: target)
+    monkeypatch.setattr(app_ops, "_delete_live_memory", lambda _request: target)
     links = [
         {"source_id": target["source_id"], "target_id": "a", "project": "BlackHoleMemory"},
         {"source_id": target["source_id"], "target_id": "b", "project": "e-github-workspace"},
@@ -580,21 +585,21 @@ def test_hard_delete_preserves_foreign_project_references(monkeypatch):
         ("_load_risk_registers", "_save_risk_registers"),
         ("_load_validation_snapshots", "_save_validation_snapshots"),
     ):
-        monkeypatch.setattr(
-            app_runtime if loader_name == "_load_tasks" else bhm_app,
+        patch_app_import(
+            monkeypatch,
             loader_name,
             lambda: [
                 {"id": "a-artifact", "memory_id": target["source_id"], "project": "blackholememory"},
                 {"id": "b-artifact", "memory_id": target["source_id"], "project": "e-github-workspace"},
             ],
         )
-        monkeypatch.setattr(
-            app_runtime if saver_name == "_save_tasks" else bhm_app,
+        patch_app_import(
+            monkeypatch,
             saver_name,
             lambda value, key=saver_name: artifact_stores.setdefault(key, value),
         )
 
-    result = bhm_app._delete_live_memory_hard(
+    result = app_ops._delete_live_memory_hard(
         bhm_app.HardDeleteMemoryRequest(id=target["source_id"], project="BlackHoleMemory")
     )
 
@@ -608,7 +613,7 @@ def test_hard_delete_preserves_foreign_project_references(monkeypatch):
 
 def test_refresh_all_requires_explicit_scope_or_aggregate(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
-        bhm_app._project_summary_refresh_all(bhm_app.ProjectSummaryRefreshAllRequest())
+        app_projects._project_summary_refresh_all(bhm_app.ProjectSummaryRefreshAllRequest())
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["code"] == "refresh_scope_required"
 
@@ -623,12 +628,12 @@ def test_refresh_all_requires_explicit_scope_or_aggregate(monkeypatch):
         ],
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_projects,
         "_rebuild_project_summary",
         lambda request: refreshed.append(request.project) or {"project": request.project},
     )
 
-    result = bhm_app._project_summary_refresh_all(
+    result = app_projects._project_summary_refresh_all(
         bhm_app.ProjectSummaryRefreshAllRequest(aggregate=True)
     )
 
@@ -646,16 +651,16 @@ def test_rebuild_project_summary_keeps_canonical_discoverability_with_custom_key
         "_get_risk_register",
         "_get_validation_snapshot",
     ):
-        monkeypatch.setattr(bhm_app, name, lambda _project: None)
+        patch_app_import(monkeypatch, name, lambda _project: None)
 
     def fake_upsert(request):
         captured["request"] = request
         return "created", {"source_id": "summary-1", "project": request.project}
 
-    monkeypatch.setattr(bhm_app, "_upsert_live_memory", fake_upsert)
-    monkeypatch.setattr(bhm_app, "_serialize_memory_record", lambda record: record)
+    monkeypatch.setattr(app_core, "_upsert_live_memory", fake_upsert)
+    monkeypatch.setattr(app_core, "_serialize_memory_record", lambda record: record)
 
-    result = bhm_app._rebuild_project_summary(
+    result = app_projects._rebuild_project_summary(
         bhm_app.RebuildProjectSummaryRequest(
             project="BlackHoleMemory",
             upsert_key="custom-summary-key",

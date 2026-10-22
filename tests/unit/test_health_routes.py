@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from blackholememory import app_telemetry
 from blackholememory import app as bhm_app
 from blackholememory.health_routes import HealthRuntimeDependencies
 from blackholememory.health_routes import build_bhm_health
@@ -92,6 +93,6 @@ def test_http_health_route_catalog_and_import_surface_are_stable() -> None:
     }
 
     assert actual == expected
-    assert bhm_app.health_live.__name__ == "health_live"
-    assert bhm_app.health_ready_endpoint.__name__ == "health_ready_endpoint"
-    assert bhm_app.bhm_health_slo.__name__ == "bhm_health_slo"
+    assert app_telemetry.health_live.__name__ == "health_live"
+    assert app_telemetry.health_ready_endpoint.__name__ == "health_ready_endpoint"
+    assert app_telemetry.bhm_health_slo.__name__ == "bhm_health_slo"

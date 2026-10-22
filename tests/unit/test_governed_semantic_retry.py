@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_governed
 from blackholememory import app as bhm_app
 
 
@@ -23,9 +25,9 @@ def _run(monkeypatch, proposals):
     def build(**_kwargs):
         return next(values)
 
-    monkeypatch.setattr(bhm_app, "build_semantic_proposal", build)
+    patch_app_import(monkeypatch, "build_semantic_proposal", build)
     return asyncio.run(
-        bhm_app._run_governed_semantic_with_retries(
+        app_governed._run_governed_semantic_with_retries(
             project="multiserversubgen",
             query="install safety",
             records=[{"id": "mem-a", "source_id": "mem-a", "project": "multiserversubgen", "content": "fact", "revision_id": "rev-a", "content_sha256": "a" * 64}],
@@ -80,9 +82,9 @@ def test_fallback_then_two_matching_answers_reaches_consensus(monkeypatch) -> No
             raise value
         return value
 
-    monkeypatch.setattr(bhm_app, "build_semantic_proposal", build)
+    patch_app_import(monkeypatch, "build_semantic_proposal", build)
     result, fallback = asyncio.run(
-        bhm_app._run_governed_semantic_with_retries(
+        app_governed._run_governed_semantic_with_retries(
             project="multiserversubgen",
             query="install safety",
             records=[{"id": "mem-a", "source_id": "mem-a", "project": "multiserversubgen", "content": "fact", "revision_id": "rev-a", "content_sha256": "a" * 64}],
@@ -172,6 +174,6 @@ def test_three_no_ops_are_bounded_and_return_no_op(monkeypatch) -> None:
 
 def test_retry_limit_is_hard_bounded(monkeypatch) -> None:
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS", "99")
-    assert bhm_app._governed_semantic_retry_limit() == 3
+    assert app_governed._governed_semantic_retry_limit() == 3
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_REVIEW_MAX_ATTEMPTS", "0")
-    assert bhm_app._governed_semantic_retry_limit() == 1
+    assert app_governed._governed_semantic_retry_limit() == 1

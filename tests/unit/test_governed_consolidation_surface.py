@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.app_patch import patch_app_import
 from blackholememory import app as bhm_app
 from blackholememory import caller_auth
 
@@ -27,8 +28,7 @@ def _isolated_governance_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_governed_status_is_authenticated_but_not_project_scoped(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
-    monkeypatch.setattr(
-        bhm_app,
+    patch_app_import(monkeypatch,
         "governed_consolidation_status",
         lambda _database: {"state": "disabled", "enabled": False},
     )
@@ -69,8 +69,7 @@ def test_governed_status_reports_configured_and_effective_auto_review_mode(
         monkeypatch.setenv("BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED", "1")
     if operator_consent:
         monkeypatch.setenv("BHM_GOVERNED_OPERATOR_CONSENT_REQUIRED", "1")
-    monkeypatch.setattr(
-        bhm_app,
+    patch_app_import(monkeypatch,
         "governed_consolidation_status",
         lambda _database: {"state": "approval-gated", "enabled": True, "mode": "approval-gated"},
     )
@@ -89,7 +88,7 @@ def test_governed_status_reports_configured_and_effective_auto_review_mode(
 
 
 def test_disabled_governed_proposal_route_fails_closed_before_memory_access(monkeypatch) -> None:
-    monkeypatch.setattr(bhm_app, "governed_consolidation_enabled", lambda: False)
+    patch_app_import(monkeypatch, "governed_consolidation_enabled", lambda: False)
 
     response = _client().post(
         "/bhm/governed-consolidation/proposals",
@@ -115,7 +114,7 @@ def test_governed_proposal_route_rejects_foreign_project_before_handler(monkeypa
 
 def test_governed_decision_requires_admin_capability_before_feature_gate(monkeypatch) -> None:
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
-    monkeypatch.setattr(bhm_app, "governed_consolidation_enabled", lambda: True)
+    patch_app_import(monkeypatch, "governed_consolidation_enabled", lambda: True)
 
     response = _client().post(
         "/bhm/governed-consolidation/proposals/decision",

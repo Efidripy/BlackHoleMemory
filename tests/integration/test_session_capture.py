@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from blackholememory import app_core
+from blackholememory import app_hooks
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -21,11 +23,11 @@ def test_hidden_session_capture_route_is_read_only(monkeypatch):
                 }
             ]
 
-    monkeypatch.setattr(bhm_app, "_observation_store", lambda: FakeObservationStore())
-    monkeypatch.setattr(bhm_app, "_load_session_records", lambda: [{"id": "sess-rec", "project": "blackholememory", "session_id": "sess-route", "title": "Route", "metadata": {"session_id": "sess-route"}}])
+    monkeypatch.setattr(app_core, "_observation_store", lambda: FakeObservationStore())
+    monkeypatch.setattr(app_core, "_load_session_records", lambda: [{"id": "sess-rec", "project": "blackholememory", "session_id": "sess-route", "title": "Route", "metadata": {"session_id": "sess-route"}}])
     monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: [{"source_id": "mem-route", "project": "blackholememory", "memory_type": "fact", "content": "safe fact", "updated_at": now.isoformat().replace("+00:00", "Z")}])
 
-    response = bhm_app.bhm_session_capture_preview(
+    response = app_hooks.bhm_session_capture_preview(
         bhm_app.SessionCapturePreviewRequest(project="blackholememory", session_id="sess-route", disclosure="audit")
     )
     assert response["schema_version"] == "bhm.session-capture.v1"

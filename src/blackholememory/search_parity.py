@@ -53,7 +53,8 @@ def _schema_has_project(schema: dict[str, Any], path: str) -> bool:
 def _implementation_source(surface: dict[str, Any]) -> str:
     name = str(surface["evidence"])
     chunks: list[str] = []
-    for module in (app, bhm_mcp):
+    domain_modules = tuple(getattr(app, key) for key in dir(app) if key.startswith("app_") and inspect.ismodule(getattr(app, key)))
+    for module in (app, bhm_mcp, *domain_modules):
         candidate = getattr(module, name, None)
         if candidate is not None:
             try:

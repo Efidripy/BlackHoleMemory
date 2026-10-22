@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
 from blackholememory import code_tools_service
 from blackholememory import app_runtime
@@ -51,7 +52,7 @@ def test_advanced_search_does_not_freeze_event_loop(monkeypatch: pytest.MonkeyPa
         return [], 0
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", ready)
-    monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", blocking_search)
+    monkeypatch.setattr(app_retrieval, "_advanced_search_live_memories", blocking_search)
 
     async def exercise() -> int:
         ticks: list[float] = []
@@ -64,7 +65,7 @@ def test_advanced_search_does_not_freeze_event_loop(monkeypatch: pytest.MonkeyPa
 
         ticker_task = asyncio.create_task(ticker())
         try:
-            response = await bhm_app.bhm_search_advanced(
+            response = await app_retrieval.bhm_search_advanced(
                 bhm_app.MemoryAdvancedSearchRequest(
                     query="wl010",
                     project="blackholememory",
