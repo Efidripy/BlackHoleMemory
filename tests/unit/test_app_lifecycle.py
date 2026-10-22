@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from blackholememory import app_lifecycle
 from blackholememory import app_core
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
@@ -30,7 +31,7 @@ def _patch_lifespan_dependencies(monkeypatch: pytest.MonkeyPatch, events: list[s
         "_memory_store_state",
         lambda: SimpleNamespace(configured_mode="sqlite-authoritative", ready=True),
     )
-    monkeypatch.setattr(bhm_app, "_wait_for_required_storage_ready", lambda: asyncio.sleep(0))
+    monkeypatch.setattr(app_lifecycle, "_wait_for_required_storage_ready", lambda: asyncio.sleep(0))
     monkeypatch.setattr(
         bhm_app,
         "ensure_memory_collections",
@@ -40,11 +41,11 @@ def _patch_lifespan_dependencies(monkeypatch: pytest.MonkeyPatch, events: list[s
         },
     )
     monkeypatch.setattr(app_runtime, "warmup_provider_probe", blocked_task)
-    monkeypatch.setattr(bhm_app, "_telemetry_harvester_loop", blocked_task)
-    monkeypatch.setattr(bhm_app, "_boot_report_is_pending", lambda: False)
-    monkeypatch.setattr(bhm_app, "_stop_hook_queue_workers", lambda: _record_event(events, "workers_stopped"))
+    monkeypatch.setattr(app_lifecycle, "_telemetry_harvester_loop", blocked_task)
+    monkeypatch.setattr(app_lifecycle, "_boot_report_is_pending", lambda: False)
+    monkeypatch.setattr(app_lifecycle, "_stop_hook_queue_workers", lambda: _record_event(events, "workers_stopped"))
     monkeypatch.setattr(
-        bhm_app,
+        app_lifecycle,
         "_cleanup_registered_infra_processes",
         lambda **kwargs: _record_event(events, kwargs["reason"]),
     )
@@ -65,7 +66,7 @@ def test_lifespan_cleans_background_tasks_when_worker_startup_fails(monkeypatch:
     async def exercise() -> None:
         nonlocal created
         created = _patch_lifespan_dependencies(monkeypatch, events)
-        monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", fail_worker_start)
+        monkeypatch.setattr(app_lifecycle, "_start_hook_queue_workers", fail_worker_start)
         manager = bhm_app._app_lifespan(bhm_app.app)
         with pytest.raises(RuntimeError, match="synthetic hook worker startup failure"):
             await manager.__aenter__()
@@ -104,7 +105,7 @@ def test_lifespan_shutdown_stops_workers_and_infra_after_context_exit(monkeypatc
     async def exercise() -> None:
         nonlocal created
         created = _patch_lifespan_dependencies(monkeypatch, events)
-        monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", start_workers)
+        monkeypatch.setattr(app_lifecycle, "_start_hook_queue_workers", start_workers)
         monkeypatch.setattr(app_core._MCP_STREAMABLE_HTTP, "run", fake_mcp_run)
         async with bhm_app._app_lifespan(bhm_app.app):
             events.append("body")
@@ -136,7 +137,7 @@ def test_lifespan_observes_failed_background_task_and_cleans_siblings(monkeypatc
         nonlocal created
         created = _patch_lifespan_dependencies(monkeypatch, events)
         monkeypatch.setattr(app_runtime, "warmup_provider_probe", fail_warmup)
-        monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", start_workers)
+        monkeypatch.setattr(app_lifecycle, "_start_hook_queue_workers", start_workers)
         monkeypatch.setattr(app_core._MCP_STREAMABLE_HTTP, "run", fake_mcp_run)
         async with bhm_app._app_lifespan(bhm_app.app):
             await asyncio.sleep(0)
@@ -169,8 +170,8 @@ def test_lifespan_cleanup_runs_when_worker_stop_fails(monkeypatch: pytest.Monkey
     async def exercise() -> None:
         nonlocal created
         created = _patch_lifespan_dependencies(monkeypatch, events)
-        monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", start_workers)
-        monkeypatch.setattr(bhm_app, "_stop_hook_queue_workers", fail_stop_workers)
+        monkeypatch.setattr(app_lifecycle, "_start_hook_queue_workers", start_workers)
+        monkeypatch.setattr(app_lifecycle, "_stop_hook_queue_workers", fail_stop_workers)
         monkeypatch.setattr(app_core._MCP_STREAMABLE_HTTP, "run", fake_mcp_run)
         with pytest.raises(RuntimeError, match="synthetic hook worker shutdown failure"):
             async with bhm_app._app_lifespan(bhm_app.app):

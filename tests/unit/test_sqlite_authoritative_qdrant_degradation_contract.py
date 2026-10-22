@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from tests.app_patch import patch_app_import
+from blackholememory import app_lifecycle
 from blackholememory import app_core
 from blackholememory import app_telemetry
 from blackholememory import app as bhm_app
@@ -168,15 +169,15 @@ def test_sqlite_authoritative_lifespan_enters_when_qdrant_collection_probe_fails
     monkeypatch.setattr(bhm_app, "validate_loopback_listener_host", lambda _host: None)
     monkeypatch.setattr(bhm_app, "caller_auth_configuration_error", lambda: None)
     monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
-    monkeypatch.setattr(bhm_app, "_initialize_authoritative_memory_service", lambda: None)
+    monkeypatch.setattr(app_lifecycle, "_initialize_authoritative_memory_service", lambda: None)
     patch_app_import(monkeypatch, "storage_runtime_state", lambda: projection)
     monkeypatch.setattr(bhm_app, "ensure_memory_collections", qdrant_unavailable)
     monkeypatch.setattr(app_runtime, "warmup_provider_probe", noop_async)
-    monkeypatch.setattr(bhm_app, "_boot_report_is_pending", lambda: False)
-    monkeypatch.setattr(bhm_app, "_telemetry_harvester_loop", noop_async)
-    monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", noop_async)
-    monkeypatch.setattr(bhm_app, "_stop_hook_queue_workers", noop_async)
-    monkeypatch.setattr(bhm_app, "_cleanup_registered_infra_processes", noop_async)
+    monkeypatch.setattr(app_lifecycle, "_boot_report_is_pending", lambda: False)
+    monkeypatch.setattr(app_lifecycle, "_telemetry_harvester_loop", noop_async)
+    monkeypatch.setattr(app_lifecycle, "_start_hook_queue_workers", noop_async)
+    monkeypatch.setattr(app_lifecycle, "_stop_hook_queue_workers", noop_async)
+    monkeypatch.setattr(app_lifecycle, "_cleanup_registered_infra_processes", noop_async)
     monkeypatch.setattr(app_core._MCP_STREAMABLE_HTTP, "run", transport_run)
 
     async def enter_and_exit_lifespan() -> None:
@@ -216,7 +217,7 @@ def test_remote_required_profile_remains_fail_closed_when_qdrant_is_down(monkeyp
         StorageNotReady,
         match="remote_qdrant_required_but_unavailable",
     ):
-        asyncio.run(bhm_app._wait_for_required_storage_ready(timeout_seconds=0))
+        asyncio.run(app_lifecycle._wait_for_required_storage_ready(timeout_seconds=0))
 
 
 def test_sqlite_authoritative_lifespan_still_fails_closed_in_remote_required_profile(monkeypatch) -> None:
@@ -237,7 +238,7 @@ def test_sqlite_authoritative_lifespan_still_fails_closed_in_remote_required_pro
     async def noop_async(*_args, **_kwargs) -> None:
         return None
 
-    original_storage_gate = bhm_app._wait_for_required_storage_ready
+    original_storage_gate = app_lifecycle._wait_for_required_storage_ready
 
     async def immediate_strict_storage_gate():
         return await original_storage_gate(timeout_seconds=0)
@@ -245,20 +246,20 @@ def test_sqlite_authoritative_lifespan_still_fails_closed_in_remote_required_pro
     monkeypatch.setattr(bhm_app, "validate_loopback_listener_host", lambda _host: None)
     monkeypatch.setattr(bhm_app, "caller_auth_configuration_error", lambda: None)
     monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
-    monkeypatch.setattr(bhm_app, "_initialize_authoritative_memory_service", lambda: None)
+    monkeypatch.setattr(app_lifecycle, "_initialize_authoritative_memory_service", lambda: None)
     patch_app_import(monkeypatch, "storage_runtime_state", lambda: projection)
-    monkeypatch.setattr(bhm_app, "_wait_for_required_storage_ready", immediate_strict_storage_gate)
+    monkeypatch.setattr(app_lifecycle, "_wait_for_required_storage_ready", immediate_strict_storage_gate)
     monkeypatch.setattr(
         bhm_app,
         "ensure_memory_collections",
         lambda *_args, **_kwargs: pytest.fail("collection initialization must not run before the strict gate"),
     )
     monkeypatch.setattr(app_runtime, "warmup_provider_probe", noop_async)
-    monkeypatch.setattr(bhm_app, "_boot_report_is_pending", lambda: False)
-    monkeypatch.setattr(bhm_app, "_telemetry_harvester_loop", noop_async)
-    monkeypatch.setattr(bhm_app, "_start_hook_queue_workers", noop_async)
-    monkeypatch.setattr(bhm_app, "_stop_hook_queue_workers", noop_async)
-    monkeypatch.setattr(bhm_app, "_cleanup_registered_infra_processes", noop_async)
+    monkeypatch.setattr(app_lifecycle, "_boot_report_is_pending", lambda: False)
+    monkeypatch.setattr(app_lifecycle, "_telemetry_harvester_loop", noop_async)
+    monkeypatch.setattr(app_lifecycle, "_start_hook_queue_workers", noop_async)
+    monkeypatch.setattr(app_lifecycle, "_stop_hook_queue_workers", noop_async)
+    monkeypatch.setattr(app_lifecycle, "_cleanup_registered_infra_processes", noop_async)
     monkeypatch.setattr(app_core._MCP_STREAMABLE_HTTP, "run", transport_run)
 
     async def enter_lifespan() -> None:
