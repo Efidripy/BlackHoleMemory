@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 """Autonomous BHM knowledge crystallizer worker.
-
 The worker reads active SQLite observations and BHM memory records, filters
 noisy telemetry, condenses micro/macro/flood-scale clusters into one durable
 Fact Crystal, and archives the processed sources only when --apply is passed.
-
 Safety contract:
 - dry-run is the default mode;
 - all network writes go through BHM REST endpoints;
@@ -13,44 +11,143 @@ Safety contract:
   SQLite store;
 - runtime/API failures are soft-fails that leave source files unchanged.
 """
-
 from __future__ import annotations
-
 import argparse
 import asyncio
 import json
 import os
 import re
 import sys
-import time
 from collections import Counter, defaultdict
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib import error
 from urllib import parse
 from urllib import request
-
 # The source path is intentionally bootstrapped before project imports.
 # ruff: noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
+SCRIPT_ROOT = REPO_ROOT / "scripts"
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
-
-from blackholememory.observation_store import ObservationStore
-from blackholememory.memory_service import MemoryServiceNotReady
-from blackholememory.memory_service import SQLiteMemoryService
-from blackholememory.local_endpoint_policy import LocalEndpointError
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import read_bounded_response
-from blackholememory.local_endpoint_policy import validate_local_endpoint
-from blackholememory.runtime_endpoints import endpoint_url
-from blackholememory.runtime_storage import MemoryStoreMode
-from blackholememory.runtime_storage import resolve_runtime_storage_config
-
+from blackholememory.observation_store import ObservationStore  # noqa: E402
+from blackholememory.local_endpoint_policy import LocalEndpointError  # noqa: E402
+from blackholememory.local_endpoint_policy import open_local_url  # noqa: E402
+from blackholememory.local_endpoint_policy import read_bounded_response  # noqa: E402
+from blackholememory.local_endpoint_policy import validate_local_endpoint  # noqa: E402
+from blackholememory.runtime_endpoints import endpoint_url  # noqa: E402,F401
+from blackholememory.runtime_storage import MemoryStoreMode  # noqa: E402
+from blackholememory.runtime_storage import resolve_runtime_storage_config  # noqa: E402
+from bhm_crystallize_worker_base import (  # noqa: E402,F401
+    ACTIVE_ZONE_RECENT_COUNT,
+    ACTIVE_ZONE_WINDOW,
+    ALLOWED_SYNTHESIS_ENDPOINTS,
+    ARCHIVED_STATES,
+    BATCH_REST_CHUNK_SIZE,
+    BIG_BANG_MIN,
+    BIG_BANG_PROMPT_LIMIT,
+    BUG_PATTERN_MARKERS,
+    BULK_ARCHIVE_ENDPOINT,
+    CHECKPOINTS_FILE,
+    COMPRESS_ZONE_ENTRY_LIMIT,
+    CONSOLIDATED_CONTENT_LIMIT,
+    CONSOLIDATION_ARCHIVE_SCORE,
+    CONSOLIDATION_MIN_SCORE,
+    CONSOLIDATION_SEARCH_LIMIT,
+    CONSOLIDATION_TOKEN_STOPWORDS,
+    CRITICAL_MARKERS,
+    CRYSTAL_PRIORITIES,
+    CRYSTAL_SEMANTIC_TYPES,
+    DECISION_MARKERS,
+    DEFAULT_BHM_BASE_URL,
+    DEFAULT_INTERVAL_SECONDS,
+    DEFAULT_MAX_BATCH,
+    DEFAULT_MAX_CANDIDATES,
+    DEFAULT_MAX_PROMPT_CHARS,
+    DEFAULT_MAX_RECORD_CHARS,
+    DEFAULT_MIN_BATCH,
+    DEFAULT_REPORT_LIST_LIMIT,
+    DEFAULT_SYNTHESIS_ENDPOINT,
+    DEFAULT_TIMEOUT_SECONDS,
+    DOMAIN_PATTERNS,
+    DOMAIN_PRIORITY,
+    ERROR_SIGNATURE_PATTERNS,
+    FACT_CRYSTAL_JSON_CONTRACT,
+    FACT_CRYSTAL_SYSTEM_PROMPT,
+    FROZEN_ZONE_AGE,
+    FROZEN_ZONE_LIMIT,
+    GLOBAL_CORE_COLLECTION_NAME,
+    JsonDict,
+    JsonList,
+    LOCAL_ENTITY_VECTOR_PATTERNS,
+    MACRO_MIN,
+    MACRO_PROMPT_LIMIT,
+    MAP_REDUCE_MAP_INSTRUCTION,
+    MAP_REDUCE_REDUCE_INSTRUCTION,
+    MAX_PAYLOAD_CHARS,
+    MAX_REST_RESPONSE_BYTES,
+    MEMORIES_DB_FILE,
+    MICRO_MIN,
+    MICRO_PROMPT_LIMIT,
+    NOISE_MARKERS,
+    OBSERVATIONS_DB_FILE,
+    REPO_ROOT,
+    SEMANTIC_LOG_TYPES,
+    SESSION_RECORDS_FILE,
+    SINGULARITY_EXAMPLE_LIMIT,
+    SINGULARITY_MIN,
+    SRC_ROOT,
+    SYSTEM_INSIGHT_VECTOR_PATTERNS,
+    SoftFail,
+    THREE_ZONE_CONTEXT_PROMPT,
+    TIER_BIG_BANG,
+    TIER_MACRO,
+    TIER_MICRO,
+    TIER_SINGULARITY,
+    UNKNOWN_DOMAIN_VALUES,
+    VALID_DOMAINS,
+    VALID_LANGUAGES,
+    VALID_PRIORITIES,
+    VALID_SEMANTIC_EDGE_TYPES,
+    WORKER_NAME,
+    _ANONYMOUS_BHM_HEALTH_PATHS,
+    api_memory_to_record,
+    default_runtime_dir,
+    existing_or_creatable_dir,
+    extract_concepts_from_text,
+    harvest_records,
+    infer_domain,
+    infer_language,
+    infer_priority,
+    infer_semantic_type,
+    is_active,
+    item_lifecycle,
+    log,
+    map_reduce_log,
+    non_negative_int,
+    normalize_live_memory,
+    normalize_observation,
+    normalize_space,
+    observation_text,
+    positive_float,
+    positive_int,
+    read_json_array,
+    repo_root,
+    run_coroutine_sync,
+    safe_str,
+    score_record,
+    spam_reason,
+    stable_checksum,
+    stable_signature,
+    trim_text,
+    utc_now,
+)
+from bhm_crystallize_worker_host import bind as bind_worker  # noqa: E402
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -58,786 +155,13 @@ if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
-JsonDict = dict[str, Any]
-JsonList = list[JsonDict]
 
-MEMORIES_DB_FILE = "memories.sqlite3"
-OBSERVATIONS_DB_FILE = "observations.sqlite3"
-SESSION_RECORDS_FILE = "session-records.json"
-CHECKPOINTS_FILE = "checkpoints.json"
-WORKER_NAME = "bhm_crystallize_worker"
 
-_ANONYMOUS_BHM_HEALTH_PATHS = frozenset(
-    {
-        "/health/live",
-        "/health/dependencies",
-        "/health/ready",
-        "/health/cutover",
-        "/bhm/health",
-        "/bhm/health/slo",
-    }
-)
+_worker_module = sys.modules.get(__name__)
+if _worker_module is not None:
+    bind_worker(_worker_module)
 
-DEFAULT_BHM_BASE_URL = endpoint_url("bhm_api")
-DEFAULT_SYNTHESIS_ENDPOINT = "/bhm/synthesis/fact-crystal"
-ALLOWED_SYNTHESIS_ENDPOINTS = frozenset({DEFAULT_SYNTHESIS_ENDPOINT})
-DEFAULT_MIN_BATCH = 10
-DEFAULT_MAX_BATCH = 20
-DEFAULT_MAX_CANDIDATES = 300
-DEFAULT_TIMEOUT_SECONDS = 20.0
-DEFAULT_MAX_RECORD_CHARS = 700
-DEFAULT_MAX_PROMPT_CHARS = 12_000
-MAX_PAYLOAD_CHARS = 20000
-MAX_REST_RESPONSE_BYTES = 256 * 1024
-DEFAULT_INTERVAL_SECONDS = 300.0
-DEFAULT_REPORT_LIST_LIMIT = 50
-ACTIVE_ZONE_RECENT_COUNT = 10
-ACTIVE_ZONE_WINDOW = timedelta(minutes=5)
-FROZEN_ZONE_AGE = timedelta(hours=1)
-FROZEN_ZONE_LIMIT = 50
-COMPRESS_ZONE_ENTRY_LIMIT = 120
 
-TIER_MICRO = "micro"
-TIER_MACRO = "macro"
-TIER_SINGULARITY = "singularity"
-TIER_BIG_BANG = "big_bang"
-MICRO_MIN = 10
-MACRO_MIN = 100
-SINGULARITY_MIN = 1000
-BIG_BANG_MIN = 10_000
-MICRO_PROMPT_LIMIT = 20
-MACRO_PROMPT_LIMIT = 30
-SINGULARITY_EXAMPLE_LIMIT = 10
-BIG_BANG_PROMPT_LIMIT = 0
-BATCH_REST_CHUNK_SIZE = 500
-BULK_ARCHIVE_ENDPOINT = "/bhm/memories/bulk-archive"
-CONSOLIDATION_MIN_SCORE = 0.42
-CONSOLIDATION_ARCHIVE_SCORE = 0.66
-CONSOLIDATION_SEARCH_LIMIT = 40
-CONSOLIDATED_CONTENT_LIMIT = 8_000
-CONSOLIDATION_TOKEN_STOPWORDS = {
-    "the",
-    "and",
-    "for",
-    "with",
-    "from",
-    "into",
-    "this",
-    "that",
-    "memory",
-    "crystal",
-    "source",
-    "project",
-    "summary",
-    "durable",
-    "guidance",
-}
-
-ARCHIVED_STATES = {"archived", "deprecated"}
-SEMANTIC_LOG_TYPES = {"log", "error"}
-VALID_DOMAINS = {"frontend", "backend", "infra", "security", "product", "general"}
-UNKNOWN_DOMAIN_VALUES = {"", "unknown", "no metadata", "none", "null", "n/a", "not set"}
-VALID_LANGUAGES = {"en", "ru", "code-python", "code-ts"}
-VALID_PRIORITIES = {"critical", "high", "medium", "low", "normal", "trivial"}
-CRYSTAL_PRIORITIES = {"critical", "high", "medium", "low"}
-CRYSTAL_SEMANTIC_TYPES = {"architecture", "bugfix", "feature", "refactor", "knowledge"}
-VALID_SEMANTIC_EDGE_TYPES = {"DEPENDS_ON", "UPGRADES", "CONTRADICTS"}
-GLOBAL_CORE_COLLECTION_NAME = "bhm_global_core_knowledge"
-LOCAL_ENTITY_VECTOR_PATTERNS = (
-    r"[A-Za-z]:[\\/]",
-    r"\b(?:src|scripts|runtime|workspace|tests?)[\\/]",
-    r"\.(?:py|ps1|js|ts|tsx|html|css|md)\b",
-    r"\b(?:async\s+def|def|class)\s+[A-Za-z_][A-Za-z0-9_]*",
-    r"\b[A-Za-z_][A-Za-z0-9_]*\(\)",
-)
-SYSTEM_INSIGHT_VECTOR_PATTERNS = (
-    r"\bwindows\b",
-    r"\bpowershell\b",
-    r"\bdocker\b",
-    r"\bfastapi\b",
-    r"\bqdrant\b",
-    r"\bmem0\b",
-    r"\bmcp\b",
-    r"\bnamed[- ]pipe\b",
-    r"\bsocket\b",
-    r"\basyncio\b",
-    r"\buvicorn\b",
-    r"\bhttpx\b",
-)
-ERROR_SIGNATURE_PATTERNS = (
-    (r"\bWSAEADDRINUSE\b|\bWinError\s+10048\b|address already in use|EADDRINUSE", "Error_WSAEADDRINUSE"),
-    (r"\bConnectionRefused(?:Error)?\b|connection refused|\bWinError\s+10061\b|\bECONNREFUSED\b", "Error_ConnectionRefused"),
-    (r"\bTimeoutError\b|\btimed?\s*out\b|\bread timed out\b|\bETIMEDOUT\b", "Error_Timeout"),
-    (r"\bConnectionResetError\b|\bECONNRESET\b|connection reset", "Error_ConnectionReset"),
-    (r"\bBrokenPipeError\b|\bEPIPE\b|broken pipe", "Error_BrokenPipe"),
-)
-
-CRITICAL_MARKERS = (
-    "critical",
-    "fatal",
-    "panic",
-    "crash",
-    "data loss",
-    "corrupt",
-    "security",
-    "secret",
-    "token",
-)
-DECISION_MARKERS = (
-    "decision",
-    "decided",
-    "accepted",
-    "adr",
-    "architecture",
-    "architectural",
-    "migration",
-    "cutover",
-)
-BUG_PATTERN_MARKERS = (
-    "bug",
-    "pattern",
-    "root cause",
-    "workaround",
-    "regression",
-    "timeout",
-    "traceback",
-    "exception",
-    "error",
-    "failed",
-    "failure",
-)
-DOMAIN_PATTERNS = {
-    "frontend": (
-        r"\bthree(?:\.js|js)?\b",
-        r"\bcanvas\b",
-        r"\bhtml\b",
-        r"\bstatic[\\/]",
-        r"\.html?\b",
-        r"\bfrontend\b",
-        r"\bcss\b",
-        r"\breact\b",
-        r"\btsx?\b",
-    ),
-    "backend": (
-        r"\bfastapi\b",
-        r"\broutes?\b",
-        r"\bendpoint\b",
-        r"\bapp[\\/]routes\b",
-        r"\bbackend\b",
-        r"\bapi\b",
-        r"\bservice\b",
-    ),
-    "infra": (
-        r"\bdocker\b",
-        r"\bqdrant\b",
-        r"\basyncio\b",
-        r"\bnpipe\b",
-        r"\bdb_connection\b",
-        r"\bmem0\b",
-        r"\bmcp\b",
-        r"\bruntime\b",
-        r"\bworker\b",
-        r"\bpowershell\b",
-    ),
-    "security": (
-        r"\bsecurity\b",
-        r"\bsecret\b",
-        r"\btoken\b",
-        r"\bpassword\b",
-        r"\bcredential\b",
-        r"\bauth(?:entication|orization)?\b",
-        r"\bvulnerab",
-        r"\bcve-\d",
-    ),
-    "product": (
-        r"\bproduct\b",
-        r"\brequirements?\b",
-        r"\bux\b",
-        r"\boperator\b",
-        r"\bworkflow\b",
-        r"\broadmap\b",
-        r"\buser stor(?:y|ies)\b",
-        r"\bacceptance criteria\b",
-    ),
-}
-DOMAIN_PRIORITY = ("security", "frontend", "backend", "infra", "product")
-NOISE_MARKERS = (
-    "heartbeat",
-    "mousemove",
-    "scroll",
-    "focus",
-    "blur",
-    "window resized",
-    "noop",
-    "poll",
-)
-
-FACT_CRYSTAL_SYSTEM_PROMPT = """
-You are the BHM knowledge crystallization runtime and Enterprise Data Architect.
-Convert a cluster of raw operational logs and failure traces into one concise
-Fact Crystal. When analyzing logs, you MUST determine domain, priority, and
-semantic_type for the resulting knowledge.
-
-Return one structured crystal with these fields:
-- problem_or_solution_entity
-- root_cause
-- architecture_impact
-- durable_guidance
-- taxonomy_tags
-- domain
-- priority
-- semantic_type
-
-Rules:
-- synthesize, do not concatenate logs;
-- preserve precise technical causes when visible;
-- do not include secrets or raw long traces;
-- keep the result useful for future agents;
-- domain must be one of: frontend, backend, infra, security, product, general;
-- priority must be one of: low, medium, high, critical;
-- semantic_type must be one of: architecture, bugfix, feature, refactor, knowledge.
-
-Classification rules:
-- Docker, WSL, PowerShell, Qdrant, Mem0, MCP, runtime, workers, ports, deploy, or local infrastructure issues => domain=infra.
-- UI, interface, colors, layout, canvas, Three.js, HTML/CSS, React, screenshots, or visual behavior => domain=frontend.
-- API routes, FastAPI, service logic, persistence adapters, or backend contracts => domain=backend.
-- secrets, tokens, auth, permissions, vulnerabilities, or hard-delete/sensitive operations => domain=security.
-- roadmap, user workflow, requirements, product behavior, or acceptance criteria => domain=product.
-- errors, crashes, failed checks, timeouts, regressions, tracebacks, or broken validation => priority=high unless data loss/security/critical outage requires priority=critical.
-- architecture decisions or cross-component contracts => semantic_type=architecture.
-- resolved failures, regressions, and root-cause fixes => semantic_type=bugfix.
-- new capability delivery => semantic_type=feature.
-- restructuring without new behavior => semantic_type=refactor.
-- durable operating knowledge or reusable guidance => semantic_type=knowledge.
-""".strip()
-
-FACT_CRYSTAL_JSON_CONTRACT = """
-Return ONLY strict JSON matching this FactCrystal schema:
-{
-  "fact_crystal": {
-    "problem_or_solution_entity": "string",
-    "root_cause": "string",
-    "architecture_impact": "string",
-    "durable_guidance": "string",
-    "taxonomy_tags": ["string"],
-    "domain": "frontend|backend|infra|security|product|general",
-    "priority": "low|medium|high|critical",
-    "semantic_type": "architecture|bugfix|feature|refactor|knowledge"
-  }
-}
-""".strip()
-
-THREE_ZONE_CONTEXT_PROMPT = """
-Session context uses Alibaba-style temperature zones:
-- Active Zone contains only the newest hot logs and may include full raw tracebacks.
-- Compress Zone contains older active-session logs as signatures only; never expand missing raw text.
-- Frozen Zone contains historical session/checkpoint memory IDs plus distilled conclusions only.
-Prefer signatures and crystals over replaying old raw logs.
-""".strip()
-
-MAP_REDUCE_MAP_INSTRUCTION = (
-    "MAP stage. Сделай промежуточную выжимку этих ошибок. "
-    "Выдели главные паттерны, повторяющиеся сигнатуры, root cause и полезные действия. "
-    "Не копируй длинные логи; верни краткую структурированную выжимку для финального Fact Crystal."
-)
-MAP_REDUCE_REDUCE_INSTRUCTION = (
-    "REDUCE stage. Объедини промежуточные выжимки в один итоговый Fact Crystal. "
-    "Твоя задача — ТОЛЬКО агрегировать предоставленные факты. "
-    "КАТЕГОРИЧЕСКИ ЗАПРЕЩАЕТСЯ придумывать причины ошибок, которых нет в тексте. "
-    "Используй сухой, технический стиль. "
-    "Сохрани только устойчивые паттерны, архитектурное влияние и durable guidance. "
-    f"{FACT_CRYSTAL_JSON_CONTRACT}"
-)
-
-
-class SoftFail(RuntimeError):
-    """Expected runtime failure that must not damage source JSON files."""
-
-
-def positive_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"expected integer, got {value!r}") from exc
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("expected a positive integer")
-    return parsed
-
-
-def non_negative_int(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"expected integer, got {value!r}") from exc
-    if parsed < 0:
-        raise argparse.ArgumentTypeError("expected a non-negative integer")
-    return parsed
-
-
-def positive_float(value: str) -> float:
-    try:
-        parsed = float(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"expected float, got {value!r}") from exc
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("expected a positive float")
-    return parsed
-
-
-def existing_or_creatable_dir(value: str) -> Path:
-    return Path(value).expanduser().resolve()
-
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
-
-
-def default_runtime_dir() -> Path:
-    return repo_root() / ".runtime" / "live-memory"
-
-
-def utc_now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
-def log(message: str) -> None:
-    sys.stderr.write(f"{WORKER_NAME}: {message}\n")
-
-
-def map_reduce_log(message: str) -> None:
-    print(f"[Map-Reduce] {message}", file=sys.stderr, flush=True)
-
-
-def read_json_array(path: Path) -> JsonList:
-    if not path.exists():
-        return []
-    raw = path.read_text(encoding="utf-8").strip()
-    if not raw:
-        return []
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SoftFail(f"invalid JSON in {path}: {exc}") from exc
-    if not isinstance(data, list):
-        raise SoftFail(f"expected JSON array in {path}")
-    return [item for item in data if isinstance(item, dict)]
-
-
-def run_coroutine_sync(coro):
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="bhm-crystallizer-async") as executor:
-        return executor.submit(lambda: asyncio.run(coro)).result()
-
-
-def normalize_space(value: str) -> str:
-    return re.sub(r"\s+", " ", value.strip())
-
-
-def stable_checksum(value: str) -> str:
-    acc = 5381
-    for char in value:
-        acc = ((acc << 5) + acc + ord(char)) & 0xFFFFFFFF
-    return f"{acc:08x}"
-
-
-def stable_signature(value: str) -> str:
-    lowered = value.lower()
-    compact = "".join(char if char.isalnum() else " " for char in lowered)
-    compact = normalize_space(compact)[:1200]
-    return stable_checksum(compact)
-
-
-def safe_str(value: Any, max_chars: int | None = None) -> str:
-    if value is None:
-        text = ""
-    elif isinstance(value, str):
-        text = value
-    else:
-        try:
-            text = json.dumps(value, ensure_ascii=False, sort_keys=True)
-        except TypeError:
-            text = str(value)
-    if max_chars is not None and len(text) > max_chars:
-        return text[:max_chars] + f"\n[truncated: original_chars={len(text)}]"
-    return text
-
-
-def item_lifecycle(item: JsonDict) -> str:
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    status = str(item.get("status") or "").strip().lower()
-    lifecycle = str(metadata.get("lifecycle") or "").strip().lower()
-    if status:
-        return status
-    if lifecycle:
-        return lifecycle
-    if metadata.get("archived_at") or item.get("archived_at"):
-        return "archived"
-    return "active"
-
-
-def is_active(item: JsonDict) -> bool:
-    return item_lifecycle(item) not in ARCHIVED_STATES
-
-
-def observation_text(item: JsonDict, max_chars: int | None) -> str:
-    data = item.get("data")
-    parts: list[str] = [
-        f"hookType: {safe_str(item.get('hookType'))}",
-        f"cwd: {safe_str(item.get('cwd'))}",
-    ]
-    if isinstance(data, dict):
-        for key in (
-            "hook_event_name",
-            "tool_name",
-            "tool_input",
-            "tool_response",
-            "error",
-            "stderr",
-            "stdout",
-            "command",
-            "exit_code",
-        ):
-            if key in data:
-                parts.append(f"{key}: {safe_str(data.get(key), max_chars)}")
-    else:
-        parts.append(f"data: {safe_str(data, max_chars)}")
-    return "\n".join(part for part in parts if part.strip())
-
-
-def infer_semantic_type(text: str, default: str = "log") -> str:
-    lowered = text.lower()
-    if any(marker in lowered for marker in ("traceback", "exception", "error", "failed", "failure", "exit code: 1")):
-        return "error"
-    if any(marker in lowered for marker in DECISION_MARKERS):
-        return "decision-log"
-    return default if default in {"log", "error", "decision-log", "requirement", "fact"} else "log"
-
-
-def infer_domain(text: str, metadata_domain: Any = None, files: list[Any] | None = None) -> str:
-    domain = str(metadata_domain or "").strip().lower()
-    if domain in VALID_DOMAINS:
-        return domain
-    if domain and domain not in UNKNOWN_DOMAIN_VALUES:
-        return "infra"
-
-    fragments = [text]
-    fragments.extend(safe_str(file_path) for file_path in files or [])
-    lowered = "\n".join(safe_str(fragment) for fragment in fragments if safe_str(fragment)).lower()[:12000]
-    scores: dict[str, int] = {}
-    for candidate, patterns in DOMAIN_PATTERNS.items():
-        score = sum(1 for pattern in patterns if re.search(pattern, lowered, re.IGNORECASE))
-        if score:
-            scores[candidate] = score
-    if not scores:
-        return "infra"
-    return max(DOMAIN_PRIORITY, key=lambda candidate: (scores.get(candidate, 0), -DOMAIN_PRIORITY.index(candidate)))
-
-
-def infer_language(text: str, metadata_language: Any = None) -> str:
-    language = str(metadata_language or "").strip().lower()
-    if language in VALID_LANGUAGES:
-        return language
-    if "def " in text or "traceback" in text.lower() or ".py" in text:
-        return "code-python"
-    if "function " in text or ".ts" in text or ".tsx" in text:
-        return "code-ts"
-    if re.search(r"[А-Яа-яЁё]", text):
-        return "ru"
-    return "en"
-
-
-def infer_priority(text: str, metadata_priority: Any = None) -> tuple[str, int, list[str]]:
-    priority = str(metadata_priority or "").strip().lower()
-    lowered = text.lower()
-    markers: list[str] = []
-    if any(marker in lowered for marker in CRITICAL_MARKERS):
-        markers.append("critical")
-    if any(marker in lowered for marker in DECISION_MARKERS):
-        markers.append("decision")
-    if any(marker in lowered for marker in BUG_PATTERN_MARKERS):
-        markers.append("bug-pattern")
-
-    if "critical" in markers:
-        return "critical", 12, markers
-    if priority in {"critical", "high"}:
-        return priority, 8 if priority == "high" else 12, markers
-    if "decision" in markers or "bug-pattern" in markers:
-        return "high", 7, markers
-    if priority in VALID_PRIORITIES:
-        return priority, 2 if priority == "trivial" else 4, markers
-    return "normal", 4, markers
-
-
-def extract_concepts_from_text(text: str) -> list[str]:
-    lowered = text.lower()
-    concepts: list[str] = []
-    concept_markers = {
-        "decision": DECISION_MARKERS,
-        "bug": ("bug", "regression", "failed", "failure", "exception", "traceback"),
-        "pattern": ("pattern", "workaround", "root cause", "lesson"),
-        "architecture": ("architecture", "architectural", "contract", "route", "api"),
-        "qdrant": ("qdrant",),
-        "mem0": ("mem0",),
-        "langgraph": ("langgraph",),
-        "mcp": ("mcp",),
-        "powershell": ("powershell",),
-        "encoding": ("encoding", "mojibake", "utf-8"),
-        "timeout": ("timeout", "timed out"),
-    }
-    for concept, markers in concept_markers.items():
-        if any(marker in lowered for marker in markers):
-            concepts.append(concept)
-    return concepts
-
-
-def normalize_live_memory(
-    item: JsonDict,
-    max_chars: int,
-    *,
-    source_file: str = MEMORIES_DB_FILE,
-) -> JsonDict | None:
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    source_id = str(item.get("source_id") or "").strip()
-    raw_content = safe_str(item.get("content"))
-    content = safe_str(item.get("content"), max_chars * 4)
-    if not source_id:
-        return None
-    project = str(item.get("project") or metadata.get("project") or "e-github-workspace").strip()
-    semantic_type = str(metadata.get("semantic_type") or "").strip().lower()
-    if semantic_type not in SEMANTIC_LOG_TYPES:
-        semantic_type = infer_semantic_type(content, str(item.get("memory_type") or "log"))
-    priority, priority_boost, markers = infer_priority(content, metadata.get("priority"))
-    concepts = list(dict.fromkeys([safe_str(tag) for tag in item.get("tags") or []] + extract_concepts_from_text(content)))
-    files = [safe_str(file_path) for file_path in metadata.get("files") or [] if safe_str(file_path)]
-    return {
-        "id": source_id,
-        "source_file": source_file,
-        "source_kind": "memory",
-        "project": project,
-        "content": content,
-        "raw_content": raw_content,
-        "semantic_type": semantic_type,
-        "domain": infer_domain(content, metadata.get("domain"), files),
-        "language": infer_language(content, metadata.get("language")),
-        "priority": priority,
-        "priority_boost": priority_boost,
-        "markers": markers,
-        "concepts": concepts,
-        "files": files,
-        "created_at": safe_str(item.get("created_at")),
-        "updated_at": safe_str(item.get("updated_at")),
-        "sort_time": safe_str(item.get("updated_at") or item.get("created_at")),
-    }
-
-
-def normalize_observation(
-    item: JsonDict,
-    max_chars: int,
-    source_file: str = OBSERVATIONS_DB_FILE,
-) -> JsonDict | None:
-    source_id = str(item.get("id") or "").strip()
-    if not source_id:
-        return None
-    raw_content = observation_text(item, None)
-    content = trim_text(raw_content, max_chars * 4)
-    project = str(item.get("project") or "e-github-workspace").strip()
-    priority, priority_boost, markers = infer_priority(content)
-    hook_type = safe_str(item.get("hookType")).strip()
-    concepts = list(dict.fromkeys([hook_type] + extract_concepts_from_text(content)))
-    return {
-        "id": source_id,
-        "source_file": source_file,
-        "source_kind": "observation",
-        "project": project,
-        "content": content,
-        "raw_content": raw_content,
-        "semantic_type": infer_semantic_type(content),
-        "domain": infer_domain(content, None, [item.get("cwd")]),
-        "language": infer_language(content),
-        "priority": priority,
-        "priority_boost": priority_boost,
-        "markers": markers,
-        "concepts": [concept for concept in concepts if concept],
-        "files": [],
-        "created_at": safe_str(item.get("timestamp")),
-        "updated_at": safe_str(item.get("timestamp")),
-        "sort_time": safe_str(item.get("timestamp")),
-    }
-
-
-def spam_reason(record: JsonDict) -> str | None:
-    text = normalize_space(safe_str(record.get("content"))).lower()
-    if not text or text in {"{}", "[]", "null", "none"}:
-        return "empty"
-    if len(text) < 40 and not record.get("markers"):
-        return "empty"
-    if any(marker in text for marker in NOISE_MARKERS) and not record.get("markers"):
-        return "debug-spam"
-    if record.get("source_kind") == "observation":
-        hook_type = str(record.get("concepts", [""])[0]).lower() if record.get("concepts") else ""
-        if hook_type.endswith("pre_tool_use") and not record.get("markers"):
-            return "debug-spam"
-        if "post_tool_use" in hook_type and "tool_response:" not in text and not record.get("markers"):
-            return "debug-spam"
-    return None
-
-
-def score_record(record: JsonDict) -> int:
-    text = safe_str(record.get("content")).lower()
-    score = int(record.get("priority_boost") or 0)
-    if record.get("semantic_type") == "error":
-        score += 5
-    if record.get("source_kind") == "memory":
-        score += 2
-    if "exit code: 1" in text or "exit_code: 1" in text:
-        score += 4
-    if "traceback" in text or "exception" in text:
-        score += 4
-    if "decision" in record.get("markers", []):
-        score += 4
-    if "bug-pattern" in record.get("markers", []):
-        score += 3
-    if len(text) > 400:
-        score += 1
-    return score
-
-
-def harvest_records(
-    runtime_dir: Path,
-    max_record_chars: int,
-    *,
-    memory_records: JsonList | None = None,
-    memory_mode: str = "sqlite-authoritative",
-) -> tuple[list[JsonDict], JsonDict]:
-    observation_store_path = runtime_dir / OBSERVATIONS_DB_FILE
-    memory_path = resolve_runtime_storage_config(runtime_dir=runtime_dir).database_path
-    observation_store = ObservationStore(observation_store_path) if observation_store_path.exists() else None
-    stored_observations = observation_store.load() if observation_store is not None else []
-    if memory_records is None:
-        try:
-            memories = SQLiteMemoryService(memory_path).load_records()
-        except (MemoryServiceNotReady, OSError, ValueError):
-            memories = []
-    else:
-        memories = memory_records
-
-    stats: JsonDict = {
-        "files": {
-            OBSERVATIONS_DB_FILE: {
-                "path": str(observation_store_path),
-                "raw": len(stored_observations),
-                "mode": "authoritative",
-            },
-            MEMORIES_DB_FILE: {
-                "path": str(memory_path),
-                "raw": len(memories),
-                "mode": memory_mode,
-            },
-        },
-        "active": 0,
-        "empty": 0,
-        "debug_spam": 0,
-        "duplicates": 0,
-        "accepted": 0,
-        "priority_boosted": 0,
-    }
-
-    normalized: list[JsonDict] = []
-    seen_signatures: set[str] = set()
-
-    for item in memories:
-        if not is_active(item):
-            continue
-        stats["active"] += 1
-        record = normalize_live_memory(item, max_record_chars)
-        if record is None:
-            stats["empty"] += 1
-            continue
-        reason = spam_reason(record)
-        if reason:
-            stats[reason.replace("-", "_")] = int(stats.get(reason.replace("-", "_"), 0)) + 1
-            continue
-        signature = stable_signature(safe_str(record.get("content")))
-        record["content_signature"] = signature
-        if signature in seen_signatures:
-            stats["duplicates"] += 1
-            record["duplicate_signature"] = True
-        else:
-            seen_signatures.add(signature)
-            record["duplicate_signature"] = False
-        record["score"] = score_record(record)
-        if record.get("markers"):
-            stats["priority_boosted"] += 1
-        normalized.append(record)
-
-    observation_sources: list[tuple[JsonDict, str]] = []
-    observation_positions: dict[str, int] = {}
-    for item, source_file in ((item, OBSERVATIONS_DB_FILE) for item in stored_observations):
-        event_id = safe_str(item.get("eventId") or item.get("id"))
-        existing_position = observation_positions.get(event_id) if event_id else None
-        if existing_position is None:
-            if event_id:
-                observation_positions[event_id] = len(observation_sources)
-            observation_sources.append((item, source_file))
-        else:
-            observation_sources[existing_position] = (item, source_file)
-    for item, source_file in observation_sources:
-        if not is_active(item):
-            continue
-        stats["active"] += 1
-        record = normalize_observation(item, max_record_chars, source_file=source_file)
-        if record is None:
-            stats["empty"] += 1
-            continue
-        reason = spam_reason(record)
-        if reason:
-            stats[reason.replace("-", "_")] = int(stats.get(reason.replace("-", "_"), 0)) + 1
-            continue
-        signature = stable_signature(safe_str(record.get("content")))
-        record["content_signature"] = signature
-        if signature in seen_signatures:
-            stats["duplicates"] += 1
-            record["duplicate_signature"] = True
-        else:
-            seen_signatures.add(signature)
-            record["duplicate_signature"] = False
-        record["score"] = score_record(record)
-        if record.get("markers"):
-            stats["priority_boosted"] += 1
-        normalized.append(record)
-
-    normalized.sort(key=lambda item: (int(item.get("score") or 0), safe_str(item.get("sort_time"))), reverse=True)
-    stats["accepted"] = len(normalized)
-    return normalized, stats
-
-
-def api_memory_to_record(item: JsonDict) -> JsonDict:
-    """Adapt the REST serializer to the crystallizer's normalized input."""
-
-    metadata = dict(item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {}
-    files = item.get("files") or metadata.get("files") or []
-    if files and "files" not in metadata:
-        metadata["files"] = list(files) if isinstance(files, list) else [files]
-    session_refs = item.get("session_refs") or metadata.get("session_refs") or []
-    if session_refs and "session_refs" not in metadata:
-        metadata["session_refs"] = list(session_refs) if isinstance(session_refs, list) else [session_refs]
-    for key in ("archived_at", "archive_reason"):
-        if item.get(key) and key not in metadata:
-            metadata[key] = item[key]
-    return {
-        "source_id": safe_str(item.get("id") or item.get("source_id")),
-        "project": safe_str(item.get("project")),
-        "memory_type": safe_str(item.get("type") or item.get("memory_type")),
-        "content": item.get("content") or "",
-        "tags": list(item.get("concepts") or item.get("tags") or []),
-        "created_at": safe_str(item.get("created_at")),
-        "updated_at": safe_str(item.get("updated_at")),
-        "metadata": metadata,
-    }
 
 
 def authoritative_memory_store_enabled(runtime_dir: Path) -> bool:
@@ -1032,11 +356,6 @@ def select_batch(records: list[JsonDict], args: argparse.Namespace) -> JsonDict 
     }
 
 
-def trim_text(value: str, limit: int) -> str:
-    if len(value) <= limit:
-        return value
-    suffix = f"\n[truncated: original_chars={len(value)}]"
-    return value[: max(0, limit - len(suffix))] + suffix
 
 
 def prompt_records(batch: JsonDict, max_record_chars: int, max_prompt_chars: int) -> list[JsonDict]:
@@ -1353,170 +672,12 @@ async def build_three_zone_context(batch: JsonDict, args: argparse.Namespace) ->
     return context
 
 
-def build_frequency_map(batch: JsonDict, max_record_chars: int, include_example_content: bool = True) -> JsonDict:
-    pool = batch.get("pool_records") or batch["records"]
-    fingerprints: dict[str, list[JsonDict]] = defaultdict(list)
-    for record in pool:
-        fingerprints[failure_fingerprint(record)].append(record)
-
-    ranked = sorted(
-        fingerprints.items(),
-        key=lambda item: (len(item[1]), max((record_time(record) for record in item[1]), default="")),
-        reverse=True,
-    )
-    times = sorted(record_time(record) for record in pool if record_time(record))
-    top_examples = []
-    for index, record in enumerate(batch["records"][:SINGULARITY_EXAMPLE_LIMIT], start=1):
-        example = {
-            "n": index,
-            "id": record["id"],
-            "source_kind": record["source_kind"],
-            "project": record["project"],
-            "semantic_type": record["semantic_type"],
-            "priority": record["priority"],
-            "domain": record["domain"],
-            "score": record.get("score"),
-            "fingerprint": failure_fingerprint(record),
-        }
-        if include_example_content:
-            example["content"] = trim_text(safe_str(record.get("content")), max_record_chars)
-        top_examples.append(example)
-
-    return {
-        "kind": "frequency_map",
-        "tier": TIER_SINGULARITY,
-        "project": batch["project"],
-        "topic": batch["topic"],
-        "total_pool_count": batch["total_pool_count"],
-        "timeframe": {
-            "first": times[0] if times else "",
-            "last": times[-1] if times else "",
-        },
-        "source_breakdown": dict(Counter(record.get("source_file") for record in pool)),
-        "semantic_type_counts": dict(Counter(record.get("semantic_type") for record in pool)),
-        "domain_counts": dict(Counter(record.get("domain") for record in pool)),
-        "priority_counts": dict(Counter(record.get("priority") for record in pool)),
-        "most_frequent_errors": [
-            {
-                "fingerprint": fingerprint,
-                "count": len(records),
-                "sample_ids": [record["id"] for record in records[:10]],
-            }
-            for fingerprint, records in ranked[:10]
-        ],
-        "top_examples": top_examples,
-    }
 
 
-def time_bounds(records: list[JsonDict]) -> JsonDict:
-    first = ""
-    last = ""
-    for record in records:
-        current = record_time(record)
-        if not current:
-            continue
-        if not first or current < first:
-            first = current
-        if not last or current > last:
-            last = current
-    return {"first": first, "last": last}
 
 
-def build_big_bang_passport(batch: JsonDict) -> JsonDict:
-    pool = batch.get("pool_records") or batch.get("archive_records") or []
-    signature_counts = Counter(
-        safe_str(record.get("content_signature")) or stable_signature(safe_str(record.get("content")))
-        for record in pool
-    )
-    dominant_signature, dominant_count = signature_counts.most_common(1)[0] if signature_counts else ("", 0)
-    topic_hash = stable_checksum(f"{batch['project']}|{batch['topic']}|{dominant_signature}")
-    total = int(batch.get("total_pool_count") or len(pool))
-    return {
-        "kind": "catastrophe_passport",
-        "tier": TIER_BIG_BANG,
-        "project": batch["project"],
-        "topic": batch["topic"],
-        "topic_hash": topic_hash,
-        "dominant_error_hash": dominant_signature,
-        "dominant_error_hash_count": dominant_count,
-        "total_pool_count": total,
-        "timeframe": time_bounds(pool),
-        "source_breakdown": dict(Counter(record.get("source_file") for record in pool)),
-        "prompt": (
-            f"System storm detected: {total} logs in project={batch['project']} "
-            f"topic={batch['topic']} hash={topic_hash}. Generate one Critical service warning."
-        ),
-    }
 
 
-def tier_system_prompt(batch: JsonDict) -> str:
-    tier = safe_str(batch.get("tier") or TIER_MICRO)
-    total = int(batch.get("total_pool_count") or len(batch.get("records") or []))
-    if tier == TIER_BIG_BANG:
-        return (
-            "Scale tier: BIG BANG / BLACK HOLE. Do not analyze raw logs. "
-            f"A systemic storm of {total} logs was detected. Produce one Critical service warning "
-            "from the catastrophe passport only.\n\n"
-            f"{THREE_ZONE_CONTEXT_PROMPT}"
-        )
-    if tier == TIER_MACRO:
-        return (
-            f"{FACT_CRYSTAL_SYSTEM_PROMPT}\n\n"
-            f"Scale tier: MACRO. You are compressing a macro-cluster of {total} logs. "
-            "Identify the shared systemic anomaly, not individual incidents.\n\n"
-            f"{THREE_ZONE_CONTEXT_PROMPT}"
-        )
-    if tier == TIER_SINGULARITY:
-        return (
-            f"{FACT_CRYSTAL_SYSTEM_PROMPT}\n\n"
-            f"Scale tier: SINGULARITY FLOOD. You are analyzing an emergency flood of {total} logs. "
-            "Use the provided Frequency Map as the source of truth. Do not infer from absent raw logs. "
-            "Name the dominant failure signature, timeframe, blast radius, and emergency mitigation pattern.\n\n"
-            f"{THREE_ZONE_CONTEXT_PROMPT}"
-        )
-    return f"{FACT_CRYSTAL_SYSTEM_PROMPT}\n\n{THREE_ZONE_CONTEXT_PROMPT}"
-
-
-async def build_synthesis_payload(batch: JsonDict, args: argparse.Namespace) -> JsonDict:
-    records = await build_three_zone_context(batch, args)
-    active_zone = records.get("active_zone") if isinstance(records.get("active_zone"), dict) else {}
-    compress_zone = records.get("compress_zone") if isinstance(records.get("compress_zone"), dict) else {}
-    frozen_zone = records.get("frozen_zone") if isinstance(records.get("frozen_zone"), dict) else {}
-    session_id = safe_str(
-        batch.get("session_id")
-        or batch.get("sessionId")
-        or batch.get("group_key")
-        or f"{batch['project']}::{batch['topic']}::{batch.get('tier') or TIER_MICRO}"
-    )
-
-    def zone_strings(values: Any) -> list[str]:
-        if not isinstance(values, list):
-            values = [values] if values else []
-        output: list[str] = []
-        for item in values:
-            if isinstance(item, str):
-                text = item
-            else:
-                text = safe_str(item)
-            text = trim_text(text, args.max_record_chars)
-            if text and text not in output:
-                output.append(text)
-        return output
-
-    active_strings = zone_strings((active_zone.get("records") or []))
-    compress_strings = zone_strings(compress_zone.get("entries") or [])
-    if records.get("scale_context") is not None:
-        compress_strings.append(trim_text(safe_str(records["scale_context"]), args.max_prompt_chars))
-    frozen_strings = zone_strings(frozen_zone.get("distilled_crystallizer_conclusions") or [])
-    return {
-        "project_name": batch["project"],
-        "session_id": session_id,
-        "three_zone_context": {
-            "Active": active_strings,
-            "Compress": compress_strings,
-            "Frozen": frozen_strings,
-        },
-    }
 
 
 def build_url(base_url: str, path: str, params: JsonDict | None = None) -> str:
@@ -1628,1242 +789,10 @@ async def async_rest_call(
     return await asyncio.to_thread(rest_call, base_url, method, path, payload, timeout, params)
 
 
-def synthesis_payload_chars(payload: JsonDict) -> int:
-    return len(json.dumps(payload, ensure_ascii=False))
 
 
-def synthesis_context(payload: JsonDict) -> JsonDict:
-    context = payload.get("three_zone_context")
-    return context if isinstance(context, dict) else {}
 
 
-def synthesis_zone_items(payload: JsonDict, zone: str) -> list[str]:
-    values = synthesis_context(payload).get(zone)
-    if not isinstance(values, list):
-        values = [values] if values else []
-    output: list[str] = []
-    for item in values:
-        text = safe_str(item).strip()
-        if text:
-            output.append(text)
-    return output
-
-
-def synthesis_log_entries(payload: JsonDict) -> list[str]:
-    entries: list[str] = []
-    for zone in ("Active", "Compress"):
-        for index, text in enumerate(synthesis_zone_items(payload, zone), start=1):
-            entries.append(f"{zone} #{index}\n{text}")
-    return entries
-
-
-def clip_text(value: str, limit: int) -> str:
-    if limit <= 0:
-        return ""
-    if len(value) <= limit:
-        return value
-    return value[:limit]
-
-
-def chunk_log_entries(logs: list[str], max_chars: int = MAX_PAYLOAD_CHARS) -> list[str]:
-    chunks: list[str] = []
-    current: list[str] = []
-    current_chars = 0
-    safe_limit = max(1, max_chars)
-
-    for item in logs:
-        text = safe_str(item).strip()
-        if not text:
-            continue
-        if len(text) > safe_limit:
-            text = clip_text(text, safe_limit)
-
-        separator_chars = 2 if current else 0
-        if current and current_chars + separator_chars + len(text) > safe_limit:
-            chunks.append("\n\n".join(current))
-            current = [text]
-            current_chars = len(text)
-        else:
-            current.append(text)
-            current_chars += separator_chars + len(text)
-
-    if current:
-        chunks.append("\n\n".join(current))
-    return chunks
-
-
-def stage_session_id(payload: JsonDict, suffix: str) -> str:
-    session_id = safe_str(payload.get("session_id") or "fact-crystal-session")
-    return f"{session_id}::{suffix}"
-
-
-def base_stage_payload(payload: JsonDict, suffix: str) -> JsonDict:
-    return {
-        "project_name": safe_str(payload.get("project_name")),
-        "session_id": stage_session_id(payload, suffix),
-        "three_zone_context": {"Active": [], "Compress": [], "Frozen": []},
-    }
-
-
-def build_single_chunk_payload(payload: JsonDict, chunk_text: str) -> JsonDict:
-    bounded = base_stage_payload(payload, "bounded-single")
-    bounded["three_zone_context"]["Active"] = [chunk_text]
-    return bounded
-
-
-def build_map_stage_payload(payload: JsonDict, chunk_text: str, index: int, total: int) -> JsonDict:
-    mapped = base_stage_payload(payload, f"map-{index:03d}-of-{total:03d}")
-    mapped["three_zone_context"]["Active"] = [
-        MAP_REDUCE_MAP_INSTRUCTION,
-        f"Chunk {index}/{total}\n{chunk_text}",
-    ]
-    return mapped
-
-
-def build_reduce_stage_payload(payload: JsonDict, summary_text: str, total: int) -> JsonDict:
-    reduced = base_stage_payload(payload, f"reduce-{total:03d}")
-    reduced["three_zone_context"]["Active"] = [MAP_REDUCE_REDUCE_INSTRUCTION]
-    reduced["three_zone_context"]["Compress"] = [summary_text]
-    return reduced
-
-
-def available_stage_text_chars(payload: JsonDict) -> int:
-    return max(500, MAX_PAYLOAD_CHARS - synthesis_payload_chars(payload) - 256)
-
-
-def fit_stage_payload(payload: JsonDict, zone: str, index: int) -> JsonDict:
-    context = synthesis_context(payload)
-    values = context.get(zone)
-    if not isinstance(values, list) or index >= len(values):
-        return payload
-
-    for _attempt in range(6):
-        payload_chars = synthesis_payload_chars(payload)
-        if payload_chars <= MAX_PAYLOAD_CHARS:
-            return payload
-        text = safe_str(values[index])
-        excess = payload_chars - MAX_PAYLOAD_CHARS + 256
-        limit = max(1, len(text) - excess)
-        values[index] = clip_text(text, limit)
-    return payload
-
-
-def combine_intermediate_summaries(summaries: list[str], available_chars: int) -> str:
-    if not summaries:
-        return ""
-
-    total = len(summaries)
-    per_summary_limit = max(240, (max(available_chars, 1) // total) - 80)
-    parts = [
-        f"Intermediate summary {index}/{total}:\n{clip_text(summary, per_summary_limit)}"
-        for index, summary in enumerate(summaries, start=1)
-    ]
-    combined = "\n\n".join(parts)
-    if len(combined) > available_chars:
-        combined = clip_text(combined, max(1, available_chars))
-    return combined
-
-
-async def ensure_bhm_ready(args: argparse.Namespace) -> JsonDict:
-    ready = await async_rest_call(args.bhm_base_url, "GET", "/health/ready", None, args.timeout)
-    if not bool(ready.get("ok", ready.get("required_ok", False))):
-        raise SoftFail(f"BHM readiness failed: {json.dumps(ready, ensure_ascii=False)[:1200]}")
-    return ready
-
-
-def synthesis_fact_payload(response: JsonDict) -> JsonDict:
-    fact = response.get("fact_crystal")
-    if isinstance(fact, dict):
-        return fact
-    synthesis = response.get("synthesis")
-    if isinstance(synthesis, dict) and isinstance(synthesis.get("fact_crystal"), dict):
-        return synthesis["fact_crystal"]
-    for key in ("summary", "content", "text", "result"):
-        value = response.get(key)
-        if isinstance(value, dict):
-            return value
-    return {}
-
-
-def parse_synthesis_response(response: JsonDict) -> tuple[str, JsonDict]:
-    fact_payload = synthesis_fact_payload(response)
-    for key in ("crystal", "fact_crystal", "summary", "content", "text", "result"):
-        value = response.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip(), fact_payload
-        if isinstance(value, dict):
-            return format_crystal_fields(value), value
-    synthesis = response.get("synthesis")
-    if isinstance(synthesis, dict):
-        fact = synthesis.get("fact_crystal")
-        if isinstance(fact, dict):
-            return format_crystal_fields(fact), fact
-    if isinstance(response.get("message"), dict):
-        content = response["message"].get("content")
-        if isinstance(content, str) and content.strip():
-            return content.strip(), fact_payload
-    raise SoftFail("BHM synthesis response did not contain crystal text")
-
-
-def format_crystal_fields(fields: JsonDict) -> str:
-    labels = [
-        ("core_insight", "core_insight"),
-        ("root_cause_resolved", "root_cause_resolved"),
-        ("reusable_patterns", "reusable_patterns"),
-        ("tags", "tags"),
-        ("problem_or_solution_entity", "problem_or_solution_entity"),
-        ("root_cause", "root_cause"),
-        ("architecture_impact", "architecture_impact"),
-        ("durable_guidance", "durable_guidance"),
-        ("taxonomy_tags", "taxonomy_tags"),
-    ]
-    lines = ["Fact Crystal"]
-    for key, label in labels:
-        value = fields.get(key)
-        if isinstance(value, list):
-            value = ", ".join(safe_str(item) for item in value)
-        value_text = normalize_space(safe_str(value))
-        if value_text:
-            lines.append(f"{label}: {value_text}")
-    return "\n".join(lines)
-
-
-async def call_synthesis_endpoint(payload: JsonDict, args: argparse.Namespace) -> tuple[str, JsonDict]:
-    synthesis_endpoint = validate_synthesis_endpoint(args.synthesis_endpoint)
-    payload_chars = synthesis_payload_chars(payload)
-    if payload_chars > MAX_PAYLOAD_CHARS:
-        raise SoftFail(f"BHM synthesis payload exceeds safe local LLM limit: {payload_chars} > {MAX_PAYLOAD_CHARS}")
-    response = await async_rest_call(
-        args.bhm_base_url,
-        "POST",
-        synthesis_endpoint,
-        payload,
-        args.timeout,
-    )
-    return parse_synthesis_response(response)
-
-
-async def synthesize_with_map_reduce(
-    payload: JsonDict,
-    batch: JsonDict,
-    args: argparse.Namespace,
-    payload_chars: int,
-) -> tuple[str, JsonDict]:
-    entries = synthesis_log_entries(payload)
-    map_template = build_map_stage_payload(payload, "", 1, 1)
-    chunks = chunk_log_entries(entries, available_stage_text_chars(map_template))
-
-    map_reduce_state = {
-        "enabled": payload_chars > MAX_PAYLOAD_CHARS,
-        "max_payload_chars": MAX_PAYLOAD_CHARS,
-        "input_payload_chars": payload_chars,
-        "chunks": len(chunks),
-    }
-    batch.setdefault("context_zones", {})["map_reduce"] = map_reduce_state
-
-    if not chunks:
-        raise SoftFail("BHM synthesis payload exceeded limit but no Active/Compress entries were available for chunking")
-
-    if len(chunks) == 1:
-        bounded_payload = fit_stage_payload(build_single_chunk_payload(payload, chunks[0]), "Active", 0)
-        map_reduce_state["bounded_single_payload_chars"] = synthesis_payload_chars(bounded_payload)
-        map_reduce_log(
-            "Payload too large but Active/Compress context fits one bounded chunk. "
-            f"Sending one normal synthesis request ({map_reduce_state['bounded_single_payload_chars']} chars)."
-        )
-        return await call_synthesis_endpoint(bounded_payload, args)
-
-    total = len(chunks)
-    map_reduce_log(f"Payload too large. Splitting into {total} chunks...")
-    intermediate_summaries: list[str] = []
-    max_map_payload_chars = 0
-
-    for index, chunk in enumerate(chunks, start=1):
-        chunk_payload = fit_stage_payload(build_map_stage_payload(payload, chunk, index, total), "Active", 1)
-        chunk_payload_chars = synthesis_payload_chars(chunk_payload)
-        max_map_payload_chars = max(max_map_payload_chars, chunk_payload_chars)
-        map_reduce_log(f"Processing chunk {index}/{total} ({chunk_payload_chars} chars)...")
-        summary_text, _summary_fact = await call_synthesis_endpoint(chunk_payload, args)
-        intermediate_summaries.append(summary_text)
-
-    reduce_template = build_reduce_stage_payload(payload, "", total)
-    combined_summaries = combine_intermediate_summaries(
-        intermediate_summaries,
-        available_stage_text_chars(reduce_template),
-    )
-    reduce_payload = fit_stage_payload(build_reduce_stage_payload(payload, combined_summaries, total), "Compress", 0)
-    reduce_payload_chars = synthesis_payload_chars(reduce_payload)
-    map_reduce_state.update(
-        {
-            "intermediate_summaries": len(intermediate_summaries),
-            "max_map_payload_chars": max_map_payload_chars,
-            "reduce_payload_chars": reduce_payload_chars,
-        }
-    )
-    map_reduce_log(
-        f"Reducing {len(intermediate_summaries)} intermediate summaries "
-        f"({reduce_payload_chars} chars)..."
-    )
-    return await call_synthesis_endpoint(reduce_payload, args)
-
-
-async def synthesize_with_bhm(batch: JsonDict, args: argparse.Namespace) -> tuple[str, JsonDict]:
-    if not args.synthesis_endpoint:
-        raise SoftFail("BHM synthesis endpoint is disabled")
-    payload = await build_synthesis_payload(batch, args)
-    payload_chars = synthesis_payload_chars(payload)
-    batch.setdefault("context_zones", {})["synthesis_payload_chars"] = payload_chars
-    batch["context_zones"]["max_payload_chars"] = MAX_PAYLOAD_CHARS
-    if payload_chars <= MAX_PAYLOAD_CHARS:
-        return await call_synthesis_endpoint(payload, args)
-    return await synthesize_with_map_reduce(payload, batch, args, payload_chars)
-
-
-def deterministic_synthesis(batch: JsonDict) -> str:
-    records = batch["records"]
-    ids = [safe_str(record.get("id")) for record in records]
-    tier = safe_str(batch.get("tier") or TIER_MICRO)
-    total_count = int(batch.get("total_pool_count") or len(records))
-    domains = Counter(safe_str(record.get("domain")) for record in records if record.get("domain"))
-    semantic_types = Counter(safe_str(record.get("semantic_type")) for record in records if record.get("semantic_type"))
-    concepts = Counter(
-        concept
-        for record in records
-        for concept in record.get("concepts") or []
-        if concept and not safe_str(concept).startswith("codex_")
-    )
-    dominant_domain = domains.most_common(1)[0][0] if domains else "infra"
-    dominant_type = semantic_types.most_common(1)[0][0] if semantic_types else "log"
-    tags = [item for item, _ in concepts.most_common(8)]
-    if batch["topic"] not in tags:
-        tags.insert(0, batch["topic"])
-    if dominant_domain not in tags:
-        tags.append(dominant_domain)
-    if tier not in tags:
-        tags.append(tier)
-
-    if tier == TIER_BIG_BANG:
-        passport = build_big_bang_passport(batch)
-        timeframe = passport.get("timeframe") if isinstance(passport.get("timeframe"), dict) else {}
-        entity = f"{batch['project']} BIG BANG log storm around {batch['topic']}"
-        root_cause = (
-            f"Systemic storm passport: {total_count} logs, topic_hash={safe_str(passport.get('topic_hash'))}, "
-            f"dominant_error_hash={safe_str(passport.get('dominant_error_hash'))}. "
-            f"Timeframe: {safe_str(timeframe.get('first'))}..{safe_str(timeframe.get('last'))}."
-        )
-    elif tier == TIER_SINGULARITY:
-        frequency_map = build_frequency_map(batch, DEFAULT_MAX_RECORD_CHARS)
-        dominant = (frequency_map.get("most_frequent_errors") or [{}])[0]
-        fingerprint = safe_str(dominant.get("fingerprint") if isinstance(dominant, dict) else "")
-        count = int(dominant.get("count") or 0) if isinstance(dominant, dict) else 0
-        timeframe = frequency_map.get("timeframe") if isinstance(frequency_map.get("timeframe"), dict) else {}
-        entity = f"{batch['project']} singularity flood around {batch['topic']}"
-        root_cause = (
-            f"Dominant failure signature repeated {count} of {total_count} times: {fingerprint}. "
-            f"Timeframe: {safe_str(timeframe.get('first'))}..{safe_str(timeframe.get('last'))}."
-        )
-    elif tier == TIER_MACRO:
-        entity = f"{batch['project']} macro anomaly around {batch['topic']}"
-        root_cause = "A 100+ record operational cluster points to one shared systemic anomaly."
-    elif dominant_type == "error":
-        entity = f"{batch['project']} failure pattern around {batch['topic']}"
-        root_cause = "Repeated operational errors or failed tool/runtime calls share the same semantic cluster."
-    elif "decision" in tags or batch["topic"] == "decision":
-        entity = f"{batch['project']} architectural decision cluster around {batch['topic']}"
-        root_cause = "Multiple operational records point to a durable decision that should be remembered as a fact."
-    else:
-        entity = f"{batch['project']} operational pattern around {batch['topic']}"
-        root_cause = "Raw telemetry repeated enough to justify compression into a long-term memory fact."
-
-    return "\n".join(
-        [
-            "Fact Crystal",
-            f"problem_or_solution_entity: {entity}",
-            f"root_cause: {root_cause}",
-            f"architecture_impact: Active retrieval should use this crystal instead of replaying {total_count} raw source records.",
-            "durable_guidance: Keep raw sources archived on disk, retain source IDs in metadata, and link live-memory sources with relation=condenses.",
-            f"taxonomy_tags: {', '.join(tags[:10])}",
-            f"domain: {dominant_domain if dominant_domain in VALID_DOMAINS else 'general'}",
-            f"priority: {'critical' if tier in {TIER_SINGULARITY, TIER_BIG_BANG} else 'high'}",
-            f"semantic_type: {'bugfix' if dominant_type == 'error' else 'knowledge'}",
-            f"source_sample_ids: {', '.join(ids)}",
-        ]
-    )
-
-
-async def synthesize_crystal(batch: JsonDict, args: argparse.Namespace) -> tuple[str, str, JsonDict]:
-    try:
-        crystal_text, synthesis_fact = await synthesize_with_bhm(batch, args)
-        return crystal_text, "bhm-rest", synthesis_fact
-    except SoftFail as exc:
-        if args.apply and not args.allow_fallback_synthesis:
-            raise
-        log(f"synthesis endpoint unavailable, using deterministic fallback: {exc}")
-        return deterministic_synthesis(batch), "deterministic-fallback", {}
-
-
-def majority(records: list[JsonDict], key: str, default: str, allowed: set[str] | None = None) -> str:
-    values = [safe_str(record.get(key)).strip().lower() for record in records if record.get(key)]
-    if not values:
-        return default
-    selected = Counter(values).most_common(1)[0][0]
-    if allowed is not None and selected not in allowed:
-        return default
-    return selected
-
-
-def source_ref(record: JsonDict) -> str:
-    return f"{record['source_file']}::{record['id']}"
-
-
-def chunked(items: list[JsonDict], size: int):
-    for index in range(0, len(items), size):
-        yield items[index : index + size]
-
-
-def report_limit(args: argparse.Namespace) -> int:
-    return args.debug_limit if args.debug_limit > 0 else DEFAULT_REPORT_LIST_LIMIT
-
-
-def report_list(values: list[Any], args: argparse.Namespace) -> list[Any]:
-    limit = report_limit(args)
-    if len(values) <= limit:
-        return values
-    return values[:limit] + [f"... truncated {len(values) - limit} more items"]
-
-
-def report_metadata(metadata: JsonDict, args: argparse.Namespace) -> JsonDict:
-    report: JsonDict = {}
-    for key, value in metadata.items():
-        if isinstance(value, list):
-            report[key] = report_list(value, args)
-            if len(value) > report_limit(args):
-                report[f"{key}_count"] = len(value)
-                report[f"{key}_truncated"] = True
-            continue
-        report[key] = value
-    return report
-
-
-def unique_strings(values: list[Any], limit: int | None = None) -> list[str]:
-    unique = [safe_str(value).strip() for value in values if safe_str(value).strip()]
-    unique = list(dict.fromkeys(unique))
-    return unique[:limit] if limit is not None else unique
-
-
-def token_set(value: Any) -> set[str]:
-    text = safe_str(value).lower()
-    tokens = re.findall(r"[a-zа-яё0-9_.:/\\-]{3,}", text, re.IGNORECASE)
-    return {
-        token.strip("._:/\\-")
-        for token in tokens
-        if token.strip("._:/\\-") and token not in CONSOLIDATION_TOKEN_STOPWORDS and not token.isdigit()
-    }
-
-
-def jaccard(left: set[str], right: set[str]) -> float:
-    if not left or not right:
-        return 0.0
-    return len(left & right) / len(left | right)
-
-
-def list_from_value(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return unique_strings(value)
-    if isinstance(value, tuple):
-        return unique_strings(list(value))
-    if isinstance(value, str):
-        return unique_strings([part.strip() for part in re.split(r"[,;\n]", value)])
-    return []
-
-
-def normalize_candidate_memory(item: JsonDict) -> JsonDict | None:
-    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
-    candidate_id = safe_str(
-        item.get("id")
-        or item.get("source_id")
-        or metadata.get("source_id")
-        or metadata.get("id")
-    ).strip()
-    if not candidate_id:
-        return None
-    content = safe_str(item.get("content") or item.get("memory"))
-    concepts = list_from_value(item.get("concepts") or item.get("tags") or metadata.get("tags") or [])
-    files = list_from_value(item.get("files") or metadata.get("files") or [])
-    memory_type = safe_str(item.get("type") or item.get("memory_type") or metadata.get("memory_type")).strip()
-    project = safe_str(item.get("project") or metadata.get("project")).strip()
-    return {
-        "id": candidate_id,
-        "project": project,
-        "type": memory_type,
-        "content": content,
-        "concepts": concepts,
-        "files": files,
-        "upsert_key": safe_str(item.get("upsert_key") or metadata.get("upsert_key")),
-        "created_at": safe_str(item.get("created_at") or metadata.get("created_at")),
-        "updated_at": safe_str(item.get("updated_at") or metadata.get("updated_at")),
-        "metadata": metadata,
-    }
-
-
-def is_active_long_term_fact_crystal(candidate: JsonDict, project: str) -> bool:
-    metadata = candidate.get("metadata") or {}
-    lifecycle = safe_str(metadata.get("lifecycle")).strip().lower()
-    if metadata.get("archived_at") or lifecycle in ARCHIVED_STATES:
-        return False
-    if project and candidate.get("project") and candidate["project"] != project:
-        return False
-    memory_type = safe_str(candidate.get("type")).strip().lower()
-    concepts = {concept.lower() for concept in candidate.get("concepts") or []}
-    if memory_type != "knowledge-crystal" and "knowledge-crystal" not in concepts and "fact-crystal" not in concepts:
-        return False
-    semantic_type = safe_str(metadata.get("semantic_type")).strip().lower()
-    return semantic_type in (CRYSTAL_SEMANTIC_TYPES | {"fact"}) and safe_str(metadata.get("retention")).strip().lower() == "long-term"
-
-
-def consolidation_query(batch: JsonDict, crystal_payload: JsonDict) -> str:
-    parts = [
-        batch["project"],
-        batch["topic"],
-        safe_str(crystal_payload["metadata"].get("problem_entity")),
-        " ".join(crystal_payload.get("concepts") or []),
-        " ".join(crystal_payload.get("files") or []),
-        safe_str(crystal_payload.get("content"), 900),
-    ]
-    return normalize_space(" ".join(part for part in parts if part))[:1400]
-
-
-async def collect_consolidation_candidates(
-    args: argparse.Namespace,
-    batch: JsonDict,
-    crystal_payload: JsonDict,
-) -> list[JsonDict]:
-    project = batch["project"]
-    query = consolidation_query(batch, crystal_payload)
-    domain = crystal_payload["metadata"].get("domain")
-    raw_candidates: list[JsonDict] = []
-
-    search_calls = [
-        (
-            "POST",
-            "/mem0/search",
-            {
-                "query": query,
-                "project": project,
-                "top_k": min(CONSOLIDATION_SEARCH_LIMIT, 50),
-                "domain": domain,
-                "include_archived": False,
-                "include_logs": False,
-            },
-            None,
-        ),
-        (
-            "POST",
-            "/bhm/search/advanced",
-            {
-                "query": query,
-                "project": project,
-                "memory_type": "knowledge-crystal",
-                "include_archived": False,
-                "include_logs": False,
-                "limit": CONSOLIDATION_SEARCH_LIMIT,
-            },
-            None,
-        ),
-        (
-            "GET",
-            "/bhm/memories",
-            None,
-            {
-                "project": project,
-                "memory_type": "knowledge-crystal",
-                "include_archived": False,
-                "limit": 200,
-            },
-        ),
-    ]
-
-    async def run_search(method: str, path: str, payload: JsonDict | None, params: JsonDict | None):
-        try:
-            result = await async_rest_call(args.bhm_base_url, method, path, payload, args.timeout, params)
-            return path, result, None
-        except SoftFail as exc:
-            return path, None, exc
-
-    search_results = await asyncio.gather(*(run_search(method, path, payload, params) for method, path, payload, params in search_calls))
-    for path, result, failure in search_results:
-        if failure is not None:
-            log(f"consolidation search skipped for {path}: {failure}")
-            continue
-        if not isinstance(result, dict):
-            continue
-        if path == "/mem0/search":
-            result_items = ((result.get("result") or {}).get("results") or [])
-        else:
-            result_items = result.get("memories") or []
-        raw_candidates.extend(item for item in result_items if isinstance(item, dict))
-
-    candidates: dict[str, JsonDict] = {}
-    for item in raw_candidates:
-        candidate = normalize_candidate_memory(item)
-        if candidate is None:
-            continue
-        if candidate["upsert_key"] == crystal_payload.get("upsert_key"):
-            if is_active_long_term_fact_crystal(candidate, project):
-                candidates[candidate["id"]] = candidate
-            continue
-        if not is_active_long_term_fact_crystal(candidate, project):
-            continue
-        candidates[candidate["id"]] = candidate
-    return list(candidates.values())
-
-
-def source_refs_from_metadata(metadata: JsonDict) -> set[str]:
-    refs = set(list_from_value(metadata.get("source_refs") or []))
-    refs.update(list_from_value(metadata.get("source_refs_sample") or []))
-    refs.update(list_from_value(metadata.get("crystallized_from") or []))
-    return refs
-
-
-def consolidation_score(candidate: JsonDict, batch: JsonDict, crystal_payload: JsonDict) -> float:
-    metadata = candidate.get("metadata") or {}
-    payload_metadata = crystal_payload["metadata"]
-    if candidate.get("upsert_key") == crystal_payload.get("upsert_key"):
-        return 1.0
-
-    candidate_concepts = set(candidate.get("concepts") or [])
-    payload_concepts = set(crystal_payload.get("concepts") or [])
-    candidate_files = set(candidate.get("files") or [])
-    payload_files = set(crystal_payload.get("files") or [])
-    candidate_refs = source_refs_from_metadata(metadata)
-    payload_refs = source_refs_from_metadata(payload_metadata)
-    candidate_tokens = token_set(candidate.get("content"))
-    payload_tokens = token_set(crystal_payload.get("content"))
-
-    score = 0.0
-    if metadata.get("problem_entity") == payload_metadata.get("problem_entity"):
-        score += 0.32
-    if metadata.get("crystallized_group") == payload_metadata.get("crystallized_group"):
-        score += 0.28
-    if safe_str(metadata.get("domain")).lower() == safe_str(payload_metadata.get("domain")).lower():
-        score += 0.08
-    if batch["topic"] in candidate_tokens or batch["topic"] in candidate_concepts:
-        score += 0.08
-
-    score += jaccard(candidate_concepts, payload_concepts) * 0.26
-    score += jaccard(candidate_files, payload_files) * 0.18
-    score += jaccard(candidate_refs, payload_refs) * 0.26
-    score += jaccard(candidate_tokens, payload_tokens) * 0.34
-    return min(score, 1.0)
-
-
-def consolidated_content(base: JsonDict, crystal_payload: JsonDict, redundant: list[JsonDict]) -> str:
-    base_content = safe_str(base.get("content")).strip()
-    new_content = safe_str(crystal_payload.get("content")).strip()
-    base_tokens = token_set(base_content)
-    new_tokens = token_set(new_content)
-    lines: list[str] = []
-
-    if base_content.lower().startswith("architectural_law:"):
-        lines.append(base_content)
-    else:
-        lines.extend(["architectural_law:", base_content])
-
-    if new_content and new_content not in base_content and jaccard(base_tokens, new_tokens) < 0.82:
-        lines.extend(["", f"consolidated_update: {utc_now()}", new_content])
-
-    if redundant:
-        lines.extend(["", "archived_redundant_crystals:"])
-        for item in redundant[:20]:
-            lines.append(f"- {item['id']}")
-
-    return trim_text("\n".join(line for line in lines if line is not None).strip(), CONSOLIDATED_CONTENT_LIMIT)
-
-
-def merge_consolidation_metadata(base: JsonDict, redundant: list[JsonDict], crystal_payload: JsonDict) -> JsonDict:
-    base_metadata = base.get("metadata") or {}
-    payload_metadata = crystal_payload["metadata"]
-    merged_from = list_from_value(base_metadata.get("consolidated_from") or [])
-    merged_from.extend(item["id"] for item in redundant)
-    merged_from.append(crystal_payload["upsert_key"])
-    source_refs = sorted(source_refs_from_metadata(base_metadata) | source_refs_from_metadata(payload_metadata))
-
-    return {
-        "lifecycle": "validated",
-        "retention": "long-term",
-        "semantic_type": payload_metadata.get("semantic_type") or base_metadata.get("semantic_type") or "knowledge",
-        "domain": payload_metadata.get("domain") or base_metadata.get("domain") or "infra",
-        "priority": payload_metadata.get("priority") or base_metadata.get("priority") or "high",
-        "version": "1.1",
-        "consolidated_at": utc_now(),
-        "consolidated_by": WORKER_NAME,
-        "consolidation_strategy": "semantic-law-merge",
-        "consolidated_from": unique_strings(merged_from, DEFAULT_REPORT_LIST_LIMIT),
-        "consolidated_from_count": len(set(merged_from)),
-        "source_refs": source_refs[:DEFAULT_REPORT_LIST_LIMIT],
-        "source_refs_count": len(source_refs),
-        "source_refs_truncated": len(source_refs) > DEFAULT_REPORT_LIST_LIMIT,
-    }
-
-
-async def consolidate_long_term_crystal(
-    args: argparse.Namespace,
-    batch: JsonDict,
-    crystal_payload: JsonDict,
-) -> JsonDict:
-    metadata = crystal_payload["metadata"]
-    if metadata.get("semantic_type") not in CRYSTAL_SEMANTIC_TYPES and metadata.get("semantic_type") != "fact":
-        return {"applied": False, "reason": "not_fact_crystal"}
-    if metadata.get("retention") != "long-term":
-        return {"applied": False, "reason": "not_long_term_fact"}
-
-    candidates = await collect_consolidation_candidates(args, batch, crystal_payload)
-    scored = [
-        {**candidate, "consolidation_score": consolidation_score(candidate, batch, crystal_payload)}
-        for candidate in candidates
-    ]
-    scored = [candidate for candidate in scored if candidate["consolidation_score"] >= CONSOLIDATION_MIN_SCORE]
-    if not scored:
-        return {"applied": False, "reason": "no_overlap", "candidate_count": len(candidates)}
-
-    scored.sort(
-        key=lambda item: (
-            float(item.get("consolidation_score") or 0.0),
-            int((item.get("metadata") or {}).get("crystallized_source_count") or 0),
-            safe_str(item.get("updated_at") or item.get("created_at")),
-        ),
-        reverse=True,
-    )
-    base = scored[0]
-    base_id = base["id"]
-    redundant = [
-        item
-        for item in scored[1:]
-        if item["id"] != base_id
-        and (
-            item["consolidation_score"] >= CONSOLIDATION_ARCHIVE_SCORE
-            or (item.get("metadata") or {}).get("problem_entity") == metadata.get("problem_entity")
-        )
-    ]
-
-    merged_content = consolidated_content(base, crystal_payload, redundant)
-    merged_concepts = unique_strings(
-        list(base.get("concepts") or []) + list(crystal_payload.get("concepts") or []),
-        80,
-    )
-    merged_files = unique_strings(list(base.get("files") or []) + list(crystal_payload.get("files") or []), 80)
-    metadata_patch = merge_consolidation_metadata(base, redundant, crystal_payload)
-
-    result = await async_rest_call(
-        args.bhm_base_url,
-        "POST",
-        "/bhm/memory/update",
-        {
-            "id": base_id,
-            "project": batch["project"],
-            "type": "knowledge-crystal",
-            "content": merged_content,
-            "concepts": merged_concepts,
-            "files": merged_files,
-            "metadata_patch": metadata_patch,
-        },
-        args.timeout,
-    )
-    await source_refs_attach(args, base_id, batch["project"], crystal_payload["metadata"].get("source_refs") or [])
-
-    archived_redundant = 0
-    if redundant:
-        archive_result = await async_rest_call(
-            args.bhm_base_url,
-            "POST",
-            "/bhm/memories/batch-archive",
-            {
-                "items": [
-                    {
-                        "id": item["id"],
-                        "project": batch["project"],
-                        "reason": f"consolidated_into:{base_id}",
-                    }
-                    for item in redundant
-                ]
-            },
-            args.timeout,
-        )
-        archived_redundant = int(archive_result.get("count") or len(redundant))
-
-    return {
-        "applied": True,
-        "crystal_id": base_id,
-        "base_id": base_id,
-        "matched_count": len(scored),
-        "archived_redundant_count": archived_redundant,
-        "source_refs_attached": len(crystal_payload["metadata"].get("source_refs") or []),
-        "update_action": result.get("success", True),
-    }
-
-
-def build_upsert_key(batch: JsonDict) -> str:
-    archive_ids = sorted(safe_str(value) for value in batch.get("archive_targets") or [])
-    if not archive_ids:
-        archive_ids = sorted(safe_str(record.get("id")) for record in batch["records"])
-    digest = stable_checksum(
-        f"{batch['project']}|{batch['topic']}|{batch.get('tier')}|"
-        f"{batch.get('total_pool_count')}|{'|'.join(archive_ids)}"
-    )
-    topic = re.sub(r"[^a-zA-Z0-9_.:-]+", "-", safe_str(batch["topic"])).strip("-") or "general"
-    return f"knowledge-crystal:{batch['project']}:{topic}:{digest}"
-
-
-def _matches_any_pattern(text: str, patterns: tuple[str, ...]) -> bool:
-    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
-
-
-def classify_crystal_vector_targets(batch: JsonDict, crystal_payload: JsonDict) -> tuple[list[str], str]:
-    metadata = crystal_payload.get("metadata") or {}
-    text = "\n".join(
-        [
-            safe_str(crystal_payload.get("content")),
-            " ".join(safe_str(concept) for concept in crystal_payload.get("concepts") or []),
-            " ".join(safe_str(file_path) for file_path in crystal_payload.get("files") or []),
-            safe_str(metadata.get("problem_entity")),
-            safe_str(metadata.get("domain")),
-            safe_str(metadata.get("synthesis_mode")),
-            batch.get("topic") or "",
-        ]
-    )
-    if _matches_any_pattern(text, LOCAL_ENTITY_VECTOR_PATTERNS):
-        return ["local"], "local-entities"
-    if _matches_any_pattern(text, SYSTEM_INSIGHT_VECTOR_PATTERNS):
-        return ["local", "global"], "system-insight"
-    return ["local"], "project-context"
-
-
-def normalize_synthesis_importance(value: Any, default: int = 5) -> int:
-    try:
-        score = int(value)
-    except (TypeError, ValueError):
-        score = default
-    return max(1, min(score, 10))
-
-
-def normalize_synthesis_linked_dependencies(value: Any) -> list[JsonDict]:
-    if not isinstance(value, list):
-        return []
-    dependencies: list[JsonDict] = []
-    seen: set[tuple[str, str]] = set()
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        keyword = trim_text(
-            safe_str(
-                item.get("target_core_insight_keyword")
-                or item.get("target_keyword")
-                or item.get("keyword")
-            ),
-            240,
-        )
-        edge_type = safe_str(item.get("edge_type")).strip().upper()
-        if not keyword or edge_type not in VALID_SEMANTIC_EDGE_TYPES:
-            continue
-        key = (keyword.casefold(), edge_type)
-        if key in seen:
-            continue
-        seen.add(key)
-        dependencies.append({"target_core_insight_keyword": keyword, "edge_type": edge_type})
-    return dependencies[:10]
-
-
-def synthesis_taxonomy_text(batch: JsonDict, synthesis_fact: JsonDict, crystal_text: str) -> str:
-    records = batch.get("archive_records") or batch.get("records") or []
-    record_text = " ".join(
-        " ".join(
-            safe_str(record.get(key))
-            for key in ("content", "domain", "semantic_type", "priority", "memory_type")
-        )
-        for record in records[:80]
-    )
-    return " ".join(
-        [
-            safe_str(batch.get("project")),
-            safe_str(batch.get("topic")),
-            crystal_text,
-            json.dumps(synthesis_fact, ensure_ascii=False, sort_keys=True),
-            record_text,
-        ]
-    ).lower()
-
-
-def normalize_crystal_domain(value: Any, batch: JsonDict, synthesis_fact: JsonDict, crystal_text: str) -> str:
-    candidate = safe_str(value).strip().lower()
-    if candidate in VALID_DOMAINS:
-        return candidate
-    text = synthesis_taxonomy_text(batch, synthesis_fact, crystal_text)
-    if any(token in text for token in ("secret", "token", "auth", "permission", "vulnerab", "security", "hard-delete")):
-        return "security"
-    if any(token in text for token in ("ui", "interface", "color", "layout", "canvas", "three.js", "html", "css", "react", "screenshot")):
-        return "frontend"
-    if any(token in text for token in ("fastapi", "endpoint", "route", "api", "adapter", "service logic", "backend")):
-        return "backend"
-    if any(token in text for token in ("roadmap", "requirement", "acceptance criteria", "user workflow", "product")):
-        return "product"
-    if any(token in text for token in ("docker", "wsl", "powershell", "qdrant", "mem0", "mcp", "runtime", "worker", "port", "deploy")):
-        return "infra"
-    return majority(batch.get("archive_records") or batch.get("records") or [], "domain", "general", VALID_DOMAINS)
-
-
-def normalize_crystal_priority(value: Any, batch: JsonDict, synthesis_fact: JsonDict, crystal_text: str) -> str:
-    candidate = safe_str(value).strip().lower()
-    candidate = {"normal": "medium", "trivial": "low"}.get(candidate, candidate)
-    if candidate in CRYSTAL_PRIORITIES:
-        return candidate
-    text = synthesis_taxonomy_text(batch, synthesis_fact, crystal_text)
-    if any(token in text for token in ("data loss", "corrupt", "secret", "token", "fatal", "critical outage")):
-        return "critical"
-    if any(token in text for token in ("error", "crash", "failed", "failure", "timeout", "traceback", "exception", "regression", "broken validation")):
-        return "high"
-    return "medium"
-
-
-def normalize_crystal_semantic_type(value: Any, batch: JsonDict, synthesis_fact: JsonDict, crystal_text: str) -> str:
-    candidate = safe_str(value).strip().lower()
-    candidate = {
-        "fact": "knowledge",
-        "log": "knowledge",
-        "error": "bugfix",
-        "decision-log": "architecture",
-        "requirement": "feature",
-    }.get(candidate, candidate)
-    if candidate in CRYSTAL_SEMANTIC_TYPES:
-        return candidate
-    text = synthesis_taxonomy_text(batch, synthesis_fact, crystal_text)
-    if any(token in text for token in ("architecture", "contract", "adr", "decision", "cross-component")):
-        return "architecture"
-    if any(token in text for token in ("bug", "root cause", "regression", "error", "traceback", "exception", "failed", "failure")):
-        return "bugfix"
-    if any(token in text for token in ("feature", "capability", "implement", "delivery", "requirement")):
-        return "feature"
-    if any(token in text for token in ("refactor", "restructure", "cleanup", "migration")):
-        return "refactor"
-    return "knowledge"
-
-
-def build_crystal_payload(
-    batch: JsonDict,
-    crystal_text: str,
-    synthesis_mode: str,
-    synthesis_fact: JsonDict | None = None,
-) -> JsonDict:
-    synthesis_fact = synthesis_fact if isinstance(synthesis_fact, dict) else {}
-    records = batch["records"]
-    archive_records = batch.get("archive_records") or records
-    tier = safe_str(batch.get("tier") or TIER_MICRO)
-    archive_source_ids = [safe_str(record.get("id")) for record in archive_records]
-    source_ids = archive_source_ids if tier != TIER_BIG_BANG else archive_source_ids[:DEFAULT_REPORT_LIST_LIMIT]
-    prompt_source_ids = [safe_str(record.get("id")) for record in records]
-    source_memory_ids_all = [safe_str(record.get("id")) for record in archive_records if record.get("source_kind") == "memory"]
-    source_observation_ids_all = [
-        safe_str(record.get("id")) for record in archive_records if record.get("source_kind") == "observation"
-    ]
-    source_memory_ids = (
-        source_memory_ids_all if tier != TIER_BIG_BANG else source_memory_ids_all[:DEFAULT_REPORT_LIST_LIMIT]
-    )
-    source_observation_ids = (
-        source_observation_ids_all
-        if tier != TIER_BIG_BANG
-        else source_observation_ids_all[:DEFAULT_REPORT_LIST_LIMIT]
-    )
-    concepts = sorted(
-        {
-            "knowledge-crystal",
-            "fact-crystal",
-            "crystallizer",
-            batch["project"],
-            batch["topic"],
-            *[
-                safe_str(concept)
-                for record in records
-                for concept in record.get("concepts") or []
-                if safe_str(concept)
-            ],
-        }
-    )[:30]
-    files = sorted({safe_str(file_path) for record in records for file_path in record.get("files") or [] if safe_str(file_path)})[:30]
-    fallback_priority = (
-        "critical"
-        if tier in {TIER_SINGULARITY, TIER_BIG_BANG}
-        or any(record.get("priority") == "critical" for record in archive_records)
-        else "high"
-    )
-    domain = normalize_crystal_domain(synthesis_fact.get("domain"), batch, synthesis_fact, crystal_text)
-    priority = normalize_crystal_priority(synthesis_fact.get("priority") or fallback_priority, batch, synthesis_fact, crystal_text)
-    semantic_type = normalize_crystal_semantic_type(synthesis_fact.get("semantic_type"), batch, synthesis_fact, crystal_text)
-    source_refs_all = [source_ref(record) for record in archive_records]
-    source_refs = [] if tier == TIER_BIG_BANG else source_refs_all
-    source_refs_sample = source_refs_all[:DEFAULT_REPORT_LIST_LIMIT]
-    payload = {
-        "upsert_key": build_upsert_key(batch),
-        "project": batch["project"],
-        "type": "knowledge-crystal",
-        "content": crystal_text,
-        "concepts": concepts,
-        "files": files,
-        "metadata": {
-            "lifecycle": "validated",
-            "provenance": "llm" if synthesis_mode == "bhm-rest" else "synthetic",
-            "priority": priority,
-            "domain": domain,
-            "sensitivity": "internal",
-            "scope": "service",
-            "retention": "long-term",
-            "verification": "unverified",
-            "actionability": "info",
-            "stakeholder": "core-team",
-            "language": majority(archive_records, "language", "en", VALID_LANGUAGES),
-            "semantic_type": semantic_type,
-            "version": "1.0",
-            "importance_score": normalize_synthesis_importance(synthesis_fact.get("importance_score"), 5),
-            "access_count": 1,
-            "last_accessed_at": utc_now(),
-            "linked_dependencies": normalize_synthesis_linked_dependencies(synthesis_fact.get("linked_dependencies")),
-            "problem_entity": f"{batch['project']}::{batch['topic']}",
-            "root_cause_required": True,
-            "architecture_impact_required": True,
-            "project_hub_ref": f"project::{batch['project']}",
-            "crystallized_by": WORKER_NAME,
-            "crystallized_at": utc_now(),
-            "crystallized_group": batch["group_key"],
-            "crystallized_group_kind": batch["group_kind"],
-            "scale_tier": tier,
-            "total_pool_count": int(batch.get("total_pool_count") or len(archive_records)),
-            "prompt_sample_count": int(batch.get("prompt_sample_count") or len(records)),
-            "archive_target_count": len(archive_source_ids),
-            "archive_targets_digest": stable_checksum("|".join(sorted(archive_source_ids))),
-            "crystallized_source_count": int(batch.get("total_pool_count") or len(archive_source_ids)),
-            "crystallized_from": source_ids,
-            "crystallized_from_count": len(archive_source_ids),
-            "crystallized_from_truncated": tier == TIER_BIG_BANG and len(archive_source_ids) > len(source_ids),
-            "source_sample_ids": prompt_source_ids,
-            "source_memory_ids": source_memory_ids,
-            "source_memory_ids_count": len(source_memory_ids_all),
-            "source_memory_ids_truncated": tier == TIER_BIG_BANG
-            and len(source_memory_ids_all) > len(source_memory_ids),
-            "source_observation_ids": source_observation_ids,
-            "source_observation_ids_count": len(source_observation_ids_all),
-            "source_observation_ids_truncated": tier == TIER_BIG_BANG
-            and len(source_observation_ids_all) > len(source_observation_ids),
-            "source_refs": source_refs,
-            "source_refs_sample": source_refs_sample,
-            "source_refs_omitted": tier == TIER_BIG_BANG,
-            "context_temperature_model": "active/compress/frozen",
-            "context_zones": batch.get("context_zones") or {},
-            "synthesis_mode": synthesis_mode,
-        },
-    }
-    vector_targets, vector_reason = classify_crystal_vector_targets(batch, payload)
-    metadata = payload["metadata"]
-    metadata["vector_targets"] = vector_targets
-    metadata["vector_scope"] = "local+global" if "global" in vector_targets else "local"
-    metadata["vector_target_reason"] = vector_reason
-    if "global" in vector_targets:
-        metadata["global_collection_name"] = GLOBAL_CORE_COLLECTION_NAME
-    return payload
-
-
-async def upsert_crystal(args: argparse.Namespace, payload: JsonDict) -> str:
-    result = await async_rest_call(args.bhm_base_url, "POST", "/bhm/memory/upsert", payload, args.timeout)
-    memory = result.get("memory")
-    if not isinstance(memory, dict) or not memory.get("id"):
-        raise SoftFail(f"BHM upsert did not return memory id: {json.dumps(result, ensure_ascii=False)[:1200]}")
-    return safe_str(memory["id"])
-
-
-async def source_refs_attach(args: argparse.Namespace, crystal_id: str, project: str, refs: list[str]) -> None:
-    if not refs:
-        return
-    await async_rest_call(
-        args.bhm_base_url,
-        "POST",
-        "/bhm/memory/source-refs",
-        {"id": crystal_id, "project": project, "refs": refs},
-        args.timeout,
-    )
-
-
-async def get_or_rebuild_project_hub(args: argparse.Namespace, project: str) -> str | None:
-    try:
-        result = await async_rest_call(
-            args.bhm_base_url,
-            "GET",
-            "/bhm/project-summary",
-            None,
-            args.timeout,
-            {"project": project},
-        )
-        memory = result.get("memory")
-        if isinstance(memory, dict) and memory.get("id"):
-            return safe_str(memory["id"])
-    except SoftFail:
-        pass
-    result = await async_rest_call(
-        args.bhm_base_url,
-        "POST",
-        "/bhm/project-summary/rebuild",
-        {"project": project},
-        args.timeout,
-    )
-    memory = result.get("memory")
-    if isinstance(memory, dict) and memory.get("id"):
-        return safe_str(memory["id"])
-    return None
-
-
-def link_items_for_batch(crystal_id: str, batch: JsonDict, project_hub_id: str | None) -> list[JsonDict]:
-    records = batch["records"]
-    metadata = {
-        "lifecycle": "validated",
-        "provenance": "synthetic",
-        "priority": "medium",
-        "domain": majority(records, "domain", "general", VALID_DOMAINS),
-        "sensitivity": "internal",
-        "scope": "service",
-        "retention": "long-term",
-        "verification": "trusted",
-        "actionability": "info",
-        "stakeholder": "core-team",
-        "language": majority(records, "language", "en", VALID_LANGUAGES),
-        "semantic_type": "knowledge",
-        "version": "1.0",
-        "scale_tier": safe_str(batch.get("tier") or TIER_MICRO),
-        "crystallized_source_count": int(batch.get("total_pool_count") or len(records)),
-    }
-    links: list[JsonDict] = []
-    for record in records:
-        if record.get("source_kind") != "memory":
-            continue
-        if record.get("project") != batch["project"]:
-            continue
-        links.append(
-            {
-                "source_id": crystal_id,
-                "target_id": record["id"],
-                "relation": "condenses",
-                "project": batch["project"],
-                "metadata": {**metadata, "source_ref": source_ref(record)},
-            }
-        )
-    if project_hub_id:
-        links.append(
-            {
-                "source_id": crystal_id,
-                "target_id": project_hub_id,
-                "relation": "belongs_to_project_hub",
-                "project": batch["project"],
-                "metadata": {**metadata, "project_hub_ref": f"project::{batch['project']}"},
-            }
-        )
-    return links
-
-
-async def create_links(args: argparse.Namespace, links: list[JsonDict]) -> JsonDict:
-    if not links:
-        return {"created_count": 0, "method": "none", "chunk_size": BATCH_REST_CHUNK_SIZE, "chunks": 0}
-    link_chunks = list(chunked(links, BATCH_REST_CHUNK_SIZE))
-    results = []
-    for chunk in link_chunks:
-        result = await async_rest_call(args.bhm_base_url, "POST", "/bhm/memories/batch-link", {"items": chunk}, args.timeout)
-        results.append(result)
-    created = 0
-    for result in results:
-        created += int(result.get("count") or len(result.get("links") or []))
-    return {
-        "created_count": created,
-        "method": "batch_link_chunks",
-        "chunk_size": BATCH_REST_CHUNK_SIZE,
-        "chunks": len(link_chunks),
-    }
-
-
-async def try_bulk_archive_by_filter(
-    args: argparse.Namespace,
-    batch: JsonDict,
-    crystal_id: str,
-    expected_count: int,
-) -> JsonDict | None:
-    if batch.get("tier") != TIER_BIG_BANG or expected_count <= BATCH_REST_CHUNK_SIZE:
-        return None
-    payload = {
-        "project": batch["project"],
-        "topic": batch["topic"],
-        "action": "bulk_archive",
-    }
-    try:
-        result = await async_rest_call(args.bhm_base_url, "POST", BULK_ARCHIVE_ENDPOINT, payload, args.timeout)
-    except SoftFail as exc:
-        if "HTTP 404" in str(exc) or "HTTP 405" in str(exc):
-            return None
-        raise
-    return {
-        "archived_count": int(result.get("count") or result.get("archived_count") or expected_count),
-        "method": "bulk_archive_filter",
-        "endpoint": BULK_ARCHIVE_ENDPOINT,
-        "chunk_size": 0,
-        "chunks": 1,
-        "expected_count": expected_count,
-        "crystal_id": crystal_id,
-    }
-
-
-async def archive_live_memory_sources(args: argparse.Namespace, batch: JsonDict, crystal_id: str) -> JsonDict:
-    archive_records = batch.get("archive_records") or batch["records"]
-    items = [
-        {
-            "id": safe_str(record.get("id")),
-            "project": safe_str(record.get("project")),
-            "reason": f"condensed into knowledge crystal {crystal_id}",
-        }
-        for record in archive_records
-        if record.get("source_kind") == "memory"
-    ]
-    if not items:
-        return {
-            "archived_count": 0,
-            "method": "none",
-            "chunk_size": BATCH_REST_CHUNK_SIZE,
-            "chunks": 0,
-            "expected_count": 0,
-        }
-    high_tier = batch.get("tier") in {TIER_SINGULARITY, TIER_BIG_BANG}
-    item_chunks = list(chunked(items, BATCH_REST_CHUNK_SIZE))
-
-    async def archive_chunk(chunk: list[JsonDict]) -> JsonDict:
-        return await async_rest_call(
-            args.bhm_base_url,
-            "POST",
-            "/bhm/memories/batch-archive",
-            {"items": chunk},
-            args.timeout,
-        )
-
-    if high_tier:
-        results = await asyncio.gather(*(archive_chunk(chunk) for chunk in item_chunks))
-        method = "parallel_batch_archive_chunks"
-    else:
-        results = []
-        for chunk in item_chunks:
-            results.append(await archive_chunk(chunk))
-        method = "batch_archive_chunks"
-
-    archived = 0
-    for chunk, result in zip(item_chunks, results, strict=True):
-        archived += int(result.get("count") or result.get("archived_count") or len(chunk))
-    return {
-        "archived_count": archived,
-        "method": method,
-        "chunk_size": BATCH_REST_CHUNK_SIZE,
-        "chunks": len(item_chunks),
-        "expected_count": len(items),
-        "parallel": high_tier,
-    }
 
 
 def normalize_raw_item_for_file(file_name: str, item: JsonDict, max_record_chars: int) -> JsonDict | None:
@@ -3193,6 +1122,75 @@ async def main_async(argv: list[str] | None = None) -> int:
 def main(argv: list[str] | None = None) -> int:
     return run_coroutine_sync(main_async(argv))
 
+
+from bhm_crystallize_worker_synthesis import (  # noqa: E402,F401
+    available_stage_text_chars,
+    base_stage_payload,
+    build_big_bang_passport,
+    build_frequency_map,
+    build_map_stage_payload,
+    build_reduce_stage_payload,
+    build_single_chunk_payload,
+    build_synthesis_payload,
+    call_synthesis_endpoint,
+    chunk_log_entries,
+    clip_text,
+    combine_intermediate_summaries,
+    deterministic_synthesis,
+    ensure_bhm_ready,
+    fit_stage_payload,
+    format_crystal_fields,
+    parse_synthesis_response,
+    stage_session_id,
+    synthesis_context,
+    synthesis_fact_payload,
+    synthesis_log_entries,
+    synthesis_payload_chars,
+    synthesis_zone_items,
+    synthesize_crystal,
+    synthesize_with_map_reduce,
+    synthesize_with_bhm,
+    tier_system_prompt,
+    time_bounds,
+)
+from bhm_crystallize_worker_consolidation import (  # noqa: E402,F401
+    _matches_any_pattern,
+    archive_live_memory_sources,
+    build_crystal_payload,
+    build_upsert_key,
+    classify_crystal_vector_targets,
+    chunked,
+    collect_consolidation_candidates,
+    consolidate_long_term_crystal,
+    consolidated_content,
+    consolidation_query,
+    consolidation_score,
+    create_links,
+    get_or_rebuild_project_hub,
+    is_active_long_term_fact_crystal,
+    jaccard,
+    link_items_for_batch,
+    list_from_value,
+    majority,
+    merge_consolidation_metadata,
+    normalize_candidate_memory,
+    normalize_crystal_domain,
+    normalize_crystal_priority,
+    normalize_crystal_semantic_type,
+    normalize_synthesis_importance,
+    normalize_synthesis_linked_dependencies,
+    report_limit,
+    report_list,
+    report_metadata,
+    source_ref,
+    source_refs_attach,
+    source_refs_from_metadata,
+    synthesis_taxonomy_text,
+    token_set,
+    try_bulk_archive_by_filter,
+    unique_strings,
+    upsert_crystal,
+)
 
 if __name__ == "__main__":
     raise SystemExit(main())
