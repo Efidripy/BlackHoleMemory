@@ -16,6 +16,9 @@ class _LauncherHandle:
     def bind(self, module: ModuleType) -> None:
         object.__setattr__(self, "_module", module)
 
+    def current(self) -> ModuleType | None:
+        return object.__getattribute__(self, "_module")
+
     def __getattr__(self, name: str):
         module = object.__getattribute__(self, "_module")
         if module is None:
