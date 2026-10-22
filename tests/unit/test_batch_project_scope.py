@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
+from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import memory_routes
 from blackholememory import app_runtime
@@ -15,7 +16,7 @@ def _code(exc: HTTPException) -> str:
 
 def test_batch_scope_rejects_mixed_projects_even_when_each_is_valid() -> None:
     with pytest.raises(HTTPException) as raised:
-        bhm_app._batch_project_scope(
+        app_ops._batch_project_scope(
             [{"project": "blackholememory"}, {"project": "other-project"}],
             None,
         )
@@ -26,7 +27,7 @@ def test_batch_scope_rejects_mixed_projects_even_when_each_is_valid() -> None:
 
 def test_batch_scope_requires_an_explicit_or_nested_project() -> None:
     with pytest.raises(HTTPException) as raised:
-        bhm_app._batch_project_scope([{"id": "memory-1"}], None)
+        app_ops._batch_project_scope([{"id": "memory-1"}], None)
 
     assert raised.value.status_code == 400
     assert _code(raised.value) == "batch_project_required"
@@ -150,7 +151,7 @@ def test_artifact_batch_requires_top_level_scope_for_id_only_items() -> None:
     )
 
     with pytest.raises(HTTPException) as raised:
-        bhm_app._artifact_batch_restore(request)
+        app_ops._artifact_batch_restore(request)
 
     assert raised.value.status_code == 400
     assert _code(raised.value) == "batch_project_required"

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from blackholememory import app_core
+from blackholememory import app_telemetry
 from blackholememory import app_runtime
 from blackholememory.feedback_tuning import build_feedback_tuning
 from blackholememory.feedback_tuning import summarize_quality_feedback
@@ -45,10 +47,9 @@ def test_quality_summary_ignores_invalid_votes_and_memory_content():
 
 
 def test_feedback_tuning_endpoint_is_review_only(monkeypatch):
-    from blackholememory import app as bhm_app
 
     monkeypatch.setattr(
-        bhm_app._RETRIEVAL_FUNNEL,
+        app_core._RETRIEVAL_FUNNEL,
         "snapshot",
         lambda: {"groups": [{"project": "blackholememory", "packed": 10, "explicit_memory_used": 8}]},
     )
@@ -58,7 +59,7 @@ def test_feedback_tuning_endpoint_is_review_only(monkeypatch):
         lambda: [{"project": "blackholememory", "metadata": {"quality_votes": [{"vote": 5}] * 3}}],
     )
 
-    result = bhm_app.bhm_feedback_tuning("blackholememory")
+    result = app_telemetry.bhm_feedback_tuning("blackholememory")
     assert result["mutation"] is False
     assert result["auto_apply"] is False
     assert result["source_signals"] == ["explicit_memory_used", "quality_vote"]

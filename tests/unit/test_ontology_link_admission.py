@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
+from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.ontology_registry import OntologyEntityType
@@ -58,12 +59,12 @@ def test_active_ontology_pins_admission_metadata_on_allowed_link(monkeypatch) ->
     schema = _schema()
     saved: dict[str, list[dict]] = {}
 
-    monkeypatch.setattr(bhm_app, "_active_ontology_schema", lambda _project: schema)
+    monkeypatch.setattr(app_ops, "_active_ontology_schema", lambda _project: schema)
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda memory_id, _project: _memory(memory_id))
     monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: [])
     monkeypatch.setattr(app_runtime, "_save_memory_links", lambda links: saved.setdefault("links", links))
 
-    link = bhm_app._create_memory_link(
+    link = app_ops._create_memory_link(
         bhm_app.MemoryLinkRequest(
             source_id="mem-source",
             target_id="mem-target",
@@ -89,7 +90,7 @@ def test_active_ontology_quarantines_unknown_relation_without_storage_write(monk
     writes: list[list[dict]] = []
     artifacts = _ArtifactService()
 
-    monkeypatch.setattr(bhm_app, "_active_ontology_schema", lambda _project: schema)
+    monkeypatch.setattr(app_ops, "_active_ontology_schema", lambda _project: schema)
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda memory_id, _project: _memory(memory_id))
     monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: [])
     monkeypatch.setattr(app_runtime, "_save_memory_links", lambda links: writes.append(links))
@@ -103,7 +104,7 @@ def test_active_ontology_quarantines_unknown_relation_without_storage_write(monk
     )
     for expected_stored in (True, False):
         with pytest.raises(HTTPException) as exc_info:
-            bhm_app._create_memory_link(request)
+            app_ops._create_memory_link(request)
 
         assert exc_info.value.status_code == 409
         assert exc_info.value.detail["code"] == "ontology_link_quarantined"
@@ -146,7 +147,7 @@ def test_ontology_quarantine_list_is_project_scoped_and_content_free(monkeypatch
     }
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: artifacts)
 
-    result = bhm_app._list_ontology_quarantine("blackholememory", 500)
+    result = app_ops._list_ontology_quarantine("blackholememory", 500)
 
     assert result["project"] == "blackholememory"
     assert result["count"] == 1
@@ -161,11 +162,11 @@ def test_ontology_quarantine_list_is_project_scoped_and_content_free(monkeypatch
     }
 def test_active_ontology_rejects_stale_client_schema_digest(monkeypatch) -> None:
     schema = _schema()
-    monkeypatch.setattr(bhm_app, "_active_ontology_schema", lambda _project: schema)
+    monkeypatch.setattr(app_ops, "_active_ontology_schema", lambda _project: schema)
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda memory_id, _project: _memory(memory_id))
 
     with pytest.raises(HTTPException) as exc_info:
-        bhm_app._create_memory_link(
+        app_ops._create_memory_link(
             bhm_app.MemoryLinkRequest(
                 source_id="mem-source",
                 target_id="mem-target",

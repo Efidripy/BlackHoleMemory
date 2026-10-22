@@ -5,6 +5,9 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_core
+from blackholememory import app_governed
 from blackholememory.domain import Memory
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
@@ -100,15 +103,15 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
         return ([{"metadata": {"source_id": "mem_bhm_b"}}, {"metadata": {"source_id": "mem_bhm_a"}}], 2)
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
-    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
-    monkeypatch.setattr(bhm_app, "federated_search", _search)
-    monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _Completion)
-    monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
+    monkeypatch.setattr(app_core, "federated_search", _search)
+    patch_app_import(monkeypatch, "LocalGatewaySemanticCompletion", _Completion)
+    monkeypatch.setattr(app_core, "_llm_governor", lambda: governor)
 
     result = asyncio.run(
-        bhm_app._governed_semantic_proposal(
+        app_governed._governed_semantic_proposal(
             bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
             principal=object(),
         )
@@ -131,20 +134,20 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
 
 def test_semantic_surface_uses_sqlite_lexical_fallback_when_embedding_retrieval_times_out(monkeypatch) -> None:
     async def _timed_out(*_args, **_kwargs):
-        raise bhm_app.EmbeddingPreparationTimeout("provider detail must not escape")
+        raise app_core.EmbeddingPreparationTimeout("provider detail must not escape")
 
     records = [_record("mem_bhm_a", "Normal uninstall is project-scoped."), _record("mem_bhm_b", "Install-state safety log is required.")]
     governor = _Governor()
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
-    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
-    monkeypatch.setattr(bhm_app, "federated_search", _timed_out)
+    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_core, "federated_search", _timed_out)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
-    monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _Completion)
-    monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
+    patch_app_import(monkeypatch, "LocalGatewaySemanticCompletion", _Completion)
+    monkeypatch.setattr(app_core, "_llm_governor", lambda: governor)
 
     result = asyncio.run(
-        bhm_app._governed_semantic_proposal(
+        app_governed._governed_semantic_proposal(
             bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
             principal=object(),
         )
@@ -164,17 +167,17 @@ def test_semantic_surface_uses_sqlite_lexical_fallback_when_embedding_retrieval_
 
 def test_semantic_surface_maps_embedding_timeout_without_lexical_evidence_to_retryable_editor_unavailable(monkeypatch) -> None:
     async def _timed_out(*_args, **_kwargs):
-        raise bhm_app.EmbeddingPreparationTimeout("provider detail must not escape")
+        raise app_core.EmbeddingPreparationTimeout("provider detail must not escape")
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
-    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
-    monkeypatch.setattr(bhm_app, "federated_search", _timed_out)
+    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_core, "federated_search", _timed_out)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService([]))
 
     with pytest.raises(HTTPException) as raised:
         asyncio.run(
-            bhm_app._governed_semantic_proposal(
+            app_governed._governed_semantic_proposal(
                 bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
                 principal=object(),
             )
@@ -193,15 +196,15 @@ def test_semantic_surface_returns_explicit_deterministic_no_op_when_local_model_
         return ([{"metadata": {"source_id": "mem_bhm_a"}}, {"metadata": {"source_id": "mem_bhm_b"}}], 2)
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
-    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
-    monkeypatch.setattr(bhm_app, "federated_search", _search)
+    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_core, "federated_search", _search)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
-    monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _UnavailableCompletion)
-    monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
+    patch_app_import(monkeypatch, "LocalGatewaySemanticCompletion", _UnavailableCompletion)
+    monkeypatch.setattr(app_core, "_llm_governor", lambda: governor)
 
     result = asyncio.run(
-        bhm_app._governed_semantic_proposal(
+        app_governed._governed_semantic_proposal(
             bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
             principal=object(),
         )
@@ -236,22 +239,22 @@ def test_stored_semantic_proposal_never_invokes_automatic_lifecycle_apply(monkey
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
     monkeypatch.setenv("BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED", "1")
-    monkeypatch.setattr(bhm_app, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(bhm_app, "_governed_consolidation_project", lambda _principal, project: project)
-    monkeypatch.setattr(bhm_app, "federated_search", _search)
+    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_core, "federated_search", _search)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
-    monkeypatch.setattr(bhm_app, "LocalGatewaySemanticCompletion", _Completion)
-    monkeypatch.setattr(bhm_app, "_llm_governor", lambda: governor)
-    monkeypatch.setattr(bhm_app, "GovernedConsolidationRepository", _Store)
+    patch_app_import(monkeypatch, "LocalGatewaySemanticCompletion", _Completion)
+    monkeypatch.setattr(app_core, "_llm_governor", lambda: governor)
+    patch_app_import(monkeypatch, "GovernedConsolidationRepository", _Store)
 
     preview = asyncio.run(
-        bhm_app._governed_semantic_proposal(
+        app_governed._governed_semantic_proposal(
             bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety"),
             principal=object(),
         )
     )
     persisted = asyncio.run(
-        bhm_app._governed_semantic_proposal(
+        app_governed._governed_semantic_proposal(
             bhm_app.GovernedSemanticProposalRequest(project="multiserversubgen", query="uninstall safety", store_proposal=True),
             principal=object(),
         )

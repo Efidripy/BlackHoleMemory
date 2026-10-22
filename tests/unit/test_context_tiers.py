@@ -9,9 +9,7 @@ from blackholememory.context_tier_lifecycle import build_context_tier_lifecycle_
 from blackholememory.context_tiers import TierBudget
 from blackholememory.context_tiers import TieredContextItem
 from blackholememory.context_tiers import compile_tiered_context
-from blackholememory.app import _tier_for_context_hit
-
-
+from blackholememory.app_retrieval import _tier_for_context_hit
 def _item(memory_id: str, tier: str, text: str, priority: int = 0) -> TieredContextItem:
     return TieredContextItem(memory_id=memory_id, tier=tier, text=text, priority=priority, source_digest=hashlib.sha256(memory_id.encode()).hexdigest())
 

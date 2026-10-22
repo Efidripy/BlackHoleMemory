@@ -6,14 +6,14 @@ import pytest
 from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
-from blackholememory import app as bhm_app
+from blackholememory import app_core
 from blackholememory.mcp_protocol_contract import SUPPORTED_PROTOCOL_VERSIONS
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 
 
 def _request(method: str, request_id: int, params: dict | None = None) -> dict | None:
     return asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {
                 "jsonrpc": "2.0",
                 "id": request_id,
@@ -26,7 +26,7 @@ def _request(method: str, request_id: int, params: dict | None = None) -> dict |
 
 def _notification(method: str, params: dict | None = None) -> dict | None:
     return asyncio.run(
-        bhm_app._handle_mcp_gateway_jsonrpc_async(
+        app_core._handle_mcp_gateway_jsonrpc_async(
             {"jsonrpc": "2.0", "method": method, "params": params or {}}
         )
     )

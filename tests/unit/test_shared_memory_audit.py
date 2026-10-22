@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests.app_patch import patch_app_import
+from blackholememory import app_governed
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.caller_auth import CallerPrincipal
@@ -90,9 +92,9 @@ def test_app_preflight_uses_authenticated_principal_and_never_enables_shared_io(
         def list_artifact_records(self, **_kwargs):
             return []
 
-    monkeypatch.setattr(bhm_app, "append_shared_memory_audit", fake_append)
+    patch_app_import(monkeypatch, "append_shared_memory_audit", fake_append)
     monkeypatch.setattr(app_runtime, "_memory_service", FakeService)
-    result = bhm_app._shared_memory_policy_preflight(
+    result = app_governed._shared_memory_policy_preflight(
         bhm_app.SharedMemoryPolicyPreflightRequest(
             project="blackholememory",
             request_id="untrusted-client-request-id",

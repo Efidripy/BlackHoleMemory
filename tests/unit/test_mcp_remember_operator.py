@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import pytest
 
+from blackholememory import app_core
 from blackholememory import app as bhm_app
 from blackholememory.mcp_streamable_http import BhmStreamableHttpGateway
 
@@ -35,7 +36,7 @@ def writes(monkeypatch) -> list[Any]:
             "metadata": {"raw_title": "t"},
         }
 
-    monkeypatch.setattr(bhm_app, "_remember_live_memory", fake_remember)
+    monkeypatch.setattr(app_core, "_remember_live_memory", fake_remember)
     return calls
 
 
@@ -86,7 +87,7 @@ def _structured(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _exercise(scenario) -> None:
-    gateway = BhmStreamableHttpGateway(bhm_app._handle_mcp_gateway_jsonrpc_async, server_version="test")
+    gateway = BhmStreamableHttpGateway(app_core._handle_mcp_gateway_jsonrpc_async, server_version="test")
     async with gateway.run():
         transport = httpx.ASGITransport(app=gateway.asgi_app)
         async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8000") as client:

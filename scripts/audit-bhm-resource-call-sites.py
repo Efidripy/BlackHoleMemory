@@ -179,7 +179,7 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         scope_signals=("candidate.resolve()", "os.execv("),
     ),
     (
-        "src/blackholememory/app.py",
+        "src/blackholememory/app_telemetry.py",
         "_spawn_detached_restart_launcher",
         "subprocess.Popen",
     ): BoundaryExpectation(

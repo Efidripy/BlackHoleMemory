@@ -8,6 +8,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from blackholememory import app_governed
 import blackholememory.app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.consolidation_change_set import build_consolidation_change_set_preview
@@ -173,7 +174,7 @@ def test_review_handler_regenerates_preview_and_binds_principal(monkeypatch) -> 
             stored.append(artifact)
             return artifact.to_record(), True
 
-    monkeypatch.setattr(bhm_app, "_utility_feedback_change_set_preview", lambda _request: change_set)
+    monkeypatch.setattr(app_governed, "_utility_feedback_change_set_preview", lambda _request: change_set)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: Service())
     request = bhm_app.ConsolidationChangeSetReviewRequest(
         project="blackholememory",
@@ -186,7 +187,7 @@ def test_review_handler_regenerates_preview_and_binds_principal(monkeypatch) -> 
         reviewed_at="2026-08-24T12:01:00Z",
         rationale_digest="c" * 64,
     )
-    result = bhm_app._record_consolidation_change_set_review(
+    result = app_governed._record_consolidation_change_set_review(
         request,
         principal=SimpleNamespace(caller_id="caller-bound-operator", all_projects=True),
     )
@@ -197,7 +198,7 @@ def test_review_handler_regenerates_preview_and_binds_principal(monkeypatch) -> 
 
     request.change_set["action_count"] = 99
     with pytest.raises(HTTPException) as exc_info:
-        bhm_app._record_consolidation_change_set_review(
+        app_governed._record_consolidation_change_set_review(
             request,
             principal=SimpleNamespace(caller_id="caller-bound-operator", all_projects=True),
         )

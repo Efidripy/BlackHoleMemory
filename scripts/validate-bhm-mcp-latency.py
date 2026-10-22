@@ -21,6 +21,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from blackholememory import app_core
 from blackholememory.mcp_latency import MCP_ATTACH_MAX_MS
 from blackholememory.mcp_latency import MCP_CATALOG_MAX_BYTES
 from blackholememory.mcp_latency import evaluate_mcp_latency
@@ -37,11 +38,10 @@ def parse_args() -> argparse.Namespace:
 
 async def _measure(iterations: int) -> tuple[list[float], int, dict[str, Any]]:
     os.environ.setdefault("BHM_MCP_SURFACE", "core")
-    from blackholememory import app as bhm_app
 
     async def request(method: str, request_id: int) -> dict[str, Any]:
         params = {"protocolVersion": CURRENT_PROTOCOL_VERSION} if method == "initialize" else {}
-        response = await bhm_app._handle_mcp_gateway_jsonrpc_async(
+        response = await app_core._handle_mcp_gateway_jsonrpc_async(
             {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
         )
         if not isinstance(response, dict):

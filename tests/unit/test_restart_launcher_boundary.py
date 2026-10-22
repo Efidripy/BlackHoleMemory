@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from blackholememory import app_telemetry
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
@@ -22,7 +23,7 @@ def _fixture_paths(tmp_path: Path) -> tuple[Path, Path]:
 def test_restart_paths_preserve_contract_and_create_only_runtime_subdir(tmp_path: Path) -> None:
     repo_root, runtime_dir = _fixture_paths(tmp_path)
 
-    safe_root, start_script, stdout_log, stderr_log, launcher_log = app._prepare_detached_restart_paths(
+    safe_root, start_script, stdout_log, stderr_log, launcher_log = app_telemetry._prepare_detached_restart_paths(
         repo_root,
         runtime_dir,
         log_suffix="fixture",
@@ -44,13 +45,13 @@ def test_restart_paths_reject_reparse_parent_before_child_script(tmp_path: Path)
     linked_runtime.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(FilesystemBoundaryError):
-        app._prepare_detached_restart_paths(repo_root, linked_runtime, log_suffix="fixture")
+        app_telemetry._prepare_detached_restart_paths(repo_root, linked_runtime, log_suffix="fixture")
 
 
 def test_restart_script_escapes_paths_as_literal_powershell_values(tmp_path: Path) -> None:
     repo_root, runtime_dir = _fixture_paths(tmp_path)
-    paths = app._prepare_detached_restart_paths(repo_root, runtime_dir, log_suffix="fixture")
-    script = app._build_detached_restart_script(
+    paths = app_telemetry._prepare_detached_restart_paths(repo_root, runtime_dir, log_suffix="fixture")
+    script = app_telemetry._build_detached_restart_script(
         repo_root=paths[0] / "operator's repo",
         start_script=paths[1],
         stdout_log=paths[2],
@@ -65,8 +66,8 @@ def test_restart_script_escapes_paths_as_literal_powershell_values(tmp_path: Pat
 
 def test_restart_script_preserves_authoritative_contract_without_touching_dependencies(tmp_path: Path) -> None:
     repo_root, runtime_dir = _fixture_paths(tmp_path)
-    paths = app._prepare_detached_restart_paths(repo_root, runtime_dir, log_suffix="fixture")
-    script = app._build_detached_restart_script(
+    paths = app_telemetry._prepare_detached_restart_paths(repo_root, runtime_dir, log_suffix="fixture")
+    script = app_telemetry._build_detached_restart_script(
         repo_root=paths[0],
         start_script=paths[1],
         stdout_log=paths[2],
@@ -93,7 +94,7 @@ def test_restart_exit_is_delayed_until_after_launcher_handoff(monkeypatch) -> No
             started.set()
 
     monkeypatch.setattr(app.threading, "Thread", FakeThread)
-    app._schedule_process_exit(delay_seconds=0.1)
+    app_telemetry._schedule_process_exit(delay_seconds=0.1)
 
     assert started.is_set()
     assert captured["daemon"] is True

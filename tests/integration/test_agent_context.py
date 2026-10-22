@@ -5,6 +5,8 @@ import json
 
 from fastapi.testclient import TestClient
 
+from blackholememory import app_core
+from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory import bhm_mcp
@@ -56,26 +58,26 @@ def test_agent_context_composes_bounded_sqlite_only_package(monkeypatch) -> None
         )
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", unexpected_provider)
-    monkeypatch.setattr(bhm_app, "federated_search", unexpected_provider)
-    monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", sqlite_only)
+    monkeypatch.setattr(app_core, "federated_search", unexpected_provider)
+    monkeypatch.setattr(app_retrieval, "_advanced_search_live_memories", sqlite_only)
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_get_task_context",
         lambda _project: {"id": "task-context", "project": project, "current_task": "implement bounded context"},
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_get_latest_checkpoint",
         lambda _project: {"id": "checkpoint", "project": project, "done": "preflight", "next": "tests"},
     )
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_get_risk_register",
         lambda _project: {"id": "risk", "project": project, "top_risks": ["cross-project leakage"]},
     )
-    monkeypatch.setattr(bhm_app, "_project_summary_get", lambda _project: {"id": "summary", "project": project, "content": "summary"})
+    monkeypatch.setattr(app_core, "_project_summary_get", lambda _project: {"id": "summary", "project": project, "content": "summary"})
     monkeypatch.setattr(
-        bhm_app,
+        app_core,
         "_list_tasks",
         lambda *_args, **_kwargs: (
             [
@@ -87,7 +89,7 @@ def test_agent_context_composes_bounded_sqlite_only_package(monkeypatch) -> None
         ),
     )
     monkeypatch.setattr(
-        bhm_app._MCP_STREAMABLE_HTTP,
+        app_core._MCP_STREAMABLE_HTTP,
         "contract_snapshot",
         lambda: {
             "sessions": {
@@ -147,18 +149,18 @@ def test_agent_context_allows_missing_optional_artifacts_and_uses_bounded_defaul
     def absent(_project):
         raise bhm_app.HTTPException(status_code=404, detail="not found")
 
-    monkeypatch.setattr(bhm_app, "_advanced_search_live_memories", sqlite_only)
-    monkeypatch.setattr(bhm_app, "_get_task_context", absent)
-    monkeypatch.setattr(bhm_app, "_get_latest_checkpoint", absent)
-    monkeypatch.setattr(bhm_app, "_get_risk_register", absent)
-    monkeypatch.setattr(bhm_app, "_project_summary_get", absent)
-    monkeypatch.setattr(bhm_app, "_list_tasks", lambda *_args, **_kwargs: ([], 0))
+    monkeypatch.setattr(app_retrieval, "_advanced_search_live_memories", sqlite_only)
+    monkeypatch.setattr(app_core, "_get_task_context", absent)
+    monkeypatch.setattr(app_core, "_get_latest_checkpoint", absent)
+    monkeypatch.setattr(app_core, "_get_risk_register", absent)
+    monkeypatch.setattr(app_core, "_project_summary_get", absent)
+    monkeypatch.setattr(app_core, "_list_tasks", lambda *_args, **_kwargs: ([], 0))
 
     response = _client().post("/bhm/agent-context", json={"project": "blackholememory"})
 
     assert response.status_code == 200
     payload = response.json()
-    assert captured["request"].query == bhm_app._AGENT_CONTEXT_DEFAULT_QUERY
+    assert captured["request"].query == app_retrieval._AGENT_CONTEXT_DEFAULT_QUERY
     assert payload["retrieval"]["query_source"] == "default-current-task"
     assert payload["task_state"]["task_context"] is None
     assert payload["task_state"]["latest_checkpoint"] is None
@@ -200,7 +202,7 @@ def test_mcp_agent_context_wrapper_forwards_only_bounded_fields(monkeypatch) -> 
 
 def test_agent_context_is_in_core_catalog() -> None:
     request = {"jsonrpc": "2.0", "id": 83, "method": "tools/list", "params": {}}
-    response = asyncio.run(bhm_app._handle_mcp_gateway_jsonrpc_async(request))
+    response = asyncio.run(app_core._handle_mcp_gateway_jsonrpc_async(request))
 
     assert response is not None
     assert "bhm_agent_context" in {tool["name"] for tool in response["result"]["tools"]}

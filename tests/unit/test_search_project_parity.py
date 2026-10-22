@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from blackholememory import app_hooks
+from blackholememory import app_ops
+from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory import bhm_mcp
@@ -25,10 +28,10 @@ def test_exact_searches_accept_canonical_project_alias_without_cross_project_lea
     records = [_memory("blackholememory", upsert_key="target"), _memory("other-project", upsert_key="target")]
     monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
-    by_ref = bhm_app._search_by_source_ref(
+    by_ref = app_retrieval._search_by_source_ref(
         bhm_app.SearchByRefRequest(ref="docs/a.md", project="BlackHoleMemory")
     )
-    by_key = bhm_app._search_by_upsert_key(
+    by_key = app_retrieval._search_by_upsert_key(
         bhm_app.SearchByUpsertKeyRequest(upsert_key="target", project="BlackHoleMemory")
     )
 
@@ -41,12 +44,12 @@ def test_lessons_search_and_list_use_the_same_project_alias_boundary(monkeypatch
         {"id": "l1", "project": "blackholememory", "content": "scope lesson", "tags": [], "confidence": 0.9},
         {"id": "l2", "project": "other-project", "content": "scope lesson", "tags": [], "confidence": 0.9},
     ]
-    monkeypatch.setattr(bhm_app, "_load_lessons", lambda: lessons)
+    monkeypatch.setattr(app_hooks, "_load_lessons", lambda: lessons)
 
-    searched = bhm_app.bhm_lessons_search(
+    searched = app_hooks.bhm_lessons_search(
         bhm_app.BhmMatchSearchRequest(query="scope", project="BlackHoleMemory")
     )
-    listed = bhm_app._list_lessons("BlackHoleMemory")
+    listed = app_hooks._list_lessons("BlackHoleMemory")
 
     assert searched["project"] == "blackholememory"
     assert [item["id"] for item in searched["lessons"]] == ["l1"]
@@ -60,8 +63,8 @@ def test_entity_search_canonicalizes_project_before_catalog_lookup(monkeypatch):
         captured.append(project)
         return {"files": {"README.md": 1}, "endpoints": {}, "env_vars": {}, "concepts": {}}
 
-    monkeypatch.setattr(bhm_app, "_entity_catalog_get", fake_catalog)
-    result = bhm_app._entity_search(
+    monkeypatch.setattr(app_ops, "_entity_catalog_get", fake_catalog)
+    result = app_ops._entity_search(
         bhm_app.EntitySearchRequest(query="readme", project="BlackHoleMemory")
     )
 

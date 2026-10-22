@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -29,7 +30,7 @@ def test_aggregate_relation_suggestions_never_cross_projects(monkeypatch) -> Non
         ],
     )
 
-    result = bhm_app._relation_suggest(bhm_app.RelationSuggestRequest(project=None, limit=20))
+    result = app_ops._relation_suggest(bhm_app.RelationSuggestRequest(project=None, limit=20))
 
     assert result["suggestions"] == []
 
@@ -37,7 +38,7 @@ def test_aggregate_relation_suggestions_never_cross_projects(monkeypatch) -> Non
 def test_relation_apply_canonicalizes_alias_before_persisting(monkeypatch) -> None:
     captured = []
     monkeypatch.setattr(
-        bhm_app,
+        app_ops,
         "_relation_suggest",
         lambda _request: {
             "suggestions": [
@@ -61,9 +62,9 @@ def test_relation_apply_canonicalizes_alias_before_persisting(monkeypatch) -> No
         captured.append(request)
         return {"id": "link-1", "project": request.project}
 
-    monkeypatch.setattr(bhm_app, "_create_memory_link", capture)
+    monkeypatch.setattr(app_ops, "_create_memory_link", capture)
 
-    result = bhm_app._relation_apply_suggestions(
+    result = app_ops._relation_apply_suggestions(
         bhm_app.RelationApplySuggestionsRequest(
             project="BlackHoleMemory",
             min_score=0.6,

@@ -17,7 +17,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory import app as bhm_app
+from blackholememory import app_core
 from blackholememory.retrieval_benchmark import build_default_benchmark_cases
 from blackholememory.retrieval_benchmark import evaluate_benchmark
 
@@ -31,7 +31,7 @@ def main() -> int:
     cases = build_default_benchmark_cases(args.cases)
     report = evaluate_benchmark(
         cases,
-        ranker=bhm_app._rank_hybrid_vector_hits,
+        ranker=app_core._rank_hybrid_vector_hits,
         token_budget=args.token_budget,
         include_case_reports=args.include_case_reports,
     )

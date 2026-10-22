@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
+from tests.app_patch import patch_app_import
 from blackholememory import app as bhm_app
 from blackholememory import bhm_mcp
 
@@ -39,7 +40,7 @@ def test_context_tier_promotion_rollback_requires_admin_capability(monkeypatch) 
 
 def test_context_tier_promotion_rollback_requires_enabled_policy_after_auth(monkeypatch) -> None:
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
-    monkeypatch.setattr(bhm_app, "context_tier_promotion_enabled", lambda: False)
+    patch_app_import(monkeypatch, "context_tier_promotion_enabled", lambda: False)
 
     response = _client(headers={"X-BHM-Admin-Capability": "admin-test-token"}).post(
         "/bhm/context-tier-promotion/rollback",
@@ -55,7 +56,7 @@ def test_context_tier_promotion_rollback_is_scoped_and_uses_outbox_only(monkeypa
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
     monkeypatch.setenv("BHM_ADMIN_CAPABILITY", "admin-test-token")
-    monkeypatch.setattr(bhm_app, "context_tier_promotion_enabled", lambda: True)
+    patch_app_import(monkeypatch, "context_tier_promotion_enabled", lambda: True)
 
     def fake_rollback(**kwargs):
         calls.append(kwargs)
@@ -68,7 +69,7 @@ def test_context_tier_promotion_rollback_is_scoped_and_uses_outbox_only(monkeypa
             deduplicated=False,
         )
 
-    monkeypatch.setattr(bhm_app, "rollback_tier_promotion", fake_rollback)
+    patch_app_import(monkeypatch, "rollback_tier_promotion", fake_rollback)
     response = _client(headers={"X-BHM-Admin-Capability": "admin-test-token"}).post(
         "/bhm/context-tier-promotion/rollback",
         json=_payload(),

@@ -6,6 +6,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from blackholememory import app_core
+from blackholememory import app_graphs
+from blackholememory import app_hooks
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory.filesystem_boundaries import replace_bytes_safely
@@ -29,7 +32,7 @@ def _assert(condition: bool, message: str) -> None:
 
 def main() -> int:
     project = "blackholememory"
-    session = bhm_app.bhm_session_capture_preview(
+    session = app_hooks.bhm_session_capture_preview(
         bhm_app.SessionCapturePreviewRequest(
             project=project,
             session_id="p22-continuity-smoke",
@@ -42,26 +45,26 @@ def main() -> int:
     _assert(session.get("execution", {}).get("preview_only") is True, "session is not preview-only")
     _assert(session.get("execution", {}).get("raw_payload_returned") is False, "session returned raw payload")
 
-    memory = bhm_app.bhm_memory_graph_query(
+    memory = app_graphs.bhm_memory_graph_query(
         bhm_app.MemoryGraphQueryRequest(project=project, operation="search", query="activation", limit=8)
     )
-    memory_explain = bhm_app.bhm_memory_graph_explain(
+    memory_explain = app_graphs.bhm_memory_graph_explain(
         bhm_app.MemoryGraphQueryRequest(project=project, operation="search", query="activation", limit=8)
     )
     _assert(memory.get("ok") is True, "memory graph query failed")
     _assert(memory_explain.get("ok") is True, "memory graph explain failed")
 
-    task = bhm_app.bhm_task_graph_query(
+    task = app_graphs.bhm_task_graph_query(
         bhm_app.TaskGraphQueryRequest(project=project, operation="status", query="", limit=32)
     )
-    task_explain = bhm_app.bhm_task_graph_explain(
+    task_explain = app_graphs.bhm_task_graph_explain(
         bhm_app.TaskGraphQueryRequest(project=project, operation="status", query="", limit=32)
     )
     _assert(task.get("ok") is True, "task graph query failed")
     _assert(task_explain.get("ok") is True, "task graph explain failed")
 
-    database_path = bhm_app._memory_graph_database_path()
-    root_id = bhm_app._code_graph_query_root_id(project, bhm_app.settings.repo_root)
+    database_path = app_graphs._memory_graph_database_path()
+    root_id = app_core._code_graph_query_root_id(project, bhm_app.settings.repo_root)
     context = build_unified_context_from_graph(
         database_path,
         project=project,

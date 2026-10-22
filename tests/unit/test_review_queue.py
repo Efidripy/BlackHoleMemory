@@ -4,6 +4,8 @@ import copy
 from datetime import datetime, timezone
 from pathlib import Path
 
+from blackholememory import app_core
+from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -58,7 +60,7 @@ def _install_review_store(monkeypatch):
         records[:] = copy.deepcopy(items)
         return Path("memories.sqlite3")
 
-    monkeypatch.setattr(bhm_app, "_save_live_memories", save)
+    monkeypatch.setattr(app_core, "_save_live_memories", save)
     return records
 
 
@@ -66,8 +68,8 @@ def test_conflict_detection_is_deterministic_and_evidence_bounded(monkeypatch):
     _install_review_store(monkeypatch)
     request = bhm_app.MemoryDetectRequest(project="BlackHoleMemory", limit=20)
 
-    first = bhm_app._detect_conflicts(request)
-    second = bhm_app._detect_conflicts(request)
+    first = app_ops._detect_conflicts(request)
+    second = app_ops._detect_conflicts(request)
 
     assert first == second
     assert len(first) == 1
@@ -79,18 +81,18 @@ def test_conflict_detection_is_deterministic_and_evidence_bounded(monkeypatch):
 
 def test_review_queue_marks_contradiction_pair_and_resolves_idempotently(monkeypatch):
     records = _install_review_store(monkeypatch)
-    queue = bhm_app._memory_review_queue(
+    queue = app_ops._memory_review_queue(
         bhm_app.MemoryReviewQueueRequest(project="blackholememory", limit=20)
     )
     contradiction = next(item for item in queue["items"] if item["kind"] == "contradiction")
 
-    applied = bhm_app._review_queue_apply(
+    applied = app_ops._review_queue_apply(
         bhm_app.ReviewQueueApplyRequest(
             project="BlackHoleMemory",
             queue_ids=[contradiction["queue_id"]],
         )
     )
-    repeated = bhm_app._review_queue_apply(
+    repeated = app_ops._review_queue_apply(
         bhm_app.ReviewQueueApplyRequest(
             project="blackholememory",
             queue_ids=[contradiction["queue_id"]],
@@ -101,7 +103,7 @@ def test_review_queue_marks_contradiction_pair_and_resolves_idempotently(monkeyp
     assert repeated["items"][0]["action"] == "already_needs_review"
     assert {item["metadata"]["review_status"] for item in records} == {"needs_review"}
 
-    resolved = bhm_app._review_queue_apply(
+    resolved = app_ops._review_queue_apply(
         bhm_app.ReviewQueueApplyRequest(
             project="blackholememory",
             queue_ids=[contradiction["queue_id"]],
@@ -110,7 +112,7 @@ def test_review_queue_marks_contradiction_pair_and_resolves_idempotently(monkeyp
     )
     assert resolved["items"][0]["action"] == "updated"
     assert {item["metadata"]["review_status"] for item in records} == {"resolved"}
-    assert bhm_app._memory_review_queue(
+    assert app_ops._memory_review_queue(
         bhm_app.MemoryReviewQueueRequest(project="blackholememory", limit=20)
     )["items"] == []
 
@@ -125,13 +127,13 @@ def test_review_queue_commits_selected_records_once(monkeypatch):
         records[:] = copy.deepcopy(items)
         return Path("memories.sqlite3")
 
-    monkeypatch.setattr(bhm_app, "_save_live_memories", save)
-    queue = bhm_app._memory_review_queue(
+    monkeypatch.setattr(app_core, "_save_live_memories", save)
+    queue = app_ops._memory_review_queue(
         bhm_app.MemoryReviewQueueRequest(project="blackholememory", limit=20)
     )
     contradiction = next(item for item in queue["items"] if item["kind"] == "contradiction")
 
-    result = bhm_app._review_queue_apply(
+    result = app_ops._review_queue_apply(
         bhm_app.ReviewQueueApplyRequest(
             project="blackholememory",
             queue_ids=[contradiction["queue_id"]],
@@ -159,7 +161,7 @@ def test_triage_queue_exposes_stable_status_and_unknown_selection_is_reported(mo
     assert contradiction["requires_confirmation"] is True
     assert contradiction["auto_apply"] is False
 
-    applied = bhm_app._review_queue_apply(
+    applied = app_ops._review_queue_apply(
         bhm_app.ReviewQueueApplyRequest(
             project="blackholememory",
             queue_ids=["review_missing"],
