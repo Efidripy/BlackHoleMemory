@@ -36,7 +36,7 @@ class SinkExpectation:
 
 
 PROJECT_SINKS = (
-    SinkExpectation("sqlite-memory", "project", "sqlite_authority", "src/blackholememory/memory_repository.py", "project_filtered", ("m.project = ?", "memory_id = ? AND m.project = ?"), "tests/unit/test_project_scope.py"),
+    SinkExpectation("sqlite-memory", "project", "sqlite_authority", "src/blackholememory/memory_repository_read.py", "project_filtered", ("m.project = ?", "memory_id = ? AND m.project = ?"), "tests/unit/test_project_scope.py"),
     SinkExpectation("qdrant-projection", "project", "qdrant_projection", "src/blackholememory/qdrant_projector.py", "project_filtered", ('"project": memory.project', "projection_payload_digest"), "tests/unit/test_project_scope.py"),
     SinkExpectation("mem0-projection", "project", "mem0", "src/blackholememory/mem0_adapter.py", "project_filtered", ("project=", "collection"), "tests/unit/test_project_scope.py"),
     SinkExpectation("llm-jobs", "project", "llm_job_sqlite", "src/blackholememory/llm_job_queue.py", "project_filtered", ("_scoped_idempotency_key", "AND project = ?"), "tests/unit/test_stream_e_integrity.py"),
