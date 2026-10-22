@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from tests.app_patch import patch_app_import
-from blackholememory import app_core
+from blackholememory import app_core_hook
 from blackholememory import app_governed
 from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
@@ -149,7 +149,7 @@ def test_utility_feedback_report_is_project_scoped_and_read_only(monkeypatch) ->
     monkeypatch.setattr(app_runtime, "_memory_service", _Service)
     patch_app_import(monkeypatch, "load_utility_events", fake_load)
 
-    result = app_core._utility_feedback_report(
+    result = app_core_hook._utility_feedback_report(
         project="blackholememory",
         as_of="2026-08-23T12:00:00Z",
         half_life_days=30.0,
@@ -273,7 +273,7 @@ def test_utility_feedback_change_set_preview_rest_surface_is_authenticated_and_r
         "detector_digest": "a" * 64,
         "confidence": 0.9,
     }
-    monkeypatch.setattr(app_core, "_utility_feedback_report", lambda **_: report)
+    monkeypatch.setattr(app_core_hook, "_utility_feedback_report", lambda **_: report)
     patch_app_import(monkeypatch, "load_authoritative_sqlite_snapshot", lambda *_args, **_kwargs: snapshot)
     patch_app_import(monkeypatch, "run_authoritative_sqlite_memory_doctor", lambda *_args, **_kwargs: doctor)
     patch_app_import(monkeypatch, "resolve_runtime_storage_config", lambda **_: SimpleNamespace(database_path="ignored"))

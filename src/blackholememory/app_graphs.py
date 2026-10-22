@@ -35,13 +35,13 @@ from .memory_graph import query_memory_graph
 from .task_graph import TaskGraphError
 from .task_graph import explain_task_graph
 from .task_graph import query_task_graph
-from . import app_core
+from . import app_core_hook
 
 
 def _code_graph_query_response(request: CodeGraphQueryRequest, *, explain: bool) -> dict[str, Any]:
     project = rt._canonical_project(request.project)
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
-    root_id = request.root_id or app_core._code_graph_query_root_id(project, settings.repo_root)
+    root_id = request.root_id or app_core_hook._code_graph_query_root_id(project, settings.repo_root)
     function = explain_code_graph if explain else query_code_graph
     try:
         return function(
@@ -79,7 +79,7 @@ def bhm_change_impact_preview(request: ChangeImpactPreviewRequest) -> dict[str, 
 
     project = rt._canonical_project(request.project)
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
-    root_id = request.root_id or app_core._code_graph_query_root_id(project, settings.repo_root)
+    root_id = request.root_id or app_core_hook._code_graph_query_root_id(project, settings.repo_root)
     graph_store = SQLiteCodeGraphStore(database_path)
     try:
         current = graph_store.current_snapshot(project, root_id, include_material=False)

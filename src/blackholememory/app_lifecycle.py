@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any, Mapping
 from fastapi import HTTPException
 from fastapi import Request
+from . import app_core_fallback
+from . import app_core_hook
 from . import app_core
 from . import app_hooks
-from . import app_ops
+from . import app_ops_task
 from . import app_runtime as rt
 from .app_runtime import _MAX_CONCURRENT_WRITES, _env_float, _safe_exception_text, _write_json_atomic
 from .api_models import MemoryUpsertRequest, MemoryCrystallizeRequest, MemoryMergeRequest, MemoryDetectRequest, BhmHookRequest, BhmHookCompactRequest, BhmHookIdleRequest
@@ -155,21 +157,21 @@ async def _execute_hook_job(job: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _hook_job_heartbeat(queue: HookJobQueue, job_id: str, owner: str) -> None:
-    interval = max(app_core._HOOK_QUEUE_LEASE_SECONDS / 3.0, 1.0)
+    interval = max(app_core_hook._HOOK_QUEUE_LEASE_SECONDS / 3.0, 1.0)
     while True:
         await asyncio.sleep(interval)
         renewed = await asyncio.to_thread(
             queue.renew_lease,
             job_id,
             owner=owner,
-            lease_seconds=app_core._HOOK_QUEUE_LEASE_SECONDS,
+            lease_seconds=app_core_hook._HOOK_QUEUE_LEASE_SECONDS,
         )
         if not renewed:
             return
 
 
 async def _hook_queue_worker(*, worker_name: str, kinds: tuple[str, ...], stop_event: asyncio.Event) -> None:
-    queue = app_core._hook_queue()
+    queue = app_core_hook._hook_queue()
     owner = f"{_HOOK_QUEUE_BOOT_ID}:{worker_name}"
     while True:
         try:
@@ -177,7 +179,7 @@ async def _hook_queue_worker(*, worker_name: str, kinds: tuple[str, ...], stop_e
                 queue.claim_next,
                 kinds=kinds,
                 owner=owner,
-                lease_seconds=app_core._HOOK_QUEUE_LEASE_SECONDS,
+                lease_seconds=app_core_hook._HOOK_QUEUE_LEASE_SECONDS,
             )
         except asyncio.CancelledError:
             raise
@@ -256,38 +258,38 @@ async def _start_hook_queue_workers() -> None:
     if any(not task.done() for task in app_hooks._HOOK_QUEUE_TASKS):
         app_hooks._HOOK_QUEUE_ACCEPTING = True
         return
-    queue = app_core._hook_queue()
+    queue = app_core_hook._hook_queue()
     recovered = await asyncio.to_thread(queue.recover_processing)
     stop_event = asyncio.Event()
     tasks: list[asyncio.Task[None]] = []
-    for app_ops.index in range(app_core._HOOK_COMPACT_WORKERS):
+    for app_ops_task.index in range(app_core_hook._HOOK_COMPACT_WORKERS):
         tasks.append(
             asyncio.create_task(
                 _hook_queue_worker(
-                    worker_name=f"compact-{app_ops.index + 1}",
+                    worker_name=f"compact-{app_ops_task.index + 1}",
                     kinds=("compact",),
                     stop_event=stop_event,
                 ),
-                name=f"bhm-hook-compact-{app_ops.index + 1}",
+                name=f"bhm-hook-compact-{app_ops_task.index + 1}",
             )
         )
-    for app_ops.index in range(app_core._HOOK_IDLE_WORKERS):
+    for app_ops_task.index in range(app_core_hook._HOOK_IDLE_WORKERS):
         tasks.append(
             asyncio.create_task(
                 _hook_queue_worker(
-                    worker_name=f"idle-{app_ops.index + 1}",
+                    worker_name=f"idle-{app_ops_task.index + 1}",
                     kinds=("idle",),
                     stop_event=stop_event,
                 ),
-                name=f"bhm-hook-idle-{app_ops.index + 1}",
+                name=f"bhm-hook-idle-{app_ops_task.index + 1}",
             )
         )
-    app_core._HOOK_QUEUE_STOP_EVENT = stop_event
+    app_core_hook._HOOK_QUEUE_STOP_EVENT = stop_event
     app_hooks._HOOK_QUEUE_TASKS = tasks
     app_hooks._HOOK_QUEUE_ACCEPTING = True
     print(
         f"[INFO] BHM hook queue ready: capacity={queue.capacity} "
-        f"compact_workers={app_core._HOOK_COMPACT_WORKERS} idle_workers={app_core._HOOK_IDLE_WORKERS} recovered={recovered}",
+        f"compact_workers={app_core_hook._HOOK_COMPACT_WORKERS} idle_workers={app_core_hook._HOOK_IDLE_WORKERS} recovered={recovered}",
         flush=True,
     )
 
@@ -295,7 +297,7 @@ async def _start_hook_queue_workers() -> None:
 async def _stop_hook_queue_workers() -> None:
     pass  # globals moved to domain modules
     app_hooks._HOOK_QUEUE_ACCEPTING = False
-    stop_event = app_core._HOOK_QUEUE_STOP_EVENT
+    stop_event = app_core_hook._HOOK_QUEUE_STOP_EVENT
     tasks = list(app_hooks._HOOK_QUEUE_TASKS)
     if stop_event is not None:
         stop_event.set()
@@ -303,19 +305,19 @@ async def _stop_hook_queue_workers() -> None:
         try:
             await asyncio.wait_for(
                 asyncio.gather(*tasks),
-                timeout=app_core._HOOK_QUEUE_DRAIN_SECONDS,
+                timeout=app_core_hook._HOOK_QUEUE_DRAIN_SECONDS,
             )
         except asyncio.TimeoutError:
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             print(
-                f"[WARN] Hook queue drain exceeded {app_core._HOOK_QUEUE_DRAIN_SECONDS:.1f}s; "
+                f"[WARN] Hook queue drain exceeded {app_core_hook._HOOK_QUEUE_DRAIN_SECONDS:.1f}s; "
                 "leased jobs will be recovered on restart.",
                 flush=True,
             )
     app_hooks._HOOK_QUEUE_TASKS = []
-    app_core._HOOK_QUEUE_STOP_EVENT = None
+    app_core_hook._HOOK_QUEUE_STOP_EVENT = None
 
 
 def _optional_psutil():
@@ -445,11 +447,11 @@ def _knowledge_counters_sync(records: list[dict[str, Any]] | None = None) -> dic
 
 def _collect_host_telemetry_sync() -> dict[str, Any]:
     queue_status = (
-        app_core._hook_queue().status()
-        if app_core._hook_queue_path().exists()
+        app_core_hook._hook_queue().status()
+        if app_core_hook._hook_queue_path().exists()
         else {
             "pending": 0,
-            "capacity": app_core._HOOK_QUEUE_CAPACITY,
+            "capacity": app_core_hook._HOOK_QUEUE_CAPACITY,
             "counts": {"queued": 0, "processing": 0, "completed": 0, "failed": 0},
             "oldestQueuedAgeMs": 0,
         }
@@ -485,10 +487,10 @@ async def _collect_sys_status_payload() -> dict[str, Any]:
             "mcp_transport": app_core._MCP_STREAMABLE_HTTP.contract_snapshot()["sessions"],
             "storage": storage_runtime_state().as_dict(),
             "memory_store": rt._memory_store_state().as_dict(),
-            "fallback_mode": app_core._configured_fallback_mode(),
+            "fallback_mode": app_core_fallback._configured_fallback_mode(),
             "backpressure_semaphore_value": getattr(rt._WRITE_SEMAPHORE, "_value", 0),
             "backpressure_max": _MAX_CONCURRENT_WRITES,
-            "fallback_grace_active": app_core._fallback_grace_active(),
+            "fallback_grace_active": app_core_fallback._fallback_grace_active(),
             "launcher_circuit_breaker_status": "STREAMABLE_HTTP",
             "llm_warmup_status": "READY" if warmup.get("ready") else str(warmup.get("phase") or "WARMING").upper(),
             **host,
@@ -499,7 +501,7 @@ async def _collect_sys_status_payload() -> dict[str, Any]:
 async def _telemetry_harvester_loop() -> None:
     while True:
         try:
-            await asyncio.sleep(app_core._TELEMETRY_INTERVAL_SECONDS)
+            await asyncio.sleep(app_core_fallback._TELEMETRY_INTERVAL_SECONDS)
             if rt._MEMORY_PULSE_BUS.client_count == 0:
                 continue
             await rt._MEMORY_PULSE_BUS.broadcast(await _collect_sys_status_payload())
@@ -574,11 +576,11 @@ def _initialize_authoritative_memory_service() -> None:
 
 
 def _boot_report_is_pending() -> bool:
-    return app_core._read_boot_report().get("status") == "pending"
+    return app_core_hook._read_boot_report().get("status") == "pending"
 
 
 async def _finalize_pending_boot_report(warmup_task: asyncio.Task[None]) -> None:
-    pending = app_core._read_boot_report()
+    pending = app_core_hook._read_boot_report()
     if pending.get("status") != "pending":
         return
 
@@ -590,7 +592,7 @@ async def _finalize_pending_boot_report(warmup_task: asyncio.Task[None]) -> None
     await warmup_task
     await _wait_for_qdrant_ready()
     _write_json_atomic(
-        app_core._BOOT_REPORT_PATH,
+        app_core_hook._BOOT_REPORT_PATH,
         {
             "status": "SUCCESS",
             "elapsed_seconds": round(max(time.time() - trigger_time, 0.0), 2),
@@ -691,8 +693,8 @@ async def _terminate_process_tree(
 
 
 async def _cleanup_registered_infra_processes(reason: str = "cleanup", dry_run: bool = False) -> dict[str, Any]:
-    with app_core._INFRA_SPAWNED_PIDS_LOCK:
-        pids = sorted(app_core._INFRA_SPAWNED_PIDS)
+    with app_core_hook._INFRA_SPAWNED_PIDS_LOCK:
+        pids = sorted(app_core_hook._INFRA_SPAWNED_PIDS)
     items = []
     for pid in pids:
         kill_result = await _terminate_process_tree(
@@ -702,8 +704,8 @@ async def _cleanup_registered_infra_processes(reason: str = "cleanup", dry_run: 
         )
         items.append({"reason": reason, **kill_result})
     if not dry_run:
-        with app_core._INFRA_SPAWNED_PIDS_LOCK:
-            app_core._INFRA_SPAWNED_PIDS.difference_update(pid for pid in pids if not _is_pid_running(pid))
+        with app_core_hook._INFRA_SPAWNED_PIDS_LOCK:
+            app_core_hook._INFRA_SPAWNED_PIDS.difference_update(pid for pid in pids if not _is_pid_running(pid))
     return {"reason": reason, "count": len(items), "items": items}
 
 
@@ -739,7 +741,7 @@ def _append_hook_observation(request: BhmHookRequest, endpoint: str) -> dict:
         metadata=dict(request.metadata or {}),
     )
     item = build_observation_record(ingress)
-    app_core._append_observation(item)
+    app_core_hook._append_observation(item)
     return item
 
 
@@ -771,7 +773,7 @@ def _with_context_tier_lifecycle_receipt(request: BhmHookRequest) -> tuple[BhmHo
     auditable lifecycle anchor with the existing observation event.
     """
 
-    source_ids = app_core._lifecycle_source_ids(request)
+    source_ids = app_core_hook._lifecycle_source_ids(request)
     receipt = build_context_tier_lifecycle_receipt(
         project=request.project,
         session_id=request.sessionId,
@@ -793,22 +795,22 @@ def _hook_compact_concepts(request: BhmHookCompactRequest) -> list[str]:
         "reflex",
         "crystallization",
     ]
-    concepts.extend(app_core._coerce_hook_text_list(request.concepts))
-    concepts.extend(app_core._coerce_hook_text_list(app_core._hook_data_value(request, "concepts", "tags")))
-    return app_core._dedupe_text(concepts)
+    concepts.extend(app_core_hook._coerce_hook_text_list(request.concepts))
+    concepts.extend(app_core_hook._coerce_hook_text_list(app_core_hook._hook_data_value(request, "concepts", "tags")))
+    return app_core_hook._dedupe_text(concepts)
 
 
 def _hook_compact_files(request: BhmHookCompactRequest) -> list[str]:
-    files = app_core._coerce_hook_text_list(request.files)
-    files.extend(app_core._coerce_hook_text_list(app_core._hook_data_value(request, "files", "files_touched", "filesTouched")))
-    return app_core._dedupe_text(files)
+    files = app_core_hook._coerce_hook_text_list(request.files)
+    files.extend(app_core_hook._coerce_hook_text_list(app_core_hook._hook_data_value(request, "files", "files_touched", "filesTouched")))
+    return app_core_hook._dedupe_text(files)
 
 
 def _materialize_hook_transit_sources(request: BhmHookCompactRequest, transit_items: list[Any]) -> list[dict]:
     records: list[dict] = []
     concepts = _hook_compact_concepts(request)
     files = _hook_compact_files(request)
-    for app_ops.index, item in enumerate(transit_items[:app_core._HOOK_TRANSIT_SOURCE_LIMIT]):
+    for app_ops_task.index, item in enumerate(transit_items[:app_core_hook._HOOK_TRANSIT_SOURCE_LIMIT]):
         content = _hook_item_text(item)
         if not content:
             continue
@@ -819,14 +821,14 @@ def _materialize_hook_transit_sources(request: BhmHookCompactRequest, transit_it
                 f"sessionId: {request.sessionId}",
                 f"project: {request.project}",
                 f"cwd: {request.cwd}",
-                f"index: {app_ops.index}",
+                f"index: {app_ops_task.index}",
                 "payload:",
                 content,
             ]
         )
         _, record = app_core._upsert_live_memory(
             MemoryUpsertRequest(
-                upsert_key=f"hook-compact-source:{request.project}:{request.sessionId}:{app_ops.index}",
+                upsert_key=f"hook-compact-source:{request.project}:{request.sessionId}:{app_ops_task.index}",
                 project=request.project,
                 type="transient-context",
                 content=record_content,
@@ -841,17 +843,17 @@ def _materialize_hook_transit_sources(request: BhmHookCompactRequest, transit_it
 def _build_hook_crystallize_request(request: BhmHookCompactRequest, source_ids: list[str]) -> MemoryCrystallizeRequest:
     title = (
         _hook_text_or_none(request.title)
-        or _hook_text_or_none(app_core._hook_data_value(request, "title"))
+        or _hook_text_or_none(app_core_hook._hook_data_value(request, "title"))
         or f"{request.project} pre-compact reflex crystal"
     )
     summary = (
         _hook_text_or_none(request.summary)
-        or _hook_text_or_none(app_core._hook_data_value(request, "summary", "reason"))
+        or _hook_text_or_none(app_core_hook._hook_data_value(request, "summary", "reason"))
         or f"Emergency Codex pre-compact reflex captured {len(source_ids)} source item(s)."
     )
     upsert_key = (
         _hook_text_or_none(request.upsert_key)
-        or _hook_text_or_none(app_core._hook_data_value(request, "upsert_key", "upsertKey"))
+        or _hook_text_or_none(app_core_hook._hook_data_value(request, "upsert_key", "upsertKey"))
         or f"hook-compact-crystal:{request.project}:{request.sessionId}"
     )
     return MemoryCrystallizeRequest(
@@ -867,16 +869,16 @@ def _build_hook_crystallize_request(request: BhmHookCompactRequest, source_ids: 
 
 
 def _handle_compact_hook(request: BhmHookCompactRequest) -> dict:
-    request = app_core._ensure_hook_request_identity(request)
+    request = app_core_hook._ensure_hook_request_identity(request)
     request, tier_lifecycle = _with_context_tier_lifecycle_receipt(request)
     observation = _append_hook_observation(request, "compact")
-    transit_items = app_core._hook_transit_items(request)
-    source_ids = app_core._extract_hook_source_ids(request, transit_items)
+    transit_items = app_core_hook._hook_transit_items(request)
+    source_ids = app_core_hook._extract_hook_source_ids(request, transit_items)
     materialized_sources: list[dict] = []
 
     if not source_ids:
         materialized_sources = _materialize_hook_transit_sources(request, transit_items)
-        source_ids = app_core._dedupe_text([str(record.get("source_id") or "") for record in materialized_sources])
+        source_ids = app_core_hook._dedupe_text([str(record.get("source_id") or "") for record in materialized_sources])
 
     if not source_ids:
         return {
@@ -1033,7 +1035,7 @@ async def _run_idle_reflection_daemon(request: BhmHookIdleRequest) -> dict:
 
 
 async def _run_idle_reflection_pipeline(request: BhmHookIdleRequest) -> dict:
-    request = app_core._ensure_hook_request_identity(request)
+    request = app_core_hook._ensure_hook_request_identity(request)
     request, tier_lifecycle = _with_context_tier_lifecycle_receipt(request)
     result: dict[str, Any] = {
         "success": True,

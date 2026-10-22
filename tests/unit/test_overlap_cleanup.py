@@ -3,7 +3,7 @@ from __future__ import annotations
 import copy
 
 from blackholememory import app_core
-from blackholememory import app_ops
+from blackholememory import app_ops_task
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -32,7 +32,7 @@ def test_overlap_cleanup_plans_non_overlapping_pairs_and_saves_once(monkeypatch)
         lambda _request: [{"left_id": "target-1", "right_id": "source-1"}],
     )
 
-    result = app_ops._overlap_cleanup_apply(
+    result = app_ops_task._overlap_cleanup_apply(
         bhm_app.OverlapCleanupApplyRequest(project="Jmaka", limit=10)
     )
 

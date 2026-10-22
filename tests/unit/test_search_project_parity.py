@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from blackholememory import app_hooks
-from blackholememory import app_ops
+from blackholememory import app_ops_entity
 from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
@@ -63,8 +63,8 @@ def test_entity_search_canonicalizes_project_before_catalog_lookup(monkeypatch):
         captured.append(project)
         return {"files": {"README.md": 1}, "endpoints": {}, "env_vars": {}, "concepts": {}}
 
-    monkeypatch.setattr(app_ops, "_entity_catalog_get", fake_catalog)
-    result = app_ops._entity_search(
+    monkeypatch.setattr(app_ops_entity, "_entity_catalog_get", fake_catalog)
+    result = app_ops_entity._entity_search(
         bhm_app.EntitySearchRequest(query="readme", project="BlackHoleMemory")
     )
 

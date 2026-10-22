@@ -5,6 +5,8 @@ import json
 
 from fastapi.testclient import TestClient
 
+from blackholememory import app_core_fallback
+from blackholememory import app_core_hook
 from blackholememory import app_core
 from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
@@ -58,26 +60,26 @@ def test_agent_context_composes_bounded_sqlite_only_package(monkeypatch) -> None
         )
 
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", unexpected_provider)
-    monkeypatch.setattr(app_core, "federated_search", unexpected_provider)
+    monkeypatch.setattr(app_core_fallback, "federated_search", unexpected_provider)
     monkeypatch.setattr(app_retrieval, "_advanced_search_live_memories", sqlite_only)
     monkeypatch.setattr(
-        app_core,
+        app_core_hook,
         "_get_task_context",
         lambda _project: {"id": "task-context", "project": project, "current_task": "implement bounded context"},
     )
     monkeypatch.setattr(
-        app_core,
+        app_core_hook,
         "_get_latest_checkpoint",
         lambda _project: {"id": "checkpoint", "project": project, "done": "preflight", "next": "tests"},
     )
     monkeypatch.setattr(
-        app_core,
+        app_core_hook,
         "_get_risk_register",
         lambda _project: {"id": "risk", "project": project, "top_risks": ["cross-project leakage"]},
     )
     monkeypatch.setattr(app_core, "_project_summary_get", lambda _project: {"id": "summary", "project": project, "content": "summary"})
     monkeypatch.setattr(
-        app_core,
+        app_core_hook,
         "_list_tasks",
         lambda *_args, **_kwargs: (
             [
@@ -150,11 +152,11 @@ def test_agent_context_allows_missing_optional_artifacts_and_uses_bounded_defaul
         raise bhm_app.HTTPException(status_code=404, detail="not found")
 
     monkeypatch.setattr(app_retrieval, "_advanced_search_live_memories", sqlite_only)
-    monkeypatch.setattr(app_core, "_get_task_context", absent)
-    monkeypatch.setattr(app_core, "_get_latest_checkpoint", absent)
-    monkeypatch.setattr(app_core, "_get_risk_register", absent)
+    monkeypatch.setattr(app_core_hook, "_get_task_context", absent)
+    monkeypatch.setattr(app_core_hook, "_get_latest_checkpoint", absent)
+    monkeypatch.setattr(app_core_hook, "_get_risk_register", absent)
     monkeypatch.setattr(app_core, "_project_summary_get", absent)
-    monkeypatch.setattr(app_core, "_list_tasks", lambda *_args, **_kwargs: ([], 0))
+    monkeypatch.setattr(app_core_hook, "_list_tasks", lambda *_args, **_kwargs: ([], 0))
 
     response = _client().post("/bhm/agent-context", json={"project": "blackholememory"})
 

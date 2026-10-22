@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from blackholememory import app_ops_task
 from blackholememory import app_ops
 from blackholememory import app as bhm_app
 
@@ -17,7 +18,7 @@ def test_adr_supersede_accepts_json_body(monkeypatch) -> None:
         }
 
     monkeypatch.setattr(app_ops, "_adr_supersede", fake_supersede)
-    monkeypatch.setattr(app_ops, "_serialize_adr_record", lambda record: record)
+    monkeypatch.setattr(app_ops_task, "_serialize_adr_record", lambda record: record)
 
     response = TestClient(bhm_app.app).post(
         "/bhm/adr/supersede",

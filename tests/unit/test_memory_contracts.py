@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from blackholememory import app_core_hook
 from blackholememory import app_core
 from blackholememory import app
 from blackholememory import bhm_mcp
@@ -96,7 +97,7 @@ def _assert_metadata_schema(rest_model: dict[str, Any], rest_field: str, mcp_sch
 def test_rest_and_mcp_import_the_same_memory_metadata_contract() -> None:
     assert app_core.MemoryMetadata is MemoryMetadata
     assert bhm_mcp.MemoryMetadata is MemoryMetadata
-    assert app_core.MetadataDomain is MetadataDomain
+    assert app_core_hook.MetadataDomain is MetadataDomain
     assert bhm_mcp.MetadataDomain is MetadataDomain
 
 

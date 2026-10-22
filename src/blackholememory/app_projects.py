@@ -22,6 +22,9 @@ from .project_retirement import ProjectRetirementError
 from .project_retirement import apply_project_retirement
 from .project_retirement import preview_project_retirement
 from .runtime_storage import resolve_runtime_storage_config
+from . import app_core_fallback
+from . import app_core_hit
+from . import app_core_hook
 from . import app_core
 
 
@@ -53,8 +56,8 @@ def _serialize_project_map_record(record: dict) -> dict:
 
 
 def _load_mcp_registry_snapshot() -> dict[str, Any]:
-    path = app_core._mcp_registry_snapshot_path()
-    snapshot = app_core._read_json_snapshot(path)
+    path = app_core_fallback._mcp_registry_snapshot_path()
+    snapshot = app_core_fallback._read_json_snapshot(path)
     instances = snapshot.get("instances") if isinstance(snapshot, dict) else []
     if not isinstance(instances, list):
         instances = []
@@ -99,7 +102,7 @@ def _build_project_map_content(title: str, sections: dict[str, str]) -> str:
 
 def _get_project_map(project: str) -> dict:
     accepted_projects = rt._project_aliases(project)
-    for item in app_core._load_project_maps():
+    for item in app_core_hook._load_project_maps():
         if item.get("project") in accepted_projects:
             return item
     raise HTTPException(status_code=404, detail="project map not found")
@@ -125,7 +128,7 @@ def _upsert_project_map(request: ProjectMapUpsertRequest) -> tuple[str, dict]:
         )
     )
 
-    maps = app_core._load_project_maps()
+    maps = app_core_hook._load_project_maps()
     for item in maps:
         metadata = item.get("metadata") or {}
         if item.get("project") == request.project or metadata.get("upsert_key") == upsert_key:
@@ -140,7 +143,7 @@ def _upsert_project_map(request: ProjectMapUpsertRequest) -> tuple[str, dict]:
                 }
             )
             item.setdefault("metadata", {})["upsert_key"] = upsert_key
-            app_core._save_project_maps(maps)
+            app_core_hook._save_project_maps(maps)
             return action, item
 
     project_map = {
@@ -158,7 +161,7 @@ def _upsert_project_map(request: ProjectMapUpsertRequest) -> tuple[str, dict]:
         },
     }
     maps.append(project_map)
-    app_core._save_project_maps(maps)
+    app_core_hook._save_project_maps(maps)
     return action, project_map
 
 
@@ -183,22 +186,22 @@ def _rebuild_project_summary(request: RebuildProjectSummaryRequest) -> dict:
         pass
     latest_checkpoint = None
     try:
-        latest_checkpoint = app_core._get_latest_checkpoint(canonical_project)
+        latest_checkpoint = app_core_hook._get_latest_checkpoint(canonical_project)
     except HTTPException:
         pass
     task_context = None
     try:
-        task_context = app_core._get_task_context(canonical_project)
+        task_context = app_core_hook._get_task_context(canonical_project)
     except HTTPException:
         pass
     risk_register = None
     try:
-        risk_register = app_core._get_risk_register(canonical_project)
+        risk_register = app_core_hook._get_risk_register(canonical_project)
     except HTTPException:
         pass
     validation_snapshot = None
     try:
-        validation_snapshot = app_core._get_validation_snapshot(canonical_project)
+        validation_snapshot = app_core_hook._get_validation_snapshot(canonical_project)
     except HTTPException:
         pass
     lines = [f"{canonical_project} project summary:"]
@@ -256,7 +259,7 @@ def _record_age_days(record: dict) -> float:
     timestamp = record.get("updated_at") or record.get("created_at")
     if not timestamp:
         return 0.0
-    return max((datetime.now(timezone.utc) - app_core._safe_datetime(timestamp)).total_seconds() / 86400.0, 0.0)
+    return max((datetime.now(timezone.utc) - app_core_hook._safe_datetime(timestamp)).total_seconds() / 86400.0, 0.0)
 
 
 def _project_summary_refresh_all(request: ProjectSummaryRefreshAllRequest) -> dict:
@@ -284,7 +287,7 @@ def _project_summary_refresh_all(request: ProjectSummaryRefreshAllRequest) -> di
 
 def _project_memory_heatmap(project: str | None = None) -> dict:
     project = rt._canonical_project(project) if project else None
-    records = [item for item in rt._load_live_memories() if app_core._memory_matches_filters(item, project=project, include_archived=False)]
+    records = [item for item in rt._load_live_memories() if app_core_hit._memory_matches_filters(item, project=project, include_archived=False)]
     type_counts = Counter(item.get("memory_type") or "unknown" for item in records)
     tag_counts = Counter(tag for item in records for tag in (item.get("tags") or []))
     age_buckets = {"0_7": 0, "8_30": 0, "31_90": 0, "91_plus": 0}
@@ -474,8 +477,8 @@ def bhm_project_similarity_report(request: ProjectSimilarityReportRequest, http_
 
 async def bhm_profile(project: str = "e-github-workspace") -> dict:
     memory_records, policy_snapshot, registry_snapshot = await asyncio.gather(
-        asyncio.to_thread(app_core._fallback_memory_records, project=project, include_logs=True),
-        asyncio.to_thread(app_core._load_policy_profile_snapshot),
+        asyncio.to_thread(app_core_hit._fallback_memory_records, project=project, include_logs=True),
+        asyncio.to_thread(app_core_hook._load_policy_profile_snapshot),
         asyncio.to_thread(_load_mcp_registry_snapshot),
     )
     policy_profile = policy_snapshot["profile"]

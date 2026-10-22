@@ -8,6 +8,7 @@ import pytest
 
 from tests.app_patch import patch_app_import
 from blackholememory import app_lifecycle
+from blackholememory import app_core_fallback
 from blackholememory import app_core
 from blackholememory import app_telemetry
 from blackholememory import app as bhm_app
@@ -93,7 +94,7 @@ def test_sqlite_authoritative_readiness_stays_ready_when_projection_is_down(monk
     patch_app_import(monkeypatch, "storage_runtime_state", lambda: projection)
     monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
     patch_app_import(monkeypatch, "dependency_report", _optional_qdrant_down_report)
-    monkeypatch.setattr(app_core, "_fallback_grace_active", lambda: False)
+    monkeypatch.setattr(app_core_fallback, "_fallback_grace_active", lambda: False)
     patch_app_import(monkeypatch, "mem0_runtime_plan", lambda: {"status": "projection-degraded"})
     monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True})
 
@@ -122,7 +123,7 @@ def test_detailed_health_reports_projection_degradation_without_losing_sqlite_au
     monkeypatch.setenv("BHM_QDRANT_REQUIRED_FOR_CORE", "false")
     patch_app_import(monkeypatch, "storage_runtime_state", lambda: projection)
     monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
-    monkeypatch.setattr(app_core, "_fallback_grace_active", lambda: False)
+    monkeypatch.setattr(app_core_fallback, "_fallback_grace_active", lambda: False)
     monkeypatch.setattr(
         app_core._MCP_STREAMABLE_HTTP,
         "contract_snapshot",
@@ -199,7 +200,7 @@ def test_remote_required_profile_remains_fail_closed_when_qdrant_is_down(monkeyp
     patch_app_import(monkeypatch, "storage_runtime_state", lambda: projection)
     monkeypatch.setattr(app_runtime, "_memory_store_state", _authoritative_memory_state)
     patch_app_import(monkeypatch, "dependency_report", _required_qdrant_down_report)
-    monkeypatch.setattr(app_core, "_fallback_grace_active", lambda: False)
+    monkeypatch.setattr(app_core_fallback, "_fallback_grace_active", lambda: False)
     patch_app_import(monkeypatch, "mem0_runtime_plan", lambda: {"status": "projection-required"})
     monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True})
 

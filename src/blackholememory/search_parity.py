@@ -8,6 +8,7 @@ the focused project-scope regression tests named in each matrix row.
 from __future__ import annotations
 
 import inspect
+import sys
 from typing import Any
 
 from . import app
@@ -53,7 +54,7 @@ def _schema_has_project(schema: dict[str, Any], path: str) -> bool:
 def _implementation_source(surface: dict[str, Any]) -> str:
     name = str(surface["evidence"])
     chunks: list[str] = []
-    domain_modules = tuple(getattr(app, key) for key in dir(app) if key.startswith("app_") and inspect.ismodule(getattr(app, key)))
+    domain_modules = tuple(module for key, module in sorted(sys.modules.items()) if key.startswith(("blackholememory.app_", "blackholememory.code_tools_service", "blackholememory.llm_routes", "blackholememory.galaxy_routes", "blackholememory.ui_routes", "blackholememory.memory_routes")))
     for module in (app, bhm_mcp, *domain_modules):
         candidate = getattr(module, name, None)
         if candidate is not None:

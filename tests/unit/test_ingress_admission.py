@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import app_ops
+from blackholememory import app_ops_task
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 from blackholememory import bhm_mcp
@@ -75,7 +75,7 @@ def test_mcp_memory_write_is_rejected_before_bounded_write(monkeypatch) -> None:
     )
 
     with pytest.raises(HTTPException) as error:
-        asyncio.run(app_ops.bhm_remember(request, http_request))
+        asyncio.run(app_ops_task.bhm_remember(request, http_request))
 
     assert error.value.status_code == 422
     assert error.value.detail["code"] == "ingress_admission_rejected"
@@ -100,7 +100,7 @@ def test_bearer_only_rest_write_is_tool_ingress_and_rejected_before_write(monkey
     )
 
     with pytest.raises(HTTPException) as error:
-        asyncio.run(app_ops.bhm_remember(request, http_request))
+        asyncio.run(app_ops_task.bhm_remember(request, http_request))
 
     assert error.value.detail["admission"]["ingress"] == "tool"
     assert error.value.detail["admission"]["authority_eligible"] is False

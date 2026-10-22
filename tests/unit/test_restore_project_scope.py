@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from blackholememory import app_core
-from blackholememory import app_ops
+from blackholememory import app_ops_admin
+from blackholememory import app_ops_task2
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -21,7 +22,7 @@ def test_hard_delete_preview_filters_alias_and_foreign_artifacts(monkeypatch) ->
     record = _memory("m1", "BlackHoleMemory")
     monkeypatch.setattr(app_runtime, "_find_live_memory", lambda _id, _project=None: record)
     monkeypatch.setattr(
-        app_ops,
+        app_ops_task2,
         "_artifact_store_pairs",
         lambda: {"checkpoint": (lambda: [
             {"id": "local", "project": "blackholememory", "memory_id": "m1", "title": "local"},
@@ -54,10 +55,10 @@ def test_artifact_restore_uses_canonical_project_for_reconstructed_memory(monkey
         "content": "durable content",
     }
     captured = []
-    monkeypatch.setattr(app_ops, "_artifact_find", lambda *_args, **_kwargs: ([artifact], lambda _items: None, artifact))
+    monkeypatch.setattr(app_ops_admin, "_artifact_find", lambda *_args, **_kwargs: ([artifact], lambda _items: None, artifact))
     monkeypatch.setattr(app_core, "_upsert_live_memory", lambda request: captured.append(request) or ("created", _memory("m2", request.project)))
 
-    result = app_ops._artifact_restore(
+    result = app_ops_admin._artifact_restore(
         bhm_app.ArtifactRestoreRequest(artifact_type="checkpoint", artifact_id="checkpoint-1", project="BlackHoleMemory")
     )
 

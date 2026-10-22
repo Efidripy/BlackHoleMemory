@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from blackholememory import app_core
-from blackholememory import app_ops
+from blackholememory import app_core_hook
+from blackholememory import app_ops_admin
+from blackholememory import app_ops_task2
 from blackholememory import app_runtime
 from blackholememory.observation_store import ObservationStore
 
@@ -41,18 +42,18 @@ def test_observation_activity_rollup_is_scoped_and_metadata_only(tmp_path) -> No
 def test_agent_activity_rollup_uses_observation_store_aggregate(monkeypatch, tmp_path) -> None:
     store = ObservationStore(tmp_path / "observations.sqlite3")
     store.append(_observation("obs-a", project="blackholememory", timestamp="2026-08-10T04:00:00Z"))
-    monkeypatch.setattr(app_core, "_observation_store", lambda: store)
-    monkeypatch.setattr(app_core, "_load_checkpoints", lambda: [])
-    monkeypatch.setattr(app_ops, "_load_handoffs", lambda: [])
+    monkeypatch.setattr(app_core_hook, "_observation_store", lambda: store)
+    monkeypatch.setattr(app_core_hook, "_load_checkpoints", lambda: [])
+    monkeypatch.setattr(app_ops_task2, "_load_handoffs", lambda: [])
     monkeypatch.setattr(app_runtime, "_load_tasks", lambda: [])
-    monkeypatch.setattr(app_core, "_load_session_records", lambda: [])
+    monkeypatch.setattr(app_core_hook, "_load_session_records", lambda: [])
     monkeypatch.setattr(
-        app_core,
+        app_core_hook,
         "_load_observations",
         lambda: (_ for _ in ()).throw(AssertionError("full observation load is forbidden")),
     )
 
-    result = app_ops._agent_activity_rollup("blackholememory")
+    result = app_ops_admin._agent_activity_rollup("blackholememory")
 
     assert result["counts"]["observations"] == 1
     assert result["latest"]["observations"] == "2026-08-10T04:00:00Z"

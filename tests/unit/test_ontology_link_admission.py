@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
+from blackholememory import app_ops_task
 from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
@@ -147,7 +148,7 @@ def test_ontology_quarantine_list_is_project_scoped_and_content_free(monkeypatch
     }
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: artifacts)
 
-    result = app_ops._list_ontology_quarantine("blackholememory", 500)
+    result = app_ops_task._list_ontology_quarantine("blackholememory", 500)
 
     assert result["project"] == "blackholememory"
     assert result["count"] == 1

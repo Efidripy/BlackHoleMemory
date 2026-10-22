@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 import httpx
 
 from tests.app_patch import patch_app_import
-from blackholememory import app_core
+from blackholememory import app_core_fallback
 from blackholememory import app as bhm_app
 from blackholememory import code_tools_service
 from blackholememory import graph_build_jobs
@@ -474,7 +474,7 @@ def test_metadata_code_search_reports_semantic_fusion_state(monkeypatch, tmp_pat
     async def fake_federated_search(*_args, **_kwargs):
         return ([{"path": "module.py", "score": 0.99, "metadata": {"source_id": "module.py"}}], 1)
 
-    monkeypatch.setattr(app_core, "federated_search", fake_federated_search)
+    monkeypatch.setattr(app_core_fallback, "federated_search", fake_federated_search)
     client = TestClient(bhm_app.app)
     response = client.post(
         "/bhm/code-tools",
