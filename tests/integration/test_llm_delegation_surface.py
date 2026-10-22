@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from blackholememory import app_core
+from blackholememory import app_core_hook
 from blackholememory import app as bhm_app
 from blackholememory import llm_routes
 from blackholememory import app_runtime
@@ -28,7 +28,7 @@ def _healthy_governor() -> LLMResourceGovernor:
 def _client(monkeypatch, tmp_path) -> tuple[TestClient, LLMJobQueue]:
     queue = LLMJobQueue(tmp_path / "llm-jobs.sqlite3", capacity=8)
     monkeypatch.setattr(llm_routes, "_LLM_JOB_QUEUE", queue)
-    monkeypatch.setattr(app_core, "_LLM_GOVERNOR", _healthy_governor())
+    monkeypatch.setattr(app_core_hook, "_LLM_GOVERNOR", _healthy_governor())
     return TestClient(bhm_app.app), queue
 
 
@@ -681,7 +681,7 @@ def test_completed_result_is_wrapped_as_non_applying_proposal(monkeypatch, tmp_p
 def test_gpu_probe_failure_denies_submission_before_persisting(monkeypatch, tmp_path):
     client, queue = _client(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        app_core,
+        app_core_hook,
         "_LLM_GOVERNOR",
         LLMResourceGovernor(
             GovernorConfig(background_requires_maintenance_window=False),

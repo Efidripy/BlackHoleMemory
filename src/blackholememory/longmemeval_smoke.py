@@ -16,7 +16,7 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Mapping
 
-from . import app_core
+from . import app_core_hook
 from .external_evaluation_admission import ExternalEvaluationAdmissionError
 from .external_evaluation_admission import MAX_EXTERNAL_EVALUATION_DATASET_BYTES
 from .external_evaluation_admission import verify_external_evaluation_admission_report
@@ -157,9 +157,9 @@ def _case_records(item: Mapping[str, Any]) -> tuple[tuple[dict[str, Any], ...], 
 def _rank(query: str, records: tuple[dict[str, Any], ...], *, k: int) -> tuple[str, ...]:
     ranked: list[tuple[float, str]] = []
     for record in records:
-        score = app_core._lexical_signal(query, record)
-        score += app_core._memory_type_weight(record)
-        score += app_core._query_intent_weight(query, record)
+        score = app_core_hook._lexical_signal(query, record)
+        score += app_core_hook._memory_type_weight(record)
+        score += app_core_hook._query_intent_weight(query, record)
         if score > 0:
             ranked.append((score, str(record["source_id"])))
     ranked.sort(key=lambda value: (-value[0], value[1]))

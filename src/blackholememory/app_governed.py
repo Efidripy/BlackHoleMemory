@@ -64,6 +64,8 @@ from .shared_memory_grants import GRANT_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_ART
 from .shared_memory_grants import REVOCATION_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_REVOCATION_ARTIFACT_TYPE
 from .shared_memory_grants import resolve_effective_grants
 from .llm_resource_governor import AdmissionRequest
+from . import app_core_fallback
+from . import app_core_hook
 from . import app_core
 
 
@@ -182,7 +184,7 @@ def _shared_memory_read(
 ) -> dict[str, Any]:
     """Read one active SQLite memory only after an explicit governed ALLOW."""
 
-    if not app_core._shared_memory_read_enabled():
+    if not app_core_hook._shared_memory_read_enabled():
         raise HTTPException(status_code=409, detail={"code": "shared_memory_read_disabled"})
     if principal is None:
         raise HTTPException(status_code=401, detail={"code": "caller_auth_required"})
@@ -273,7 +275,7 @@ def _utility_feedback_change_set_preview(
     """Build a snapshot-bound consolidation preview without an apply path."""
 
     canonical_project = rt._canonical_project(request.project)
-    report = app_core._utility_feedback_report(
+    report = app_core_hook._utility_feedback_report(
         project=canonical_project,
         as_of=request.as_of,
         half_life_days=30.0,
@@ -449,7 +451,7 @@ def _governed_consolidation_create(request: GovernedConsolidationCreateRequest, 
                 reason=request.reason or "operator-submitted same-project consolidation candidate",
                 confidence=request.confidence,
             )
-        stored, inserted = GovernedConsolidationRepository(app_core._governed_consolidation_database_path()).create(proposal)
+        stored, inserted = GovernedConsolidationRepository(app_core_hook._governed_consolidation_database_path()).create(proposal)
     except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
         raise _governed_consolidation_error(exc) from exc
     return {
@@ -485,7 +487,7 @@ def _governed_semantic_lexical_fallback_records(
         if not memory_id:
             continue
         metadata = record.get("metadata") if isinstance(record.get("metadata"), Mapping) else {}
-        score = app_core._lexical_signal(
+        score = app_core_hook._lexical_signal(
             query,
             {
                 "memory": record.get("content") or record.get("memory") or "",
@@ -529,7 +531,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
             search_kwargs: dict[str, Any] = {}
             if request.include_historical:
                 search_kwargs["include_historical"] = True
-            hits, _total = await app_core.federated_search(
+            hits, _total = await app_core_fallback.federated_search(
                 request.query,
                 project,
                 limit=MAX_RETRIEVAL_CANDIDATES,
@@ -557,7 +559,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                     include_historical=request.include_historical,
                 )
                 candidate_ids = [str(item.get("source_id") or item.get("id") or "") for item in records]
-        except (app_core.EmbeddingPreparationTimeout, ResponseTimeout, StorageNotReady) as exc:
+        except (app_core_fallback.EmbeddingPreparationTimeout, ResponseTimeout, StorageNotReady) as exc:
             # Projection retrieval is an optional proposal input.  A slow or
             # unavailable embedding contour may use a bounded, transparent
             # SQLite lexical fallback. It never treats the fallback as vector
@@ -578,7 +580,7 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 ) from exc
         completion = LocalGatewaySemanticCompletion(config)
         job_id = f"governed-semantic-{uuid.uuid4().hex}"
-        admission = app_core._llm_governor().admit(
+        admission = app_core_hook._llm_governor().admit(
             AdmissionRequest(
                 job_id=job_id,
                 workload="foreground",
@@ -599,12 +601,12 @@ async def _governed_semantic_proposal(request: GovernedSemanticProposalRequest, 
                 retire_historical_basis=request.include_historical,
             )
         finally:
-            app_core._llm_governor().release(job_id)
+            app_core_hook._llm_governor().release(job_id)
         stored: dict[str, Any] | None = None
         inserted = False
         automatic_review: dict[str, Any] | None = None
         if request.store_proposal:
-            stored, inserted = GovernedConsolidationRepository(app_core._governed_consolidation_database_path()).create(proposal)
+            stored, inserted = GovernedConsolidationRepository(app_core_hook._governed_consolidation_database_path()).create(proposal)
         return {
             "proposal": stored or proposal,
             "stored": request.store_proposal,
@@ -876,7 +878,7 @@ def _governed_semantic_shadow_metrics(*, project: str, principal: Any) -> dict[s
     _require_governed_consolidation_enabled()
     canonical_project = _governed_consolidation_project(principal, project)
     try:
-        proposals = GovernedConsolidationRepository(app_core._governed_consolidation_database_path()).list(
+        proposals = GovernedConsolidationRepository(app_core_hook._governed_consolidation_database_path()).list(
             project=canonical_project,
             limit=200,
         )
@@ -898,7 +900,7 @@ def _governed_semantic_shadow_metrics(*, project: str, principal: Any) -> dict[s
 def _governed_consolidation_inspect(*, project: str, proposal_id: str, principal: Any) -> dict[str, Any]:
     _require_governed_consolidation_enabled()
     try:
-        proposal = GovernedConsolidationRepository(app_core._governed_consolidation_database_path()).get(proposal_id, project=_governed_consolidation_project(principal, project))
+        proposal = GovernedConsolidationRepository(app_core_hook._governed_consolidation_database_path()).get(proposal_id, project=_governed_consolidation_project(principal, project))
     except GovernedConsolidationError as exc:
         raise _governed_consolidation_error(exc) from exc
     return {"proposal": proposal, "side_effects": {"read_only": True, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False}}
@@ -908,7 +910,7 @@ def _governed_consolidation_list(*, project: str, status: str | None, limit: int
     _require_governed_consolidation_enabled()
     canonical_project = _governed_consolidation_project(principal, project)
     try:
-        proposals = GovernedConsolidationRepository(app_core._governed_consolidation_database_path()).list(project=canonical_project, status=status, limit=limit)
+        proposals = GovernedConsolidationRepository(app_core_hook._governed_consolidation_database_path()).list(project=canonical_project, status=status, limit=limit)
     except GovernedConsolidationError as exc:
         raise _governed_consolidation_error(exc) from exc
     return {"project": canonical_project, "proposals": proposals, "count": len(proposals), "side_effects": {"read_only": True, "sqlite_mutation": False, "qdrant_mutation": False, "mem0_mutation": False}}
@@ -917,7 +919,7 @@ def _governed_consolidation_list(*, project: str, status: str | None, limit: int
 def _governed_consolidation_validate(*, project: str, proposal_id: str, principal: Any) -> dict[str, Any]:
     _require_governed_consolidation_enabled()
     try:
-        proposal = GovernedConsolidationRepository(app_core._governed_consolidation_database_path()).get(proposal_id, project=_governed_consolidation_project(principal, project))
+        proposal = GovernedConsolidationRepository(app_core_hook._governed_consolidation_database_path()).get(proposal_id, project=_governed_consolidation_project(principal, project))
         return validate_governed_consolidation_proposal(proposal=proposal, repository=rt._memory_service().repository)
     except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
         raise _governed_consolidation_error(exc) from exc
@@ -926,7 +928,7 @@ def _governed_consolidation_validate(*, project: str, proposal_id: str, principa
 def _governed_consolidation_dry_run(request: GovernedConsolidationProposalRequest, *, principal: Any) -> dict[str, Any]:
     _require_governed_consolidation_enabled()
     try:
-        proposal = GovernedConsolidationRepository(app_core._governed_consolidation_database_path()).get(request.proposal_id, project=_governed_consolidation_project(principal, request.project))
+        proposal = GovernedConsolidationRepository(app_core_hook._governed_consolidation_database_path()).get(request.proposal_id, project=_governed_consolidation_project(principal, request.project))
         return dry_run_governed_consolidation_apply(proposal=proposal, repository=rt._memory_service().repository)
     except (GovernedConsolidationError, MemoryServiceNotReady, OSError, ValueError) as exc:
         raise _governed_consolidation_error(exc) from exc
@@ -936,7 +938,7 @@ def _governed_consolidation_decide(request: GovernedConsolidationDecisionRequest
     _require_governed_consolidation_enabled()
     project = _governed_consolidation_project(principal, request.project)
     try:
-        proposal = GovernedConsolidationRepository(app_core._governed_consolidation_database_path()).decide(
+        proposal = GovernedConsolidationRepository(app_core_hook._governed_consolidation_database_path()).decide(
             proposal_id=request.proposal_id,
             project=project,
             decision=request.decision,
@@ -952,7 +954,7 @@ def _governed_consolidation_apply(request: GovernedConsolidationApplyRequest, *,
     _require_governed_consolidation_enabled()
     project = _governed_consolidation_project(principal, request.project)
     try:
-        result = apply_approved_proposal(database_path=app_core._governed_consolidation_database_path(), proposal_id=request.proposal_id, project=project, apply=request.apply, confirmation=request.confirmation)
+        result = apply_approved_proposal(database_path=app_core_hook._governed_consolidation_database_path(), proposal_id=request.proposal_id, project=project, apply=request.apply, confirmation=request.confirmation)
     except (GovernedConsolidationError, OSError, ValueError) as exc:
         raise _governed_consolidation_error(exc) from exc
     return {"proposal_id": result.proposal_id, "status": result.status, "memory_ids": list(result.memory_ids), "outbox_event_ids": list(result.outbox_event_ids), "link_id": result.link_id, "observability": {"apply_duration_ms": result.apply_duration_ms, "outbox": result.outbox}, "side_effects": {"sqlite_mutation": True, "memory_lifecycle_mutation": bool(result.memory_ids), "memory_outbox_mutation": bool(result.outbox_event_ids), "qdrant_mutation": False, "mem0_mutation": False, "projection": "existing_outbox_projector"}}
@@ -1020,7 +1022,7 @@ async def bhm_consolidation_change_set_review(
 async def bhm_governed_consolidation_status() -> dict[str, Any]:
     """Return the governed mode and auto-review policy without a write."""
 
-    result = governed_consolidation_status(app_core._governed_consolidation_database_path())
+    result = governed_consolidation_status(app_core_hook._governed_consolidation_database_path())
     auto_review = governed_auto_review_policy_status()
     result["auto_review_apply"] = auto_review
     if result.get("enabled") and auto_review["automatic_apply_enabled"]:

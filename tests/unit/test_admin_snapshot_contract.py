@@ -6,7 +6,8 @@ import json
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import app_ops
+from blackholememory import app_ops_admin
+from blackholememory import app_ops_task2
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
@@ -15,25 +16,25 @@ def test_admin_snapshot_loader_rejects_malformed_and_non_object_payload(tmp_path
     malformed = tmp_path / "malformed.json"
     malformed.write_text("{", encoding="utf-8")
     with pytest.raises(HTTPException) as malformed_error:
-        app_ops._load_admin_snapshot_payload(malformed)
+        app_ops_admin._load_admin_snapshot_payload(malformed)
     assert malformed_error.value.status_code == 422
 
     array_payload = tmp_path / "array.json"
     array_payload.write_text("[]", encoding="utf-8")
     with pytest.raises(HTTPException) as array_error:
-        app_ops._load_admin_snapshot_payload(array_payload)
+        app_ops_admin._load_admin_snapshot_payload(array_payload)
     assert array_error.value.status_code == 422
 
     oversized = tmp_path / "oversized.json"
-    oversized.write_bytes(b"x" * (app_ops.MAX_ADMIN_SNAPSHOT_BYTES + 1))
+    oversized.write_bytes(b"x" * (app_ops_admin.MAX_ADMIN_SNAPSHOT_BYTES + 1))
     with pytest.raises(HTTPException) as oversized_error:
-        app_ops._load_admin_snapshot_payload(oversized)
+        app_ops_admin._load_admin_snapshot_payload(oversized)
     assert oversized_error.value.status_code == 413
 
 
 def test_admin_snapshot_canonicalizer_rejects_unknown_artifact_type() -> None:
     with pytest.raises(HTTPException) as error:
-        app_ops._canonicalize_admin_snapshot_payload(
+        app_ops_admin._canonicalize_admin_snapshot_payload(
             {"project": "blackholememory", "memories": [], "links": [], "artifacts": {"unknown": []}},
             "blackholememory",
         )
@@ -44,7 +45,7 @@ def test_admin_snapshot_canonicalizer_rejects_unknown_artifact_type() -> None:
 def test_admin_import_apply_rejects_unknown_merge_mode() -> None:
     request = bhm_app.AdminImportApplyRequest(path="snapshot.json", merge_mode="merge")
     with pytest.raises(HTTPException) as error:
-        app_ops._admin_import_apply(request, http_request=SimpleNamespace())
+        app_ops_admin._admin_import_apply(request, http_request=SimpleNamespace())
     assert error.value.status_code == 422
     assert error.value.detail["code"] == "admin_snapshot_merge_mode_invalid"
 
@@ -68,7 +69,7 @@ def test_admin_export_filters_alias_and_foreign_nested_records(monkeypatch, tmp_
         ],
     )
     monkeypatch.setattr(
-        app_ops,
+        app_ops_task2,
         "_artifact_store_pairs",
         lambda: {"checkpoint": (lambda: [
             {"id": "local-artifact", "project": "BlackHoleMemory"},
@@ -76,7 +77,7 @@ def test_admin_export_filters_alias_and_foreign_nested_records(monkeypatch, tmp_
         ], lambda _items: None)},
     )
 
-    result = app_ops._admin_export(
+    result = app_ops_admin._admin_export(
         bhm_app.AdminExportRequest(project="BlackHoleMemory", export_name="scoped.json")
     )
     payload = json.loads((tmp_path / "admin-exports" / "scoped.json").read_text(encoding="utf-8"))
@@ -100,7 +101,7 @@ def test_admin_export_rejects_linked_export_parent_before_creation(monkeypatch, 
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_root)
 
     with pytest.raises(OSError, match="symlink|junction|reparse"):
-        app_ops._admin_export(bhm_app.AdminExportRequest(export_name="blocked.json"))
+        app_ops_admin._admin_export(bhm_app.AdminExportRequest(export_name="blocked.json"))
     assert not (outside / "blocked.json").exists()
 
 
@@ -118,7 +119,7 @@ def test_admin_snapshot_path_rejects_hardlinked_import_before_read(monkeypatch, 
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_root)
 
     with pytest.raises(OSError, match="hardlink"):
-        app_ops._admin_snapshot_path("snapshot.json")
+        app_ops_admin._admin_snapshot_path("snapshot.json")
 
 
 def test_admin_snapshot_rejects_cross_project_link_endpoints(monkeypatch) -> None:
@@ -130,10 +131,10 @@ def test_admin_snapshot_rejects_cross_project_link_endpoints(monkeypatch) -> Non
             {"source_id": "foreign", "project": "e-github-workspace"},
         ],
     )
-    monkeypatch.setattr(app_ops, "_artifact_store_pairs", lambda: {})
+    monkeypatch.setattr(app_ops_task2, "_artifact_store_pairs", lambda: {})
 
     with pytest.raises(HTTPException) as error:
-        app_ops._validate_admin_snapshot_ownership(
+        app_ops_admin._validate_admin_snapshot_ownership(
             {
                 "memories": [{"source_id": "local", "project": "blackholememory"}],
                 "links": [
@@ -162,13 +163,13 @@ def test_admin_snapshot_rejects_artifact_backing_memory_from_foreign_project(mon
         ],
     )
     monkeypatch.setattr(
-        app_ops,
+        app_ops_task2,
         "_artifact_store_pairs",
         lambda: {"checkpoint": (lambda: [], lambda _items: None)},
     )
 
     with pytest.raises(HTTPException) as error:
-        app_ops._validate_admin_snapshot_ownership(
+        app_ops_admin._validate_admin_snapshot_ownership(
             {
                 "memories": [{"source_id": "local", "project": "blackholememory"}],
                 "links": [],
@@ -194,10 +195,10 @@ def test_admin_snapshot_rejects_foreign_memory_id_collision_before_merge(monkeyp
         "_load_live_memories",
         lambda: [{"source_id": "shared-id", "project": "e-github-workspace"}],
     )
-    monkeypatch.setattr(app_ops, "_artifact_store_pairs", lambda: {})
+    monkeypatch.setattr(app_ops_task2, "_artifact_store_pairs", lambda: {})
 
     with pytest.raises(HTTPException) as error:
-        app_ops._validate_admin_snapshot_ownership(
+        app_ops_admin._validate_admin_snapshot_ownership(
             {
                 "memories": [{"source_id": "shared-id", "project": "blackholememory"}],
                 "links": [],

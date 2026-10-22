@@ -7,8 +7,11 @@ import pytest
 from fastapi import HTTPException
 
 from tests.app_patch import patch_app_import
+from blackholememory import app_core_fallback
+from blackholememory import app_core_hit
 from blackholememory import app_core
-from blackholememory import app_ops
+from blackholememory import app_ops_admin
+from blackholememory import app_ops_task2
 from blackholememory import app_projects
 from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
@@ -70,11 +73,11 @@ def test_authoritative_link_adapter_preserves_legacy_metadata_provenance(monkeyp
 def test_public_search_scope_defaults_to_configured_project_and_reserves_global(monkeypatch):
     monkeypatch.setattr(bhm_app.settings, "qdrant_collection", "blackholememory")
 
-    assert app_core._effective_search_project(None) == "blackholememory"
-    assert app_core._effective_search_project("BlackHoleMemory") == "blackholememory"
+    assert app_core_fallback._effective_search_project(None) == "blackholememory"
+    assert app_core_fallback._effective_search_project("BlackHoleMemory") == "blackholememory"
 
     with pytest.raises(HTTPException) as exc_info:
-        app_core._effective_search_project("GLOBAL")
+        app_core_fallback._effective_search_project("GLOBAL")
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["code"] == "global_scope_requires_explicit_internal_capability"
@@ -127,10 +130,10 @@ def test_federated_search_filters_each_contour_and_rejects_missing_project_metad
         ]
 
     patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
-    monkeypatch.setattr(app_core, "_search_memory_collection", fake_search_memory_collection)
+    monkeypatch.setattr(app_core_hit, "_search_memory_collection", fake_search_memory_collection)
 
     hits, total = asyncio.run(
-        app_core.federated_search(
+        app_core_fallback.federated_search(
             "scope boundary",
             "blackholememory",
             limit=10,
@@ -170,7 +173,7 @@ def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(mon
 
     patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: True)
     patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
-    monkeypatch.setattr(app_core, "_search_memory_collection", lambda **_kwargs: [])
+    monkeypatch.setattr(app_core_hit, "_search_memory_collection", lambda **_kwargs: [])
 
     class FakeService:
         @staticmethod
@@ -192,7 +195,7 @@ def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(mon
     )
 
     hits, total = asyncio.run(
-        app_core.federated_search(
+        app_core_fallback.federated_search(
             "find contract_009_anchor",
             "blackholememory",
             limit=5,
@@ -258,11 +261,11 @@ def test_opt_in_exact_identifier_snapshot_work_overlaps_vector_contours(monkeypa
     patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: FakeService())
     monkeypatch.setattr(app_runtime, "_load_live_memories", blocking_snapshot)
-    monkeypatch.setattr(app_core, "_search_memory_collection", vector_contour)
+    monkeypatch.setattr(app_core_hit, "_search_memory_collection", vector_contour)
 
     async def exercise():
         task = asyncio.create_task(
-            app_core.federated_search(
+            app_core_fallback.federated_search(
                 "find contract_010_anchor",
                 "blackholememory",
                 limit=5,
@@ -290,7 +293,7 @@ def test_timed_retrieval_contour_measures_completed_worker_duration(monkeypatch)
     ticks = iter((100.0, 100.125))
     monkeypatch.setattr(bhm_app.time, "perf_counter", lambda: next(ticks))
 
-    outcome = asyncio.run(app_core._run_timed_retrieval_contour("local_vector", lambda: ["ok"]))
+    outcome = asyncio.run(app_core_fallback._run_timed_retrieval_contour("local_vector", lambda: ["ok"]))
 
     assert outcome.result == ["ok"]
     assert outcome.error is None
@@ -324,11 +327,11 @@ def test_federated_search_uses_remaining_contour_after_one_contour_times_out(mon
     patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: False)
     patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
     patch_app_import(monkeypatch, "get_global_core_memory", lambda: FakeMemory())
-    monkeypatch.setattr(app_core, "_search_memory_collection", fake_search_memory_collection)
+    monkeypatch.setattr(app_core_hit, "_search_memory_collection", fake_search_memory_collection)
 
     try:
         outcome = asyncio.run(
-            app_core.federated_search(
+            app_core_fallback.federated_search(
                 "timeout boundary",
                 "blackholememory",
                 limit=5,
@@ -368,15 +371,15 @@ def test_federated_search_bounds_cold_embedding_before_vector_contours(monkeypat
     patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: False)
     patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory(embedder))
     monkeypatch.setattr(
-        app_core,
+        app_core_hit,
         "_search_memory_collection",
         lambda *, context_origin, **_kwargs: contour_calls.append(context_origin),
     )
 
     async def exercise() -> None:
         try:
-            with pytest.raises(app_core.EmbeddingPreparationTimeout):
-                await app_core.federated_search(
+            with pytest.raises(app_core_fallback.EmbeddingPreparationTimeout):
+                await app_core_fallback.federated_search(
                     "cold embedding boundary",
                     "blackholememory",
                     limit=5,
@@ -392,12 +395,12 @@ def test_federated_search_bounds_cold_embedding_before_vector_contours(monkeypat
 
 
 def test_provider_call_fails_fast_when_late_calls_fill_capacity():
-    slots = app_core._RETRIEVAL_PROVIDER_SLOTS
-    acquired = [slots.acquire(blocking=False) for _ in range(app_core._RETRIEVAL_PROVIDER_WORKERS)]
+    slots = app_core_fallback._RETRIEVAL_PROVIDER_SLOTS
+    acquired = [slots.acquire(blocking=False) for _ in range(app_core_fallback._RETRIEVAL_PROVIDER_WORKERS)]
     assert all(acquired)
     try:
-        with pytest.raises(app_core.RetrievalProviderCapacityExceeded):
-            asyncio.run(app_core._run_bounded_provider_call(lambda: "never-called"))
+        with pytest.raises(app_core_fallback.RetrievalProviderCapacityExceeded):
+            asyncio.run(app_core_fallback._run_bounded_provider_call(lambda: "never-called"))
     finally:
         for was_acquired in acquired:
             if was_acquired:
@@ -416,14 +419,14 @@ def test_embedding_provider_connection_error_remains_fallback_grace_eligible(mon
     patch_app_import(monkeypatch, "exact_identifier_enabled", lambda: False)
     patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
     monkeypatch.setattr(
-        app_core,
+        app_core_hit,
         "_search_memory_collection",
         lambda **_kwargs: (_ for _ in ()).throw(AssertionError("contours must not retry failed embedding")),
     )
 
     with pytest.raises(ConnectionError) as exc_info:
         asyncio.run(
-            app_core.federated_search(
+            app_core_fallback.federated_search(
                 "provider exception boundary",
                 "blackholememory",
                 limit=5,
@@ -506,7 +509,7 @@ def test_repair_live_indexes_isolates_project_scope(monkeypatch):
     ):
         patch_app_import(monkeypatch, name, lambda value, key=name: saved_artifacts.setdefault(key, value))
 
-    result = app_ops._repair_live_indexes(
+    result = app_ops_task2._repair_live_indexes(
         bhm_app.RepairLiveIndexesRequest(
             project="BlackHoleMemory",
             remove_orphan_links=True,
@@ -526,7 +529,7 @@ def test_repair_live_indexes_isolates_project_scope(monkeypatch):
 
 def test_repair_live_indexes_requires_project_or_explicit_aggregate():
     with pytest.raises(HTTPException) as exc_info:
-        app_ops._repair_live_indexes(bhm_app.RepairLiveIndexesRequest())
+        app_ops_task2._repair_live_indexes(bhm_app.RepairLiveIndexesRequest())
 
     assert exc_info.value.status_code == 403
     assert exc_info.value.detail["code"] == "repair_scope_required"
@@ -536,22 +539,22 @@ def test_strict_repair_forwards_project_scope(monkeypatch):
     captured = {}
 
     monkeypatch.setattr(
-        app_ops,
+        app_ops_admin,
         "_normalize_memory_metadata",
         lambda project: captured.setdefault("normalize", project) or {"updated": 0},
     )
     monkeypatch.setattr(
-        app_ops,
+        app_ops_task2,
         "_repair_live_indexes",
         lambda request: captured.setdefault("repair", request) or {"removed_links": 0},
     )
     monkeypatch.setattr(
-        app_ops,
+        app_ops_admin,
         "_schema_validate_strict",
         lambda request: captured.setdefault("validate", request) or {"ok": True},
     )
 
-    result = app_ops._integrity_repair_strict(
+    result = app_ops_admin._integrity_repair_strict(
         bhm_app.IntegrityRepairStrictRequest(project="BlackHoleMemory")
     )
 
@@ -564,7 +567,7 @@ def test_strict_repair_forwards_project_scope(monkeypatch):
 
 def test_hard_delete_preserves_foreign_project_references(monkeypatch):
     target = _record("blackholememory", "target")
-    monkeypatch.setattr(app_ops, "_delete_live_memory", lambda _request: target)
+    monkeypatch.setattr(app_ops_task2, "_delete_live_memory", lambda _request: target)
     links = [
         {"source_id": target["source_id"], "target_id": "a", "project": "BlackHoleMemory"},
         {"source_id": target["source_id"], "target_id": "b", "project": "e-github-workspace"},
@@ -599,7 +602,7 @@ def test_hard_delete_preserves_foreign_project_references(monkeypatch):
             lambda value, key=saver_name: artifact_stores.setdefault(key, value),
         )
 
-    result = app_ops._delete_live_memory_hard(
+    result = app_ops_task2._delete_live_memory_hard(
         bhm_app.HardDeleteMemoryRequest(id=target["source_id"], project="BlackHoleMemory")
     )
 

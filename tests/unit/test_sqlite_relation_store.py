@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from blackholememory import app_core
+from blackholememory import app_core_graph
 from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import memory_routes
@@ -66,7 +66,7 @@ def test_graph_expansion_reads_sqlite_links_and_skips_inactive_targets(service) 
         ]
     )
 
-    links = app_core._authoritative_graph_links_sync(["seed"], "BlackHoleMemory")
+    links = app_core_graph._authoritative_graph_links_sync(["seed"], "BlackHoleMemory")
 
     assert sorted(links, key=lambda item: item["target_id"]) == [
         {"target_id": "dep", "edge_type": "DEPENDS_ON"},

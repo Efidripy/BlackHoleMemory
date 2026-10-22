@@ -74,11 +74,17 @@ import sqlite3  # noqa: F401
 from .temporal_contract import temporal_contract_enabled  # noqa: F401
 from datetime import timedelta  # noqa: F401
 from .typed_memory_contract import typed_memory_capability_available  # noqa: F401
+from . import app_core_fallback
+from . import app_core_hit
+from . import app_core_hook
 from . import app_core
 from . import app_governed
 from . import app_graphs
 from . import app_hooks
 from . import app_mcp
+from . import app_ops_admin
+from . import app_ops_task
+from . import app_ops_task2
 from . import app_ops
 from . import app_projects
 from . import app_retrieval
@@ -831,7 +837,7 @@ async def usage_telemetry_guard(request: Request, call_next):
         raise
     finally:
         app_core._USAGE_TELEMETRY.record(
-            surface=app_core._request_surface(request),
+            surface=app_core_hook._request_surface(request),
             operation=app_lifecycle._rest_usage_operation(request),
             status=status,
             duration_ms=monotonic_elapsed_ms(started_at),
@@ -927,87 +933,87 @@ def openapi_admin() -> JSONResponse:
 
 
 code_tools_service.configure(
-    _SEMANTIC_READINESS_GATE_ENABLED=lambda: app_core._SEMANTIC_READINESS_GATE_ENABLED,
-    _fast_semantic_runtime_slo_status=lambda *a, **k: app_core._fast_semantic_runtime_slo_status(*a, **k),
-    _observation_store=lambda *a, **k: app_core._observation_store(*a, **k),
-    _read_git_head=lambda *a, **k: app_core._read_git_head(*a, **k),
+    _SEMANTIC_READINESS_GATE_ENABLED=lambda: app_core_hook._SEMANTIC_READINESS_GATE_ENABLED,
+    _fast_semantic_runtime_slo_status=lambda *a, **k: app_core_hook._fast_semantic_runtime_slo_status(*a, **k),
+    _observation_store=lambda *a, **k: app_core_hook._observation_store(*a, **k),
+    _read_git_head=lambda *a, **k: app_core_hook._read_git_head(*a, **k),
     _semantic_readiness_receipt=lambda *a, **k: app_core._semantic_readiness_receipt(*a, **k),
     bhm_health_slo=lambda *a, **k: app_telemetry.bhm_health_slo(*a, **k),
-    federated_search=lambda *a, **k: app_core.federated_search(*a, **k),
+    federated_search=lambda *a, **k: app_core_fallback.federated_search(*a, **k),
 )
 
 
 llm_routes.configure(
-    _authorize_resource_project=lambda *a, **k: app_core._authorize_resource_project(*a, **k),
+    _authorize_resource_project=lambda *a, **k: app_core_hook._authorize_resource_project(*a, **k),
     _detect_conflicts=lambda *a, **k: app_ops._detect_conflicts(*a, **k),
     _detect_duplicates=lambda *a, **k: app_core._detect_duplicates(*a, **k),
-    _llm_governor=lambda *a, **k: app_core._llm_governor(*a, **k),
-    _memory_matches_filters=lambda *a, **k: app_core._memory_matches_filters(*a, **k),
+    _llm_governor=lambda *a, **k: app_core_hook._llm_governor(*a, **k),
+    _memory_matches_filters=lambda *a, **k: app_core_hit._memory_matches_filters(*a, **k),
     _relation_suggest=lambda *a, **k: app_ops._relation_suggest(*a, **k),
-    federated_search=lambda *a, **k: app_core.federated_search(*a, **k),
+    federated_search=lambda *a, **k: app_core_fallback.federated_search(*a, **k),
 )
 
 
 galaxy_routes.configure(
     _memory_lifecycle=lambda *a, **k: app_core._memory_lifecycle(*a, **k),
-    _memory_matches_filters=lambda *a, **k: app_core._memory_matches_filters(*a, **k),
-    _require_typed_memory_boundary=lambda *a, **k: app_core._require_typed_memory_boundary(*a, **k),
+    _memory_matches_filters=lambda *a, **k: app_core_hit._memory_matches_filters(*a, **k),
+    _require_typed_memory_boundary=lambda *a, **k: app_core_fallback._require_typed_memory_boundary(*a, **k),
 )
 
 
 ui_routes.configure(
-    _read_boot_report=lambda *a, **k: app_core._read_boot_report(*a, **k),
+    _read_boot_report=lambda *a, **k: app_core_hook._read_boot_report(*a, **k),
 )
 
 
 memory_routes.configure(
-    _RETRIEVAL_FUNNEL=lambda: app_core._RETRIEVAL_FUNNEL,
+    _RETRIEVAL_FUNNEL=lambda: app_core_hook._RETRIEVAL_FUNNEL,
     _admit_new_content=lambda *a, **k: app_core._admit_new_content(*a, **k),
     _advanced_search_live_memories=lambda *a, **k: app_retrieval._advanced_search_live_memories(*a, **k),
     _append_memory_changelog=lambda *a, **k: app_core._append_memory_changelog(*a, **k),
-    _artifact_store_pairs=lambda *a, **k: app_ops._artifact_store_pairs(*a, **k),
-    _batch_mapping_items=lambda *a, **k: app_ops._batch_mapping_items(*a, **k),
-    _batch_project_scope=lambda *a, **k: app_ops._batch_project_scope(*a, **k),
+    _artifact_store_pairs=lambda *a, **k: app_ops_task2._artifact_store_pairs(*a, **k),
+    _batch_mapping_items=lambda *a, **k: app_ops_admin._batch_mapping_items(*a, **k),
+    _batch_project_scope=lambda *a, **k: app_ops_admin._batch_project_scope(*a, **k),
     _build_memory_title=lambda *a, **k: app_core._build_memory_title(*a, **k),
     _combined_review_status=lambda *a, **k: app_ops._combined_review_status(*a, **k),
     _create_memory_link=lambda *a, **k: app_ops._create_memory_link(*a, **k),
-    _delete_live_memory=lambda *a, **k: app_ops._delete_live_memory(*a, **k),
-    _delete_live_memory_hard=lambda *a, **k: app_ops._delete_live_memory_hard(*a, **k),
+    _delete_live_memory=lambda *a, **k: app_ops_task2._delete_live_memory(*a, **k),
+    _delete_live_memory_hard=lambda *a, **k: app_ops_task2._delete_live_memory_hard(*a, **k),
     _detect_conflicts=lambda *a, **k: app_ops._detect_conflicts(*a, **k),
     _detect_duplicates=lambda *a, **k: app_core._detect_duplicates(*a, **k),
     _fallback_grace_memories_response=lambda *a, **k: app_retrieval._fallback_grace_memories_response(*a, **k),
-    _fetch_qdrant_hit_by_source_id=lambda *a, **k: app_core._fetch_qdrant_hit_by_source_id(*a, **k),
+    _fetch_qdrant_hit_by_source_id=lambda *a, **k: app_core_hit._fetch_qdrant_hit_by_source_id(*a, **k),
     _is_archived_memory=lambda *a, **k: app_core._is_archived_memory(*a, **k),
     _is_fallback_grace_error=lambda *a, **k: app_retrieval._is_fallback_grace_error(*a, **k),
     _lint_memory_record=lambda *a, **k: app_ops._lint_memory_record(*a, **k),
     _memory_content_sha256=lambda *a, **k: app_ops._memory_content_sha256(*a, **k),
-    _memory_matches_filters=lambda *a, **k: app_core._memory_matches_filters(*a, **k),
+    _memory_matches_filters=lambda *a, **k: app_core_hit._memory_matches_filters(*a, **k),
     _memory_redact=lambda *a, **k: app_ops._memory_redact(*a, **k),
     _memory_review_queue=lambda *a, **k: app_ops._memory_review_queue(*a, **k),
     _merge_memories=lambda *a, **k: app_lifecycle._merge_memories(*a, **k),
     _normalize_linked_dependencies=lambda *a, **k: app_hooks._normalize_linked_dependencies(*a, **k),
-    _normalize_memory_metadata=lambda *a, **k: app_ops._normalize_memory_metadata(*a, **k),
-    _project_matches=lambda *a, **k: app_core._project_matches(*a, **k),
+    _normalize_memory_metadata=lambda *a, **k: app_ops_admin._normalize_memory_metadata(*a, **k),
+    _project_matches=lambda *a, **k: app_core_hook._project_matches(*a, **k),
     _record_age_days=lambda *a, **k: app_projects._record_age_days(*a, **k),
     _relation_suggest=lambda *a, **k: app_ops._relation_suggest(*a, **k),
     _replace_live_memory=lambda *a, **k: app_core._replace_live_memory(*a, **k),
-    _request_actor=lambda *a, **k: app_core._request_actor(*a, **k),
-    _request_ingress=lambda *a, **k: app_ops._request_ingress(*a, **k),
-    _require_temporal_memory_boundary=lambda *a, **k: app_core._require_temporal_memory_boundary(*a, **k),
-    _require_typed_memory_boundary=lambda *a, **k: app_core._require_typed_memory_boundary(*a, **k),
-    _restore_archived_memory=lambda *a, **k: app_ops._restore_archived_memory(*a, **k),
+    _request_actor=lambda *a, **k: app_core_hook._request_actor(*a, **k),
+    _request_ingress=lambda *a, **k: app_ops_task._request_ingress(*a, **k),
+    _require_temporal_memory_boundary=lambda *a, **k: app_core_fallback._require_temporal_memory_boundary(*a, **k),
+    _require_typed_memory_boundary=lambda *a, **k: app_core_fallback._require_typed_memory_boundary(*a, **k),
+    _restore_archived_memory=lambda *a, **k: app_ops_admin._restore_archived_memory(*a, **k),
     _review_queue_id=lambda *a, **k: app_ops._review_queue_id(*a, **k),
     _save_live_memories=lambda *a, **k: app_core._save_live_memories(*a, **k),
-    _search_hit_collection=lambda *a, **k: app_core._search_hit_collection(*a, **k),
+    _search_hit_collection=lambda *a, **k: app_core_hit._search_hit_collection(*a, **k),
     _semantic_graph_node_id=lambda *a, **k: app_governed._semantic_graph_node_id(*a, **k),
     _serialize_conflict_candidate=lambda *a, **k: app_ops._serialize_conflict_candidate(*a, **k),
     _serialize_memory_link=lambda *a, **k: app_ops._serialize_memory_link(*a, **k),
     _serialize_memory_record=lambda *a, **k: app_core._serialize_memory_record(*a, **k),
     _set_memory_pin=lambda *a, **k: app_projects._set_memory_pin(*a, **k),
-    _strict_retrieval_hits=lambda *a, **k: app_core._strict_retrieval_hits(*a, **k),
+    _strict_retrieval_hits=lambda *a, **k: app_core_fallback._strict_retrieval_hits(*a, **k),
     _sync_mem0_record=lambda *a, **k: app_core._sync_mem0_record(*a, **k),
     _update_live_memory=lambda *a, **k: app_core._update_live_memory(*a, **k),
     _upsert_live_memory=lambda *a, **k: app_core._upsert_live_memory(*a, **k),
     _user_memory_metadata=lambda *a, **k: app_core._user_memory_metadata(*a, **k),
-    federated_search=lambda *a, **k: app_core.federated_search(*a, **k),
+    federated_search=lambda *a, **k: app_core_fallback.federated_search(*a, **k),
 )

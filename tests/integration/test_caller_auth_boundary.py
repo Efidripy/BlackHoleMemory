@@ -10,7 +10,9 @@ from starlette.websockets import WebSocketDisconnect
 
 from tests.app_patch import patch_app_import
 from blackholememory import app_lifecycle
+from blackholememory import app_core_hook
 from blackholememory import app_core
+from blackholememory import app_ops_task2
 from blackholememory import app_ops
 from blackholememory import app_projects
 from blackholememory import app as bhm_app
@@ -249,7 +251,7 @@ def test_galaxy_stats_cache_is_single_flight_and_reused(monkeypatch) -> None:
 def test_launcher_stats_is_auth_only_and_returns_global_counts(monkeypatch) -> None:
     monkeypatch.setenv("BHM_CALLER_PROJECTS", "blackholememory")
     monkeypatch.setenv("BHM_CALLER_DEFAULT_PROJECT", "blackholememory")
-    monkeypatch.setattr(app_core, "_load_session_records", lambda: [{"id": index} for index in range(3)])
+    monkeypatch.setattr(app_core_hook, "_load_session_records", lambda: [{"id": index} for index in range(3)])
 
     class MemoryService:
         @staticmethod
@@ -523,7 +525,7 @@ def test_project_labelled_reports_canonicalize_alias_filters(monkeypatch) -> Non
         ],
     )
     monkeypatch.setattr(
-        app_core,
+        app_core_hook,
         "_load_validation_snapshots",
         lambda: [
             {"id": "v-a", "project": "BlackHoleMemory", "overall_status": "failed"},
@@ -606,7 +608,7 @@ def test_admin_import_snapshot_rejects_cross_project_link_endpoint(monkeypatch, 
             {"source_id": "foreign", "project": "e-github-workspace"},
         ],
     )
-    monkeypatch.setattr(app_ops, "_artifact_store_pairs", lambda: {})
+    monkeypatch.setattr(app_ops_task2, "_artifact_store_pairs", lambda: {})
 
     response = _client().post(
         "/bhm/admin/import-preview",

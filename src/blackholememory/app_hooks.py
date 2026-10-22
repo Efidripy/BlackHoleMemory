@@ -41,6 +41,8 @@ from .observation_security import redact_secret_text
 from .observation_security import secure_observation_payload
 from .session_capture import SessionCaptureError
 from .session_capture import build_session_capture_preview
+from . import app_core_fallback
+from . import app_core_hook
 from . import app_core
 from . import app_retrieval
 
@@ -127,7 +129,7 @@ async def _enqueue_hook_request(kind: str, request: BaseModel) -> tuple[BaseMode
             detail={"error": "hook_queue_draining", "kind": kind},
             headers=_hook_queue_headers(),
         )
-    durable_request = app_core._ensure_hook_request_identity(request)
+    durable_request = app_core_hook._ensure_hook_request_identity(request)
     app_core._admit_new_content(
         ingress=IngressKind.OBSERVATION,
         project=str(getattr(durable_request, "project", "")),
@@ -138,7 +140,7 @@ async def _enqueue_hook_request(kind: str, request: BaseModel) -> tuple[BaseMode
     priority = 10 if kind == "compact" else 100
     try:
         result = await asyncio.to_thread(
-            app_core._hook_queue().enqueue,
+            app_core_hook._hook_queue().enqueue,
             kind,
             durable_request.model_dump(mode="json"),
             priority=priority,
@@ -237,7 +239,7 @@ def _with_observation_tier_lifecycle_receipt(
         event_id=event_id,
         hook_type=request.hookType,
         parent_event_id=request.parentEventId,
-        source_ids=app_core._lifecycle_source_ids(request),
+        source_ids=app_core_hook._lifecycle_source_ids(request),
     )
     metadata = dict(request.metadata or {})
     metadata["context_tier_lifecycle"] = receipt
@@ -610,14 +612,14 @@ def bhm_session_capture_preview(request: SessionCapturePreviewRequest) -> dict[s
     """Internal read-only session capture and progressive disclosure preview."""
 
     project_name = rt._canonical_project(request.project)
-    observations = app_core._observation_store().load(
+    observations = app_core_hook._observation_store().load(
         project=project_name,
         include_archived=False,
         include_purged=False,
         limit=256,
         newest_first=True,
     )
-    sessions = app_core._load_session_records()
+    sessions = app_core_hook._load_session_records()
     memories = [item for item in rt._load_live_memories() if item.get("project") == project_name]
     try:
         return build_session_capture_preview(
@@ -663,28 +665,28 @@ async def bhm_hook_idle(request: BhmHookIdleRequest) -> dict:
 
 
 def bhm_hook_queue_status(integrity: bool = False) -> dict:
-    status = app_core._hook_queue().status(integrity_check=integrity)
+    status = app_core_hook._hook_queue().status(integrity_check=integrity)
     active_worker_tasks = sum(1 for task in _HOOK_QUEUE_TASKS if not task.done())
     status.update(
         {
             "accepting": _HOOK_QUEUE_ACCEPTING,
             "workerTasks": active_worker_tasks,
-            "workerTasksConfigured": app_core._HOOK_COMPACT_WORKERS + app_core._HOOK_IDLE_WORKERS,
+            "workerTasksConfigured": app_core_hook._HOOK_COMPACT_WORKERS + app_core_hook._HOOK_IDLE_WORKERS,
             "workerTasksStopped": len(_HOOK_QUEUE_TASKS) - active_worker_tasks,
-            "compactWorkers": app_core._HOOK_COMPACT_WORKERS,
-            "idleWorkers": app_core._HOOK_IDLE_WORKERS,
-            "leaseSeconds": app_core._HOOK_QUEUE_LEASE_SECONDS,
-            "drainSeconds": app_core._HOOK_QUEUE_DRAIN_SECONDS,
+            "compactWorkers": app_core_hook._HOOK_COMPACT_WORKERS,
+            "idleWorkers": app_core_hook._HOOK_IDLE_WORKERS,
+            "leaseSeconds": app_core_hook._HOOK_QUEUE_LEASE_SECONDS,
+            "drainSeconds": app_core_hook._HOOK_QUEUE_DRAIN_SECONDS,
         }
     )
     return status
 
 
 def bhm_hook_job_status(job_id: str, request: Request) -> dict:
-    job = app_core._hook_queue().get(job_id)
+    job = app_core_hook._hook_queue().get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail={"error": "hook_job_not_found", "jobId": job_id})
-    app_core._authorize_resource_project(request, job.get("project"))
+    app_core_hook._authorize_resource_project(request, job.get("project"))
     return {"job": job}
 
 
@@ -694,8 +696,8 @@ async def bhm_synthesis_fact_crystal(request: FactSynthesisRequest) -> dict:
         mode = "llm"
         fallback_reason = ""
     except Exception as exc:  # broad: optional LLM synthesis falls back to deterministic result
-        app_core._LOGGER.warning("Fact synthesis fallback used (%s)", type(exc).__name__)
-        if app_core._configured_fallback_mode() == "disabled":
+        app_core_fallback._LOGGER.warning("Fact synthesis fallback used (%s)", type(exc).__name__)
+        if app_core_fallback._configured_fallback_mode() == "disabled":
             raise
         fact = _fallback_fact_synthesis(request, "provider_unavailable")
         tokens = {"prompt": 0, "completion": 0, "total": 0}
@@ -838,7 +840,7 @@ async def bhm_lessons_create(request: LessonRequest) -> dict:
 
 
 def bhm_lessons_search(request: BhmMatchSearchRequest) -> dict:
-    project = app_core._effective_search_project(request.project)
+    project = app_core_fallback._effective_search_project(request.project)
     accepted_projects = rt._project_aliases(project)
     lessons = [item for item in _load_lessons() if item.get("project") in accepted_projects]
     query = request.query.lower()
@@ -861,14 +863,14 @@ async def bhm_observe(request: ObservationIngressV1, http_request: Request) -> d
     app_core._admit_new_content(
         ingress=IngressKind.OBSERVATION,
         project=secured_request.project,
-        actor=app_core._request_actor(http_request),
+        actor=app_core_hook._request_actor(http_request),
         payload=secured_request.model_dump(mode="json"),
         requires_authority=False,
     )
 
     def write_observation() -> dict:
         item = build_observation_record(secured_request)
-        app_core._append_observation(item)
+        app_core_hook._append_observation(item)
         return {"success": True, "observation": item, "tier_lifecycle": tier_lifecycle}
 
     return await rt._run_bounded_write("bhm.observe", write_observation)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from blackholememory import app_core
+from blackholememory import app_core_hook
 from blackholememory import app_telemetry
 from blackholememory import app_runtime
 from blackholememory.feedback_tuning import build_feedback_tuning
@@ -49,7 +49,7 @@ def test_quality_summary_ignores_invalid_votes_and_memory_content():
 def test_feedback_tuning_endpoint_is_review_only(monkeypatch):
 
     monkeypatch.setattr(
-        app_core._RETRIEVAL_FUNNEL,
+        app_core_hook._RETRIEVAL_FUNNEL,
         "snapshot",
         lambda: {"groups": [{"project": "blackholememory", "packed": 10, "explicit_memory_used": 8}]},
     )

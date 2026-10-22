@@ -62,7 +62,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:index",
+    "endpoint": "blackholememory.app_ops_task:index",
     "include_in_schema": true,
     "index": 4,
     "kind": "APIRoute",
@@ -76,7 +76,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:favicon_ico",
+    "endpoint": "blackholememory.app_ops_task:favicon_ico",
     "include_in_schema": true,
     "index": 5,
     "kind": "APIRoute",
@@ -90,7 +90,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:favicon_svg",
+    "endpoint": "blackholememory.app_ops_task:favicon_svg",
     "include_in_schema": true,
     "index": 6,
     "kind": "APIRoute",
@@ -104,7 +104,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:redoc_bundle",
+    "endpoint": "blackholememory.app_ops_task:redoc_bundle",
     "include_in_schema": true,
     "index": 7,
     "kind": "APIRoute",
@@ -118,7 +118,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:force_graph_bundle",
+    "endpoint": "blackholememory.app_ops_task:force_graph_bundle",
     "include_in_schema": true,
     "index": 8,
     "kind": "APIRoute",
@@ -132,7 +132,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:three_module_bundle",
+    "endpoint": "blackholememory.app_ops_task:three_module_bundle",
     "include_in_schema": true,
     "index": 9,
     "kind": "APIRoute",
@@ -146,7 +146,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:three_core_bundle",
+    "endpoint": "blackholememory.app_ops_task:three_core_bundle",
     "include_in_schema": true,
     "index": 10,
     "kind": "APIRoute",
@@ -160,7 +160,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:local_redoc",
+    "endpoint": "blackholememory.app_ops_task:local_redoc",
     "include_in_schema": true,
     "index": 11,
     "kind": "APIRoute",
@@ -174,7 +174,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_conventions_preview",
+    "endpoint": "blackholememory.app_ops_task:bhm_conventions_preview",
     "include_in_schema": false,
     "index": 12,
     "kind": "APIRoute",
@@ -188,7 +188,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_factories_preview",
+    "endpoint": "blackholememory.app_ops_task:bhm_factories_preview",
     "include_in_schema": false,
     "index": 13,
     "kind": "APIRoute",
@@ -202,7 +202,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_migration_preview",
+    "endpoint": "blackholememory.app_ops_task:bhm_migration_preview",
     "include_in_schema": false,
     "index": 14,
     "kind": "APIRoute",
@@ -216,7 +216,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_security_trust_boundary_preview",
+    "endpoint": "blackholememory.app_ops_task:bhm_security_trust_boundary_preview",
     "include_in_schema": false,
     "index": 15,
     "kind": "APIRoute",
@@ -230,7 +230,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:graph_status",
+    "endpoint": "blackholememory.app_ops_task:graph_status",
     "include_in_schema": true,
     "index": 16,
     "kind": "APIRoute",
@@ -244,7 +244,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_memory_pulse_ws",
+    "endpoint": "blackholememory.app_ops_task:bhm_memory_pulse_ws",
     "include_in_schema": true,
     "index": 17,
     "kind": "APIWebSocketRoute",
@@ -256,7 +256,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_memory_get",
+    "endpoint": "blackholememory.app_ops_task:bhm_memory_get",
     "include_in_schema": true,
     "index": 18,
     "kind": "APIRoute",
@@ -270,7 +270,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_forget_preview",
+    "endpoint": "blackholememory.app_ops_entity:bhm_forget_preview",
     "include_in_schema": true,
     "index": 19,
     "kind": "APIRoute",
@@ -284,7 +284,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_forget_apply",
+    "endpoint": "blackholememory.app_ops_entity:bhm_forget_apply",
     "include_in_schema": true,
     "index": 20,
     "kind": "APIRoute",
@@ -298,7 +298,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_recent_activity",
+    "endpoint": "blackholememory.app_ops_task:bhm_recent_activity",
     "include_in_schema": true,
     "index": 21,
     "kind": "APIRoute",
@@ -312,7 +312,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_checkpoint_create",
+    "endpoint": "blackholememory.app_ops_admin:bhm_checkpoint_create",
     "include_in_schema": true,
     "index": 22,
     "kind": "APIRoute",
@@ -326,7 +326,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_checkpoint_list",
+    "endpoint": "blackholememory.app_ops_task:bhm_checkpoint_list",
     "include_in_schema": true,
     "index": 23,
     "kind": "APIRoute",
@@ -340,7 +340,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_checkpoint_get_latest",
+    "endpoint": "blackholememory.app_ops_task:bhm_checkpoint_get_latest",
     "include_in_schema": true,
     "index": 24,
     "kind": "APIRoute",
@@ -354,7 +354,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_memory_delete",
+    "endpoint": "blackholememory.app_ops_task:bhm_memory_delete",
     "include_in_schema": true,
     "index": 25,
     "kind": "APIRoute",
@@ -368,7 +368,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_adr_create",
+    "endpoint": "blackholememory.app_ops_task:bhm_adr_create",
     "include_in_schema": true,
     "index": 26,
     "kind": "APIRoute",
@@ -382,7 +382,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_adr_list",
+    "endpoint": "blackholememory.app_ops_task:bhm_adr_list",
     "include_in_schema": true,
     "index": 27,
     "kind": "APIRoute",
@@ -396,7 +396,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_adr_supersede",
+    "endpoint": "blackholememory.app_ops_task:bhm_adr_supersede",
     "include_in_schema": true,
     "index": 28,
     "kind": "APIRoute",
@@ -410,7 +410,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_handoff_create",
+    "endpoint": "blackholememory.app_ops_task:bhm_handoff_create",
     "include_in_schema": true,
     "index": 29,
     "kind": "APIRoute",
@@ -424,7 +424,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_handoff_list",
+    "endpoint": "blackholememory.app_ops_task:bhm_handoff_list",
     "include_in_schema": true,
     "index": 30,
     "kind": "APIRoute",
@@ -438,7 +438,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_session_record_create",
+    "endpoint": "blackholememory.app_ops_task:bhm_session_record_create",
     "include_in_schema": true,
     "index": 31,
     "kind": "APIRoute",
@@ -452,7 +452,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_session_record_list",
+    "endpoint": "blackholememory.app_ops_task:bhm_session_record_list",
     "include_in_schema": true,
     "index": 32,
     "kind": "APIRoute",
@@ -466,7 +466,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_task_open",
+    "endpoint": "blackholememory.app_ops_task:bhm_task_open",
     "include_in_schema": true,
     "index": 33,
     "kind": "APIRoute",
@@ -480,7 +480,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_task_close",
+    "endpoint": "blackholememory.app_ops_task:bhm_task_close",
     "include_in_schema": true,
     "index": 34,
     "kind": "APIRoute",
@@ -494,7 +494,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_task_get",
+    "endpoint": "blackholememory.app_ops_task:bhm_task_get",
     "include_in_schema": true,
     "index": 35,
     "kind": "APIRoute",
@@ -508,7 +508,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_task_list",
+    "endpoint": "blackholememory.app_ops_task:bhm_task_list",
     "include_in_schema": true,
     "index": 36,
     "kind": "APIRoute",
@@ -522,7 +522,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_task_context_update",
+    "endpoint": "blackholememory.app_ops_task:bhm_task_context_update",
     "include_in_schema": true,
     "index": 37,
     "kind": "APIRoute",
@@ -536,7 +536,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_task_context_get",
+    "endpoint": "blackholememory.app_ops_task:bhm_task_context_get",
     "include_in_schema": true,
     "index": 38,
     "kind": "APIRoute",
@@ -550,7 +550,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_risk_register_update",
+    "endpoint": "blackholememory.app_ops_task:bhm_risk_register_update",
     "include_in_schema": true,
     "index": 39,
     "kind": "APIRoute",
@@ -564,7 +564,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_risk_register_get",
+    "endpoint": "blackholememory.app_ops_task:bhm_risk_register_get",
     "include_in_schema": true,
     "index": 40,
     "kind": "APIRoute",
@@ -578,7 +578,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_validation_snapshot_save",
+    "endpoint": "blackholememory.app_ops_task:bhm_validation_snapshot_save",
     "include_in_schema": true,
     "index": 41,
     "kind": "APIRoute",
@@ -592,7 +592,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_validation_snapshot_get",
+    "endpoint": "blackholememory.app_ops_task:bhm_validation_snapshot_get",
     "include_in_schema": true,
     "index": 42,
     "kind": "APIRoute",
@@ -606,7 +606,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_query_suggestions",
+    "endpoint": "blackholememory.app_ops_task:bhm_query_suggestions",
     "include_in_schema": true,
     "index": 43,
     "kind": "APIRoute",
@@ -620,7 +620,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_integrity_audit",
+    "endpoint": "blackholememory.app_ops_task:bhm_integrity_audit",
     "include_in_schema": true,
     "index": 44,
     "kind": "APIRoute",
@@ -634,7 +634,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_audit",
+    "endpoint": "blackholememory.app_ops_task:bhm_audit",
     "include_in_schema": true,
     "index": 45,
     "kind": "APIRoute",
@@ -648,7 +648,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_artifact_integrity_audit",
+    "endpoint": "blackholememory.app_ops_task:bhm_artifact_integrity_audit",
     "include_in_schema": true,
     "index": 46,
     "kind": "APIRoute",
@@ -662,7 +662,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_repair_live_indexes",
+    "endpoint": "blackholememory.app_ops_task:bhm_repair_live_indexes",
     "include_in_schema": true,
     "index": 47,
     "kind": "APIRoute",
@@ -676,7 +676,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_entity_extract",
+    "endpoint": "blackholememory.app_ops_task:bhm_entity_extract",
     "include_in_schema": true,
     "index": 48,
     "kind": "APIRoute",
@@ -704,7 +704,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_link_graph_stats",
+    "endpoint": "blackholememory.app_ops_task:bhm_link_graph_stats",
     "include_in_schema": true,
     "index": 50,
     "kind": "APIRoute",
@@ -718,7 +718,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_reindex_memory_metadata",
+    "endpoint": "blackholememory.app_ops_task:bhm_reindex_memory_metadata",
     "include_in_schema": true,
     "index": 51,
     "kind": "APIRoute",
@@ -732,7 +732,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_artifact_restore",
+    "endpoint": "blackholememory.app_ops_task:bhm_artifact_restore",
     "include_in_schema": true,
     "index": 52,
     "kind": "APIRoute",
@@ -746,7 +746,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_orphan_artifact_relink",
+    "endpoint": "blackholememory.app_ops_task:bhm_orphan_artifact_relink",
     "include_in_schema": true,
     "index": 53,
     "kind": "APIRoute",
@@ -774,7 +774,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_ontology_quarantine_list",
+    "endpoint": "blackholememory.app_ops_task:bhm_ontology_quarantine_list",
     "include_in_schema": true,
     "index": 55,
     "kind": "APIRoute",
@@ -788,7 +788,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_schema_upgrade_all",
+    "endpoint": "blackholememory.app_ops_task:bhm_schema_upgrade_all",
     "include_in_schema": true,
     "index": 56,
     "kind": "APIRoute",
@@ -802,7 +802,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_agent_activity_rollup",
+    "endpoint": "blackholememory.app_ops_task:bhm_agent_activity_rollup",
     "include_in_schema": true,
     "index": 57,
     "kind": "APIRoute",
@@ -844,7 +844,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_entity_catalog_get",
+    "endpoint": "blackholememory.app_ops_entity:bhm_entity_catalog_get",
     "include_in_schema": true,
     "index": 60,
     "kind": "APIRoute",
@@ -858,7 +858,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_entity_catalog_rebuild",
+    "endpoint": "blackholememory.app_ops_entity:bhm_entity_catalog_rebuild",
     "include_in_schema": true,
     "index": 61,
     "kind": "APIRoute",
@@ -872,7 +872,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_recent_failures_feed",
+    "endpoint": "blackholememory.app_ops_task:bhm_recent_failures_feed",
     "include_in_schema": true,
     "index": 62,
     "kind": "APIRoute",
@@ -886,7 +886,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_artifact_delete",
+    "endpoint": "blackholememory.app_ops_task:bhm_artifact_delete",
     "include_in_schema": true,
     "index": 63,
     "kind": "APIRoute",
@@ -900,7 +900,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_artifact_list_by_type",
+    "endpoint": "blackholememory.app_ops_task:bhm_artifact_list_by_type",
     "include_in_schema": true,
     "index": 64,
     "kind": "APIRoute",
@@ -914,7 +914,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_artifact_usage_stats",
+    "endpoint": "blackholememory.app_ops_task:bhm_artifact_usage_stats",
     "include_in_schema": true,
     "index": 65,
     "kind": "APIRoute",
@@ -928,7 +928,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_link_cycle_detect",
+    "endpoint": "blackholememory.app_ops_task:bhm_link_cycle_detect",
     "include_in_schema": true,
     "index": 66,
     "kind": "APIRoute",
@@ -956,7 +956,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_validation_trend_report",
+    "endpoint": "blackholememory.app_ops_task:bhm_validation_trend_report",
     "include_in_schema": true,
     "index": 68,
     "kind": "APIRoute",
@@ -970,7 +970,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_entity_search",
+    "endpoint": "blackholememory.app_ops_task:bhm_entity_search",
     "include_in_schema": true,
     "index": 69,
     "kind": "APIRoute",
@@ -998,7 +998,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_alias_stats",
+    "endpoint": "blackholememory.app_ops_task:bhm_alias_stats",
     "include_in_schema": true,
     "index": 71,
     "kind": "APIRoute",
@@ -1054,7 +1054,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_artifact_batch_delete",
+    "endpoint": "blackholememory.app_ops_task:bhm_artifact_batch_delete",
     "include_in_schema": true,
     "index": 75,
     "kind": "APIRoute",
@@ -1068,7 +1068,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_artifact_batch_relink",
+    "endpoint": "blackholememory.app_ops_task:bhm_artifact_batch_relink",
     "include_in_schema": true,
     "index": 76,
     "kind": "APIRoute",
@@ -1082,7 +1082,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_artifact_batch_restore",
+    "endpoint": "blackholememory.app_ops_task:bhm_artifact_batch_restore",
     "include_in_schema": true,
     "index": 77,
     "kind": "APIRoute",
@@ -1096,7 +1096,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_schema_validate_strict",
+    "endpoint": "blackholememory.app_ops_task:bhm_schema_validate_strict",
     "include_in_schema": true,
     "index": 78,
     "kind": "APIRoute",
@@ -1110,7 +1110,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_integrity_repair_strict",
+    "endpoint": "blackholememory.app_ops_task:bhm_integrity_repair_strict",
     "include_in_schema": true,
     "index": 79,
     "kind": "APIRoute",
@@ -1124,7 +1124,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_admin_export",
+    "endpoint": "blackholememory.app_ops_task:bhm_admin_export",
     "include_in_schema": true,
     "index": 80,
     "kind": "APIRoute",
@@ -1138,7 +1138,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_admin_import_preview",
+    "endpoint": "blackholememory.app_ops_admin:bhm_admin_import_preview",
     "include_in_schema": true,
     "index": 81,
     "kind": "APIRoute",
@@ -1152,7 +1152,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_admin_import_apply",
+    "endpoint": "blackholememory.app_ops_admin:bhm_admin_import_apply",
     "include_in_schema": true,
     "index": 82,
     "kind": "APIRoute",
@@ -1166,7 +1166,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_admin_task_ingress_status",
+    "endpoint": "blackholememory.app_ops_task:bhm_admin_task_ingress_status",
     "include_in_schema": true,
     "index": 83,
     "kind": "APIRoute",
@@ -1180,7 +1180,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_admin_task_ingress_freeze",
+    "endpoint": "blackholememory.app_ops_task:bhm_admin_task_ingress_freeze",
     "include_in_schema": true,
     "index": 84,
     "kind": "APIRoute",
@@ -1194,7 +1194,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_admin_task_ingress_resume",
+    "endpoint": "blackholememory.app_ops_task:bhm_admin_task_ingress_resume",
     "include_in_schema": true,
     "index": 85,
     "kind": "APIRoute",
@@ -1208,7 +1208,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_policy_profile_get",
+    "endpoint": "blackholememory.app_ops_task:bhm_policy_profile_get",
     "include_in_schema": true,
     "index": 86,
     "kind": "APIRoute",
@@ -1222,7 +1222,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_policy_profile_set",
+    "endpoint": "blackholememory.app_ops_task:bhm_policy_profile_set",
     "include_in_schema": true,
     "index": 87,
     "kind": "APIRoute",
@@ -1250,7 +1250,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_overlap_report",
+    "endpoint": "blackholememory.app_ops_task:bhm_overlap_report",
     "include_in_schema": true,
     "index": 89,
     "kind": "APIRoute",
@@ -1264,7 +1264,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_overlap_cleanup_apply",
+    "endpoint": "blackholememory.app_ops_task:bhm_overlap_cleanup_apply",
     "include_in_schema": true,
     "index": 90,
     "kind": "APIRoute",
@@ -1278,7 +1278,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_policy_guard",
+    "endpoint": "blackholememory.app_ops_task:bhm_policy_guard",
     "include_in_schema": true,
     "index": 91,
     "kind": "APIRoute",
@@ -1292,7 +1292,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_reflect",
+    "endpoint": "blackholememory.app_ops_task:bhm_reflect",
     "include_in_schema": true,
     "index": 92,
     "kind": "APIRoute",
@@ -1306,7 +1306,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_verify",
+    "endpoint": "blackholememory.app_ops_task:bhm_verify",
     "include_in_schema": true,
     "index": 93,
     "kind": "APIRoute",
@@ -1320,7 +1320,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_remember",
+    "endpoint": "blackholememory.app_ops_task:bhm_remember",
     "include_in_schema": true,
     "index": 94,
     "kind": "APIRoute",
@@ -1334,7 +1334,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_observation_store_status",
+    "endpoint": "blackholememory.app_ops_task:bhm_observation_store_status",
     "include_in_schema": true,
     "index": 95,
     "kind": "APIRoute",
@@ -1348,7 +1348,7 @@
     "tags": []
   },
   {
-    "endpoint": "blackholememory.app_ops:bhm_retention_status",
+    "endpoint": "blackholememory.app_ops_task:bhm_retention_status",
     "include_in_schema": true,
     "index": 96,
     "kind": "APIRoute",

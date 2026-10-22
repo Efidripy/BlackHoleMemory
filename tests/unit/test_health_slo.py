@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from blackholememory import app_core
+from blackholememory import app_core_hook
 from blackholememory import app_telemetry
 from blackholememory import app_runtime
 from blackholememory import bhm_mcp
@@ -21,7 +21,7 @@ def test_health_slo_reports_healthy_bounded_runtime(monkeypatch):
     monkeypatch.setattr(app_telemetry, "health_cutover", lambda: {"ok": True})
     monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True})
     monkeypatch.setattr(app_runtime, "_memory_store_state", _healthy_state)
-    monkeypatch.setattr(app_core, "_hook_queue_path", lambda: SimpleNamespace(exists=lambda: False))
+    monkeypatch.setattr(app_core_hook, "_hook_queue_path", lambda: SimpleNamespace(exists=lambda: False))
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: SimpleNamespace(outbox_status=lambda: {"pending": 0, "processing": 0, "failed": 0, "dead_letter": 0, "completed": 3, "total": 3}))
 
     result = app_telemetry.bhm_health_slo()
@@ -37,7 +37,7 @@ def test_health_slo_breaches_projection_budget(monkeypatch):
     monkeypatch.setattr(app_telemetry, "health_cutover", lambda: {"ok": True})
     monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True})
     monkeypatch.setattr(app_runtime, "_memory_store_state", _healthy_state)
-    monkeypatch.setattr(app_core, "_hook_queue_path", lambda: SimpleNamespace(exists=lambda: False))
+    monkeypatch.setattr(app_core_hook, "_hook_queue_path", lambda: SimpleNamespace(exists=lambda: False))
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: SimpleNamespace(outbox_status=lambda: {"pending": 2, "processing": 1, "failed": 1, "dead_letter": 0, "completed": 3, "total": 7}))
 
     result = app_telemetry.bhm_health_slo(max_projection_pending=0, max_projection_failed=0)

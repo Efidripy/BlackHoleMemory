@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from blackholememory import app_core
+from blackholememory import app_core_fallback
+from blackholememory import app_core_hit
+from blackholememory import app_core_hook
 from blackholememory import app as bhm_app
 from blackholememory import memory_routes
 from blackholememory import app_runtime
@@ -68,10 +70,10 @@ def test_context_compile_and_explicit_memory_used_feed_retrieval_funnel(monkeypa
         ),
     )
     monkeypatch.setattr(app_runtime, "_ensure_provider_warmup_ready", fake_ready)
-    monkeypatch.setattr(app_core, "federated_search", fake_federated_search)
-    monkeypatch.setattr(app_core, "_fetch_qdrant_hit_by_source_id", fake_fetch)
+    monkeypatch.setattr(app_core_fallback, "federated_search", fake_federated_search)
+    monkeypatch.setattr(app_core_hit, "_fetch_qdrant_hit_by_source_id", fake_fetch)
     monkeypatch.setattr(memory_routes, "_schedule_vector_access_updates", lambda _hits: None)
-    app_core._RETRIEVAL_FUNNEL.reset()
+    app_core_hook._RETRIEVAL_FUNNEL.reset()
 
     client = TestClient(bhm_app.app)
     context_response = client.post(

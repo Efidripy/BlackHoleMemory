@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from blackholememory import app_core
+from blackholememory import app_core_hook
 from blackholememory import app_graphs
 from blackholememory import app_hooks
 from blackholememory import app as bhm_app
@@ -64,7 +64,7 @@ def main() -> int:
     _assert(task_explain.get("ok") is True, "task graph explain failed")
 
     database_path = app_graphs._memory_graph_database_path()
-    root_id = app_core._code_graph_query_root_id(project, bhm_app.settings.repo_root)
+    root_id = app_core_hook._code_graph_query_root_id(project, bhm_app.settings.repo_root)
     context = build_unified_context_from_graph(
         database_path,
         project=project,

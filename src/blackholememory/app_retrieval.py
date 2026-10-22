@@ -48,13 +48,17 @@ from .observation_security import redact_secret_text
 from .unified_context import UnifiedContextError
 from .unified_context import build_unified_context_from_graph
 from .unified_context import classify_context_item
+from . import app_core_fallback
+from . import app_core_graph
+from . import app_core_hit
+from . import app_core_hook
 from . import app_core
 
 _LOGGER = logging.getLogger(__name__)
 
 
 def _is_fallback_grace_error(exc: Exception) -> bool:
-    if app_core._configured_fallback_mode() != "explicit":
+    if app_core_fallback._configured_fallback_mode() != "explicit":
         return False
     if isinstance(exc, (ResponseTimeout, TimeoutError, asyncio.TimeoutError, ConnectionError)):
         return True
@@ -70,7 +74,7 @@ def _fallback_rank_records(query: str, records: list[dict]) -> list[dict]:
     scored: list[tuple[float, dict]] = []
     for record in records:
         item = {"memory": record.get("content") or "", "metadata": record.get("metadata") or {}}
-        score = app_core._lexical_signal(query, item) + app_core._memory_type_weight(item) + app_core._query_intent_weight(query, item)
+        score = app_core_hook._lexical_signal(query, item) + app_core_hook._memory_type_weight(item) + app_core_hook._query_intent_weight(query, item)
         if score > 0:
             scored.append((score, record))
     scored.sort(key=lambda pair: (pair[0], pair[1].get("updated_at") or pair[1].get("created_at") or ""), reverse=True)
@@ -78,8 +82,8 @@ def _fallback_rank_records(query: str, records: list[dict]) -> list[dict]:
 
 
 def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> dict:
-    records = app_core._fallback_memory_records(
-        project=app_core._effective_search_project(request.project),
+    records = app_core_hit._fallback_memory_records(
+        project=app_core_fallback._effective_search_project(request.project),
         memory_class=request.memory_class,
         event_role=request.event_role,
         include_archived=request.include_archived,
@@ -117,7 +121,7 @@ def _fallback_grace_mem0_search(request: SearchRequest, reason: Exception) -> di
         "degraded": True,
         "read_only": True,
         "result": {"results": results},
-        "fallback_grace": app_core._fallback_grace_meta("mem0.search", reason),
+        "fallback_grace": app_core_fallback._fallback_grace_meta("mem0.search", reason),
         "filters": {
             "project": request.project,
             "memory_class": request.memory_class.value if request.memory_class else None,
@@ -139,8 +143,8 @@ def _fallback_grace_memories_response(
     *,
     project: str | None = None,
     memory_type: str | None = None,
-    memory_class: app_core.MemoryClass | str | None = None,
-    event_role: app_core.MemoryEventRole | str | None = None,
+    memory_class: app_core_hit.MemoryClass | str | None = None,
+    event_role: app_core_hit.MemoryEventRole | str | None = None,
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     query: str = "",
@@ -158,7 +162,7 @@ def _fallback_grace_memories_response(
     offset: int = 0,
     freshness_days: int | None = None,
 ) -> dict:
-    items = app_core._fallback_memory_records(
+    items = app_core_hit._fallback_memory_records(
         project=project,
         memory_type=memory_type,
         memory_class=memory_class,
@@ -189,7 +193,7 @@ def _fallback_grace_memories_response(
         "offset": start,
         "degraded": True,
         "read_only": True,
-        "fallback_grace": app_core._fallback_grace_meta(route, reason),
+        "fallback_grace": app_core_fallback._fallback_grace_meta(route, reason),
     }
 
 
@@ -318,7 +322,7 @@ def _utility_feedback_consolidation_preview(
 ) -> dict[str, Any]:
     """Expose feedback-led review worklists without enabling a repair path."""
 
-    report = app_core._utility_feedback_report(
+    report = app_core_hook._utility_feedback_report(
         project=project,
         as_of=as_of,
         half_life_days=half_life_days,
@@ -388,7 +392,7 @@ def _context_tier_promotion_rollback(
     project = _context_tier_promotion_project(principal, request.project)
     try:
         result = rollback_tier_promotion(
-            database_path=app_core._governed_consolidation_database_path(),
+            database_path=app_core_hook._governed_consolidation_database_path(),
             project=project,
             candidate_id=request.candidate_id,
             apply=request.apply,
@@ -416,7 +420,7 @@ def _context_tier_promotion_rollback(
 
 
 def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tuple[list[dict], int]:
-    app_core._require_typed_memory_boundary(
+    app_core_fallback._require_typed_memory_boundary(
         memory_class=request.memory_class,
         event_role=request.event_role,
     )
@@ -425,11 +429,11 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
         include_historical=request.include_historical,
         freshness_days=request.freshness_days,
     )
-    project = app_core._effective_search_project(request.project)
+    project = app_core_fallback._effective_search_project(request.project)
     candidates = []
     query = (request.query or "").strip()
     for record in rt._load_live_memories():
-        if not app_core._memory_matches_filters(
+        if not app_core_hit._memory_matches_filters(
             record,
             project=project,
             memory_type=request.memory_type,
@@ -485,9 +489,9 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
         }
         score = 0.0
         if query:
-            score += app_core._lexical_signal(query, item)
-            score += app_core._memory_type_weight(item)
-            score += app_core._query_intent_weight(query, item)
+            score += app_core_hook._lexical_signal(query, item)
+            score += app_core_hook._memory_type_weight(item)
+            score += app_core_hook._query_intent_weight(query, item)
             if score <= 0:
                 continue
         else:
@@ -512,7 +516,7 @@ def _advanced_search_live_memories(request: MemoryAdvancedSearchRequest) -> tupl
 
 
 def _search_hybrid(request: HybridSearchRequest) -> dict:
-    project = app_core._effective_search_project(request.project)
+    project = app_core_fallback._effective_search_project(request.project)
     advanced = _advanced_search_live_memories(
         MemoryAdvancedSearchRequest(
             query=request.query,
@@ -532,15 +536,15 @@ def _search_hybrid(request: HybridSearchRequest) -> dict:
             offset=0,
         )
     )[0]
-    suggestions = app_core._query_suggestions(project)
+    suggestions = app_core_graph._query_suggestions(project)
     return {"memories": [app_core._serialize_memory_record(item) for item in advanced], "suggestions": suggestions[:5]}
 
 
 def _search_by_source_ref(request: SearchByRefRequest) -> dict:
-    project = app_core._effective_search_project(request.project)
+    project = app_core_fallback._effective_search_project(request.project)
     items = []
     for record in rt._load_live_memories():
-        if not app_core._memory_matches_filters(record, project=project, include_archived=False):
+        if not app_core_hit._memory_matches_filters(record, project=project, include_archived=False):
             continue
         refs = set(((record.get("metadata") or {}).get("source_refs") or []) + ((record.get("metadata") or {}).get("files") or []))
         if request.ref in refs:
@@ -550,7 +554,7 @@ def _search_by_source_ref(request: SearchByRefRequest) -> dict:
 
 
 def _search_by_upsert_key(request: SearchByUpsertKeyRequest) -> dict:
-    project = app_core._effective_search_project(request.project)
+    project = app_core_fallback._effective_search_project(request.project)
     accepted_projects = rt._project_aliases(project)
     items = []
     for record in rt._load_live_memories():
@@ -563,8 +567,8 @@ def _search_by_upsert_key(request: SearchByUpsertKeyRequest) -> dict:
 
 def _serialize_vector_hit(hit: dict) -> dict:
     metadata = dict(hit.get("metadata") or {})
-    content = app_core._search_hit_content(hit)
-    context_origin = app_core._search_hit_origin(hit)
+    content = app_core_hit._search_hit_content(hit)
+    context_origin = app_core_hit._search_hit_origin(hit)
     mem0_hit_id = hit.get("id")
     live_source_id = metadata.get("source_id") or hit.get("source_id") or mem0_hit_id
     if mem0_hit_id and live_source_id != mem0_hit_id:
@@ -601,7 +605,7 @@ def _context_item_from_vector_hit(hit: dict) -> dict[str, Any]:
     """Project a retrieval hit into the deliberately small context contract."""
 
     metadata = dict(hit.get("metadata") or {})
-    content = app_core._search_hit_content(hit).strip()
+    content = app_core_hit._search_hit_content(hit).strip()
     live_source_id = metadata.get("source_id") or hit.get("source_id") or hit.get("id") or ""
     source_refs = metadata.get("source_refs") or hit.get("source_refs") or []
     files = metadata.get("files") or hit.get("files") or []
@@ -614,7 +618,7 @@ def _context_item_from_vector_hit(hit: dict) -> dict[str, Any]:
     )
     agent_id = metadata.get("agent_id") or hit.get("agent_id")
     session_refs = metadata.get("session_refs") or hit.get("session_refs") or []
-    context_origin = app_core._search_hit_origin(hit)
+    context_origin = app_core_hit._search_hit_origin(hit)
     return {
         "id": live_source_id,
         "title": metadata.get("raw_title") or app_core._build_memory_title(content),
@@ -651,7 +655,7 @@ def _context_hit_from_authoritative_record(record: Mapping[str, Any]) -> dict[st
             "memory_type": serialized.get("type"),
             "memory_class": serialized.get("memory_class"),
             "event_role": serialized.get("event_role"),
-            "context_origin": app_core._VECTOR_CONTEXT_LOCAL,
+            "context_origin": app_core_hit._VECTOR_CONTEXT_LOCAL,
         }
     )
     return {
@@ -662,7 +666,7 @@ def _context_hit_from_authoritative_record(record: Mapping[str, Any]) -> dict[st
         # The authoritative lexical path is ordered, but does not produce a
         # vector similarity score. Keep that distinction explicit.
         "score": 0.0,
-        "context_origin": app_core._VECTOR_CONTEXT_LOCAL,
+        "context_origin": app_core_hit._VECTOR_CONTEXT_LOCAL,
         "metadata": metadata,
     }
 
@@ -680,7 +684,7 @@ def _tier_for_context_hit(hit: Mapping[str, Any]) -> ContextTier:
         return ContextTier(explicit_tier)
     if app_core._memory_lifecycle(hit) == "archived":
         return ContextTier.ARCHIVAL
-    if app_core._effective_memory_class(dict(hit)) == app_core.MemoryClass.WORKING.value:
+    if app_core._effective_memory_class(dict(hit)) == app_core_hit.MemoryClass.WORKING.value:
         return ContextTier.WORKING
     session_refs = metadata.get("session_refs") or hit.get("session_refs") or []
     scope = str(metadata.get("scope") or metadata.get("visibility") or "").strip().casefold()
@@ -761,15 +765,15 @@ async def bhm_unified_context_compile(request: UnifiedContextCompileRequest) -> 
     await rt._ensure_provider_warmup_ready()
     project_name = rt._canonical_project(request.project)
     candidate_limit = min(max(int(request.limit) * 3, 20), 50)
-    hits, total = await app_core.federated_search(request.query, project_name, limit=candidate_limit, include_archived=False, include_logs=False)
-    strict_hits = app_core._strict_retrieval_hits(hits, project_name=project_name, include_archived=False, include_logs=False, limit=candidate_limit)
+    hits, total = await app_core_fallback.federated_search(request.query, project_name, limit=candidate_limit, include_archived=False, include_logs=False)
+    strict_hits = app_core_fallback._strict_retrieval_hits(hits, project_name=project_name, include_archived=False, include_logs=False, limit=candidate_limit)
     buckets: dict[str, list[dict[str, Any]]] = {"memory": [], "tasks": [], "docs": [], "ops": []}
     for hit in strict_hits:
         item = _context_item_from_vector_hit(hit)
         bucket = classify_context_item(item)
         buckets.setdefault(bucket, buckets["memory"]).append(item)
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
-    root_id = app_core._code_graph_query_root_id(project_name, settings.repo_root)
+    root_id = app_core_hook._code_graph_query_root_id(project_name, settings.repo_root)
     try:
         result = build_unified_context_from_graph(
             database_path,
@@ -797,7 +801,7 @@ async def bhm_unified_context_compile(request: UnifiedContextCompileRequest) -> 
 def mem0_search(request: SearchRequest) -> dict:
     try:
         _ensure_provider_warmup_ready_sync()
-        project_name = app_core._effective_search_project(request.project)
+        project_name = app_core_fallback._effective_search_project(request.project)
         if request.freshness_days is not None:
             memories, total = _advanced_search_live_memories(
                 MemoryAdvancedSearchRequest(
@@ -842,7 +846,7 @@ def mem0_search(request: SearchRequest) -> dict:
                 "retrieval": {"mode": "authoritative-freshness", "provider": "sqlite"},
             }
         hits, total = asyncio.run(
-            app_core.federated_search(
+            app_core_fallback.federated_search(
                 request.query,
                 project_name,
                 limit=request.top_k,
@@ -888,7 +892,7 @@ def mem0_search(request: SearchRequest) -> dict:
 
 
 async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
-    project_name = app_core._effective_search_project(request.project)
+    project_name = app_core_fallback._effective_search_project(request.project)
     history = resolve_history_scope(
         request.history_scope,
         include_historical=request.include_historical,
@@ -965,8 +969,8 @@ async def bhm_search(request: MemoryAdvancedSearchRequest) -> dict:
     service = MemorySearchService(
         MemorySearchDependencies(
             ensure_provider_warmup_ready=rt._ensure_provider_warmup_ready,
-            effective_search_project=app_core._effective_search_project,
-            federated_search=app_core.federated_search,
+            effective_search_project=app_core_fallback._effective_search_project,
+            federated_search=app_core_fallback.federated_search,
             advanced_search=bhm_search_advanced,
             serialize_vector_hit=_serialize_vector_hit,
             emit_memory_pulses=_emit_memory_pulses_from_mem0_items,
@@ -1033,7 +1037,7 @@ async def bhm_context_compile(
     else:
         try:
             await rt._ensure_provider_warmup_ready()
-            hits, total = await app_core.federated_search(
+            hits, total = await app_core_fallback.federated_search(
                 request.query,
                 project_name,
                 limit=candidate_limit,
@@ -1082,7 +1086,7 @@ async def bhm_context_compile(
     strict_hits = (
         hits
         if retrieval_mode != "federated"
-        else app_core._strict_retrieval_hits(
+        else app_core_fallback._strict_retrieval_hits(
             hits,
             project_name=project_name,
             memory_type=request.memory_type,
@@ -1115,7 +1119,7 @@ async def bhm_context_compile(
         token_budget=effective_token_budget,
         max_item_chars=context_profile.max_item_chars,
     )
-    funnel_snapshot = app_core._RETRIEVAL_FUNNEL.snapshot()
+    funnel_snapshot = app_core_hook._RETRIEVAL_FUNNEL.snapshot()
     profile_recommendation = recommend_context_profile(
         request.query,
         requested_profile=request.profile,
@@ -1153,10 +1157,10 @@ async def bhm_context_compile(
         "packed": int(compiled["included_count"]),
         "cited": len(compiled["citations"]),
     }
-    app_core._RETRIEVAL_FUNNEL.record_context(
+    app_core_hook._RETRIEVAL_FUNNEL.record_context(
         project=project_name,
         profile=context_profile.name,
-        surface=app_core._request_surface(http_request),
+        surface=app_core_hook._request_surface(http_request),
         requested_count=funnel_counts["requested"],
         eligible_count=funnel_counts["eligible"],
         packed_count=funnel_counts["packed"],
@@ -1256,7 +1260,7 @@ def _optional_agent_context_artifact(
 
     try:
         record = loader(project)
-        if not app_core._project_matches(record.get("project"), project):
+        if not app_core_hook._project_matches(record.get("project"), project):
             return None
         return _agent_context_record(serializer(record), fields)
     except HTTPException as exc:
@@ -1320,7 +1324,7 @@ async def bhm_agent_context(request: AgentContextRequest, http_request: Request)
     records = [
         record
         for record in records
-        if app_core._memory_matches_filters(
+        if app_core_hit._memory_matches_filters(
             record,
             project=project,
             include_archived=False,
@@ -1333,11 +1337,11 @@ async def bhm_agent_context(request: AgentContextRequest, http_request: Request)
         token_budget=request.token_budget,
         max_item_chars=MAX_CONTEXT_ITEM_CHARS,
     )
-    all_tasks, _ = app_core._list_tasks(project, status=None, limit=50, offset=0)
+    all_tasks, _ = app_core_hook._list_tasks(project, status=None, limit=50, offset=0)
     active_tasks = [
         item
         for item in all_tasks
-        if app_core._project_matches(item.get("project"), project)
+        if app_core_hook._project_matches(item.get("project"), project)
         and str(item.get("status") or "open").strip().casefold() not in {"closed", "done", "archived"}
     ]
     principal = getattr(http_request.state, "bhm_caller_principal", None)
@@ -1351,34 +1355,34 @@ async def bhm_agent_context(request: AgentContextRequest, http_request: Request)
             "caller_id": str(principal.caller_id),
             "project": project,
             "caller_scope": "all_projects" if principal.all_projects else "scoped",
-            "shared_read_feature_enabled": app_core._shared_memory_read_enabled(),
+            "shared_read_feature_enabled": app_core_hook._shared_memory_read_enabled(),
             "shared_write": False,
             "shared_write_enabled": False,
         },
         "mcp_transport": _agent_context_transport_snapshot(),
         "task_state": {
             "task_context": _optional_agent_context_artifact(
-                app_core._get_task_context,
-                app_core._serialize_task_context_record,
+                app_core_hook._get_task_context,
+                app_core_hook._serialize_task_context_record,
                 project,
                 ("id", "project", "title", "current_task", "status", "pending_items", "guidance", "next_step", "files_touched", "created_at", "updated_at"),
             ),
             "latest_checkpoint": _optional_agent_context_artifact(
-                app_core._get_latest_checkpoint,
-                app_core._serialize_checkpoint_record,
+                app_core_hook._get_latest_checkpoint,
+                app_core_hook._serialize_checkpoint_record,
                 project,
                 ("id", "project", "checkpoint_type", "title", "content", "done", "next", "checks", "risks", "concepts", "files", "created_at", "updated_at"),
             ),
             "risk_register": _optional_agent_context_artifact(
-                app_core._get_risk_register,
-                app_core._serialize_risk_register_record,
+                app_core_hook._get_risk_register,
+                app_core_hook._serialize_risk_register_record,
                 project,
                 ("id", "project", "title", "summary", "top_risks", "mitigations", "owner", "created_at", "updated_at"),
             ),
             "active_tasks": {
                 "items": [
                     _agent_context_record(
-                        app_core._serialize_task_record(item),
+                        app_core_hook._serialize_task_record(item),
                         ("task_id", "project", "title", "intent", "scope_in", "scope_out", "repo", "owner", "status", "files_touched", "done", "next", "checks", "risks", "decisions", "validation", "opened_at", "updated_at"),
                     )
                     for item in active_tasks[: request.active_task_limit]
@@ -1430,7 +1434,7 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
     await rt._ensure_provider_warmup_ready()
     project_name = rt._canonical_project(request.project or settings.qdrant_collection)
     candidate_limit = min(max(request.limit, 20), 50)
-    hits, total = await app_core.federated_search(
+    hits, total = await app_core_fallback.federated_search(
         request.query,
         project_name,
         limit=candidate_limit,
@@ -1450,7 +1454,7 @@ async def bhm_explain_retrieval(request: RetrievalExplainRequest) -> dict[str, A
         include_logs=request.include_logs,
         include_historical=request.include_historical,
     )
-    strict_hits = app_core._strict_retrieval_hits(
+    strict_hits = app_core_fallback._strict_retrieval_hits(
         hits,
         project_name=project_name,
         memory_type=request.memory_type,
@@ -1540,7 +1544,7 @@ async def bhm_utility_feedback_report(
 
     return await _run_bounded_read(
         "bhm.utility_feedback.report",
-        app_core._utility_feedback_report,
+        app_core_hook._utility_feedback_report,
         project=project,
         as_of=as_of,
         half_life_days=half_life_days,

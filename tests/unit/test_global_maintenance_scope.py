@@ -4,6 +4,8 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app_core
+from blackholememory import app_ops_entity
+from blackholememory import app_ops_task
 from blackholememory import app_ops
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
@@ -13,15 +15,15 @@ from blackholememory import app_runtime
     ("call", "code"),
     [
         (
-            lambda: app_ops._schema_upgrade_all(bhm_app.SchemaUpgradeAllRequest()),
+            lambda: app_ops_task._schema_upgrade_all(bhm_app.SchemaUpgradeAllRequest()),
             "schema_upgrade_scope_required",
         ),
         (
-            lambda: app_ops._reindex_memory_metadata(),
+            lambda: app_ops_task._reindex_memory_metadata(),
             "reindex_scope_required",
         ),
         (
-            lambda: app_ops._entity_catalog_rebuild(),
+            lambda: app_ops_entity._entity_catalog_rebuild(),
             "entity_catalog_scope_required",
         ),
         (
@@ -33,7 +35,7 @@ from blackholememory import app_runtime
             "relation_prune_scope_required",
         ),
         (
-            lambda: app_ops._overlap_cleanup_apply(bhm_app.OverlapCleanupApplyRequest()),
+            lambda: app_ops_task._overlap_cleanup_apply(bhm_app.OverlapCleanupApplyRequest()),
             "overlap_cleanup_scope_required",
         ),
     ],
@@ -51,12 +53,12 @@ def test_global_maintenance_accepts_explicit_aggregate(monkeypatch) -> None:
     monkeypatch.setattr(app_core, "_save_live_memories", lambda _items: None)
     monkeypatch.setattr(app_runtime, "_load_memory_links", lambda: [])
     monkeypatch.setattr(app_runtime, "_save_memory_links", lambda _items: None)
-    monkeypatch.setattr(app_ops, "_load_entity_catalogs", lambda: [])
-    monkeypatch.setattr(app_ops, "_save_entity_catalogs", lambda _items: None)
+    monkeypatch.setattr(app_ops_entity, "_load_entity_catalogs", lambda: [])
+    monkeypatch.setattr(app_ops_entity, "_save_entity_catalogs", lambda _items: None)
 
-    assert app_ops._schema_upgrade_all(bhm_app.SchemaUpgradeAllRequest(aggregate=True))["project"] is None
-    assert app_ops._reindex_memory_metadata(aggregate=True)["project"] is None
-    assert app_ops._entity_catalog_rebuild(aggregate=True)["project"] is None
+    assert app_ops_task._schema_upgrade_all(bhm_app.SchemaUpgradeAllRequest(aggregate=True))["project"] is None
+    assert app_ops_task._reindex_memory_metadata(aggregate=True)["project"] is None
+    assert app_ops_entity._entity_catalog_rebuild(aggregate=True)["project"] is None
     assert app_ops._relation_prune_low_quality(
         bhm_app.RelationPruneLowQualityRequest(aggregate=True)
     )["project"] is None

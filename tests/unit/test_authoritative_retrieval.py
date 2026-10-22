@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from blackholememory import app_core
+from blackholememory import app_core_fallback
 from blackholememory import app_runtime
 
 
@@ -58,7 +58,7 @@ def test_qdrant_only_hit_is_suppressed_and_hydration_is_batched(monkeypatch):
     service = _AuthoritativeStub([_record("known-1"), _record("known-2")])
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
 
-    accepted = app_core._strict_retrieval_hits(
+    accepted = app_core_fallback._strict_retrieval_hits(
         [_hit("missing"), _hit("known-1"), _hit("known-2")],
         project_name="blackholememory",
         limit=10,
@@ -79,7 +79,7 @@ def test_project_and_lifecycle_are_taken_from_sqlite_not_projection(monkeypatch)
     )
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
 
-    accepted = app_core._strict_retrieval_hits(
+    accepted = app_core_fallback._strict_retrieval_hits(
         [_hit("wrong-project"), _hit("archived"), _hit("tombstoned")],
         project_name="blackholememory",
         limit=10,
@@ -101,7 +101,7 @@ def test_authoritative_content_revision_and_typed_filters_replace_stale_payload(
     )
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
 
-    accepted = app_core._strict_retrieval_hits(
+    accepted = app_core_fallback._strict_retrieval_hits(
         [
             _hit(
                 "typed-1",
@@ -129,7 +129,7 @@ def test_typed_filter_does_not_trust_qdrant_metadata(monkeypatch):
     service = _AuthoritativeStub([_record("typed-2", memory_class="semantic", event_role="fact")])
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
 
-    accepted = app_core._strict_retrieval_hits(
+    accepted = app_core_fallback._strict_retrieval_hits(
         [_hit("typed-2", memory_class="procedural", event_role="skill_run")],
         project_name="blackholememory",
         memory_class="procedural",

@@ -6,7 +6,7 @@ import hashlib
 import pytest
 
 from tests.app_patch import patch_app_import
-from blackholememory import app_core
+from blackholememory import app_core_fallback
 from blackholememory.domain import Memory
 from blackholememory.memory_contracts import MemoryClass
 from blackholememory.memory_contracts import MemoryClassSource
@@ -150,11 +150,11 @@ def test_feature_flag_on_requires_migration_before_typed_intent(monkeypatch: pyt
 def test_projection_pushdown_remains_closed_until_both_gates_are_ready(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BHM_TYPED_MEMORY_CONTRACT_ENABLED", "true")
     monkeypatch.setenv("BHM_TYPED_MEMORY_PROJECTION_READY", "false")
-    assert app_core._typed_projection_pushdown_ready() is False
+    assert app_core_fallback._typed_projection_pushdown_ready() is False
 
     monkeypatch.setenv("BHM_TYPED_MEMORY_PROJECTION_READY", "true")
     patch_app_import(monkeypatch, "typed_memory_capability_available", lambda _path: False)
-    assert app_core._typed_projection_pushdown_ready() is False
+    assert app_core_fallback._typed_projection_pushdown_ready() is False
 
     patch_app_import(monkeypatch, "typed_memory_capability_available", lambda _path: True)
-    assert app_core._typed_projection_pushdown_ready() is True
+    assert app_core_fallback._typed_projection_pushdown_ready() is True

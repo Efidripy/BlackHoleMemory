@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from blackholememory import app_core_hit
 from blackholememory import app_core
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
@@ -46,7 +47,7 @@ def test_duplicate_detection_bounds_large_candidate_bucket(monkeypatch) -> None:
         for index in range(1_000)
     ]
     normalized_calls = 0
-    original = app_core._normalized_text
+    original = app_core_hit._normalized_text
 
     def counted(value):
         nonlocal normalized_calls
@@ -54,7 +55,7 @@ def test_duplicate_detection_bounds_large_candidate_bucket(monkeypatch) -> None:
         return original(value)
 
     monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
-    monkeypatch.setattr(app_core, "_normalized_text", counted)
+    monkeypatch.setattr(app_core_hit, "_normalized_text", counted)
 
     result = app_core._detect_duplicates(
         bhm_app.MemoryDetectRequest(project="jmaka", limit=10, include_archived=False)

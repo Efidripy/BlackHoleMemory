@@ -39,6 +39,8 @@ from .llm_telemetry import get_llm_telemetry
 from .mcp_panel import build_mcp_panel_snapshot
 from .mcp_panel import load_configured_sources
 from .qdrant_catalog import build_qdrant_catalog
+from . import app_core_fallback
+from . import app_core_hook
 from . import app_core
 
 
@@ -59,7 +61,7 @@ _WINDOWS_CREATE_NO_WINDOW = 0x08000000
 
 def _write_pending_boot_report() -> dict[str, Any]:
     payload = {"status": "pending", "trigger_time": time.time()}
-    _write_json_atomic(app_core._BOOT_REPORT_PATH, payload)
+    _write_json_atomic(app_core_hook._BOOT_REPORT_PATH, payload)
     return payload
 
 
@@ -225,7 +227,7 @@ def _collect_global_launcher_counts_sync() -> dict[str, int]:
             include_archived=True,
             include_tombstoned=False,
         ),
-        "session_count": len(app_core._load_session_records()),
+        "session_count": len(app_core_hook._load_session_records()),
     }
 
 
@@ -257,15 +259,15 @@ def _health_runtime_dependencies() -> HealthRuntimeDependencies:
         dependency_report=dependency_report,
         storage_runtime_state=storage_runtime_state,
         memory_store_state=rt._memory_store_state,
-        configured_fallback_mode=app_core._configured_fallback_mode,
-        fallback_grace_active=app_core._fallback_grace_active,
+        configured_fallback_mode=app_core_fallback._configured_fallback_mode,
+        fallback_grace_active=app_core_fallback._fallback_grace_active,
         mem0_runtime_plan=mem0_runtime_plan,
         source_identity=_runtime_source_identity,
         provider_warmup_status=rt._get_provider_warmup_status,
         utc_now=rt._utc_now_iso,
         transport_snapshot=lambda: app_core._MCP_STREAMABLE_HTTP.contract_snapshot()["sessions"],
-        hook_queue_path=app_core._hook_queue_path,
-        hook_queue=app_core._hook_queue,
+        hook_queue_path=app_core_hook._hook_queue_path,
+        hook_queue=app_core_hook._hook_queue,
         memory_service=rt._memory_service,
         sqlite_authoritative_mode=MemoryStoreMode.SQLITE_AUTHORITATIVE.value,
         memory_service_not_ready=MemoryServiceNotReady,
@@ -307,7 +309,7 @@ def bhm_health() -> dict:
 
 
 def bhm_infra_boot_report() -> dict:
-    return app_core._read_boot_report()
+    return app_core_hook._read_boot_report()
 
 
 def bhm_usage_telemetry() -> dict[str, Any]:
@@ -319,7 +321,7 @@ def bhm_usage_telemetry() -> dict[str, Any]:
 def bhm_retrieval_telemetry() -> dict[str, Any]:
     """Return bounded retrieval usefulness funnel aggregates."""
 
-    return app_core._RETRIEVAL_FUNNEL.snapshot()
+    return app_core_hook._RETRIEVAL_FUNNEL.snapshot()
 
 
 def bhm_llm_telemetry() -> dict[str, Any]:
@@ -332,7 +334,7 @@ def bhm_feedback_tuning(project: str = "") -> dict[str, Any]:
     """Return review-only tuning suggestions from explicit feedback streams."""
 
     project_name = rt._canonical_project(project or settings.qdrant_collection)
-    usefulness = summarize_explicit_usefulness(app_core._RETRIEVAL_FUNNEL.snapshot(), project=project_name)
+    usefulness = summarize_explicit_usefulness(app_core_hook._RETRIEVAL_FUNNEL.snapshot(), project=project_name)
     quality = summarize_quality_feedback(rt._load_live_memories(), project=project_name)
     profile_budgets = {
         name: profile.token_budget
