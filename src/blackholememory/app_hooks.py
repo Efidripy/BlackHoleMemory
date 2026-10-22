@@ -166,7 +166,7 @@ async def _enqueue_hook_request(kind: str, request: BaseModel) -> tuple[BaseMode
             detail={"error": "hook_queue_unavailable", "detail": _safe_exception_text(exc)},
             headers=_hook_queue_headers(),
         ) from exc
-    except Exception as exc:
+    except Exception as exc:  # broad: hook queue boundary returns a stable HTTP error
         raise HTTPException(
             status_code=503,
             detail={
@@ -693,7 +693,8 @@ async def bhm_synthesis_fact_crystal(request: FactSynthesisRequest) -> dict:
         fact, tokens = await _call_fact_synthesis_llm(request)
         mode = "llm"
         fallback_reason = ""
-    except Exception:
+    except Exception as exc:  # broad: optional LLM synthesis falls back to deterministic result
+        app_core._LOGGER.warning("Fact synthesis fallback used (%s)", type(exc).__name__)
         if app_core._configured_fallback_mode() == "disabled":
             raise
         fact = _fallback_fact_synthesis(request, "provider_unavailable")

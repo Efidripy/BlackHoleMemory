@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import hashlib
 import json
 from typing import Any, Callable, Mapping, Sequence
@@ -48,6 +49,8 @@ from .unified_context import UnifiedContextError
 from .unified_context import build_unified_context_from_graph
 from .unified_context import classify_context_item
 from . import app_core
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _is_fallback_grace_error(exc: Exception) -> bool:
@@ -877,7 +880,8 @@ def mem0_search(request: SearchRequest) -> dict:
                 "global_collection": global_collection_name(),
             },
         }
-    except Exception as exc:
+    except Exception as exc:  # broad: fallback-grace boundary converts provider outages to response
+        _LOGGER.warning("Mem0 search failed (%s)", type(exc).__name__)
         if _is_fallback_grace_error(exc):
             return _fallback_grace_mem0_search(request, exc)
         raise
@@ -924,7 +928,8 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
             },
             "side_effects": read_only_side_effects(),
         }
-    except Exception as exc:
+    except Exception as exc:  # broad: fallback-grace boundary converts provider outages to response
+        _LOGGER.warning("Advanced search failed (%s)", type(exc).__name__)
         if _is_fallback_grace_error(exc):
             response = _fallback_grace_memories_response(
                 "bhm.search.advanced",
@@ -1048,7 +1053,8 @@ async def bhm_context_compile(
                 include_logs=effective_include_logs,
                 include_historical=history.include_historical,
             )
-        except Exception as exc:
+        except Exception as exc:  # broad: fallback-grace boundary preserves degraded retrieval response
+            _LOGGER.warning("Context compilation failed (%s)", type(exc).__name__)
             if not _is_fallback_grace_error(exc):
                 raise
             authoritative_request = _authoritative_context_compile_request(

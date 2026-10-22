@@ -245,7 +245,7 @@ async def _run_graph_build_operation(record: Mapping[str, Any], database_path: P
             run_in_threadpool(store.update, operation_id, status="failed", phase="failed", error="cancelled", retryable=True)
         )
         raise
-    except Exception as exc:
+    except Exception as exc:  # broad: deferred operation records failure and updates status
         _LOGGER.exception("Deferred code graph build failed: %s", operation_id)
         if isinstance(exc, BrokenProcessPool):
             _shutdown_graph_parse_executor()
@@ -1484,7 +1484,8 @@ async def bhm_public_code_tools(
                                     repository_snapshot=snapshot,
                                     embedding_contract=embedding_contract,
                                 )
-                            except Exception:
+                            except Exception as exc:  # broad: semantic readiness is optional
+                                _LOGGER.warning("Semantic readiness unavailable (%s)", type(exc).__name__)
                                 semantic_readiness = {
                                     "schema_version": "bhm.semantic-readiness.v1",
                                     "ready": False,
@@ -1525,7 +1526,7 @@ async def bhm_public_code_tools(
                                 # Pass projection hits through; code_search extracts
                                 # only path/source identifiers and numeric scores.
                                 semantic_hits = list(raw_hits or [])
-                            except Exception as exc:  # optional channel must not break lexical search
+                            except Exception as exc:  # broad: optional channel must not break lexical search
                                 semantic_status = "unavailable"
                                 semantic_hits = []
                                 print(f"[WARN] BHM code semantic fusion unavailable: {_safe_exception_text(exc)}", flush=True)

@@ -181,8 +181,8 @@ async def _hook_queue_worker(*, worker_name: str, kinds: tuple[str, ...], stop_e
             )
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
-            print(f"[WARN] Hook queue claim failed for {worker_name}: {_safe_exception_text(exc)}", flush=True)
+        except Exception as exc:  # broad: background worker must survive transient queue failures
+            _LOGGER.warning("Hook queue claim failed (%s)", type(exc).__name__)
             if stop_event.is_set():
                 return
             await asyncio.sleep(_HOOK_QUEUE_POLL_SECONDS)
@@ -209,7 +209,7 @@ async def _hook_queue_worker(*, worker_name: str, kinds: tuple[str, ...], stop_e
                 extra={**_hook_job_log_context(job), "classification": "cancelled"},
             )
             raise
-        except Exception as exc:
+        except Exception as exc:  # broad: hook job failure is recorded and worker continues
             redacted_error = _safe_exception_text(exc, limit=4000)
             retry_delay = _HOOK_QUEUE_RETRY_BASE_SECONDS * (2 ** max(int(job.get("attempts") or 1) - 1, 0))
             try:
@@ -234,7 +234,7 @@ async def _hook_queue_worker(*, worker_name: str, kinds: tuple[str, ...], stop_e
                     "hook_job_failure_recording_lease_lost",
                     extra={**_hook_job_log_context(job), "classification": "lease_lost"},
                 )
-            except Exception as record_exc:
+            except Exception as record_exc:  # broad: failure recording is best effort
                 _LOGGER.exception(
                     "hook_job_failure_recording_failed",
                     extra={
@@ -505,8 +505,8 @@ async def _telemetry_harvester_loop() -> None:
             await rt._MEMORY_PULSE_BUS.broadcast(await _collect_sys_status_payload())
         except asyncio.CancelledError:
             raise
-        except Exception as exc:
-            print(f"[WARN] BHM telemetry harvester skipped tick: {_safe_exception_text(exc)}", flush=True)
+        except Exception as exc:  # broad: telemetry tick must not terminate scheduler
+            _LOGGER.warning("Telemetry harvester tick skipped (%s)", type(exc).__name__)
 
 
 MAX_UI_EXCHANGE_BODY_BYTES = 16 * 1024
@@ -530,7 +530,8 @@ async def _cancel_lifespan_task(task: asyncio.Task[None] | None, *, name: str) -
         await task
     except asyncio.CancelledError:
         return
-    except Exception:
+    except Exception as exc:  # broad: shutdown cleanup must not mask lifespan completion
+        _LOGGER.warning("Lifespan task failed during shutdown (%s)", type(exc).__name__)
         _LOGGER.exception("BHM lifespan task failed during shutdown: %s", name)
 
 
@@ -924,7 +925,7 @@ def _apply_idle_duplicate_merge(request: BhmHookIdleRequest) -> dict:
                     "score": candidate.get("score"),
                 }
             )
-        except Exception as exc:
+        except Exception as exc:  # broad: merge item errors are returned alongside successful items
             merged.append({"error": _safe_exception_text(exc), "candidate": candidate})
     return {"candidates": len(candidates), "merged": merged}
 
@@ -952,7 +953,7 @@ def _refresh_decay_scores_for_project(project: str, limit: int) -> dict:
                     with_payload=True,
                     with_vectors=False,
                 )
-            except Exception as exc:
+            except Exception as exc:  # broad: collection scan records error and continues
                 errors.append({"collection": collection_name, "error": _safe_exception_text(exc)})
                 break
             if not points:
@@ -979,7 +980,7 @@ def _refresh_decay_scores_for_project(project: str, limit: int) -> dict:
                         points=[getattr(point, "id")],
                     )
                     updated += 1
-                except Exception as exc:
+                except Exception as exc:  # broad: point update records error and continues
                     errors.append({"collection": collection_name, "point_id": str(getattr(point, "id", "")), "error": _safe_exception_text(exc)})
             if offset is None:
                 break
@@ -1048,7 +1049,7 @@ async def _run_idle_reflection_pipeline(request: BhmHookIdleRequest) -> dict:
     ):
         try:
             result["steps"][step_name] = await asyncio.to_thread(step_call)
-        except Exception as exc:
+        except Exception as exc:  # broad: maintenance step failures are captured in result
             result["steps"][step_name] = {"success": False, "error": _safe_exception_text(exc)}
 
     for step_name, step_call in (
@@ -1057,7 +1058,7 @@ async def _run_idle_reflection_pipeline(request: BhmHookIdleRequest) -> dict:
     ):
         try:
             result["steps"][step_name] = await step_call()
-        except Exception as exc:
+        except Exception as exc:  # broad: maintenance step failures are captured in result
             result["steps"][step_name] = {"success": False, "error": _safe_exception_text(exc)}
 
     result["finished_at"] = rt._utc_now_iso()

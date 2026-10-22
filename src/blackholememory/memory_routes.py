@@ -7,6 +7,7 @@ configured once by app.py), so monkeypatching the app names keeps working.
 from __future__ import annotations
 
 import asyncio
+import logging
 import copy
 import functools
 import hashlib
@@ -25,7 +26,10 @@ from .mem0_adapter import initial_decay_metadata
 from .mem0_adapter import normalize_access_count
 from .lifecycle_suggestions import build_lifecycle_suggestions
 from . import memory_contracts as _memory_contracts
+
 from .observation_security import redact_secret_text
+
+_LOGGER = logging.getLogger(__name__)
 
 
 MemoryClass = _memory_contracts.MemoryClass
@@ -218,7 +222,7 @@ async def _add_semantic_dependency_links(record: dict, project_name: str) -> dic
                 ),
             )
             created.append({"source_id": source_id, "target_id": target_id, "edge_type": edge_type, "keyword": keyword})
-        except Exception as exc:
+        except Exception as exc:  # broad: per-edge failures are returned while other edges proceed
             errors.append({"keyword": keyword, "edge_type": edge_type, "error": _safe_exception_text(exc)})
     return {"created": created, "errors": errors}
 
@@ -1017,8 +1021,8 @@ def _update_vector_access_payloads(updates: list[dict[str, Any]]) -> None:
                 payload=update["payload"],
                 points=[update["point_id"]],
             )
-        except Exception as exc:
-            print(f"[WARN] BHM decay access update failed: {_safe_exception_text(exc)}", flush=True)
+        except Exception as exc:  # broad: decay update is best effort and must not fail request
+            _LOGGER.warning("Decay access update failed (%s)", type(exc).__name__)
 
 
 async def _update_vector_access_payloads_async(updates: list[dict[str, Any]]) -> None:
@@ -1078,7 +1082,8 @@ async def bhm_memories_list(
                 "include_historical": include_historical,
             },
         }
-    except Exception as exc:
+    except Exception as exc:  # broad: fallback-grace boundary converts provider outages to response
+        _LOGGER.warning("Memory route failed (%s)", type(exc).__name__)
         if _deps._is_fallback_grace_error(exc):
             return _deps._fallback_grace_memories_response(
                 "bhm.memories",
