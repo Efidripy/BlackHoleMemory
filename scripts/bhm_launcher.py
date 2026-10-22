@@ -247,8 +247,8 @@ def load_pyqt6() -> bool:
 
 
 load_pyqt6()
-if __name__ in ("bhm_launcher", "__main__"):  # spec-loaded copies (release tests) must not steal the handle
-    bhm_launcher_host.bind(sys.modules[__name__])
+_HOST_PREVIOUS = bhm_launcher_host.launcher.current()
+bhm_launcher_host.bind(sys.modules[__name__])
 
 
 REFRESH_SECONDS = 3
@@ -3005,6 +3005,10 @@ from bhm_launcher_integrations import (  # noqa: E402,F401
 from bhm_launcher_dashboard import (  # noqa: E402,F401
     DashboardScreen,
 )
+
+
+if __name__ not in ("bhm_launcher", "__main__") and _HOST_PREVIOUS is not None:
+    bhm_launcher_host.bind(_HOST_PREVIOUS)  # spec-loaded copies (release tests) must not steal the handle
 
 
 if __name__ == "__main__":

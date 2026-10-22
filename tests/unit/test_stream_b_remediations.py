@@ -133,6 +133,9 @@ def test_streamable_probe_rejects_private_non_loopback_endpoint() -> None:
 
 
 def test_launcher_mcp_config_rejects_non_loopback_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    import bhm_launcher_host  # split launcher code reads globals through this handle; this test loads a private copy
+
+    monkeypatch.setattr(bhm_launcher_host.launcher, "_module", LAUNCHER)
     monkeypatch.setattr(LAUNCHER, "BHM_BASE_URL", "https://example.com")
     with pytest.raises(ValueError, match="loopback"):
         LAUNCHER.mcp_config_payload()
