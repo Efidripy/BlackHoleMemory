@@ -6,6 +6,7 @@ import math
 import httpx
 import pytest
 
+from blackholememory import bhm_mcp_base
 from blackholememory.agents import developer_agent
 from blackholememory.agents.developer_agent import BHMRestClient
 from blackholememory.agents.developer_agent import LocalLLMClient
@@ -140,7 +141,7 @@ def test_mcp_rest_client_disables_proxy_redirects_and_bounds_response(monkeypatc
             captured["params"] = params
             return FakeResponse()
 
-    monkeypatch.setattr(bhm_mcp, "_read_process_or_user_env_value", lambda _key: "t" * 32)
+    monkeypatch.setattr(bhm_mcp_base, "_read_process_or_user_env_value", lambda _key: "t" * 32)
     monkeypatch.setattr(bhm_mcp.httpx, "Client", FakeClient)
 
     assert bhm_mcp._get("/health/ready") == {"ok": True}
@@ -155,8 +156,8 @@ def test_mcp_rest_client_disables_proxy_redirects_and_bounds_response(monkeypatc
 
 
 def test_mcp_rest_client_rejects_remote_base_url_before_authenticated_transport(monkeypatch) -> None:
-    monkeypatch.setattr(bhm_mcp, "DEFAULT_BASE_URL", "https://example.com/bhm")
-    monkeypatch.setattr(bhm_mcp, "_read_process_or_user_env_value", lambda _key: "t" * 32)
+    monkeypatch.setattr(bhm_mcp_base, "DEFAULT_BASE_URL", "https://example.com/bhm")
+    monkeypatch.setattr(bhm_mcp_base, "_read_process_or_user_env_value", lambda _key: "t" * 32)
 
     with pytest.raises(LocalEndpointError, match="loopback/private"):
         bhm_mcp._get("/health/ready")
@@ -188,7 +189,7 @@ def test_mcp_code_tools_use_operation_specific_timeouts(monkeypatch) -> None:
         def post(self, path: str, *, json=None):
             return FakeResponse()
 
-    monkeypatch.setattr(bhm_mcp, "_read_process_or_user_env_value", lambda _key: "t" * 32)
+    monkeypatch.setattr(bhm_mcp_base, "_read_process_or_user_env_value", lambda _key: "t" * 32)
     monkeypatch.setattr(bhm_mcp.httpx, "Client", FakeClient)
 
     bhm_mcp._post("/bhm/remember", {})

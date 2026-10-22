@@ -189,7 +189,7 @@ def test_temporal_flags_can_use_explicit_local_runtime_config(
 def test_mcp_temporal_intent_is_forwarded_without_reinterpretation(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setattr(
-        "blackholememory.bhm_mcp._post",
+        "blackholememory.bhm_mcp_base._post",
         lambda path, body: calls.append((path, body)) or {"ok": True},
     )
     from blackholememory.bhm_mcp import bhm_search

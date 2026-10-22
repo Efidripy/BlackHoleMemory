@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from blackholememory import bhm_mcp_base
 from blackholememory import app_ops_task
 from blackholememory import app_ops_task2
 from blackholememory import app as bhm_app
@@ -397,12 +398,12 @@ def test_task_close_reclose_updates_same_task_and_session(monkeypatch):
 def test_task_mcp_wrappers_use_public_task_routes(monkeypatch):
     calls: list[tuple[str, dict]] = []
     monkeypatch.setattr(
-        bhm_mcp,
+        bhm_mcp_base,
         "_post",
         lambda path, body: calls.append((path, body)) or {"ok": True},
     )
     monkeypatch.setattr(
-        bhm_mcp,
+        bhm_mcp_base,
         "_get",
         lambda path, params: calls.append((path, params)) or {"ok": True},
     )

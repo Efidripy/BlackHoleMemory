@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from blackholememory import bhm_mcp_code
 from blackholememory import bhm_mcp
 from blackholememory.app import PublicCodeToolRequest
 from blackholememory.code_tools_service import _PUBLIC_CODE_TOOL_OPERATIONS
@@ -42,7 +43,7 @@ def test_mcp_index_forwards_bounded_resume_and_graph_receipt_fields(monkeypatch)
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_public_code_tool", fake_public_code_tool)
+    monkeypatch.setattr(bhm_mcp_code, "_public_code_tool", fake_public_code_tool)
     result = bhm_mcp.bhm_index_repository(
         project="demo",
         root="<WORKSPACE_ROOT>/repos/demo",
@@ -72,7 +73,7 @@ def test_mcp_index_forwards_bounded_resume_and_graph_receipt_fields(monkeypatch)
 
 
 def test_mcp_index_rejects_slice_above_limit_with_actionable_error(monkeypatch) -> None:
-    monkeypatch.setattr(bhm_mcp, "_public_code_tool", lambda *args, **kwargs: pytest.fail("must not call API"))
+    monkeypatch.setattr(bhm_mcp_code, "_public_code_tool", lambda *args, **kwargs: pytest.fail("must not call API"))
     with pytest.raises(ValueError, match="between 1 and 666, got 965"):
         bhm_mcp.bhm_index_repository(apply=True, max_files_per_run=965)
 
@@ -85,7 +86,7 @@ def test_mcp_status_preserves_omitted_root_for_fail_closed_resolution(monkeypatc
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_public_code_tool", fake_public_code_tool)
+    monkeypatch.setattr(bhm_mcp_code, "_public_code_tool", fake_public_code_tool)
 
     assert bhm_mcp.bhm_index_status(project="demo") == {"ok": True}
     assert captured == {"operation": "status", "project": "demo", "root": None}

@@ -187,7 +187,7 @@ def test_mcp_agent_context_wrapper_forwards_only_bounded_fields(monkeypatch) -> 
     calls: list[tuple[str, dict]] = []
 
     monkeypatch.setattr(
-        "blackholememory.bhm_mcp._post",
+        "blackholememory.bhm_mcp_base._post",
         lambda path, body: calls.append((path, body)) or {"ok": True},
     )
 

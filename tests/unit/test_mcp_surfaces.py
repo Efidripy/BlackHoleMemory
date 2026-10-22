@@ -16,16 +16,18 @@ from blackholememory.mcp_surfaces import resolve_mcp_surface
 
 def _registered_tool_names() -> list[str]:
     source_path = Path(__file__).resolve().parents[2] / "src" / "blackholememory" / "bhm_mcp.py"
-    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
     names: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
-            continue
-        if node.func.attr != "tool":
-            continue
-        for keyword in node.keywords:
-            if keyword.arg == "name" and isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str):
-                names.append(keyword.value.value)
+    # the MCP tools are registered across the bhm_mcp_* modules next to the facade
+    for module_path in sorted(source_path.parent.glob("bhm_mcp*.py")):
+        tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr != "tool":
+                continue
+            for keyword in node.keywords:
+                if keyword.arg == "name" and isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str):
+                    names.append(keyword.value.value)
     return names
 
 

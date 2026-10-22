@@ -96,7 +96,7 @@ def test_context_tier_promotion_rollback_is_scoped_and_uses_outbox_only(monkeypa
 def test_context_tier_promotion_rollback_mcp_wrapper_forwards_exact_confirmation(monkeypatch) -> None:
     calls: list[tuple[str, dict]] = []
     monkeypatch.setattr(
-        "blackholememory.bhm_mcp._post",
+        "blackholememory.bhm_mcp_base._post",
         lambda path, body: calls.append((path, body)) or {"ok": True},
     )
 

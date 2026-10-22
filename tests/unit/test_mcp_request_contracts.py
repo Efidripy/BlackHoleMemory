@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from blackholememory import bhm_mcp_base
 from blackholememory import bhm_mcp
 
 
@@ -10,7 +11,7 @@ def test_forget_preview_serializes_absent_selectors_as_lists(monkeypatch) -> Non
         observed.update({"path": path, "body": body})
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp_base, "_post", fake_post)
 
     assert bhm_mcp.bhm_forget_preview(memory_ids_csv="memory-1") == {"ok": True}
     assert observed["path"] == "/bhm/forget/preview"
@@ -25,7 +26,7 @@ def test_forget_apply_serializes_absent_selectors_as_lists(monkeypatch) -> None:
         observed.update({"path": path, "body": body})
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp_base, "_post", fake_post)
 
     assert bhm_mcp.bhm_forget_apply(preview_digest="a" * 64, upsert_keys_csv="summary-key") == {"ok": True}
     assert observed["path"] == "/bhm/forget/apply"
@@ -40,7 +41,7 @@ def test_body_backed_delete_tools_use_json_contract(monkeypatch) -> None:
         calls.append((path, body))
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_delete_json", fake_delete_json)
+    monkeypatch.setattr(bhm_mcp_base, "_delete_json", fake_delete_json)
 
     assert bhm_mcp.bhm_unlink_memories("source", "target", "supports", "jmaka") == {"ok": True}
     assert bhm_mcp.bhm_delete_memory("memory", "jmaka") == {"ok": True}
@@ -62,7 +63,7 @@ def test_link_tool_forwards_only_a_digest_pinned_ontology_contract(monkeypatch) 
         observed.update({"path": path, "body": body})
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp_base, "_post", fake_post)
 
     assert bhm_mcp.bhm_link_memories(
         "source",
@@ -90,7 +91,7 @@ def test_ontology_quarantine_list_forwards_a_bounded_project_read(monkeypatch) -
         observed.update({"path": path, "params": params})
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_get", fake_get)
+    monkeypatch.setattr(bhm_mcp_base, "_get", fake_get)
 
     assert bhm_mcp.bhm_ontology_quarantine_list("blackholememory", limit=25) == {"ok": True}
     assert observed == {
@@ -106,7 +107,7 @@ def test_shared_memory_policy_preflight_forwards_only_governance_fields(monkeypa
         observed.update({"path": path, "body": body})
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp_base, "_post", fake_post)
 
     assert bhm_mcp.bhm_shared_memory_policy_preflight(
         request_id="request-1",
@@ -139,7 +140,7 @@ def test_shared_memory_read_forwards_one_bounded_governed_read(monkeypatch) -> N
         observed.update({"path": path, "body": body})
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp_base, "_post", fake_post)
 
     assert bhm_mcp.bhm_shared_memory_read(
         request_id="request-1",
@@ -175,8 +176,8 @@ def test_utility_feedback_mcp_tools_forward_only_bounded_event_and_report_fields
         observed.append((path, params))
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
-    monkeypatch.setattr(bhm_mcp, "_get", fake_get)
+    monkeypatch.setattr(bhm_mcp_base, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp_base, "_get", fake_get)
 
     digest = "a" * 64
     assert bhm_mcp.bhm_utility_feedback_record(
@@ -238,7 +239,7 @@ def test_consolidation_change_set_mcp_tool_forwards_redacted_preview_only(monkey
         observed.append((path, body))
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp_base, "_post", fake_post)
     candidate = {
         "project": "blackholememory",
         "kind": "exact_duplicate_merge_review",
@@ -273,7 +274,7 @@ def test_observe_mcp_wrapper_forwards_optional_parent_event_for_resume(monkeypat
         observed.update({"path": path, "body": body})
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_post", fake_post)
+    monkeypatch.setattr(bhm_mcp_base, "_post", fake_post)
 
     assert bhm_mcp.bhm_observe(
         hook_type="codex_resume",
