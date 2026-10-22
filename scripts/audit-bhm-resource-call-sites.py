@@ -268,11 +268,11 @@ MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         disposition="verified-sqlite-staging-restore",
         scope_signals=("_resolve_owned_runtime_file", "verify_sqlite_database(source)", "_assert_owned_path(staging", "os.replace(staging, database)"),
     ),
-    ("scripts/bhm_launcher.py", "install_codex_plugin", "shutil.rmtree"): BoundaryExpectation(
+    ("scripts/bhm_launcher_integrations.py", "install_codex_plugin", "shutil.rmtree"): BoundaryExpectation(
         disposition="owned-codex-plugin-replacement",
         scope_signals=("_assert_owned_plugin_target(destination", "shutil.rmtree(destination)", "shutil.copytree(source, destination)"),
     ),
-    ("scripts/bhm_launcher.py", "install_codex_plugin", "shutil.copytree"): BoundaryExpectation(
+    ("scripts/bhm_launcher_integrations.py", "install_codex_plugin", "shutil.copytree"): BoundaryExpectation(
         disposition="owned-codex-plugin-replacement",
         scope_signals=("_assert_owned_plugin_target(destination", "shutil.rmtree(destination)", "shutil.copytree(source, destination)"),
     ),
