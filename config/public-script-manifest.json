@@ -414,6 +414,26 @@
       "release": true
     },
     {
+      "path": "scripts/bhm_launcher_host.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_telemetry.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_integrations.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_dashboard.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_launcher_config.py",
       "role": "runtime-support",
       "release": true
