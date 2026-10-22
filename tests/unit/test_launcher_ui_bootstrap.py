@@ -615,16 +615,20 @@ def test_launcher_quick_links_put_home_first_and_galaxy_second() -> None:
 
 
 def test_operator_drawer_foundation_is_collapsed_and_data_driven() -> None:
-    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8") + (SCRIPTS_ROOT / "bhm_launcher_theme.py").read_text(encoding="utf-8")
+    source = (
+        (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+        + (SCRIPTS_ROOT / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
+        + (SCRIPTS_ROOT / "bhm_launcher_theme.py").read_text(encoding="utf-8")
+    )
 
     assert launcher.OPERATOR_LINKS == ()
-    assert 'button = QPushButton("TOOLS  ›", self)' in source
-    assert "drawer = QFrame(self)" in source
+    assert 'button = _launcher.QPushButton("TOOLS  ›", self)' in source
+    assert "drawer = _launcher.QFrame(self)" in source
     assert "drawer.setVisible(False)" in source
-    assert "for tag, label, url in OPERATOR_LINKS:" in source
-    assert "scroll = QScrollArea()" in source
+    assert "for tag, label, url in _launcher.OPERATOR_LINKS:" in source
+    assert "scroll = _launcher.QScrollArea()" in source
     assert "scroll.setWidgetResizable(True)" in source
-    assert "Qt.ScrollBarPolicy.ScrollBarAsNeeded" in source
+    assert "_launcher.Qt.ScrollBarPolicy.ScrollBarAsNeeded" in source
     assert 'group_title.setObjectName("OperatorGroupTitle")' in source
     assert 'hint.setObjectName("OperatorHint")' in source
     assert "font-size: 12px;" in source
@@ -802,7 +806,10 @@ def test_projection_reconcile_preview_refuses_blocked_model_dimension_receipt(
 
 
 def test_operator_preview_context_and_thread_release_are_identity_bound() -> None:
-    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+    source = (
+        (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+        + (SCRIPTS_ROOT / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
+    )
 
     assert 'context = {"project": project, "path": path}' in source
     assert 'context = preview.get("operator_context")' in source
@@ -1087,12 +1094,12 @@ def test_fetch_telemetry_keeps_idle_mcp_endpoint_independent_from_slo(monkeypatc
 
 
 def test_launcher_hides_project_control_but_preserves_internal_scope() -> None:
-    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+    source = (SCRIPTS_ROOT / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
 
     assert 'QLabel("PROJECT")' not in source
     assert "self.project_input" not in source
     assert "def on_project_changed" not in source
-    assert "self._project = resolve_launcher_project(self.settings)" in source
+    assert "self._project = _launcher.resolve_launcher_project(self.settings)" in source
     assert "self.monitor.set_project(self._project)" in source
     assert '("link_count", "Knowledge Links", COLOR_CYAN' in source
     assert '("node_count", "Knowledge Nodes", COLOR_GREEN' in source

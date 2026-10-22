@@ -8,6 +8,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def test_frozen_launcher_keeps_sqlite_authoritative_api_independent_of_qdrant():
     launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+    dashboard = (REPO_ROOT / "scripts" / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
     authoritative = (REPO_ROOT / "scripts" / "start-bhm-authoritative.ps1").read_text(encoding="utf-8")
     service = (REPO_ROOT / "scripts" / "run-service.ps1").read_text(encoding="utf-8")
 
@@ -17,7 +18,7 @@ def test_frozen_launcher_keeps_sqlite_authoritative_api_independent_of_qdrant():
     assert 'args.append("-StopOnly")' in launcher
     assert 'START DEFERRED: api waiting for Qdrant HTTP readiness' not in launcher
     assert 'self.start_service("qdrant", on_success=lambda: self.start_service("api"))' not in launcher
-    assert "if card and operation and operation.isRunning():" in launcher
+    assert "if card and operation and operation.isRunning():" in dashboard
     assert "[switch]$StopOnly" in authoritative
     assert "[switch]$SkipProjectionRecovery" in authoritative
     assert "Wait-AuthoritativeQdrant" not in service
@@ -35,12 +36,12 @@ def test_frozen_launcher_keeps_sqlite_authoritative_api_independent_of_qdrant():
 
 
 def test_launcher_exposes_operator_gated_qdrant_recovery():
-    launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+    dashboard = (REPO_ROOT / "scripts" / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
 
-    assert '"qdrant_recovery"' in launcher
-    assert '"recover-qdrant.ps1"' in launcher
-    assert '"-WhatIf"' in launcher
-    assert '"-Force"' in launcher
+    assert '"qdrant_recovery"' in dashboard
+    assert '"recover-qdrant.ps1"' in dashboard
+    assert '"-WhatIf"' in dashboard
+    assert '"-Force"' in dashboard
 
 
 def test_launcher_does_not_select_project_root_from_process_cwd():
