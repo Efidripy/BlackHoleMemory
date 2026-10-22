@@ -148,11 +148,23 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _http_helper_name(call: ast.Call) -> str | None:
+    """Name of the HTTP helper a call targets: ``_post(...)`` or ``_base._post(...)``."""
+    func = call.func
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "_base":
+        return func.attr
+    return None
+
+
 def _decorated_route_map() -> dict[str, list[tuple[str, str]]]:
-    source_path = Path(__file__).with_name("bhm_mcp.py")
-    tree = ast.parse(source_path.read_text(encoding="utf-8"))
     result: dict[str, list[tuple[str, str]]] = {}
-    for node in tree.body:
+    nodes: list[ast.stmt] = []
+    # the MCP tools are registered across the bhm_mcp_* modules next to the facade
+    for source_path in sorted(Path(__file__).parent.glob("bhm_mcp*.py")):
+        nodes.extend(ast.parse(source_path.read_text(encoding="utf-8")).body)
+    for node in nodes:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         tool_name: str | None = None
@@ -167,11 +179,10 @@ def _decorated_route_map() -> dict[str, list[tuple[str, str]]]:
         if not tool_name:
             continue
         paths = {
-            (call.func.id, str(call.args[0].value))
+            (_http_helper_name(call), str(call.args[0].value))
             for call in ast.walk(node)
             if isinstance(call, ast.Call)
-            and isinstance(call.func, ast.Name)
-            and call.func.id in _HTTP_HELPERS
+            and _http_helper_name(call) in _HTTP_HELPERS
             and call.args
             and isinstance(call.args[0], ast.Constant)
             and isinstance(call.args[0].value, str)

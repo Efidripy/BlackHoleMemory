@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from blackholememory import bhm_mcp_code
 from blackholememory import app_hooks
 from blackholememory import app_ops_entity
 from blackholememory import app_retrieval
@@ -80,7 +81,7 @@ def test_code_search_wrapper_forwards_project_and_each_search_mode(monkeypatch):
         captured.append({"operation": operation, **kwargs})
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_public_code_tool", fake_public_code_tool)
+    monkeypatch.setattr(bhm_mcp_code, "_public_code_tool", fake_public_code_tool)
     for mode in CODE_SEARCH_MODES:
         bhm_mcp.bhm_search_code(query="needle", project="BlackHoleMemory", mode=mode)
 
