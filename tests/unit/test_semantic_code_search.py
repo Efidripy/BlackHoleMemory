@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from blackholememory import bhm_mcp_code
 from blackholememory import app as bhm_app
 from blackholememory import bhm_mcp
 from blackholememory.code_graph import build_code_graph
@@ -96,7 +97,7 @@ def test_mcp_wrapper_forwards_semantic_query_without_new_namespace(monkeypatch: 
         captured.update(kwargs)
         return {"ok": True}
 
-    monkeypatch.setattr(bhm_mcp, "_public_code_tool", fake)
+    monkeypatch.setattr(bhm_mcp_code, "_public_code_tool", fake)
     assert bhm_mcp.bhm_search_code(semantic_query=["graph"], semantic_min_score=0.25, max_tokens=8_192, time_budget_ms=500.0) == {"ok": True}
     assert captured["operation"] == "code_search"
     assert captured["semantic_query"] == ["graph"]

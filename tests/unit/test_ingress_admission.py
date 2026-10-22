@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
+from blackholememory import bhm_mcp_base
 from blackholememory import app_ops_task
 from blackholememory import app as bhm_app
 from blackholememory import app_runtime
@@ -108,7 +109,7 @@ def test_bearer_only_rest_write_is_tool_ingress_and_rejected_before_write(monkey
 
 
 def test_mcp_tools_return_local_rejection_without_rest_forwarding(monkeypatch) -> None:
-    monkeypatch.setattr(bhm_mcp, "_post", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not forward")))
+    monkeypatch.setattr(bhm_mcp_base, "_post", lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must not forward")))
 
     result = bhm_mcp.bhm_remember(content="clean MCP payload", project="blackholememory")
 

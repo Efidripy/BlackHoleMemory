@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from blackholememory import bhm_mcp_base
 from blackholememory import app_core_hook
 from blackholememory import app_telemetry
 from blackholememory import app_runtime
@@ -51,7 +52,7 @@ def test_health_slo_breaches_projection_budget(monkeypatch):
 def test_health_slo_mcp_wrapper_uses_read_only_route(monkeypatch):
     calls: list[tuple[str, dict]] = []
     monkeypatch.setattr(
-        bhm_mcp,
+        bhm_mcp_base,
         "_get",
         lambda path, params: calls.append((path, params)) or {"ok": True},
     )
