@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from blackholememory import bhm_mcp_base
 from blackholememory.project_registry import ProjectDefinition
 from blackholememory.project_registry import ProjectRegistry
 from blackholememory.project_registry import ProjectRegistryError
@@ -49,7 +50,7 @@ def test_project_key_normalization_is_deterministic():
 def test_project_resolve_mcp_wrapper_uses_canonical_rest_route(monkeypatch):
     calls: list[tuple[str, dict]] = []
     monkeypatch.setattr(
-        bhm_mcp,
+        bhm_mcp_base,
         "_get",
         lambda path, params: calls.append((path, params)) or {"ok": True},
     )

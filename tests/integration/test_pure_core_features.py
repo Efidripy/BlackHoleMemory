@@ -2992,8 +2992,8 @@ def test_mcp_context_compile_wrapper_posts_bounded_contract(monkeypatch):
         calls.append((path, body))
         return {"ok": True}
 
-    monkeypatch.setattr("blackholememory.bhm_mcp._post", fake_post)
-    monkeypatch.setattr("blackholememory.bhm_mcp._read_native_env_value", lambda _key: None)
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._post", fake_post)
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._read_native_env_value", lambda _key: None)
     from blackholememory.bhm_mcp import bhm_context_compile
 
     assert bhm_context_compile("retrieval", project="blackholememory", token_budget=800, limit=7) == {"ok": True}
@@ -3019,8 +3019,8 @@ def test_mcp_context_compile_wrapper_can_select_a_native_profile(monkeypatch):
         calls.append((path, body))
         return {"ok": True}
 
-    monkeypatch.setattr("blackholememory.bhm_mcp._post", fake_post)
-    monkeypatch.setattr("blackholememory.bhm_mcp._read_native_env_value", lambda _key: None)
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._post", fake_post)
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._read_native_env_value", lambda _key: None)
     from blackholememory.bhm_mcp import bhm_context_compile
 
     assert bhm_context_compile("retrieval", project="blackholememory", profile="deep") == {"ok": True}
@@ -3121,8 +3121,8 @@ def test_context_compile_recovers_to_authoritative_sqlite_when_provider_warmup_t
 def test_mcp_context_compile_wrapper_forwards_history_scope_and_freshness(monkeypatch):
     calls: list[tuple[str, dict]] = []
 
-    monkeypatch.setattr("blackholememory.bhm_mcp._post", lambda path, body: calls.append((path, body)) or {"ok": True})
-    monkeypatch.setattr("blackholememory.bhm_mcp._read_native_env_value", lambda _key: None)
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._post", lambda path, body: calls.append((path, body)) or {"ok": True})
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._read_native_env_value", lambda _key: None)
     from blackholememory.bhm_mcp import bhm_context_compile
 
     assert bhm_context_compile("recent", project="blackholememory", history_scope="recent", freshness_days=7) == {"ok": True}
@@ -3190,8 +3190,8 @@ def test_context_compile_can_explicitly_apply_deterministic_tiers(monkeypatch):
 def test_mcp_context_compile_wrapper_forwards_tiered_context_only_when_enabled(monkeypatch):
     calls: list[tuple[str, dict]] = []
 
-    monkeypatch.setattr("blackholememory.bhm_mcp._post", lambda path, body: calls.append((path, body)) or {"ok": True})
-    monkeypatch.setattr("blackholememory.bhm_mcp._read_native_env_value", lambda _key: None)
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._post", lambda path, body: calls.append((path, body)) or {"ok": True})
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._read_native_env_value", lambda _key: None)
     from blackholememory.bhm_mcp import bhm_context_compile
 
     assert bhm_context_compile("tiers", project="blackholememory", tiered_context=True) == {"ok": True}
@@ -3279,7 +3279,7 @@ def test_mcp_explain_retrieval_wrapper_posts_filters(monkeypatch):
         calls.append((path, body))
         return {"ok": True}
 
-    monkeypatch.setattr("blackholememory.bhm_mcp._post", fake_post)
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._post", fake_post)
     from blackholememory.bhm_mcp import bhm_explain_retrieval
 
     assert (
@@ -3441,7 +3441,7 @@ def test_mcp_memory_used_wrapper_posts_explicit_ids(monkeypatch):
         calls.append((path, body))
         return {"ok": True}
 
-    monkeypatch.setattr("blackholememory.bhm_mcp._post", fake_post)
+    monkeypatch.setattr("blackholememory.bhm_mcp_base._post", fake_post)
     from blackholememory.bhm_mcp import bhm_memory_used
 
     assert bhm_memory_used("mem-a, mem-b", project="blackholememory", reason="accepted context") == {"ok": True}
