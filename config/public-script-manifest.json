@@ -399,6 +399,26 @@
       "release": true
     },
     {
+      "path": "scripts/bhm_crystallize_worker_base.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_crystallize_worker_host.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_crystallize_worker_synthesis.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_crystallize_worker_consolidation.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_graph_healer.py",
       "role": "runtime-support",
       "release": true
