@@ -30,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from tests.app_patch import patch_app_import
+from blackholememory import app_lifecycle
 from blackholememory import app_core
 from blackholememory import app_hooks
 from blackholememory import app_ops
@@ -398,14 +399,14 @@ def test_required_storage_startup_gate_fails_closed(monkeypatch):
     patch_app_import(monkeypatch, "storage_runtime_state", lambda: state)
 
     with pytest.raises(StorageNotReady, match="did not become ready"):
-        asyncio.run(bhm_app._wait_for_required_storage_ready(timeout_seconds=0))
+        asyncio.run(app_lifecycle._wait_for_required_storage_ready(timeout_seconds=0))
 
 
 def test_required_storage_startup_gate_allows_explicit_degraded_mode(monkeypatch):
     state = SimpleNamespace(ready=False, configured_mode="remote-preferred", reason="explicit_fallback")
     patch_app_import(monkeypatch, "storage_runtime_state", lambda: state)
 
-    result = asyncio.run(bhm_app._wait_for_required_storage_ready(timeout_seconds=0))
+    result = asyncio.run(app_lifecycle._wait_for_required_storage_ready(timeout_seconds=0))
 
     assert result is state
 
@@ -905,7 +906,7 @@ def test_hook_compact_triggers_crystallization(monkeypatch):
             },
         )
 
-    monkeypatch.setattr(bhm_app, "_append_hook_observation", fake_observation)
+    monkeypatch.setattr(app_lifecycle, "_append_hook_observation", fake_observation)
     monkeypatch.setattr(app_core, "_crystallize_memories", fake_crystallize)
 
     request = bhm_app.BhmHookCompactRequest.model_validate(
@@ -923,7 +924,7 @@ def test_hook_compact_triggers_crystallization(monkeypatch):
             "upsert_key": "hook-compact-crystal:BlackHoleMemory:hook-session-73",
         }
     )
-    result = bhm_app._handle_compact_hook(request)
+    result = app_lifecycle._handle_compact_hook(request)
 
     assert result["success"] is True
     assert result["action"] == "created"
@@ -981,7 +982,7 @@ def test_hook_compact_empty_state_handling(monkeypatch):
     def fail_crystallize(_request):
         raise AssertionError("crystallize should not run for empty hook state")
 
-    monkeypatch.setattr(bhm_app, "_append_hook_observation", lambda request, endpoint: {"id": "obs_hook_75"})
+    monkeypatch.setattr(app_lifecycle, "_append_hook_observation", lambda request, endpoint: {"id": "obs_hook_75"})
     monkeypatch.setattr(app_core, "_crystallize_memories", fail_crystallize)
 
     request = bhm_app.BhmHookCompactRequest.model_validate(
@@ -993,7 +994,7 @@ def test_hook_compact_empty_state_handling(monkeypatch):
             "data": {},
         }
     )
-    result = bhm_app._handle_compact_hook(request)
+    result = app_lifecycle._handle_compact_hook(request)
 
     assert result["success"] is True
     assert result["action"] == "skipped"
@@ -1064,7 +1065,7 @@ def test_hook_queue_capacity_idempotency_and_collision(tmp_path):
 
 def test_hook_queue_result_summary_redacts_and_bounds_reason():
     bearer_value = "Bearer " + ("b" * 32)
-    summary = bhm_app._hook_job_result_summary(
+    summary = app_lifecycle._hook_job_result_summary(
         {
             "success": False,
             "action": "failed" * 100,
@@ -1249,14 +1250,14 @@ def test_hook_queue_worker_processes_compact_job(monkeypatch, tmp_path):
         }
 
     monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_handle_compact_hook", fake_handle)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
+    monkeypatch.setattr(app_lifecycle, "_handle_compact_hook", fake_handle)
+    monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(app_core, "_HOOK_QUEUE_LEASE_SECONDS", 5.0)
 
     async def run_worker() -> None:
         stop_event = asyncio.Event()
         task = asyncio.create_task(
-            bhm_app._hook_queue_worker(
+            app_lifecycle._hook_queue_worker(
                 worker_name="pytest-compact",
                 kinds=("compact",),
                 stop_event=stop_event,
@@ -1287,15 +1288,15 @@ def test_hook_queue_worker_logs_retryable_and_terminal_failure_context(monkeypat
         raise RuntimeError("synthetic processing failure")
 
     monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_execute_hook_job", fail_execute)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_RETRY_BASE_SECONDS", 0.0)
+    monkeypatch.setattr(app_lifecycle, "_execute_hook_job", fail_execute)
+    monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
+    monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_RETRY_BASE_SECONDS", 0.0)
     caplog.set_level("WARNING")
 
     async def run_worker() -> None:
         stop_event = asyncio.Event()
         task = asyncio.create_task(
-            bhm_app._hook_queue_worker(
+            app_lifecycle._hook_queue_worker(
                 worker_name="pytest-failure-visibility",
                 kinds=("compact",),
                 stop_event=stop_event,
@@ -1341,14 +1342,14 @@ def test_hook_queue_worker_does_not_hide_failure_recording_error(monkeypatch, tm
 
     monkeypatch.setattr(queue, "fail", fail_once)
     monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_execute_hook_job", fail_execute)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
+    monkeypatch.setattr(app_lifecycle, "_execute_hook_job", fail_execute)
+    monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     caplog.set_level("ERROR")
 
     async def run_worker() -> None:
         stop_event = asyncio.Event()
         task = asyncio.create_task(
-            bhm_app._hook_queue_worker(
+            app_lifecycle._hook_queue_worker(
                 worker_name="pytest-failure-recording",
                 kinds=("compact",),
                 stop_event=stop_event,
@@ -1386,13 +1387,13 @@ def test_hook_queue_worker_cancellation_is_recovered_not_terminal(monkeypatch, t
         return {"success": True}
 
     monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_execute_hook_job", blocked_execute)
+    monkeypatch.setattr(app_lifecycle, "_execute_hook_job", blocked_execute)
     caplog.set_level("INFO")
 
     async def run_worker() -> None:
         stop_event = asyncio.Event()
         task = asyncio.create_task(
-            bhm_app._hook_queue_worker(
+            app_lifecycle._hook_queue_worker(
                 worker_name="pytest-cancellation",
                 kinds=("compact",),
                 stop_event=stop_event,
@@ -1431,24 +1432,24 @@ def test_hook_queue_manager_starts_and_drains_fixed_workers(monkeypatch, tmp_pat
         }
 
     monkeypatch.setattr(app_core, "_hook_queue", lambda: queue)
-    monkeypatch.setattr(bhm_app, "_execute_hook_job", fake_execute)
+    monkeypatch.setattr(app_lifecycle, "_execute_hook_job", fake_execute)
     monkeypatch.setattr(app_core, "_HOOK_COMPACT_WORKERS", 1)
     monkeypatch.setattr(app_core, "_HOOK_IDLE_WORKERS", 1)
-    monkeypatch.setattr(bhm_app, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
+    monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(app_core, "_HOOK_QUEUE_DRAIN_SECONDS", 2.0)
     monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_TASKS", [])
     monkeypatch.setattr(app_core, "_HOOK_QUEUE_STOP_EVENT", None)
     monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_ACCEPTING", True)
 
     async def run_manager() -> None:
-        await bhm_app._start_hook_queue_workers()
+        await app_lifecycle._start_hook_queue_workers()
         for _ in range(200):
             compact_job = queue.get(compact.job_id)
             idle_job = queue.get(idle.job_id)
             if compact_job and idle_job and compact_job["status"] == idle_job["status"] == "completed":
                 break
             await asyncio.sleep(0.005)
-        await bhm_app._stop_hook_queue_workers()
+        await app_lifecycle._stop_hook_queue_workers()
 
     asyncio.run(run_manager())
 
@@ -1631,7 +1632,7 @@ def test_hook_observation_uses_versioned_contract(monkeypatch):
         request,
         max_input_bytes=bhm_app.OBSERVATION_COMPACT_MAX_INPUT_BYTES,
     )
-    record = bhm_app._append_hook_observation(secured_request, "compact")
+    record = app_lifecycle._append_hook_observation(secured_request, "compact")
 
     assert record["schemaVersion"] == "1.0"
     assert record["eventId"] == "obs_workspace_hook_001"
@@ -2348,10 +2349,10 @@ def test_websocket_broadcast_interval(monkeypatch):
 
     monkeypatch.setattr(app_runtime, "_MEMORY_PULSE_BUS", FakePulseBus())
     monkeypatch.setattr(bhm_app.asyncio, "sleep", fake_sleep)
-    monkeypatch.setattr(bhm_app, "_collect_sys_status_payload", fake_payload)
+    monkeypatch.setattr(app_lifecycle, "_collect_sys_status_payload", fake_payload)
 
     with pytest.raises(asyncio.CancelledError):
-        asyncio.run(bhm_app._telemetry_harvester_loop())
+        asyncio.run(app_lifecycle._telemetry_harvester_loop())
 
     assert intervals[:3] == [2.5, 2.5, 2.5]
     assert len(broadcasts) == 3
@@ -2364,7 +2365,7 @@ def test_telemetry_payload_integrity(monkeypatch):
 
     monkeypatch.setattr(bhm_app.asyncio, "to_thread", immediate_to_thread)
     monkeypatch.setattr(
-        bhm_app,
+        app_lifecycle,
         "_collect_host_telemetry_sync",
         lambda: {
             "bhm_working_set_mb": 64.5,
@@ -2380,7 +2381,7 @@ def test_telemetry_payload_integrity(monkeypatch):
         },
     )
     monkeypatch.setattr(app_runtime, "_get_provider_warmup_status", lambda: {"ready": True})
-    payload = asyncio.run(bhm_app._collect_sys_status_payload())
+    payload = asyncio.run(app_lifecycle._collect_sys_status_payload())
     data = payload["data"]
 
     assert payload["event"] == "sys_status"
@@ -2410,7 +2411,7 @@ def test_telemetry_knowledge_counters_group_lifecycle_and_architecture_taxonomy(
     ]
     monkeypatch.setattr(app_runtime, "_load_live_memories", lambda: records)
 
-    result = bhm_app._knowledge_counters_sync()
+    result = app_lifecycle._knowledge_counters_sync()
 
     assert result["schema_version"] == "bhm.dashboard.knowledge-counters.v1"
     assert result["source"] == {"authority": "sqlite", "table": "memories", "projection_used": False}

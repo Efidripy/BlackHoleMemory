@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from tests.app_patch import patch_app_import
+from blackholememory import app_lifecycle
 from blackholememory import app_core
 from blackholememory import app_ops
 from blackholememory import app_projects
@@ -980,7 +981,7 @@ def test_direct_browser_mcp_status_requires_ui_session_and_denies_post() -> None
 
 def test_ui_bootstrap_exchange_rejects_oversized_payload_before_route_buffering() -> None:
     bhm_app._UI_SESSIONS.reset()
-    oversized = b"{" + (b"x" * (bhm_app.MAX_UI_EXCHANGE_BODY_BYTES + 32)) + b"}"
+    oversized = b"{" + (b"x" * (app_lifecycle.MAX_UI_EXCHANGE_BODY_BYTES + 32)) + b"}"
     response = _client(authorization="").post(
         "/bhm/ui/session/exchange",
         headers=_ui_headers(),

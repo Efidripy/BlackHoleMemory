@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from blackholememory import app_lifecycle
 from blackholememory import app_core
-from blackholememory import app as bhm_app
 from blackholememory import app_runtime
 
 
@@ -89,6 +89,6 @@ def test_authoritative_startup_completes_repository_write_gate(monkeypatch) -> N
 
     monkeypatch.setattr(app_runtime, "_memory_service", Service)
 
-    bhm_app._initialize_authoritative_memory_service()
+    app_lifecycle._initialize_authoritative_memory_service()
 
     assert initialized == 1

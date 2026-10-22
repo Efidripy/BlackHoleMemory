@@ -4,7 +4,7 @@ import socket
 import urllib.error
 
 from tests.app_patch import patch_app_import
-from blackholememory import app as bhm_app
+from blackholememory import app_lifecycle
 from blackholememory import mem0_adapter
 from blackholememory.resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
 from blackholememory.resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
@@ -33,9 +33,9 @@ def test_app_qdrant_health_uses_local_bounded_transport(monkeypatch) -> None:
         return _HealthResponse()
 
     patch_app_import(monkeypatch, "open_local_url", fake_open)
-    assert bhm_app._qdrant_healthy_sync() is True
+    assert app_lifecycle._qdrant_healthy_sync() is True
     assert calls[0]["url"].endswith("/healthz")
-    assert calls[0]["timeout"] == bhm_app._QDRANT_HEALTH_TIMEOUT_SECONDS
+    assert calls[0]["timeout"] == app_lifecycle._QDRANT_HEALTH_TIMEOUT_SECONDS
 
 
 def test_mem0_qdrant_health_uses_local_bounded_transport(monkeypatch) -> None:
