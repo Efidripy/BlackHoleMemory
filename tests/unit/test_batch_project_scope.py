@@ -4,7 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
-from blackholememory import app_ops_admin, app_runtime, memory_routes
+from blackholememory import app_ops_admin, app_runtime, memory_routes, memory_routes_write
 
 
 def _code(exc: HTTPException) -> str:
@@ -130,6 +130,7 @@ def test_batch_archive_preflights_every_item_before_first_write(monkeypatch) -> 
 
     monkeypatch.setattr(app_runtime, "_find_live_memory", fake_find)
     monkeypatch.setattr(memory_routes, "_archive_live_memory", fake_archive)
+    monkeypatch.setattr(memory_routes_write, "_archive_live_memory", fake_archive)
     request = bhm_app.BatchMemoryIdsRequest(
         project="blackholememory",
         items=[{"id": "memory-1"}, {"id": "missing"}],
