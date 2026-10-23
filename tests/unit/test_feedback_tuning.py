@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from blackholememory import app_core_hook
-from blackholememory import app_telemetry
-from blackholememory import app_runtime
-from blackholememory.feedback_tuning import build_feedback_tuning
-from blackholememory.feedback_tuning import summarize_quality_feedback
+from blackholememory import app_core_hook, app_runtime, app_telemetry
+from blackholememory.feedback_tuning import (
+    build_feedback_tuning,
+    summarize_quality_feedback,
+)
 
 
 def test_tuning_waits_for_both_explicit_feedback_streams():

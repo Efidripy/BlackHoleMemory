@@ -3,10 +3,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from tests.app_patch import patch_app_import
 from blackholememory import app as bhm_app
 from blackholememory import caller_auth
-
+from tests.app_patch import patch_app_import
 
 TEST_CALLER_TOKEN = "bhm-test-caller-token-0000000000000001"
 

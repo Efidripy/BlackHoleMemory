@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from blackholememory.storage_state import StorageMode
-from blackholememory.storage_state import StorageReadiness
-from blackholememory.storage_state import evaluate_storage_state
-from blackholememory.storage_state import resolve_storage_mode
+from blackholememory.storage_state import (
+    StorageMode,
+    StorageReadiness,
+    evaluate_storage_state,
+    resolve_storage_mode,
+)
 
 
 def test_storage_mode_resolution_fails_closed_to_remote_required(monkeypatch):

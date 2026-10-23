@@ -7,11 +7,13 @@ import pytest
 from blackholememory import project_retirement as project_retirement_module
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.project_retirement import ProjectRetirementError
-from blackholememory.project_retirement import apply_project_retirement
-from blackholememory.project_retirement import preview_project_retirement
-from blackholememory.project_retirement import PROJECT_RETIREMENT_ALLOWLIST_ENV
-from blackholememory.project_retirement import PROJECT_RETIREMENT_CAPABILITY_ENV
+from blackholememory.project_retirement import (
+    PROJECT_RETIREMENT_ALLOWLIST_ENV,
+    PROJECT_RETIREMENT_CAPABILITY_ENV,
+    ProjectRetirementError,
+    apply_project_retirement,
+    preview_project_retirement,
+)
 
 
 def _memory(memory_id: str, project: str):

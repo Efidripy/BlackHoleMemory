@@ -4,12 +4,13 @@ from datetime import datetime, timezone
 
 import pytest
 
-from blackholememory.repository_intelligence import RepositoryIntelligenceError
-from blackholememory.repository_intelligence import build_repository_intelligence_preview
-from blackholememory.repository_intelligence import collect_repository_files
-from blackholememory.repository_intelligence import verify_repository_intelligence_digest
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
-
+from blackholememory.repository_intelligence import (
+    RepositoryIntelligenceError,
+    build_repository_intelligence_preview,
+    collect_repository_files,
+    verify_repository_intelligence_digest,
+)
 
 NOW = datetime(2026, 7, 14, tzinfo=timezone.utc)
 

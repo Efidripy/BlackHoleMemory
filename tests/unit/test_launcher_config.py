@@ -13,9 +13,7 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from bhm_launcher_config import load_settings
-from bhm_launcher_config import save_settings
-from bhm_launcher_config import validate_settings
+from bhm_launcher_config import load_settings, save_settings, validate_settings
 
 
 def test_save_settings_is_atomic_and_keeps_a_backup(tmp_path):

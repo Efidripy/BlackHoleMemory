@@ -6,13 +6,9 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import bhm_mcp_base
-from blackholememory import app_ops_task
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
-from blackholememory import bhm_mcp
-from blackholememory.ingress_admission import IngressKind
-from blackholememory.ingress_admission import admit_ingress
+from blackholememory import app_ops_task, app_runtime, bhm_mcp, bhm_mcp_base
+from blackholememory.ingress_admission import IngressKind, admit_ingress
 
 
 def test_operator_admission_is_digest_only_and_replay_stable() -> None:

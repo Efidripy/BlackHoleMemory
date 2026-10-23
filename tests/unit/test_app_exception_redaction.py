@@ -7,12 +7,10 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import app_hooks
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_hooks, app_runtime
 from blackholememory.hook_queue import HookQueueError
 from blackholememory.mem0_adapter import StorageNotReady
-
 
 _SECRET_MESSAGE = (
     "Authorization: Bearer synthetic-bearer-token; "

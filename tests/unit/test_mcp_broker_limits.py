@@ -6,8 +6,10 @@ import threading
 import time
 
 from blackholememory.infra.mcp_broker import McpIpcBroker
-from blackholememory.resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
-from blackholememory.resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
+from blackholememory.resource_limits import (
+    MCP_BROKER_CAPACITY_WAIT_SECONDS,
+    MCP_BROKER_JOIN_TIMEOUT_SECONDS,
+)
 
 
 def _decode(raw: bytes) -> dict:

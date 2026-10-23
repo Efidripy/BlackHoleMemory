@@ -4,9 +4,11 @@ from pathlib import Path
 
 from blackholememory.code_graph import build_code_graph
 from blackholememory.cross_repo_links import build_cross_repo_link_preview
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _publish(root: Path, database: Path, project: str) -> None:

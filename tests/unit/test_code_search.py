@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.code_search import get_repository_snippet
-from blackholememory.code_search import search_repository_code
+from blackholememory.code_search import get_repository_snippet, search_repository_code
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 

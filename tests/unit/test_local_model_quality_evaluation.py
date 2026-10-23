@@ -9,7 +9,6 @@ import pytest
 
 import blackholememory.local_model_quality_evaluation as quality
 
-
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "local_model_quality" / "russian-grounded-v1.json"
 
 

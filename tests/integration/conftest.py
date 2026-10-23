@@ -7,7 +7,6 @@ import pytest
 
 from .domain_manifest import DOMAIN_NAMES, classify_test, marker_for
 
-
 INTEGRATION_ROOT = Path(__file__).resolve().parent
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from blackholememory.caller_auth import CallerPrincipal
 from blackholememory import ui_session
+from blackholememory.caller_auth import CallerPrincipal
 
 
 def _principal() -> CallerPrincipal:

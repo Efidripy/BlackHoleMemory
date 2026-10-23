@@ -3,11 +3,12 @@ from datetime import datetime, timezone
 
 import pytest
 
-from blackholememory.memory_graph import MemoryGraphError
-from blackholememory.memory_graph import build_memory_graph
-from blackholememory.memory_graph import explain_memory_graph
-from blackholememory.memory_graph import query_memory_graph
-
+from blackholememory.memory_graph import (
+    MemoryGraphError,
+    build_memory_graph,
+    explain_memory_graph,
+    query_memory_graph,
+)
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 

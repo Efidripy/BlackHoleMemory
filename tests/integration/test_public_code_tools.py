@@ -3,25 +3,25 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from pathlib import Path
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-from fastapi.testclient import TestClient
 import httpx
+from fastapi.testclient import TestClient
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_core_fallback
 from blackholememory import app as bhm_app
-from blackholememory import code_tools_service
-from blackholememory import graph_build_jobs
+from blackholememory import app_core_fallback, code_tools_service, graph_build_jobs
 from blackholememory.code_graph import build_code_graph
 from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
-from blackholememory.repository_index import RepositoryIndexError
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.repository_index import (
+    RepositoryIndexError,
+    RepositorySourceProvenance,
+    SQLiteRepositoryIndexStore,
+    index_repository,
+    probe_repository_state,
+)
+from tests.app_patch import patch_app_import
 
 
 def _prepare(tmp_path: Path) -> tuple[Path, Path]:

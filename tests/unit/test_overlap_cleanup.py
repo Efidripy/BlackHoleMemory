@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import copy
 
-from blackholememory import app_core
-from blackholememory import app_ops_task
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core, app_ops_task, app_runtime
 
 
 def _memory(memory_id: str, content: str) -> dict:

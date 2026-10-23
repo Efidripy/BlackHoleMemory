@@ -6,17 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.domain import Memory
-from blackholememory.domain import MemoryLink
+from blackholememory.domain import Memory, MemoryLink
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.ontology_registry import OntologySchema
-from blackholememory.ontology_registry import build_activation_artifact
-from blackholememory.ontology_registry import build_registry_artifact
-from blackholememory.semantic_graph_link_migration import SemanticGraphLinkMigrationError
-from blackholememory.semantic_graph_link_migration import apply_semantic_graph_link_migration
-from blackholememory.semantic_graph_link_migration import build_semantic_graph_link_migration_plan
+from blackholememory.ontology_registry import (
+    OntologySchema,
+    build_activation_artifact,
+    build_registry_artifact,
+)
+from blackholememory.semantic_graph_link_migration import (
+    SemanticGraphLinkMigrationError,
+    apply_semantic_graph_link_migration,
+    build_semantic_graph_link_migration_plan,
+)
 from blackholememory.sqlite_retention import create_verified_sqlite_backup
-
 
 PROJECT = "project-a"
 

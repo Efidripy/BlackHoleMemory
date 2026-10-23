@@ -3,12 +3,8 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import app_core
-from blackholememory import app_ops_entity
-from blackholememory import app_ops_task
-from blackholememory import app_ops
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core, app_ops, app_ops_entity, app_ops_task, app_runtime
 
 
 @pytest.mark.parametrize(

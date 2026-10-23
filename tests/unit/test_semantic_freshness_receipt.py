@@ -3,7 +3,6 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-semantic-freshness.py"
 SPEC = importlib.util.spec_from_file_location("bhm_p28_wi108_semantic_freshness", SCRIPT)

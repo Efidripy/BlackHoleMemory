@@ -6,7 +6,6 @@ import pytest
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 REPORT_WRITER_SCRIPTS = (

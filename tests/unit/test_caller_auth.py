@@ -4,7 +4,6 @@ import json
 
 from blackholememory import caller_auth
 
-
 TOKEN = "test-caller-token-0123456789abcdef"
 
 

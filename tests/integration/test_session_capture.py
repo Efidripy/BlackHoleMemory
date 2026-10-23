@@ -1,9 +1,7 @@
 from datetime import datetime, timezone
 
-from blackholememory import app_core_hook
-from blackholememory import app_hooks
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core_hook, app_hooks, app_runtime
 
 
 def test_hidden_session_capture_route_is_read_only(monkeypatch):

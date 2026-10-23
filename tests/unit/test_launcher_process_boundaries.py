@@ -1,13 +1,14 @@
+import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
-import threading
 
 import pytest
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS
-from blackholememory.resource_limits import PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS
-
-import sys
+from blackholememory.resource_limits import (
+    PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_ROOT = REPO_ROOT / "scripts"

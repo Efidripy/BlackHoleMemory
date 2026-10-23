@@ -4,7 +4,6 @@ from pathlib import Path
 
 from blackholememory.resource_limits import LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = (
     ROOT / "scripts" / "bhm_classify_projection_orphans.py",

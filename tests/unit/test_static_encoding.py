@@ -4,7 +4,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_PATH = REPO_ROOT / "scripts/validate-bhm-static-encoding.py"
 SPEC = importlib.util.spec_from_file_location("bhm_static_encoding", SCRIPT_PATH)

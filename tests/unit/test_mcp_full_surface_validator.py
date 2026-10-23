@@ -11,7 +11,6 @@ import pytest
 
 from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-mcp-full-surface.py"
 SPEC = importlib.util.spec_from_file_location("bhm_mcp_full_surface_validator", SCRIPT)

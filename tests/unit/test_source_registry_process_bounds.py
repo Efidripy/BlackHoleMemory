@@ -11,7 +11,6 @@ from blackholememory.resource_limits import (
     PROCESS_EXECUTION_SOURCE_REGISTRY_GIT_TIMEOUT_SECONDS,
 )
 
-
 REVISION = "0123456789abcdef0123456789abcdef01234567"
 
 

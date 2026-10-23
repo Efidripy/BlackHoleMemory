@@ -8,11 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.locomo_smoke import ADVERSARIAL_ROUTE
-from blackholememory.locomo_smoke import LoCoMoSmokeError
-from blackholememory.locomo_smoke import ROUTE
-from blackholememory.locomo_smoke import run_locomo_lexical_smoke
-
+from blackholememory.locomo_smoke import (
+    ADVERSARIAL_ROUTE,
+    ROUTE,
+    LoCoMoSmokeError,
+    run_locomo_lexical_smoke,
+)
 
 _SECRET = "locomo-private-fixture-content"
 

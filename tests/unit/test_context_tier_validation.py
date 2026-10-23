@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.context_tier_validation import SCHEMA_VERSION
-from blackholememory.context_tier_validation import build_context_tier_validation_report
+from blackholememory.context_tier_validation import (
+    SCHEMA_VERSION,
+    build_context_tier_validation_report,
+)
 
 
 def test_context_tier_validation_is_green_and_content_free() -> None:

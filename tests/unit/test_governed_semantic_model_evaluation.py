@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from blackholememory.governed_semantic_model_evaluation import GovernedSemanticModelEvaluationError
-from blackholememory.governed_semantic_model_evaluation import evaluate_model_evidence_cases
-from blackholememory.governed_semantic_model_evaluation import load_model_evidence_dataset
-
+from blackholememory.governed_semantic_model_evaluation import (
+    GovernedSemanticModelEvaluationError,
+    evaluate_model_evidence_cases,
+    load_model_evidence_dataset,
+)
 
 _EVIDENCE = Path(__file__).parents[1] / "fixtures" / "governed-semantic-editor-evidence.json"
 

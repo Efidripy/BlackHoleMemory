@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from blackholememory.health_contract import bhm_health_payload
-from blackholememory.health_contract import health_cutover_payload
-from blackholememory.health_contract import health_live_payload
-from blackholememory.health_contract import health_ready_payload
-from blackholememory.health_contract import health_ready_public_payload
-from blackholememory.health_contract import health_slo_payload
+from blackholememory.health_contract import (
+    bhm_health_payload,
+    health_cutover_payload,
+    health_live_payload,
+    health_ready_payload,
+    health_ready_public_payload,
+    health_slo_payload,
+)
 
 
 def _dependency_report() -> dict:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from blackholememory.retrieval_funnel import RetrievalFunnel
-from blackholememory.retrieval_funnel import normalize_dimension
+from blackholememory.retrieval_funnel import RetrievalFunnel, normalize_dimension
 
 
 def test_retrieval_funnel_tracks_stages_and_explicit_use_only():

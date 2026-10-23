@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from blackholememory import bhm_mcp_base
-from blackholememory import bhm_mcp
+from blackholememory import bhm_mcp, bhm_mcp_base
 
 
 def test_forget_preview_serializes_absent_selectors_as_lists(monkeypatch) -> None:

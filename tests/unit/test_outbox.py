@@ -6,9 +6,7 @@ import pytest
 
 from blackholememory.domain import Memory
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.outbox import OutboxLeaseLost
-from blackholememory.outbox import OutboxStatus
-
+from blackholememory.outbox import OutboxLeaseLost, OutboxStatus
 
 
 def _memory() -> Memory:

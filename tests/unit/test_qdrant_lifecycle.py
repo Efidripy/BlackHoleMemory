@@ -6,8 +6,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from blackholememory.qdrant_lifecycle import LIFECYCLE_DECISIONS
-from blackholememory.qdrant_lifecycle import build_qdrant_lifecycle_report
+from blackholememory.qdrant_lifecycle import (
+    LIFECYCLE_DECISIONS,
+    build_qdrant_lifecycle_report,
+)
 from blackholememory.qdrant_validation_bounds import ValidationScanBudget
 
 

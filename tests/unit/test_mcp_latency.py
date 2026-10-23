@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.mcp_latency import evaluate_mcp_latency
-from blackholememory.mcp_latency import percentile
+from blackholememory.mcp_latency import evaluate_mcp_latency, percentile
 
 
 def test_percentile_uses_nearest_rank_and_preserves_tail():

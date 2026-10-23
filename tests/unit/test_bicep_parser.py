@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from blackholememory.bicep_parser import BICEP_PARSER_ID
-from blackholememory.bicep_parser import BICEP_PARSER_VERSION
-from blackholememory.bicep_parser import parse_bicep
+from blackholememory.bicep_parser import (
+    BICEP_PARSER_ID,
+    BICEP_PARSER_VERSION,
+    parse_bicep,
+)
 
 
 def test_bicep_parser_returns_bounded_metadata_and_masks_comments() -> None:

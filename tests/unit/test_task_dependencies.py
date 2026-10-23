@@ -3,14 +3,16 @@ from __future__ import annotations
 import pytest
 
 from blackholememory.memory_service import SQLiteMemoryService
-from blackholememory.task_dependencies import TaskDependencyDeclaration
-from blackholememory.task_dependencies import TaskDependencyCompletenessAttestation
-from blackholememory.task_dependencies import TaskDependencyError
-from blackholememory.task_dependencies import append_task_dependency
-from blackholememory.task_dependencies import append_task_dependency_completeness_attestation
-from blackholememory.task_dependencies import load_task_dependencies
-from blackholememory.task_dependencies import load_task_dependency_completeness_attestation
-from blackholememory.task_dependencies import validate_dependency_completeness_attestation
+from blackholememory.task_dependencies import (
+    TaskDependencyCompletenessAttestation,
+    TaskDependencyDeclaration,
+    TaskDependencyError,
+    append_task_dependency,
+    append_task_dependency_completeness_attestation,
+    load_task_dependencies,
+    load_task_dependency_completeness_attestation,
+    validate_dependency_completeness_attestation,
+)
 
 
 def _tasks() -> list[dict[str, str]]:

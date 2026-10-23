@@ -4,14 +4,16 @@ import hashlib
 
 import pytest
 
-from blackholememory.config_recovery_receipts import ConfigRecoveryError
-from blackholememory.config_recovery_receipts import assert_migration_leases_nonoverlapping
-from blackholememory.config_recovery_receipts import build_last_known_good_config_snapshot
-from blackholememory.config_recovery_receipts import build_migration_lease_preview
-from blackholememory.config_recovery_receipts import build_recovery_preview
-from blackholememory.config_recovery_receipts import rehearse_crash_restart_recovery
-from blackholememory.config_recovery_receipts import verify_last_known_good_config_snapshot
-from blackholememory.config_recovery_receipts import verify_migration_lease_preview
+from blackholememory.config_recovery_receipts import (
+    ConfigRecoveryError,
+    assert_migration_leases_nonoverlapping,
+    build_last_known_good_config_snapshot,
+    build_migration_lease_preview,
+    build_recovery_preview,
+    rehearse_crash_restart_recovery,
+    verify_last_known_good_config_snapshot,
+    verify_migration_lease_preview,
+)
 
 
 def _snapshot():

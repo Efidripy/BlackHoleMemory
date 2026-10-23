@@ -12,8 +12,7 @@ import pytest
 from langgraph.checkpoint.base import empty_checkpoint
 from langgraph.graph import END, START, StateGraph
 
-from blackholememory.langgraph_checkpoint import SQLiteLangGraphCheckpointSaver
-from blackholememory.langgraph_checkpoint import _redact
+from blackholememory.langgraph_checkpoint import SQLiteLangGraphCheckpointSaver, _redact
 from blackholememory.langgraph_contract import build_langgraph_contract
 
 

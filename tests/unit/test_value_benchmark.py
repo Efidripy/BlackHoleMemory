@@ -4,8 +4,10 @@ from collections import Counter
 
 import pytest
 
-from blackholememory.value_benchmark import build_value_benchmark_cases
-from blackholememory.value_benchmark import run_value_benchmark
+from blackholememory.value_benchmark import (
+    build_value_benchmark_cases,
+    run_value_benchmark,
+)
 
 
 def test_value_benchmark_has_realistic_hard_negatives_and_bhm_wins_proxy():

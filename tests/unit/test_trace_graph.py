@@ -1,7 +1,9 @@
-from blackholememory.trace_graph import TRACE_GRAPH_CONFIDENCE_CAP
-from blackholememory.trace_graph import TraceGraphError
-from blackholememory.trace_graph import build_trace_graph
-from blackholememory.trace_graph import validate_trace_graph
+from blackholememory.trace_graph import (
+    TRACE_GRAPH_CONFIDENCE_CAP,
+    TraceGraphError,
+    build_trace_graph,
+    validate_trace_graph,
+)
 
 
 def _record(event_id: str, source: str = "web", target: str = "payments") -> dict:

@@ -5,9 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.code_graph_artifact import CodeGraphArtifactError
-from blackholememory.code_graph_artifact import export_graph_artifact
-from blackholememory.code_graph_artifact import verify_graph_artifact
+from blackholememory.code_graph_artifact import (
+    CodeGraphArtifactError,
+    export_graph_artifact,
+    verify_graph_artifact,
+)
 from blackholememory.cross_repo_links import project_scope_is_aggregate
 from blackholememory.memory_pulse_bus import MemoryPulseBus
 

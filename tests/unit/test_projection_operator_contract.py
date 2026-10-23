@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 OPERATOR = REPO_ROOT / "scripts" / "bhm-projection-operator.ps1"
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")

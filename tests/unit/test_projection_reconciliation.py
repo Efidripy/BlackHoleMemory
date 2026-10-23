@@ -6,21 +6,22 @@ from types import SimpleNamespace
 import pytest
 
 from blackholememory.domain import Memory
-from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import local_collection_name
-from blackholememory.qdrant_projector import deterministic_point_id
-from blackholememory.qdrant_projector import QdrantProjector
-from blackholememory.sync_service import MemoryLifecycleService
-from blackholememory.projection_reconciliation import ReconciliationAction
-from blackholememory.projection_reconciliation import ProjectionCompatibilityStatus
-from blackholememory.projection_reconciliation import apply_projection_reconciliation
-from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
-from blackholememory.projection_reconciliation import classify_projection_review_entries
-from blackholememory.projection_reconciliation import ProjectionReviewDisposition
-from blackholememory.projection_reconciliation import QDRANT_QUARANTINE_COLLECTION_PREFIX
-from blackholememory.projection_reconciliation import apply_projection_generation_plan
-from blackholememory.projection_reconciliation import build_projection_generation_plan
+from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.projection_generation_binding import ProjectionCollectionRoute
+from blackholememory.projection_reconciliation import (
+    QDRANT_QUARANTINE_COLLECTION_PREFIX,
+    ProjectionCompatibilityStatus,
+    ProjectionReviewDisposition,
+    ReconciliationAction,
+    apply_projection_generation_plan,
+    apply_projection_reconciliation,
+    build_projection_generation_plan,
+    build_projection_reconciliation_plan,
+    classify_projection_review_entries,
+)
+from blackholememory.qdrant_projector import QdrantProjector, deterministic_point_id
+from blackholememory.sync_service import MemoryLifecycleService
 
 
 @dataclass

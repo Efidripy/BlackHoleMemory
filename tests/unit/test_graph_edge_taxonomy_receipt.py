@@ -1,4 +1,6 @@
-from blackholememory.graph_edge_taxonomy_receipt import build_graph_edge_taxonomy_receipt
+from blackholememory.graph_edge_taxonomy_receipt import (
+    build_graph_edge_taxonomy_receipt,
+)
 
 
 def test_edge_taxonomy_receipt_is_deterministic_and_source_free() -> None:

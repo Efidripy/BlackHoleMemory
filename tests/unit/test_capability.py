@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from blackholememory.capability import admin_route_requires_capability
-from blackholememory.capability import configured_admin_capability
-from blackholememory.capability import extract_mcp_capability
-from blackholememory.capability import is_admin_capability_valid
+from blackholememory.capability import (
+    admin_route_requires_capability,
+    configured_admin_capability,
+    extract_mcp_capability,
+    is_admin_capability_valid,
+)
 
 
 def test_capability_resolution_and_constant_time_validation(monkeypatch):

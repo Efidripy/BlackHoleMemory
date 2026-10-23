@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.context_profiles import load_context_profiles
-from blackholememory.context_profiles import resolve_context_profile
+from blackholememory.context_profiles import (
+    load_context_profiles,
+    resolve_context_profile,
+)
 
 
 def test_context_profiles_are_bounded_and_have_three_operational_modes():

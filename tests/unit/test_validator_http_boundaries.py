@@ -6,7 +6,6 @@ from pathlib import Path
 
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 

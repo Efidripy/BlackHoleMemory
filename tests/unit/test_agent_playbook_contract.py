@@ -7,12 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory import bhm_mcp
 import blackholememory.agent_playbook_contract as contract
-from blackholememory.agent_playbook_contract import AgentTaskKind
-from blackholememory.agent_playbook_contract import PlaybookLanguage
-from blackholememory.agent_playbook_contract import build_agent_playbook
-from blackholememory.agent_playbook_contract import playbook_contract_digest
+from blackholememory import bhm_mcp
+from blackholememory.agent_playbook_contract import (
+    AgentTaskKind,
+    PlaybookLanguage,
+    build_agent_playbook,
+    playbook_contract_digest,
+)
 
 
 def test_playbook_is_deterministic_content_free_and_read_only():

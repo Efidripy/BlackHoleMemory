@@ -5,15 +5,14 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from blackholememory import app_core_fallback
-from blackholememory import app_core_hook
-from blackholememory import app_core
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core, app_core_fallback, app_core_hook, app_runtime
 from blackholememory.code_graph import build_code_graph
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _prepare(tmp_path: Path) -> tuple[Path, Path]:

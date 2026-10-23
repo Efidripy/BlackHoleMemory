@@ -8,8 +8,10 @@ import pytest
 
 from blackholememory.code_graph import SQLiteCodeGraphStore
 from blackholememory.convention_memory import SQLiteConventionMemoryStore
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.filesystem_boundaries import (
+    FilesystemBoundaryError,
+    assert_safe_path,
+)
 from blackholememory.hook_queue import HookJobQueue
 from blackholememory.llm_cache import LLMCacheStore
 from blackholememory.llm_job_queue import LLMJobQueue
@@ -19,7 +21,6 @@ from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.observation_store import ObservationStore
 from blackholememory.repository_index import SQLiteRepositoryIndexStore
 from blackholememory.retention import sqlite_quick_check
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

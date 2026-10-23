@@ -2,18 +2,20 @@ import pytest
 
 from blackholememory import app_core
 from blackholememory.infra.mcp_broker import McpIpcBroker
-from blackholememory.mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
-from blackholememory.mcp_protocol_contract import BHM_REMEMBER_ALLOWED_ARGUMENTS
-from blackholememory.mcp_protocol_contract import JSONRPC_INVALID_PARAMS
-from blackholememory.mcp_protocol_contract import LEGACY_PROTOCOL_VERSIONS
-from blackholememory.mcp_protocol_contract import PROTOCOL_CONTRACT_SCHEMA_VERSION
-from blackholememory.mcp_protocol_contract import ProtocolContractError
-from blackholememory.mcp_protocol_contract import classify_response
-from blackholememory.mcp_protocol_contract import contract_snapshot
-from blackholememory.mcp_protocol_contract import initialize_capabilities
-from blackholememory.mcp_protocol_contract import negotiate_protocol_version
-from blackholememory.mcp_protocol_contract import protocol_conformance_matrix
-from blackholememory.mcp_protocol_contract import validate_bhm_remember_arguments
+from blackholememory.mcp_protocol_contract import (
+    BHM_REMEMBER_ALLOWED_ARGUMENTS,
+    CURRENT_PROTOCOL_VERSION,
+    JSONRPC_INVALID_PARAMS,
+    LEGACY_PROTOCOL_VERSIONS,
+    PROTOCOL_CONTRACT_SCHEMA_VERSION,
+    ProtocolContractError,
+    classify_response,
+    contract_snapshot,
+    initialize_capabilities,
+    negotiate_protocol_version,
+    protocol_conformance_matrix,
+    validate_bhm_remember_arguments,
+)
 
 
 @pytest.mark.parametrize("version", [CURRENT_PROTOCOL_VERSION, *LEGACY_PROTOCOL_VERSIONS])

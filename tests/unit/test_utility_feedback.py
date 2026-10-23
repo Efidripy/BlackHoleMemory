@@ -4,8 +4,7 @@ import hashlib
 
 import pytest
 
-from blackholememory.utility_feedback import UtilityEvent
-from blackholememory.utility_feedback import utility_report
+from blackholememory.utility_feedback import UtilityEvent, utility_report
 
 
 def _event(event_id: str, event_type: str, **overrides: object) -> UtilityEvent:

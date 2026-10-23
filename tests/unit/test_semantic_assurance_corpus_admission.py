@@ -8,10 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.semantic_assurance_corpus_admission import SemanticAssuranceCorpusAdmissionError
-from blackholememory.semantic_assurance_corpus_admission import admit_semantic_assurance_corpus_for_human_review
-from blackholememory.semantic_assurance_corpus_admission import verify_semantic_assurance_corpus_admission
-
+from blackholememory.semantic_assurance_corpus_admission import (
+    SemanticAssuranceCorpusAdmissionError,
+    admit_semantic_assurance_corpus_for_human_review,
+    verify_semantic_assurance_corpus_admission,
+)
 
 RISKS = (
     "factuality", "entailment", "relevance", "direct_conflict", "temporal_conflict",

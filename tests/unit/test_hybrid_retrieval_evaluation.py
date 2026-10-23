@@ -2,17 +2,19 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.hybrid_retrieval_evaluation import RRF_K
-from blackholememory.hybrid_retrieval_evaluation import RRF_WEIGHTS
-from blackholememory.hybrid_retrieval_evaluation import build_exact_identifier_candidate_index
-from blackholememory.hybrid_retrieval_evaluation import build_hybrid_retrieval_cases
-from blackholememory.hybrid_retrieval_evaluation import build_sqlite_fts5_candidate_index
-from blackholememory.hybrid_retrieval_evaluation import candidate_augmented_rank
-from blackholememory.hybrid_retrieval_evaluation import evaluate_hybrid_retrieval
-from blackholememory.hybrid_retrieval_evaluation import exact_identifier_rank
-from blackholememory.hybrid_retrieval_evaluation import fixed_rrf_rank
-from blackholememory.hybrid_retrieval_evaluation import promotion_recommendation
-from blackholememory.hybrid_retrieval_evaluation import sqlite_fts5_bm25_rank
+from blackholememory.hybrid_retrieval_evaluation import (
+    RRF_K,
+    RRF_WEIGHTS,
+    build_exact_identifier_candidate_index,
+    build_hybrid_retrieval_cases,
+    build_sqlite_fts5_candidate_index,
+    candidate_augmented_rank,
+    evaluate_hybrid_retrieval,
+    exact_identifier_rank,
+    fixed_rrf_rank,
+    promotion_recommendation,
+    sqlite_fts5_bm25_rank,
+)
 
 
 def _stable_current(case):

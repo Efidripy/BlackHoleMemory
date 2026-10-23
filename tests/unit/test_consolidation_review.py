@@ -8,16 +8,18 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from blackholememory import app_governed
 import blackholememory.app as bhm_app
-from blackholememory import app_runtime
-from blackholememory.consolidation_change_set import build_consolidation_change_set_preview
-from blackholememory.consolidation_review import ConsolidationReviewError
-from blackholememory.consolidation_review import append_consolidation_review
-from blackholememory.consolidation_review import build_consolidation_review
-from blackholememory.consolidation_review import build_review_artifact
-from blackholememory.utility_feedback import UtilityEvent
-from blackholememory.utility_feedback import utility_report
+from blackholememory import app_governed, app_runtime
+from blackholememory.consolidation_change_set import (
+    build_consolidation_change_set_preview,
+)
+from blackholememory.consolidation_review import (
+    ConsolidationReviewError,
+    append_consolidation_review,
+    build_consolidation_review,
+    build_review_artifact,
+)
+from blackholememory.utility_feedback import UtilityEvent, utility_report
 
 
 def _digest(value: object) -> str:

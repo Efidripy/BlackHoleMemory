@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.domain import Memory
-from blackholememory.domain import MemoryRevision
+from blackholememory.domain import Memory, MemoryRevision
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.sync_service import MemoryAlreadyExists
-from blackholememory.sync_service import MemoryLifecycleService
-from blackholememory.sync_service import UndoWindowExpired
+from blackholememory.sync_service import (
+    MemoryAlreadyExists,
+    MemoryLifecycleService,
+    UndoWindowExpired,
+)
 
 
 def _memory(*, content: str = "sync contract", memory_id: str = "mem_bhm_sync_001") -> Memory:

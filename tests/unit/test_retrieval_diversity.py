@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.retrieval_diversity import mmr_select
-from blackholememory.retrieval_diversity import token_jaccard_similarity
+from blackholememory.retrieval_diversity import mmr_select, token_jaccard_similarity
 
 
 def test_token_jaccard_similarity_is_bounded_and_deterministic():

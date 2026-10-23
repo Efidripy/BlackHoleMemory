@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from blackholememory.telemetry_replay import measure_overhead
-from blackholememory.telemetry_replay import run_replay
-from blackholememory.telemetry_replay import run_replay_gate
+from blackholememory.telemetry_replay import (
+    measure_overhead,
+    run_replay,
+    run_replay_gate,
+)
 
 
 def test_replay_is_reproducible_and_privacy_safe():

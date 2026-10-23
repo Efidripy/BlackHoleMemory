@@ -1,18 +1,22 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from blackholememory.governed_shared_memory import SharedMemoryGrant
-from blackholememory.governed_shared_memory import SharedMemoryPolicyError
-from blackholememory.shared_memory_grants import SharedGrantRevocation
-from blackholememory.shared_memory_grants import build_grant_artifact
-from blackholememory.shared_memory_grants import build_revocation_artifact
-from blackholememory.shared_memory_grants import grant_digest
-from blackholememory.shared_memory_grants import resolve_effective_grants
+from blackholememory.governed_shared_memory import (
+    SharedMemoryGrant,
+    SharedMemoryPolicyError,
+)
 from blackholememory.memory_service import SQLiteMemoryService
+from blackholememory.shared_memory_grants import (
+    SharedGrantRevocation,
+    build_grant_artifact,
+    build_revocation_artifact,
+    grant_digest,
+    resolve_effective_grants,
+)
 
 
 def _grant(**overrides: object) -> SharedMemoryGrant:

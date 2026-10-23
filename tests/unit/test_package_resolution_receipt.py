@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 
-from blackholememory.package_resolution_receipt import build_package_alias_conflict_receipt
-from blackholememory.package_resolution_receipt import build_package_resolution_receipt
+from blackholememory.package_resolution_receipt import (
+    build_package_alias_conflict_receipt,
+    build_package_resolution_receipt,
+)
 
 
 def test_package_resolution_receipt_is_deterministic_and_explicit_about_states() -> None:

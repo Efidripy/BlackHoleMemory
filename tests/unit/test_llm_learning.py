@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.llm_learning import LLMLearningCollision
-from blackholememory.llm_learning import LLMLearningError
-from blackholememory.llm_learning import LLMLearningPrivacyError
-from blackholememory.llm_learning import LLMLearningReviewError
-from blackholememory.llm_learning import LLMLearningStore
-from blackholememory.llm_learning import default_llm_learning_path
+from blackholememory.llm_learning import (
+    LLMLearningCollision,
+    LLMLearningError,
+    LLMLearningPrivacyError,
+    LLMLearningReviewError,
+    LLMLearningStore,
+    default_llm_learning_path,
+)
 
 
 def _accepted(store: LLMLearningStore, *, source_job_id: str = "job-1") -> dict:

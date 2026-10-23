@@ -6,18 +6,17 @@ import math
 import httpx
 import pytest
 
-from blackholememory import bhm_mcp_base
+from blackholememory import bhm_mcp, bhm_mcp_base
 from blackholememory.agents import developer_agent
-from blackholememory.agents.developer_agent import BHMRestClient
-from blackholememory.agents.developer_agent import LocalLLMClient
-from blackholememory import bhm_mcp
-from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
-from blackholememory.local_endpoint_policy import LocalEndpointError
-from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
-from blackholememory.resource_limits import BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS
-from blackholememory.resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
-from blackholememory.resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LLM_HTTP_TIMEOUT_SECONDS
+from blackholememory.agents.developer_agent import BHMRestClient, LocalLLMClient
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES, LocalEndpointError
+from blackholememory.resource_limits import (
+    BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS,
+    BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS,
+    BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS,
+    BHM_INTERNAL_HTTP_TIMEOUT_SECONDS,
+    LLM_HTTP_TIMEOUT_SECONDS,
+)
 
 
 def test_bhm_rest_client_requires_local_endpoint() -> None:

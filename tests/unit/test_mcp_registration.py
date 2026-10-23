@@ -5,15 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.mcp_registration import RegistrationContractError
-from blackholememory.mcp_registration import evaluate_registrations
-from blackholememory.mcp_registration import load_contract
-from blackholememory.mcp_registration import load_json_registrations
-from blackholememory.mcp_registration import load_toml_registrations
-from blackholememory.mcp_registration import registration_fingerprint
-from blackholememory.mcp_registration import registration_identity
-from blackholememory.mcp_registration import resolve_contract_path
-
+from blackholememory.mcp_registration import (
+    RegistrationContractError,
+    evaluate_registrations,
+    load_contract,
+    load_json_registrations,
+    load_toml_registrations,
+    registration_fingerprint,
+    registration_identity,
+    resolve_contract_path,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = REPO_ROOT / "config" / "mcp-registration.json"

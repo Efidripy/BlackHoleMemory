@@ -1,15 +1,19 @@
 from __future__ import annotations
 
-from blackholememory import bhm_mcp_code
-from blackholememory import app_hooks
-from blackholememory import app_ops_entity
-from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
-from blackholememory import bhm_mcp
-from blackholememory.search_parity import CODE_SEARCH_MODES
-from blackholememory.search_parity import SCHEMA_VERSION
-from blackholememory.search_parity import build_search_parity_inventory
+from blackholememory import (
+    app_hooks,
+    app_ops_entity,
+    app_retrieval,
+    app_runtime,
+    bhm_mcp,
+    bhm_mcp_code,
+)
+from blackholememory.search_parity import (
+    CODE_SEARCH_MODES,
+    SCHEMA_VERSION,
+    build_search_parity_inventory,
+)
 
 
 def _memory(project: str, *, source_ref: str = "docs/a.md", upsert_key: str = "k") -> dict:

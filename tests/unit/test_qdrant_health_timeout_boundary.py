@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from blackholememory.resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
-from blackholememory.resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
-
+from blackholememory.resource_limits import (
+    QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS,
+    QDRANT_SDK_TIMEOUT_SECONDS,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 

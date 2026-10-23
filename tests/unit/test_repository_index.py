@@ -9,18 +9,20 @@ import pytest
 
 from blackholememory import repository_index as repository_index_module
 from blackholememory.code_graph import build_code_graph
-from blackholememory.repository_index import RepositoryIndexInjectedFailure
-from blackholememory.repository_index import RepositoryIndexError
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import RepositoryWatcher
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
-from blackholememory.repository_index import repository_root_id
-from blackholememory.repository_index import RepositoryRootError
-from blackholememory.repository_index import STALE_JOB_DISPOSITION_REASON
-from blackholememory.repository_index import verify_repository_snapshot
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.repository_index import (
+    STALE_JOB_DISPOSITION_REASON,
+    RepositoryIndexError,
+    RepositoryIndexInjectedFailure,
+    RepositoryRootError,
+    RepositorySourceProvenance,
+    RepositoryWatcher,
+    SQLiteRepositoryIndexStore,
+    index_repository,
+    probe_repository_state,
+    repository_root_id,
+    verify_repository_snapshot,
+)
 
 
 def _git(root: Path, *args: str) -> str:

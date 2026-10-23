@@ -4,8 +4,8 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-import pytest
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 TRACKED_PATHS = {

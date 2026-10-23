@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from blackholememory.resource_limits import (
+    PROCESS_EXECUTION_DOCKER_CHECK_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_DOCKER_RECOVERY_TIMEOUT_SECONDS,
+)
 from blackholememory.tools import infra_healer
-from blackholememory.resource_limits import PROCESS_EXECUTION_DOCKER_CHECK_TIMEOUT_SECONDS
-from blackholememory.resource_limits import PROCESS_EXECUTION_DOCKER_RECOVERY_TIMEOUT_SECONDS
 
 
 def _make_hardlink(target: Path, source: Path) -> None:

@@ -4,11 +4,8 @@ import asyncio
 
 import pytest
 
-from blackholememory import app_core_graph
-from blackholememory import app_ops
 from blackholememory import app as bhm_app
-from blackholememory import memory_routes
-from blackholememory import app_runtime
+from blackholememory import app_core_graph, app_ops, app_runtime, memory_routes
 from blackholememory.memory_service import SQLiteMemoryService
 
 PROJECT = "blackholememory"

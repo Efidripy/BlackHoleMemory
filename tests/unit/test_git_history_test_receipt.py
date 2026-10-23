@@ -1,4 +1,6 @@
-from blackholememory.git_history_test_receipt import build_commit_symbol_test_history_receipt
+from blackholememory.git_history_test_receipt import (
+    build_commit_symbol_test_history_receipt,
+)
 
 
 def test_commit_symbol_test_history_receipt_is_deterministic_and_bounded() -> None:

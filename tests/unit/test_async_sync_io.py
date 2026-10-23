@@ -10,10 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
-from blackholememory import code_tools_service
-from blackholememory import app_runtime
+from blackholememory import app_retrieval, app_runtime, code_tools_service
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 

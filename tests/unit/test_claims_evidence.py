@@ -4,16 +4,17 @@ import hashlib
 
 import pytest
 
-from blackholememory.claims_evidence import ARTIFACT_TYPE
-from blackholememory.claims_evidence import ClaimAssertion
-from blackholememory.claims_evidence import ClaimEvidenceError
-from blackholememory.claims_evidence import ClaimEvidenceRef
-from blackholememory.claims_evidence import ClaimWriteConfirmation
-from blackholememory.claims_evidence import append_claim_assertion
-from blackholememory.claims_evidence import build_claim_read_model
+from blackholememory.claims_evidence import (
+    ARTIFACT_TYPE,
+    ClaimAssertion,
+    ClaimEvidenceError,
+    ClaimEvidenceRef,
+    ClaimWriteConfirmation,
+    append_claim_assertion,
+    build_claim_read_model,
+)
 from blackholememory.domain import Memory, content_sha256
 from blackholememory.memory_service import SQLiteMemoryService
-
 
 PROJECT = "blackholememory"
 ASSERTED_AT = "2026-10-05T12:00:00Z"

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 GALAXY_HTML = Path(__file__).resolve().parents[2] / "src/blackholememory/static/galaxy.html"
 
 

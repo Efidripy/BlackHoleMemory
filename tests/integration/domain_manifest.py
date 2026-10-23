@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 DOMAIN_NAMES = (
     "runtime",
     "mcp",

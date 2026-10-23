@@ -1,29 +1,31 @@
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
-import sqlite3
 from pathlib import Path
 
 import pytest
 
 import blackholememory.runtime_storage as runtime_storage
-from blackholememory.runtime_storage import MemoryStoreMode
-from blackholememory.runtime_storage import RuntimeReadiness
-from blackholememory.runtime_storage import clear_memory_store_schema_cache
-from blackholememory.runtime_storage import evaluate_runtime_storage_state
-from blackholememory.runtime_storage import inspect_memory_store_schema
-from blackholememory.runtime_storage import resolve_runtime_storage_config
-from blackholememory.runtime_storage import resolve_runtime_storage_mode
-from blackholememory.runtime_storage import runtime_storage_state
-from blackholememory.resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
-from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.memory_repository import (
     FRESHNESS_SCHEMA_TABLES,
     GOVERNED_CONSOLIDATION_SCHEMA_TABLES,
     PROJECTION_GENERATION_BINDING_SCHEMA_TABLES,
+    SQLiteMemoryRepository,
 )
-from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
+from blackholememory.runtime_storage import (
+    MemoryStoreMode,
+    RuntimeReadiness,
+    clear_memory_store_schema_cache,
+    evaluate_runtime_storage_state,
+    inspect_memory_store_schema,
+    resolve_runtime_storage_config,
+    resolve_runtime_storage_mode,
+    runtime_storage_state,
+)
 
 
 def test_memory_store_mode_fails_closed_to_sqlite_authoritative():

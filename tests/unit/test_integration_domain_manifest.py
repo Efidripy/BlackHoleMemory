@@ -5,7 +5,6 @@ from pathlib import Path
 
 from tests.integration.domain_manifest import DOMAIN_NAMES, classify_test
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 

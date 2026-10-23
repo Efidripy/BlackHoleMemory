@@ -6,17 +6,24 @@ from pathlib import Path
 import pytest
 
 from blackholememory.domain import Memory
-from blackholememory.governed_auto_review import auto_review_and_apply_proposal
-from blackholememory.governed_auto_review import review_proposal
-from blackholememory.governed_auto_review import operator_consent_required
-from blackholememory.governed_consolidation import GovernedConsolidationRepository
-from blackholememory.governed_consolidation import GovernedConsolidationError
-from blackholememory.governed_consolidation_migration import apply_governed_consolidation_migration
-from blackholememory.governed_consolidation_migration import build_governed_consolidation_migration_plan
-from blackholememory.freshness_migration import apply_migration
-from blackholememory.freshness_migration import build_migration_plan
-from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_ANALYZER
-from blackholememory.governed_semantic_editor import build_semantic_proposal
+from blackholememory.freshness_migration import apply_migration, build_migration_plan
+from blackholememory.governed_auto_review import (
+    auto_review_and_apply_proposal,
+    operator_consent_required,
+    review_proposal,
+)
+from blackholememory.governed_consolidation import (
+    GovernedConsolidationError,
+    GovernedConsolidationRepository,
+)
+from blackholememory.governed_consolidation_migration import (
+    apply_governed_consolidation_migration,
+    build_governed_consolidation_migration_plan,
+)
+from blackholememory.governed_semantic_editor import (
+    GOVERNED_SEMANTIC_EDITOR_ANALYZER,
+    build_semantic_proposal,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 

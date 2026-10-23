@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 
 from blackholememory.config import settings
-from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import get_qdrant_client
+from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.qdrant_lifecycle import build_qdrant_lifecycle_report
 
 

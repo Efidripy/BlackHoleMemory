@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.exact_identifier_retrieval import ExactIdentifierIndex
-from blackholememory.exact_identifier_retrieval import build_exact_identifier_hits
-from blackholememory.exact_identifier_retrieval import exact_identifier_tokens
+from blackholememory.exact_identifier_retrieval import (
+    ExactIdentifierIndex,
+    build_exact_identifier_hits,
+    exact_identifier_tokens,
+)
 
 
 def _record(

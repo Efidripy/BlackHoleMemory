@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CREDENTIAL_SCRIPT = REPO_ROOT / "scripts" / "bhm-caller-credential.ps1"
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")

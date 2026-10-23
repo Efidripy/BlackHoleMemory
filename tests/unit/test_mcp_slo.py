@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from blackholememory.mcp_slo import classify_registration_inventory
-from blackholememory.mcp_slo import evaluate_slo
-from blackholememory.mcp_slo import percentile
+from blackholememory.mcp_slo import (
+    classify_registration_inventory,
+    evaluate_slo,
+    percentile,
+)
 
 
 def _green_kwargs() -> dict:

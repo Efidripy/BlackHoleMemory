@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 from blackholememory import app as bhm_app
 from blackholememory.code_graph import build_code_graph
 from blackholememory.code_graph_query import query_code_graph
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def test_query_marks_explicit_old_graph_snapshot_stale(tmp_path: Path) -> None:

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.domain import Artifact
-from blackholememory.domain import Memory
-from blackholememory.domain import MemoryLink
-from blackholememory.domain import MemoryRevision
-from blackholememory.memory_repository import MemoryRevisionConflict
-from blackholememory.memory_repository import MemoryRepositoryIntegrityError
-from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.domain import Artifact, Memory, MemoryLink, MemoryRevision
+from blackholememory.memory_repository import (
+    MemoryRepositoryIntegrityError,
+    MemoryRevisionConflict,
+    SQLiteMemoryRepository,
+)
 
 
 def _memory(

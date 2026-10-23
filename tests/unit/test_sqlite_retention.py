@@ -6,19 +6,21 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.code_graph import build_code_graph
-from blackholememory.code_graph import SQLiteCodeGraphStore
+from blackholememory.code_graph import SQLiteCodeGraphStore, build_code_graph
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.sqlite_retention import apply_sqlite_retention
-from blackholememory.sqlite_retention import compact_sqlite_database
-from blackholememory.sqlite_retention import create_verified_sqlite_backup
-from blackholememory.sqlite_retention import plan_sqlite_retention
-from blackholememory.sqlite_retention import SQLiteRetentionError
-from blackholememory.sqlite_retention import SQLiteRetentionPolicy
-
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    SQLiteRepositoryIndexStore,
+    index_repository,
+)
+from blackholememory.sqlite_retention import (
+    SQLiteRetentionError,
+    SQLiteRetentionPolicy,
+    apply_sqlite_retention,
+    compact_sqlite_database,
+    create_verified_sqlite_backup,
+    plan_sqlite_retention,
+)
 
 AS_OF = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 

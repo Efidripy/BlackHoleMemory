@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.lifecycle_suggestions import build_lifecycle_suggestions
-from blackholememory.lifecycle_suggestions import verify_preview_digest
+from blackholememory.lifecycle_suggestions import (
+    build_lifecycle_suggestions,
+    verify_preview_digest,
+)
 
 
 def test_lifecycle_suggestions_are_preview_only_and_cover_actions():

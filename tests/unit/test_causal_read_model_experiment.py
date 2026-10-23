@@ -16,7 +16,6 @@ from blackholememory.causal_read_model_experiment import (
     verify_causal_read_model_experiment,
 )
 
-
 FIXTURE_PATH = Path(__file__).parents[1] / "fixtures" / "causal_read_model" / "bhm-ng-016-v1.json"
 
 

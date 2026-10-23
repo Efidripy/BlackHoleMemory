@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.sidecar_reconciliation import SidecarReconciliationError
-from blackholememory.sidecar_reconciliation import apply_reconciliation_plan
-from blackholememory.sidecar_reconciliation import build_reconciliation_plan
+from blackholememory.sidecar_reconciliation import (
+    SidecarReconciliationError,
+    apply_reconciliation_plan,
+    build_reconciliation_plan,
+)
 
 
 def _write_json(path: Path, value: object) -> None:

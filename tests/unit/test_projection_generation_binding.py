@@ -7,22 +7,34 @@ from pathlib import Path
 import pytest
 
 import blackholememory.projection_generation_binding as binding_module
-from blackholememory.freshness_migration import apply_migration as apply_freshness_migration
-from blackholememory.freshness_migration import build_migration_plan as build_freshness_migration_plan
-from blackholememory.governed_consolidation_migration import apply_governed_consolidation_migration
-from blackholememory.governed_consolidation_migration import build_governed_consolidation_migration_plan
-from blackholememory.memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_VERSION
-from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.projection_generation_binding import ProjectionGenerationBindingError
-from blackholememory.projection_generation_binding import active_projection_generation_bindings
-from blackholememory.projection_generation_binding import apply_projection_generation_binding_plan
-from blackholememory.projection_generation_binding import build_projection_generation_binding_plan
-from blackholememory.projection_generation_binding import projection_target_set_digest
-from blackholememory.projection_generation_binding import resolve_bound_collection
-from blackholememory.projection_generation_binding import rollback_projection_generation_binding
-from blackholememory.projection_generation_binding_migration import apply_projection_generation_binding_migration
-from blackholememory.projection_generation_binding_migration import build_projection_generation_binding_migration_plan
-from blackholememory.projection_generation_binding_migration import projection_generation_binding_migration_status
+from blackholememory.freshness_migration import (
+    apply_migration as apply_freshness_migration,
+)
+from blackholememory.freshness_migration import (
+    build_migration_plan as build_freshness_migration_plan,
+)
+from blackholememory.governed_consolidation_migration import (
+    apply_governed_consolidation_migration,
+    build_governed_consolidation_migration_plan,
+)
+from blackholememory.memory_repository import (
+    PROJECTION_GENERATION_BINDING_SCHEMA_VERSION,
+    SQLiteMemoryRepository,
+)
+from blackholememory.projection_generation_binding import (
+    ProjectionGenerationBindingError,
+    active_projection_generation_bindings,
+    apply_projection_generation_binding_plan,
+    build_projection_generation_binding_plan,
+    projection_target_set_digest,
+    resolve_bound_collection,
+    rollback_projection_generation_binding,
+)
+from blackholememory.projection_generation_binding_migration import (
+    apply_projection_generation_binding_migration,
+    build_projection_generation_binding_migration_plan,
+    projection_generation_binding_migration_status,
+)
 from blackholememory.projection_reconciliation import _generation_collection_name
 
 

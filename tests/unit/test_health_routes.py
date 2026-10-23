@@ -3,15 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from blackholememory import app_telemetry
 from blackholememory import app as bhm_app
-from blackholememory.health_routes import HealthRuntimeDependencies
-from blackholememory.health_routes import build_bhm_health
-from blackholememory.health_routes import build_cutover
-from blackholememory.health_routes import build_live
-from blackholememory.health_routes import build_ready
-from blackholememory.health_routes import build_ready_public
-from blackholememory.health_routes import build_slo
+from blackholememory import app_telemetry
+from blackholememory.health_routes import (
+    HealthRuntimeDependencies,
+    build_bhm_health,
+    build_cutover,
+    build_live,
+    build_ready,
+    build_ready_public,
+    build_slo,
+)
 
 
 def _runtime(*, mode: str = "sqlite-authoritative", outbox: dict | None = None) -> HealthRuntimeDependencies:

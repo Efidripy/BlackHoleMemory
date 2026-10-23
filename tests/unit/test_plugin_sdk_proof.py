@@ -4,13 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.plugin_sdk_proof import LOCAL_TEST_CAPABILITY
-from blackholememory.plugin_sdk_proof import LOCAL_TEST_PLUGIN_ID
-from blackholememory.plugin_sdk_proof import MAX_IO_BYTES
-from blackholememory.plugin_sdk_proof import PluginSdkProofError
-from blackholememory.plugin_sdk_proof import build_plugin_sdk_plan
-from blackholememory.plugin_sdk_proof import run_local_test_plugin
-from blackholememory.plugin_sdk_proof import verify_plugin_sdk_audit
+from blackholememory.plugin_sdk_proof import (
+    LOCAL_TEST_CAPABILITY,
+    LOCAL_TEST_PLUGIN_ID,
+    MAX_IO_BYTES,
+    PluginSdkProofError,
+    build_plugin_sdk_plan,
+    run_local_test_plugin,
+    verify_plugin_sdk_audit,
+)
 
 
 def _manifest(priority: int = 10) -> dict[str, object]:

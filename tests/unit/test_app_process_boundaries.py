@@ -2,10 +2,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from blackholememory import app_lifecycle
 from blackholememory import app as bhm_app
-from blackholememory.resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
-from blackholememory.resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
+from blackholememory import app_lifecycle
+from blackholememory.resource_limits import (
+    PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS,
+)
 
 
 def test_app_pid_inspection_uses_registry_process_bound(monkeypatch) -> None:

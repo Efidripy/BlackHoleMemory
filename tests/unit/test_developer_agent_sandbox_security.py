@@ -6,9 +6,11 @@ from types import ModuleType, SimpleNamespace
 import pytest
 
 from blackholememory.agents import developer_agent
-from blackholememory.resource_limits import PROCESS_EXECUTION_CONTAINER_TIMEOUT_SECONDS
-from blackholememory.resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS
-from blackholememory.resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS
+from blackholememory.resource_limits import (
+    PROCESS_EXECUTION_CONTAINER_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS,
+)
 
 
 class _ImageNotFound(Exception):

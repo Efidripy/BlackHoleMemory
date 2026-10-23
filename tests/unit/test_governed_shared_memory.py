@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.governed_shared_memory import CallerIdentity
-from blackholememory.governed_shared_memory import PolicyDecision
-from blackholememory.governed_shared_memory import SharedMemoryGrant
-from blackholememory.governed_shared_memory import SharedMemoryRequest
-from blackholememory.governed_shared_memory import SharedOperation
-from blackholememory.governed_shared_memory import SharedVisibility
-from blackholememory.governed_shared_memory import decide_shared_memory
+from blackholememory.governed_shared_memory import (
+    CallerIdentity,
+    PolicyDecision,
+    SharedMemoryGrant,
+    SharedMemoryRequest,
+    SharedOperation,
+    SharedVisibility,
+    decide_shared_memory,
+)
 
 
 def _identity(**overrides: object) -> CallerIdentity:

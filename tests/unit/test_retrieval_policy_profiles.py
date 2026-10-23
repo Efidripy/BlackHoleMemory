@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.retrieval_policy_profiles import RetrievalPolicyCandidate, RetrievalPolicyError, RetrievalPolicyProfile, build_policy_canary_receipt, build_retrieval_policy_preview, verify_retrieval_policy_preview
+from blackholememory.retrieval_policy_profiles import (
+    RetrievalPolicyCandidate,
+    RetrievalPolicyError,
+    RetrievalPolicyProfile,
+    build_policy_canary_receipt,
+    build_retrieval_policy_preview,
+    verify_retrieval_policy_preview,
+)
 
 
 def _profile(**changes):

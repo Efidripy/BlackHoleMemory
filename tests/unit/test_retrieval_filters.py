@@ -5,14 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_core_fallback
-from blackholememory import app_core_hit
-from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core_fallback, app_core_hit, app_retrieval, app_runtime
 from blackholememory.retrieval_filters import build_candidate_filters
 from blackholememory.retrieval_scope import resolve_history_scope
+from tests.app_patch import patch_app_import
 
 
 def test_candidate_filters_push_project_and_taxonomy_predicates_downstream():

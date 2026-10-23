@@ -4,9 +4,7 @@ import ast
 from pathlib import Path
 
 from blackholememory.mcp_registration_groups import registration_group_report
-from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
-from blackholememory.mcp_surfaces import EXTENDED_PUBLIC_TOOL_NAMES
-
+from blackholememory.mcp_surfaces import CORE_TOOL_NAMES, EXTENDED_PUBLIC_TOOL_NAMES
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

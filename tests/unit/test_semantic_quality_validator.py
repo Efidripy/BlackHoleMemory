@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-semantic-quality.py"
 SPEC = importlib.util.spec_from_file_location("bhm_p28_wi82_semantic_quality", SCRIPT)

@@ -7,17 +7,18 @@ import pytest
 
 from blackholememory.domain import Artifact
 from blackholememory.memory_service import SQLiteMemoryService
-from blackholememory.session_distillation_ledger import ARTIFACT_TYPE
-from blackholememory.session_distillation_ledger import AUTHORITY_RECEIPT_ARTIFACT_TYPE
-from blackholememory.session_distillation_ledger import AUTHORITY_RECEIPT_SCHEMA_VERSION
-from blackholememory.session_distillation_ledger import ArtifactReceiptRef
-from blackholememory.session_distillation_ledger import LedgerWriteConfirmation
-from blackholememory.session_distillation_ledger import ObservationRef
-from blackholememory.session_distillation_ledger import ProjectionReceiptRef
-from blackholememory.session_distillation_ledger import SessionDistillationEvent
-from blackholememory.session_distillation_ledger import SessionDistillationLedgerError
-from blackholememory.session_distillation_ledger import append_session_distillation_event
-
+from blackholememory.session_distillation_ledger import (
+    ARTIFACT_TYPE,
+    AUTHORITY_RECEIPT_ARTIFACT_TYPE,
+    AUTHORITY_RECEIPT_SCHEMA_VERSION,
+    ArtifactReceiptRef,
+    LedgerWriteConfirmation,
+    ObservationRef,
+    ProjectionReceiptRef,
+    SessionDistillationEvent,
+    SessionDistillationLedgerError,
+    append_session_distillation_event,
+)
 
 PROJECT = "blackholememory"
 SESSION_ID = "session-ng-004"

@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.llm_candidates import CandidateBoundsError
-from blackholememory.llm_candidates import CandidateError
-from blackholememory.llm_candidates import build_candidate_plan
-from blackholememory.llm_candidates import evaluate_candidate
-from blackholememory.llm_candidates import judge_candidates
+from blackholememory.llm_candidates import (
+    CandidateBoundsError,
+    CandidateError,
+    build_candidate_plan,
+    evaluate_candidate,
+    judge_candidates,
+)
 
 
 def _evidence(*, valid: bool = True, refs: list[str] | None = None) -> dict:

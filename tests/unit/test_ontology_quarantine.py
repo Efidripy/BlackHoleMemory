@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.ontology_quarantine import ARTIFACT_TYPE
-from blackholememory.ontology_quarantine import build_quarantine_artifact
-from blackholememory.ontology_quarantine import serialize_quarantine_record
+from blackholememory.ontology_quarantine import (
+    ARTIFACT_TYPE,
+    build_quarantine_artifact,
+    serialize_quarantine_record,
+)
 from blackholememory.ontology_registry import OntologyRelationAdmissionReceipt
 
 

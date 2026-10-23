@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path
 import re
-
+from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[2]
 LOCAL_PLAN = (

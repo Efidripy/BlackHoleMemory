@@ -5,11 +5,12 @@ import json
 
 import pytest
 
-from blackholememory.consolidation_change_set import CONSOLIDATION_CHANGE_SET_SCHEMA_VERSION
-from blackholememory.consolidation_change_set import ConsolidationChangeSetError
-from blackholememory.consolidation_change_set import build_consolidation_change_set_preview
-from blackholememory.utility_feedback import UtilityEvent
-from blackholememory.utility_feedback import utility_report
+from blackholememory.consolidation_change_set import (
+    CONSOLIDATION_CHANGE_SET_SCHEMA_VERSION,
+    ConsolidationChangeSetError,
+    build_consolidation_change_set_preview,
+)
+from blackholememory.utility_feedback import UtilityEvent, utility_report
 
 
 def _digest(value: object) -> str:

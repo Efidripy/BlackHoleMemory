@@ -1,20 +1,23 @@
 from __future__ import annotations
 
-from dataclasses import replace
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 import blackholememory.safe_patch_factory as safe_patch_factory
-from blackholememory.safe_patch_factory import SafePatchApprovalRequired
-from blackholememory.safe_patch_factory import SafePatchError
-from blackholememory.safe_patch_factory import SafePatchFactory
-from blackholememory.safe_patch_factory import SafePatchPathError
-from blackholememory.resource_limits import PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS
-
+from blackholememory.resource_limits import (
+    PROCESS_EXECUTION_SAFE_PATCH_CLEANUP_TIMEOUT_SECONDS,
+)
+from blackholememory.safe_patch_factory import (
+    SafePatchApprovalRequired,
+    SafePatchError,
+    SafePatchFactory,
+    SafePatchPathError,
+)
 
 PATCH = """diff --git a/src/demo.py b/src/demo.py
 --- a/src/demo.py

@@ -6,9 +6,11 @@ import sqlite3
 import pytest
 
 from blackholememory.ontology_registry import OntologySchema
-from blackholememory.semantic_graph_migration_plan import SemanticGraphMigrationPlanError
-from blackholememory.semantic_graph_migration_plan import build_live_semantic_graph_migration_plan
-from blackholememory.semantic_graph_migration_plan import build_semantic_graph_migration_plan
+from blackholememory.semantic_graph_migration_plan import (
+    SemanticGraphMigrationPlanError,
+    build_live_semantic_graph_migration_plan,
+    build_semantic_graph_migration_plan,
+)
 
 
 def _schema(project: str = "project-a") -> OntologySchema:

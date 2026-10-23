@@ -7,14 +7,15 @@ import time
 from typing import Any
 
 import httpx
-from mcp import types
 import pytest
+from mcp import types
 
 from blackholememory import app_core
-from blackholememory.mcp_streamable_http import BhmStreamableHttpGateway
-from blackholememory.mcp_streamable_http import HttpMcpSessionRegistry
+from blackholememory.mcp_streamable_http import (
+    BhmStreamableHttpGateway,
+    HttpMcpSessionRegistry,
+)
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
-
 
 BASE_HEADERS = {
     "accept": "application/json, text/event-stream",

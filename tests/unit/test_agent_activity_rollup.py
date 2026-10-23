@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from blackholememory import app_core_hook
-from blackholememory import app_ops_admin
-from blackholememory import app_ops_task2
-from blackholememory import app_runtime
+from blackholememory import app_core_hook, app_ops_admin, app_ops_task2, app_runtime
 from blackholememory.observation_store import ObservationStore
 
 

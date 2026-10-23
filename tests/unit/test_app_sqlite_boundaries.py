@@ -8,7 +8,6 @@ import pytest
 from blackholememory import galaxy_routes
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 

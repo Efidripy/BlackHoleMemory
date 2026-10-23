@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.model_router import ModelRouterError
-from blackholememory.model_router import route_model
-from blackholememory.model_router import router_snapshot
+from blackholememory.model_router import ModelRouterError, route_model, router_snapshot
 
 
 def test_default_8k_profile_routes_local_coder_model():

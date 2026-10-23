@@ -6,7 +6,6 @@ from pathlib import Path
 
 from blackholememory.llm_cache import default_llm_cache_path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INITIALIZER = REPO_ROOT / "scripts" / "initialize-bhm-runtime.py"
 

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory import bhm_mcp_base
-from blackholememory.project_registry import ProjectDefinition
-from blackholememory.project_registry import ProjectRegistry
-from blackholememory.project_registry import ProjectRegistryError
-from blackholememory.project_registry import get_default_project_registry
-from blackholememory.project_registry import normalize_project_key
-from blackholememory import bhm_mcp
+from blackholememory import bhm_mcp, bhm_mcp_base
+from blackholememory.project_registry import (
+    ProjectDefinition,
+    ProjectRegistry,
+    ProjectRegistryError,
+    get_default_project_registry,
+    normalize_project_key,
+)
 
 
 def test_default_registry_resolves_confirmed_aliases_without_rewriting_storage():

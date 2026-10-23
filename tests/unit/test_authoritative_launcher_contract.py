@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = REPO_ROOT / "scripts" / "start-bhm-authoritative.ps1"
 SERVICE = REPO_ROOT / "scripts" / "run-service.ps1"

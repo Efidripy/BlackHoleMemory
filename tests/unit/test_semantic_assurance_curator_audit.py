@@ -8,10 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.semantic_assurance_curator_audit import SemanticAssuranceCuratorAuditError
-from blackholememory.semantic_assurance_curator_audit import audit_v6_curator_inputs
-from blackholememory.semantic_assurance_curator_audit import verify_v6_curator_audit_receipt
-
+from blackholememory.semantic_assurance_curator_audit import (
+    SemanticAssuranceCuratorAuditError,
+    audit_v6_curator_inputs,
+    verify_v6_curator_audit_receipt,
+)
 
 RISKS = (
     "factuality", "entailment", "relevance", "direct_conflict", "temporal_conflict",

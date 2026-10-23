@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import app_ops_admin
-from blackholememory import app_ops_task2
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_ops_admin, app_ops_task2, app_runtime
 
 
 def test_admin_snapshot_loader_rejects_malformed_and_non_object_payload(tmp_path) -> None:

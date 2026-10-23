@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "run-bhm-projection-worker.py"
 SPEC = importlib.util.spec_from_file_location("run_bhm_projection_worker", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None

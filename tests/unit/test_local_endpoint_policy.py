@@ -4,11 +4,13 @@ import urllib.request
 
 import pytest
 
-from blackholememory.local_endpoint_policy import LocalEndpointError
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import read_bounded_response
-from blackholememory.local_endpoint_policy import validate_local_endpoint
-from blackholememory.local_endpoint_policy import _NoRedirectHandler
+from blackholememory.local_endpoint_policy import (
+    LocalEndpointError,
+    _NoRedirectHandler,
+    open_local_url,
+    read_bounded_response,
+    validate_local_endpoint,
+)
 
 
 @pytest.mark.parametrize(

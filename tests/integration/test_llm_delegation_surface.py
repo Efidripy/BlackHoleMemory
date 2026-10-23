@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from blackholememory import app_core_hook
 from blackholememory import app as bhm_app
-from blackholememory import llm_routes
-from blackholememory import app_runtime
+from blackholememory import app_core_hook, app_runtime, llm_routes
 from blackholememory.llm_job_queue import LLMJobQueue
 from blackholememory.llm_learning import LLMLearningStore
-from blackholememory.llm_resource_governor import GovernorConfig
-from blackholememory.llm_resource_governor import LLMResourceGovernor
-from blackholememory.llm_resource_governor import ResourceSnapshot
+from blackholememory.llm_resource_governor import (
+    GovernorConfig,
+    LLMResourceGovernor,
+    ResourceSnapshot,
+)
 
 
 def _healthy_governor() -> LLMResourceGovernor:

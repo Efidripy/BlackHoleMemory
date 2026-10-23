@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from blackholememory.llm_final_gate import LLM_FINAL_GATE_JOB_COUNT
-from blackholememory.llm_final_gate import run_final_gate
+from blackholememory.llm_final_gate import LLM_FINAL_GATE_JOB_COUNT, run_final_gate
 
 
 def test_final_gate_covers_100_jobs_and_all_safety_lifecycle_controls():

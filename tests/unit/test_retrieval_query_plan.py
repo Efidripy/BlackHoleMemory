@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.retrieval_query_plan import SCHEMA_VERSION
-from blackholememory.retrieval_query_plan import build_retrieval_query_plan
+from blackholememory.retrieval_query_plan import (
+    SCHEMA_VERSION,
+    build_retrieval_query_plan,
+)
 
 
 def test_query_plan_is_content_free_deterministic_and_reports_routes() -> None:

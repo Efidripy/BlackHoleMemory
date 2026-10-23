@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from blackholememory.memory_search_service import MemorySearchDependencies
-from blackholememory.memory_search_service import MemorySearchService
+from blackholememory.memory_search_service import (
+    MemorySearchDependencies,
+    MemorySearchService,
+)
 
 
 def _request(**overrides):

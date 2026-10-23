@@ -7,12 +7,14 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from blackholememory import bhm_mcp_base
-from blackholememory import app_ops_task
-from blackholememory import app_ops_task2
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
-from blackholememory import bhm_mcp
+from blackholememory import (
+    app_ops_task,
+    app_ops_task2,
+    app_runtime,
+    bhm_mcp,
+    bhm_mcp_base,
+)
 
 
 @pytest.fixture(autouse=True)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.capability_router import build_capability_route_plan
-from blackholememory.capability_router import verify_capability_route_digest
+from blackholememory.capability_router import (
+    build_capability_route_plan,
+    verify_capability_route_digest,
+)
 
 
 def test_capability_router_prefers_measured_local_for_safe_retrieval():

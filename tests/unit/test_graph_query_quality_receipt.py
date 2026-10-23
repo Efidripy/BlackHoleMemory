@@ -1,4 +1,6 @@
-from blackholememory.graph_query_quality_receipt import build_graph_query_quality_receipt
+from blackholememory.graph_query_quality_receipt import (
+    build_graph_query_quality_receipt,
+)
 
 
 def test_graph_query_quality_receipt_is_bounded_and_explicit() -> None:

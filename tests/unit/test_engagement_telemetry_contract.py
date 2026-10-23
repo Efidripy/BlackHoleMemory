@@ -1,31 +1,32 @@
 from __future__ import annotations
 
 import ast
-from datetime import datetime, timezone
 import inspect
+from datetime import datetime, timezone
 
 import pytest
 from pydantic import ValidationError
 
 import blackholememory.engagement_telemetry_contract as contract_module
-from blackholememory.engagement_telemetry_contract import EngagementEvent
-from blackholememory.engagement_telemetry_contract import EngagementTaskBinding
-from blackholememory.engagement_telemetry_contract import EngagementTelemetryContractError
-from blackholememory.engagement_telemetry_contract import EventMetadata
-from blackholememory.engagement_telemetry_contract import EventOutcome
-from blackholememory.engagement_telemetry_contract import EventType
-from blackholememory.engagement_telemetry_contract import FailureCategory
-from blackholememory.engagement_telemetry_contract import OperationFamily
-from blackholememory.engagement_telemetry_contract import ResultBucket
-from blackholememory.engagement_telemetry_contract import build_engagement_report
-from blackholememory.engagement_telemetry_contract import deduplicate_events
-from blackholememory.engagement_telemetry_contract import event_idempotency_key
-from blackholememory.engagement_telemetry_contract import project_scope_digest
-from blackholememory.engagement_telemetry_contract import retrieval_binding_digest
-from blackholememory.engagement_telemetry_contract import serialize_event
-from blackholememory.engagement_telemetry_contract import source_only_execution_metadata
-from blackholememory.engagement_telemetry_contract import task_binding_digest
-
+from blackholememory.engagement_telemetry_contract import (
+    EngagementEvent,
+    EngagementTaskBinding,
+    EngagementTelemetryContractError,
+    EventMetadata,
+    EventOutcome,
+    EventType,
+    FailureCategory,
+    OperationFamily,
+    ResultBucket,
+    build_engagement_report,
+    deduplicate_events,
+    event_idempotency_key,
+    project_scope_digest,
+    retrieval_binding_digest,
+    serialize_event,
+    source_only_execution_metadata,
+    task_binding_digest,
+)
 
 KEY = b"unit-test-correlation-key-at-least-16-bytes"
 PROJECT = "blackholememory"

@@ -10,11 +10,11 @@ from blackholememory.source_registry import (
     MANIFEST_SCHEMA,
     PERMISSION_FIELDS,
     SourceRegistryError,
+    _assert_owned_tree_target,
     _json_write_atomic,
+    _source_root,
     git_tree_sha256,
     load_registry,
-    _assert_owned_tree_target,
-    _source_root,
     sync_source,
     verify_registry,
 )

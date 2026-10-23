@@ -5,7 +5,6 @@ import importlib.util
 import json
 from pathlib import Path
 
-
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "bhm-finalize-runtime-temp-trash.py"
 SPEC = importlib.util.spec_from_file_location("runtime_temp_trash_finalization", SCRIPT)
 assert SPEC and SPEC.loader

@@ -4,11 +4,15 @@ from pathlib import Path
 
 from blackholememory.code_graph import build_code_graph
 from blackholememory.convention_memory import build_convention_memory
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
-from blackholememory.unified_context import build_unified_context_from_graph
-from blackholememory.unified_context import compile_unified_context
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
+from blackholememory.unified_context import (
+    build_unified_context_from_graph,
+    compile_unified_context,
+)
 
 
 def test_source_aware_interleave_is_bounded_and_deterministic() -> None:

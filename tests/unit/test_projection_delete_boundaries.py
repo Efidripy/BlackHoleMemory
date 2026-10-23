@@ -6,13 +6,17 @@ from types import SimpleNamespace
 import pytest
 
 from blackholememory.domain import Lifecycle
-from blackholememory.projection_quarantine import ProjectionQuarantineError
-from blackholememory.projection_quarantine import QuarantinePoint
-from blackholememory.projection_quarantine import delete_original_points
-from blackholememory.projection_reconciliation import ProjectionReconciliationPlan
-from blackholememory.projection_reconciliation import ReconciliationAction
-from blackholememory.projection_reconciliation import ReconciliationEntry
-from blackholememory.projection_reconciliation import apply_projection_reconciliation
+from blackholememory.projection_quarantine import (
+    ProjectionQuarantineError,
+    QuarantinePoint,
+    delete_original_points,
+)
+from blackholememory.projection_reconciliation import (
+    ProjectionReconciliationPlan,
+    ReconciliationAction,
+    ReconciliationEntry,
+    apply_projection_reconciliation,
+)
 
 
 class _Surface:

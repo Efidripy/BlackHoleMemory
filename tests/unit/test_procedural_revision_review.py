@@ -5,14 +5,19 @@ import json
 
 import pytest
 
-from blackholememory.memory_contracts import ProcedureExecutionTraceReceipt
-from blackholememory.memory_contracts import ProcedureOutcomeReceipt
-from blackholememory.consolidation_change_set import build_consolidation_change_set_preview
-from blackholememory.utility_feedback import UtilityEvent
-from blackholememory.utility_feedback import utility_report
-from blackholememory.procedural_revision_review import ProceduralRevisionReviewError
-from blackholememory.procedural_revision_review import build_procedural_revision_consolidation_candidate
-from blackholememory.procedural_revision_review import build_procedural_revision_review
+from blackholememory.consolidation_change_set import (
+    build_consolidation_change_set_preview,
+)
+from blackholememory.memory_contracts import (
+    ProcedureExecutionTraceReceipt,
+    ProcedureOutcomeReceipt,
+)
+from blackholememory.procedural_revision_review import (
+    ProceduralRevisionReviewError,
+    build_procedural_revision_consolidation_candidate,
+    build_procedural_revision_review,
+)
+from blackholememory.utility_feedback import UtilityEvent, utility_report
 
 
 def _digest(value: str) -> str:

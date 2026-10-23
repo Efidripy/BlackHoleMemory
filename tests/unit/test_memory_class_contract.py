@@ -5,15 +5,19 @@ import hashlib
 
 import pytest
 
-from tests.app_patch import patch_app_import
 from blackholememory import app_core_fallback
 from blackholememory.domain import Memory
-from blackholememory.memory_contracts import MemoryClass
-from blackholememory.memory_contracts import MemoryClassSource
-from blackholememory.memory_contracts import MemoryMetadata
-from blackholememory.memory_contracts import MemoryEventRole
-from blackholememory.typed_memory_contract import TypedMemoryContractUnavailable
-from blackholememory.typed_memory_contract import classify_new_memory
+from blackholememory.memory_contracts import (
+    MemoryClass,
+    MemoryClassSource,
+    MemoryEventRole,
+    MemoryMetadata,
+)
+from blackholememory.typed_memory_contract import (
+    TypedMemoryContractUnavailable,
+    classify_new_memory,
+)
+from tests.app_patch import patch_app_import
 
 
 def _record(**overrides: object) -> dict[str, object]:

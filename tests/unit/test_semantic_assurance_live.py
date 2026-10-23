@@ -9,7 +9,6 @@ import pytest
 
 import blackholememory.semantic_assurance_live as live
 
-
 FIXTURE = Path(__file__).parents[1] / "fixtures" / "semantic-assurance-v1.json"
 
 

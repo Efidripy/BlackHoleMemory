@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.retrieval_fusion import rank_channel_from_scores
-from blackholememory.retrieval_fusion import weighted_rank_fusion
+from blackholememory.retrieval_fusion import (
+    rank_channel_from_scores,
+    weighted_rank_fusion,
+)
 
 
 def test_weighted_rank_fusion_combines_optional_graph_channel():

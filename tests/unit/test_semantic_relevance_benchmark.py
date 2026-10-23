@@ -3,7 +3,6 @@ from __future__ import annotations
 import runpy
 from pathlib import Path
 
-
 run = runpy.run_path(str(Path(__file__).parents[2] / "scripts" / "validate-bhm-semantic-relevance.py"))["run"]
 
 

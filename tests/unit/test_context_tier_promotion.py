@@ -4,19 +4,20 @@ import shutil
 
 import pytest
 
-from blackholememory.context_tier_promotion import ContextTierPromotionDisabled
-from blackholememory.context_tier_promotion import ContextTierPromotionStale
-from blackholememory.context_tier_promotion import apply_tier_promotion
-from blackholememory.context_tier_promotion import build_tier_promotion_plan
-from blackholememory.context_tier_promotion import dry_run_tier_promotion
-from blackholememory.context_tier_promotion import rollback_tier_promotion
-from blackholememory.context_tier_promotion_migration import apply_context_tier_promotion_migration
-from blackholememory.context_tier_promotion_migration import build_context_tier_promotion_migration_plan
-from blackholememory.domain import Memory
-from blackholememory.domain import MemoryRevision
-from blackholememory.domain import content_sha256
+from blackholememory.context_tier_promotion import (
+    ContextTierPromotionDisabled,
+    ContextTierPromotionStale,
+    apply_tier_promotion,
+    build_tier_promotion_plan,
+    dry_run_tier_promotion,
+    rollback_tier_promotion,
+)
+from blackholememory.context_tier_promotion_migration import (
+    apply_context_tier_promotion_migration,
+    build_context_tier_promotion_migration_plan,
+)
+from blackholememory.domain import Memory, MemoryRevision, content_sha256
 from blackholememory.memory_repository import SQLiteMemoryRepository
-
 
 PROJECT = "tier-promotion-project"
 SESSION = "session-alpha"

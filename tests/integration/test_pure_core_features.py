@@ -2,7 +2,6 @@ from __future__ import annotations
 
 # The integration module adds the repository's src directory before imports.
 # ruff: noqa: E402
-
 import asyncio
 import hashlib
 import json
@@ -20,7 +19,6 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE_ROOT = REPO_ROOT.parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -29,27 +27,29 @@ if str(SRC_ROOT) not in sys.path:
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_lifecycle
-from blackholememory import app_core_fallback
-from blackholememory import app_core_graph
-from blackholememory import app_core_hit
-from blackholememory import app_core_hook
-from blackholememory import app_core
-from blackholememory import app_hooks
-from blackholememory import app_ops_admin
-from blackholememory import app_ops_task
-from blackholememory import app_ops_task2
-from blackholememory import app_ops
-from blackholememory import app_projects
-from blackholememory import app_retrieval
-from blackholememory import app_telemetry
 from blackholememory import app as bhm_app
-from blackholememory import memory_routes
-from blackholememory import galaxy_routes
-from blackholememory import app_runtime
-from blackholememory import bhm_mcp
+from blackholememory import (
+    app_core,
+    app_core_fallback,
+    app_core_graph,
+    app_core_hit,
+    app_core_hook,
+    app_hooks,
+    app_lifecycle,
+    app_ops,
+    app_ops_admin,
+    app_ops_task,
+    app_ops_task2,
+    app_projects,
+    app_retrieval,
+    app_runtime,
+    app_telemetry,
+    bhm_mcp,
+    galaxy_routes,
+    memory_routes,
+)
 from blackholememory import galaxy as bhm_galaxy
+from tests.app_patch import patch_app_import
 
 
 class _AuthoritativeStub:
@@ -66,34 +66,37 @@ class _AuthoritativeStub:
 
 
 from blackholememory.agents import developer_agent
-from blackholememory.hook_queue import HookJobCollision
-from blackholememory.hook_queue import HookJobQueue
-from blackholememory.hook_queue import HookQueueFull
+from blackholememory.hook_queue import HookJobCollision, HookJobQueue, HookQueueFull
 from blackholememory.infra.mcp_broker import McpIpcBroker
 from blackholememory.llm_gateway import GatewayResult
-from blackholememory.mem0_adapter import BHMGraphManager
-from blackholememory.mem0_adapter import StorageNotReady
-from blackholememory.mem0_adapter import lexical_score
-from blackholememory.mem0_adapter import reciprocal_rank_fusion
-from blackholememory.observation_contract import ObservationIngressV1
-from blackholememory.observation_contract import build_observation_record
-from blackholememory.observation_store import ObservationIdCollision
-from blackholememory.observation_store import ObservationStore
-from blackholememory.observation_security import ObservationPayloadTooLarge
-from blackholememory.observation_security import redact_secret_text
-from blackholememory.observation_security import secure_observation_payload
-from blackholememory.retention import apply_retention_plan
-from blackholememory.retention import build_retention_plan
-from blackholememory.retention import create_retention_backup
-from blackholememory.retention import load_retention_policy
-from blackholememory.retention import RetentionPolicyError
-from blackholememory.retention import RETENTION_BACKUP_SCHEMA_VERSION
-from blackholememory.retention import restore_retention_backup
-from blackholememory.retention import summarize_retention_plan
-from blackholememory.tools import infra_healer
-from blackholememory.tools import scratchpad
+from blackholememory.mem0_adapter import (
+    BHMGraphManager,
+    StorageNotReady,
+    lexical_score,
+    reciprocal_rank_fusion,
+)
+from blackholememory.observation_contract import (
+    ObservationIngressV1,
+    build_observation_record,
+)
+from blackholememory.observation_security import (
+    ObservationPayloadTooLarge,
+    redact_secret_text,
+    secure_observation_payload,
+)
+from blackholememory.observation_store import ObservationIdCollision, ObservationStore
+from blackholememory.retention import (
+    RETENTION_BACKUP_SCHEMA_VERSION,
+    RetentionPolicyError,
+    apply_retention_plan,
+    build_retention_plan,
+    create_retention_backup,
+    load_retention_policy,
+    restore_retention_backup,
+    summarize_retention_plan,
+)
+from blackholememory.tools import infra_healer, scratchpad
 from blackholememory.tools.code_ast import ASTCodeManager
-
 
 
 def _profile_policy_snapshot() -> dict:

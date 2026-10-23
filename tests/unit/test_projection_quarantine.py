@@ -4,14 +4,18 @@ from dataclasses import dataclass
 
 import pytest
 
-from blackholememory.projection_quarantine import ProjectionQuarantineError
-from blackholememory.projection_quarantine import build_quarantine_payload
-from blackholememory.projection_quarantine import candidate_classifications
-from blackholememory.projection_quarantine import collect_quarantine_points
-from blackholememory.projection_quarantine import quarantine_point_id
-from blackholememory.projection_quarantine import quarantine_classifications
-from blackholememory.projection_reconciliation import ProjectionReviewClassification
-from blackholememory.projection_reconciliation import ProjectionReviewDisposition
+from blackholememory.projection_quarantine import (
+    ProjectionQuarantineError,
+    build_quarantine_payload,
+    candidate_classifications,
+    collect_quarantine_points,
+    quarantine_classifications,
+    quarantine_point_id,
+)
+from blackholememory.projection_reconciliation import (
+    ProjectionReviewClassification,
+    ProjectionReviewDisposition,
+)
 
 
 @dataclass

@@ -5,13 +5,10 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_core_fallback
-from blackholememory import app_core_hook
-from blackholememory import app_governed
-from blackholememory.domain import Memory
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core_fallback, app_core_hook, app_governed, app_runtime
+from blackholememory.domain import Memory
+from tests.app_patch import patch_app_import
 
 
 def _record(memory_id: str, content: str) -> dict:

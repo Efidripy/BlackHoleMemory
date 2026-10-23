@@ -4,14 +4,16 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 
-from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
-from blackholememory.mcp_surfaces import EXTENDED_PUBLIC_TOOL_NAMES
-from blackholememory.mcp_surfaces import McpSurface
-from blackholememory.mcp_surfaces import catalog_report
-from blackholememory.mcp_surfaces import filter_tools
-from blackholememory.mcp_surfaces import is_tool_allowed
-from blackholememory.mcp_surfaces import requires_admin_capability
-from blackholememory.mcp_surfaces import resolve_mcp_surface
+from blackholememory.mcp_surfaces import (
+    CORE_TOOL_NAMES,
+    EXTENDED_PUBLIC_TOOL_NAMES,
+    McpSurface,
+    catalog_report,
+    filter_tools,
+    is_tool_allowed,
+    requires_admin_capability,
+    resolve_mcp_surface,
+)
 
 
 def _registered_tool_names() -> list[str]:

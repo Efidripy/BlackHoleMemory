@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.retrieval_benchmark import build_default_benchmark_cases
-from blackholememory.retrieval_benchmark import evaluate_benchmark
-from blackholememory.retrieval_benchmark import filter_benchmark_hits
+from blackholememory.retrieval_benchmark import (
+    build_default_benchmark_cases,
+    evaluate_benchmark,
+    filter_benchmark_hits,
+)
 
 
 def test_default_benchmark_covers_required_case_range_and_filters_leakage():

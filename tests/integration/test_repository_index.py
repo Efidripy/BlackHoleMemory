@@ -5,9 +5,11 @@ import subprocess
 from pathlib import Path
 
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import index_repository
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    SQLiteRepositoryIndexStore,
+    index_repository,
+)
 
 
 def test_repository_index_migration_backup_connections_are_bounded() -> None:
