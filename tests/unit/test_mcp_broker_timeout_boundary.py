@@ -5,10 +5,11 @@ from pathlib import Path
 import pytest
 
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
-from blackholememory.resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
-from blackholememory.resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
-from blackholememory.resource_limits import MCP_BROKER_WAKE_TIMEOUT_SECONDS
-
+from blackholememory.resource_limits import (
+    MCP_BROKER_CAPACITY_WAIT_SECONDS,
+    MCP_BROKER_JOIN_TIMEOUT_SECONDS,
+    MCP_BROKER_WAKE_TIMEOUT_SECONDS,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 

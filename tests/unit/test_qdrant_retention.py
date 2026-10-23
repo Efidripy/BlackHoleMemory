@@ -7,10 +7,14 @@ from pathlib import Path
 import pytest
 
 from blackholememory.projection_quarantine import json_sha256
-from blackholememory.qdrant_retention import build_qdrant_retention_preview
-from blackholememory.qdrant_retention import run_qdrant_restore_drill
-from blackholememory.qdrant_validation_bounds import ValidationBudgetExceeded
-from blackholememory.qdrant_validation_bounds import ValidationScanBudget
+from blackholememory.qdrant_retention import (
+    build_qdrant_retention_preview,
+    run_qdrant_restore_drill,
+)
+from blackholememory.qdrant_validation_bounds import (
+    ValidationBudgetExceeded,
+    ValidationScanBudget,
+)
 
 
 def _write_manifest(root: Path, *, tamper: bool = False) -> None:

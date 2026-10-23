@@ -434,6 +434,16 @@
       "release": true
     },
     {
+      "path": "scripts/bhm_launcher_operator.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_service.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_launcher_host.py",
       "role": "runtime-support",
       "release": true

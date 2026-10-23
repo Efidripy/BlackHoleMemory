@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from blackholememory import app_lifecycle
-from blackholememory import app_core
-from blackholememory import app_runtime
+from blackholememory import app_core, app_lifecycle, app_runtime
 
 
 class _TargetedService:

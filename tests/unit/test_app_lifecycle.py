@@ -6,10 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from blackholememory import app_lifecycle
-from blackholememory import app_core
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core, app_lifecycle, app_runtime
 
 
 def _patch_lifespan_dependencies(monkeypatch: pytest.MonkeyPatch, events: list[str]) -> list[asyncio.Task]:

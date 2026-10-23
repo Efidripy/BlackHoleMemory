@@ -14,11 +14,13 @@ if str(SCRIPTS_ROOT) not in sys.path:
 import bhm_launcher  # noqa: E402
 import bhm_launcher_readiness  # noqa: E402
 
-from blackholememory.resource_limits import LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_POLL_SECONDS
-from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS
+from blackholememory.resource_limits import (
+    LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS,
+    LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS,
+    LAUNCHER_SERVICE_READINESS_POLL_SECONDS,
+    LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS,
+    LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS,
+)
 
 
 def test_launcher_transport_defaults_are_registry_backed() -> None:

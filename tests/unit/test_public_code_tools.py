@@ -4,11 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory import bhm_mcp_code
-from blackholememory import bhm_mcp
+from blackholememory import bhm_mcp, bhm_mcp_code
 from blackholememory.app import PublicCodeToolRequest
-from blackholememory.code_tools_service import _PUBLIC_CODE_TOOL_OPERATIONS
-from blackholememory.code_tools_service import _resolve_public_code_root
+from blackholememory.code_tools_service import (
+    _PUBLIC_CODE_TOOL_OPERATIONS,
+    _resolve_public_code_root,
+)
+
+
 def test_public_code_tool_contract_is_allowlisted_and_read_only_by_default() -> None:
     request = PublicCodeToolRequest(operation="schema")
     assert request.apply is False

@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.mcp_soak import bounded_clients
-from blackholememory.mcp_soak import bounded_restart_round
-from blackholememory.mcp_soak import bounded_rounds
-from blackholememory.mcp_soak import contains_forbidden
-from blackholememory.mcp_soak import lease_wave_invariants
-from blackholememory.mcp_soak import reconnect_budget
-from blackholememory.mcp_soak import telemetry_storm_invariants
+from blackholememory.mcp_soak import (
+    bounded_clients,
+    bounded_restart_round,
+    bounded_rounds,
+    contains_forbidden,
+    lease_wave_invariants,
+    reconnect_budget,
+    telemetry_storm_invariants,
+)
 
 
 def test_soak_capacity_and_restart_bounds_are_hard_limited():

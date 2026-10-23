@@ -5,9 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.mcp_panel import build_mcp_panel_snapshot
-from blackholememory.mcp_panel import load_configured_sources
-
+from blackholememory.mcp_panel import build_mcp_panel_snapshot, load_configured_sources
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

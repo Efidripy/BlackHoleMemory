@@ -5,7 +5,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "bhm-create-external-live-backup.py"
 SPEC = importlib.util.spec_from_file_location("external_live_backup", SCRIPT)
 assert SPEC and SPEC.loader

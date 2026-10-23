@@ -6,32 +6,39 @@ feature flag, issues a live grant, calls Qdrant/Mem0, or changes lifecycle.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
-from fastapi.testclient import TestClient
 import pytest
+from fastapi.testclient import TestClient
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_governed
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_governed, app_runtime
 from blackholememory.caller_auth import CallerPrincipal
-from blackholememory.governed_shared_memory import CallerIdentity
-from blackholememory.governed_shared_memory import PolicyDecision
-from blackholememory.governed_shared_memory import SharedMemoryGrant
-from blackholememory.governed_shared_memory import SharedMemoryRequest
-from blackholememory.governed_shared_memory import SharedOperation
-from blackholememory.governed_shared_memory import SharedVisibility
-from blackholememory.governed_shared_memory import decide_shared_memory
+from blackholememory.governed_shared_memory import (
+    CallerIdentity,
+    PolicyDecision,
+    SharedMemoryGrant,
+    SharedMemoryRequest,
+    SharedOperation,
+    SharedVisibility,
+    decide_shared_memory,
+)
 from blackholememory.memory_service import SQLiteMemoryService
-from blackholememory.shared_memory_audit import append_shared_memory_audit
-from blackholememory.shared_memory_audit import build_shared_memory_audit_event
-from blackholememory.shared_memory_audit import ARTIFACT_TYPE as SHARED_MEMORY_AUDIT_ARTIFACT_TYPE
-from blackholememory.shared_memory_grants import SharedGrantRevocation
-from blackholememory.shared_memory_grants import build_grant_artifact
-from blackholememory.shared_memory_grants import build_revocation_artifact
-from blackholememory.shared_memory_grants import grant_digest
+from blackholememory.shared_memory_audit import (
+    ARTIFACT_TYPE as SHARED_MEMORY_AUDIT_ARTIFACT_TYPE,
+)
+from blackholememory.shared_memory_audit import (
+    append_shared_memory_audit,
+    build_shared_memory_audit_event,
+)
+from blackholememory.shared_memory_grants import (
+    SharedGrantRevocation,
+    build_grant_artifact,
+    build_revocation_artifact,
+    grant_digest,
+)
+from tests.app_patch import patch_app_import
 
 
 def _principal(*, caller_id: str = "agent-a", project: str = "blackholememory") -> CallerPrincipal:

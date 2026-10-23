@@ -1,5 +1,5 @@
-from blackholememory import app_ops_task
 from blackholememory import app as bhm_app
+from blackholememory import app_ops_task
 
 
 def test_factory_route_is_hidden_and_review_only():

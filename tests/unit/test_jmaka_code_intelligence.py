@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from blackholememory.code_graph import SQLiteCodeGraphStore
-from blackholememory.code_graph import build_code_graph
-from blackholememory.package_resolution import resolve_dependency_provenance
-from blackholememory.package_resolution import resolve_package_manifests
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.code_graph import SQLiteCodeGraphStore, build_code_graph
+from blackholememory.package_resolution import (
+    resolve_dependency_provenance,
+    resolve_package_manifests,
+)
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    SQLiteRepositoryIndexStore,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _index_and_graph(root: Path, database: Path) -> tuple[dict, dict]:

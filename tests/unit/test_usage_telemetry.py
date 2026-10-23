@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from blackholememory import app_core
 from blackholememory import app as bhm_app
-from blackholememory.usage_telemetry import UsageTelemetry
-from blackholememory.usage_telemetry import normalize_operation
-from blackholememory.usage_telemetry import response_size_bucket
+from blackholememory import app_core
+from blackholememory.usage_telemetry import (
+    UsageTelemetry,
+    normalize_operation,
+    response_size_bucket,
+)
 
 
 def test_normalize_operation_drops_queries_and_unbounded_identifiers():

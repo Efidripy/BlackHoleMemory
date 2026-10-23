@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.vector_routing import normalize_vector_targets
-from blackholememory.vector_routing import route_vector_targets
+from blackholememory.vector_routing import (
+    normalize_vector_targets,
+    route_vector_targets,
+)
 
 
 def _record(**overrides):

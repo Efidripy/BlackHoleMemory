@@ -4,7 +4,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "initialize-bhm-runtime.py"
 

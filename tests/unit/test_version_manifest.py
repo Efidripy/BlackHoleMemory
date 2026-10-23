@@ -2,26 +2,26 @@ from __future__ import annotations
 
 # The unit module adds the repository's src directory before imports.
 # ruff: noqa: E402
-
 import json
 import sys
 from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.version_manifest import BROKER_VERSION
-from blackholememory.version_manifest import PACKAGE_VERSION
-from blackholememory.version_manifest import PLUGIN_VERSION
-from blackholememory.version_manifest import RUNTIME_VERSION
-from blackholememory.version_manifest import UI_VERSION
-from blackholememory.version_manifest import VERSION_MANIFEST
-from blackholememory.version_manifest import load_version_manifest
+from blackholememory.version_manifest import (
+    BROKER_VERSION,
+    PACKAGE_VERSION,
+    PLUGIN_VERSION,
+    RUNTIME_VERSION,
+    UI_VERSION,
+    VERSION_MANIFEST,
+    load_version_manifest,
+)
 
 
 def test_version_manifest_exposes_one_release_version_for_all_surfaces():

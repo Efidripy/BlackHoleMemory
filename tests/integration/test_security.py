@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from blackholememory import app as bhm_app
-from blackholememory.security_trust_boundary import build_security_trust_boundary_preview
+from blackholememory.security_trust_boundary import (
+    build_security_trust_boundary_preview,
+)
 
 
 def test_hidden_route_and_fail_closed_contract():

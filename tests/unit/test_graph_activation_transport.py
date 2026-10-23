@@ -8,7 +8,6 @@ import pytest
 from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
     "validate_bhm_p22_activation",

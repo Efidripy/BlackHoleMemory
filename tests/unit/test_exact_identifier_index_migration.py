@@ -6,14 +6,18 @@ from pathlib import Path
 import pytest
 
 from blackholememory.domain import Memory
-from blackholememory.exact_identifier_index_migration import EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY
-from blackholememory.exact_identifier_index_migration import EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION
-from blackholememory.exact_identifier_index_migration import EXACT_IDENTIFIER_INDEX_TABLE
-from blackholememory.exact_identifier_index_migration import ExactIdentifierIndexMigrationError
-from blackholememory.exact_identifier_index_migration import apply_migration
-from blackholememory.exact_identifier_index_migration import build_migration_plan
+from blackholememory.exact_identifier_index_migration import (
+    EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY,
+    EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION,
+    EXACT_IDENTIFIER_INDEX_TABLE,
+    ExactIdentifierIndexMigrationError,
+    apply_migration,
+    build_migration_plan,
+)
 from blackholememory.freshness_migration import apply_migration as apply_freshness
-from blackholememory.freshness_migration import build_migration_plan as build_freshness_plan
+from blackholememory.freshness_migration import (
+    build_migration_plan as build_freshness_plan,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 

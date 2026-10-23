@@ -5,23 +5,27 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.code_graph import CodeGraphInputChangedError
-from blackholememory.code_graph import LANGUAGE_INVENTORY_DIGEST
-from blackholememory.code_graph import PARSER_CAPABILITY_SCHEMA_VERSION
-from blackholememory.code_graph import PARSER_REGISTRY
-from blackholememory.code_graph import PARSER_REGISTRY_DIGEST
-from blackholememory.code_graph import SQLiteCodeGraphStore
-from blackholememory.code_graph import build_code_graph
-from blackholememory.code_graph import extract_code_graph
-from blackholememory.code_graph import parser_capability_matrix
-from blackholememory.code_graph import _LANGUAGE_BY_SUFFIX
-from blackholememory.code_graph import _SPECIAL_TEXT_NAMES
+from blackholememory.code_graph import (
+    _LANGUAGE_BY_SUFFIX,
+    _SPECIAL_TEXT_NAMES,
+    LANGUAGE_INVENTORY_DIGEST,
+    PARSER_CAPABILITY_SCHEMA_VERSION,
+    PARSER_REGISTRY,
+    PARSER_REGISTRY_DIGEST,
+    CodeGraphInputChangedError,
+    SQLiteCodeGraphStore,
+    build_code_graph,
+    extract_code_graph,
+    parser_capability_matrix,
+    verify_code_graph_snapshot,
+)
 from blackholememory.code_graph_capabilities import build_parser_capability_matrix
-from blackholememory.code_graph import verify_code_graph_snapshot
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path, str, str]:

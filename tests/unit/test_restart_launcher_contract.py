@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from tests.app_patch import app_source_text
-
 from pathlib import Path
 
+from tests.app_patch import app_source_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

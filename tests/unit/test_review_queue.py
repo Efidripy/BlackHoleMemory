@@ -4,10 +4,8 @@ import copy
 from datetime import datetime, timezone
 from pathlib import Path
 
-from blackholememory import app_core
-from blackholememory import app_ops
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core, app_ops, app_runtime
 
 
 def _install_review_store(monkeypatch):

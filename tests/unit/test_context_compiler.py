@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from blackholememory.context_compiler import compile_context
-from blackholememory.context_compiler import estimate_tokens
+from blackholememory.context_compiler import compile_context, estimate_tokens
 
 
 def test_estimate_tokens_is_deterministic_and_conservative_for_budgeting():

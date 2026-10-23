@@ -3,14 +3,18 @@ import sqlite3
 import pytest
 
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
-from blackholememory.task_graph import TaskGraphError
-from blackholememory.task_graph import build_task_graph
-from blackholememory.task_graph import explain_task_graph
-from blackholememory.task_graph import query_task_graph
-from blackholememory.task_graph import simulate_conflict_recovery_fixture
-from blackholememory.task_dependencies import TaskDependencyDeclaration
-from blackholememory.task_dependencies import TaskDependencyCompletenessAttestation
-from blackholememory.task_dependencies import TaskDependencyError
+from blackholememory.task_dependencies import (
+    TaskDependencyCompletenessAttestation,
+    TaskDependencyDeclaration,
+    TaskDependencyError,
+)
+from blackholememory.task_graph import (
+    TaskGraphError,
+    build_task_graph,
+    explain_task_graph,
+    query_task_graph,
+    simulate_conflict_recovery_fixture,
+)
 
 
 def _fixture():

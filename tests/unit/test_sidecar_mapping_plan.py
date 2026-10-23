@@ -5,7 +5,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "validate-bhm-sidecar-mapping.py"
 

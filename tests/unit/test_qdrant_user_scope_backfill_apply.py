@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "apply-bhm-qdrant-user-scope-backfill.py"
 spec = importlib.util.spec_from_file_location("bhm_test_user_scope_apply", SCRIPT)

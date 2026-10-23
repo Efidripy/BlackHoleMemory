@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import blackholememory.tools.infra_healer as infra_healer
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "bhm_night_watch.py"

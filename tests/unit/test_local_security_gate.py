@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from blackholememory.local_security_gate import evaluate_local_security_gate
-from blackholememory.local_security_gate import load_json_object
-
+from blackholememory.local_security_gate import (
+    evaluate_local_security_gate,
+    load_json_object,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 

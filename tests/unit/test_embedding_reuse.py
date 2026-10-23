@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.embedding_reuse import embed_query_once
-from blackholememory.embedding_reuse import search_with_precomputed_embedding
+from blackholememory.embedding_reuse import (
+    embed_query_once,
+    search_with_precomputed_embedding,
+)
 
 
 class _FakeEmbedder:

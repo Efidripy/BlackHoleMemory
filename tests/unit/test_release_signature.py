@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import json
 import hashlib
-import subprocess
-import sys
+import json
 import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SIGN = ROOT / "scripts" / "sign-release-ed25519.py"

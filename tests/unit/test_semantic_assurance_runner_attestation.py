@@ -7,14 +7,21 @@ import hashlib
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from blackholememory.semantic_assurance_live import DEFAULT_BASE_URL, DEFAULT_MODEL_ID, DEFAULT_MODEL_VARIANT, PROMPT_CONTRACT
-from blackholememory.semantic_assurance_runner_attestation import SCHEMA_VERSION
-from blackholememory.semantic_assurance_runner_attestation import SemanticAssuranceRunnerAttestationError
-from blackholememory.semantic_assurance_runner_attestation import canonical_runner_attestation_payload
-from blackholememory.semantic_assurance_runner_attestation import runner_attestation_payload_digest
-from blackholememory.semantic_assurance_runner_attestation import runner_trust_registry_digest
-from blackholememory.semantic_assurance_runner_attestation import load_semantic_assurance_runner_trust_registry
-from blackholememory.semantic_assurance_runner_attestation import verify_semantic_assurance_runner_attestation
+from blackholememory.semantic_assurance_live import (
+    DEFAULT_BASE_URL,
+    DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_VARIANT,
+    PROMPT_CONTRACT,
+)
+from blackholememory.semantic_assurance_runner_attestation import (
+    SCHEMA_VERSION,
+    SemanticAssuranceRunnerAttestationError,
+    canonical_runner_attestation_payload,
+    load_semantic_assurance_runner_trust_registry,
+    runner_attestation_payload_digest,
+    runner_trust_registry_digest,
+    verify_semantic_assurance_runner_attestation,
+)
 
 
 def _digest(char: str) -> str:

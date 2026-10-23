@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.human_ui_bridge import build_human_ui_bridge_preview
-from blackholememory.human_ui_bridge import verify_human_ui_bridge_digest
+from blackholememory.human_ui_bridge import (
+    build_human_ui_bridge_preview,
+    verify_human_ui_bridge_digest,
+)
 
 
 def test_human_ui_bridge_is_bounded_and_explainable():

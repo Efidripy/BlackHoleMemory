@@ -7,13 +7,17 @@ import pytest
 
 from blackholememory.code_graph import SQLiteCodeGraphStore
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
-from blackholememory.parser_activation import PARSER_REGISTRY_DIGEST
-from blackholememory.parser_activation import ParserActivationError
-from blackholememory.parser_activation import activate_parser_v2
-from blackholememory.parser_activation import online_backup
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.parser_activation import (
+    PARSER_REGISTRY_DIGEST,
+    ParserActivationError,
+    activate_parser_v2,
+    online_backup,
+)
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path, str]:

@@ -137,7 +137,7 @@ class BoundaryExpectation:
 
 LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
     (
-        "scripts/bhm_launcher.py",
+        "scripts/bhm_launcher_service.py",
         "run_detached",
         "subprocess.Popen",
     ): BoundaryExpectation(
@@ -146,7 +146,7 @@ LIFECYCLE_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         module_signals=("def terminate_detached_processes", "proc.wait(timeout=PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS)"),
     ),
     (
-        "scripts/bhm_launcher.py",
+        "scripts/bhm_launcher_service.py",
         "run_canonical_api_command",
         "subprocess.Popen",
     ): BoundaryExpectation(
@@ -260,11 +260,11 @@ MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         disposition="owned-plugin-replacement",
         scope_signals=("_assert_owned_plugin_target(destination", "shutil.rmtree(destination)", "shutil.copytree(source, destination)"),
     ),
-    ("scripts/bhm_launcher.py", "operator_restore_backup", "shutil.copy2"): BoundaryExpectation(
+    ("scripts/bhm_launcher_operator.py", "operator_restore_backup", "shutil.copy2"): BoundaryExpectation(
         disposition="verified-sqlite-staging-restore",
         scope_signals=("_resolve_owned_runtime_file", "verify_sqlite_database(source)", "_assert_owned_path(staging", "os.replace(staging, database)"),
     ),
-    ("scripts/bhm_launcher.py", "operator_restore_backup", "os.replace"): BoundaryExpectation(
+    ("scripts/bhm_launcher_operator.py", "operator_restore_backup", "os.replace"): BoundaryExpectation(
         disposition="verified-sqlite-staging-restore",
         scope_signals=("_resolve_owned_runtime_file", "verify_sqlite_database(source)", "_assert_owned_path(staging", "os.replace(staging, database)"),
     ),

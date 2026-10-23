@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from blackholememory import app_ops_task
-from blackholememory import app_ops
 from blackholememory import app as bhm_app
+from blackholememory import app_ops, app_ops_task
 
 
 def test_adr_supersede_accepts_json_body(monkeypatch) -> None:

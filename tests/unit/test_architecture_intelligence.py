@@ -1,11 +1,13 @@
 import json
 
-from blackholememory.architecture_intelligence import ARCHITECTURE_RESPONSE_MAX_SERIALIZED_BYTES
-from blackholememory.architecture_intelligence import bound_architecture_response
-from blackholememory.architecture_intelligence import build_architecture_intelligence
-from blackholememory.architecture_intelligence import build_architecture_explain_receipt
-from blackholememory.architecture_intelligence import build_architecture_memory
-from blackholememory.architecture_intelligence import build_graph_analysis_quality_receipt
+from blackholememory.architecture_intelligence import (
+    ARCHITECTURE_RESPONSE_MAX_SERIALIZED_BYTES,
+    bound_architecture_response,
+    build_architecture_explain_receipt,
+    build_architecture_intelligence,
+    build_architecture_memory,
+    build_graph_analysis_quality_receipt,
+)
 from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
 
 

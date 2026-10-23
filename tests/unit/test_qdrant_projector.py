@@ -4,22 +4,23 @@ import sqlite3
 from dataclasses import dataclass
 from types import SimpleNamespace
 
-from blackholememory.domain import Memory
 from blackholememory.config import settings
+from blackholememory.domain import Memory
+from blackholememory.mem0_adapter import global_collection_name, local_collection_name
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.mem0_adapter import global_collection_name
-from blackholememory.mem0_adapter import local_collection_name
 from blackholememory.outbox import OutboxStatus
-from blackholememory.qdrant_projector import QdrantProjector
-from blackholememory.qdrant_projector import _deterministic_retry_delay
-from blackholememory.qdrant_projector import _PROJECTION_PAYLOAD_SCHEMA_V1
-from blackholememory.qdrant_projector import _projection_payload_body
-from blackholememory.qdrant_projector import build_point_payload
-from blackholememory.qdrant_projector import deterministic_point_id
-from blackholememory.qdrant_projector import projection_payload_digest
-from blackholememory.qdrant_projector import projection_payload_digest_from_payload
-from blackholememory.qdrant_projector import _vector_targets
-from blackholememory.qdrant_projector import is_projection_infrastructure_error
+from blackholememory.qdrant_projector import (
+    _PROJECTION_PAYLOAD_SCHEMA_V1,
+    QdrantProjector,
+    _deterministic_retry_delay,
+    _projection_payload_body,
+    _vector_targets,
+    build_point_payload,
+    deterministic_point_id,
+    is_projection_infrastructure_error,
+    projection_payload_digest,
+    projection_payload_digest_from_payload,
+)
 from blackholememory.vector_routing import route_vector_targets
 
 

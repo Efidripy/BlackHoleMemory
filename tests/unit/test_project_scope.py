@@ -6,16 +6,18 @@ import threading
 import pytest
 from fastapi import HTTPException
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_core_fallback
-from blackholememory import app_core_hit
-from blackholememory import app_core
-from blackholememory import app_ops_admin
-from blackholememory import app_ops_task2
-from blackholememory import app_projects
-from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import (
+    app_core,
+    app_core_fallback,
+    app_core_hit,
+    app_ops_admin,
+    app_ops_task2,
+    app_projects,
+    app_retrieval,
+    app_runtime,
+)
+from tests.app_patch import patch_app_import
 
 
 def _record(project: str, content: str) -> dict:

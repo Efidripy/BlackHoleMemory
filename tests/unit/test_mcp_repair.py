@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from tests.app_patch import patch_app_import
-
 import json
 import shutil
 from pathlib import Path
@@ -9,16 +7,17 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import app_mcp
-from blackholememory import mcp_repair
-from blackholememory.mcp_repair import McpRepairError
-from blackholememory.mcp_repair import build_repair_preview
-from blackholememory.mcp_repair import build_reprobe
-from blackholememory.mcp_repair import execute_reconnect
-from blackholememory.mcp_repair import execute_rollback
-from blackholememory.mcp_repair import _plan_path
-from blackholememory.mcp_repair import _write_plan
-
+from blackholememory import app_mcp, mcp_repair
+from blackholememory.mcp_repair import (
+    McpRepairError,
+    _plan_path,
+    _write_plan,
+    build_repair_preview,
+    build_reprobe,
+    execute_reconnect,
+    execute_rollback,
+)
+from tests.app_patch import patch_app_import
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

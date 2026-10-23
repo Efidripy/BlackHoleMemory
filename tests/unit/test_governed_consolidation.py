@@ -11,29 +11,32 @@ from types import SimpleNamespace
 import pytest
 
 import blackholememory.governed_consolidation as governed_consolidation_module
-from blackholememory.domain import Memory
-from blackholememory.domain import MemoryRevision
-from blackholememory.governed_consolidation import GovernedConsolidationApprovalRequired
-from blackholememory.governed_consolidation import GovernedConsolidationError
-from blackholememory.governed_consolidation import GovernedConsolidationRepository
-from blackholememory.governed_consolidation import GovernedConsolidationStale
-from blackholememory.governed_consolidation import analyze_records
-from blackholememory.governed_consolidation import apply_approved_proposal
-from blackholememory.governed_consolidation import build_proposal
-from blackholememory.governed_consolidation import dry_run_apply
-from blackholememory.governed_consolidation import validate_proposal_current
-from blackholememory.governed_consolidation_migration import apply_governed_consolidation_migration
-from blackholememory.governed_consolidation_migration import build_governed_consolidation_migration_plan
-from blackholememory.governed_consolidation_migration import governed_consolidation_migration_status
+from blackholememory.domain import Memory, MemoryRevision
+from blackholememory.freshness_migration import apply_migration, build_migration_plan
+from blackholememory.governed_consolidation import (
+    GovernedConsolidationApprovalRequired,
+    GovernedConsolidationError,
+    GovernedConsolidationRepository,
+    GovernedConsolidationStale,
+    analyze_records,
+    apply_approved_proposal,
+    build_proposal,
+    dry_run_apply,
+    validate_proposal_current,
+)
+from blackholememory.governed_consolidation_migration import (
+    apply_governed_consolidation_migration,
+    build_governed_consolidation_migration_plan,
+    governed_consolidation_migration_status,
+)
 from blackholememory.governed_semantic_editor import build_semantic_proposal
-from blackholememory.freshness_migration import apply_migration
-from blackholememory.freshness_migration import build_migration_plan
-from blackholememory.memory_repository import MemoryRepositoryError
-from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.memory_service import SQLiteMemoryService
 from blackholememory.mem0_adapter import local_collection_name
-from blackholememory.qdrant_projector import QdrantProjector
-from blackholememory.qdrant_projector import deterministic_point_id
+from blackholememory.memory_repository import (
+    MemoryRepositoryError,
+    SQLiteMemoryRepository,
+)
+from blackholememory.memory_service import SQLiteMemoryService
+from blackholememory.qdrant_projector import QdrantProjector, deterministic_point_id
 
 
 @dataclass

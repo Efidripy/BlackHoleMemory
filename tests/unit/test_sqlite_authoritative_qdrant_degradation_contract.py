@@ -6,14 +6,16 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_lifecycle
-from blackholememory import app_core_fallback
-from blackholememory import app_core
-from blackholememory import app_telemetry
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import (
+    app_core,
+    app_core_fallback,
+    app_lifecycle,
+    app_runtime,
+    app_telemetry,
+)
 from blackholememory.mem0_adapter import StorageNotReady
+from tests.app_patch import patch_app_import
 
 
 def _projection_state(*, mode: str, readiness: str, reason: str) -> SimpleNamespace:

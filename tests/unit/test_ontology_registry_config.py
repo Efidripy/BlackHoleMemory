@@ -5,7 +5,6 @@ from pathlib import Path
 
 from blackholememory.ontology_registry import OntologySchema
 
-
 REPO_ROOT = Path(__file__).parents[2]
 
 

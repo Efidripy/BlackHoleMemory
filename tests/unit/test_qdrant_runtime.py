@@ -2,9 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from blackholememory.qdrant_runtime import QDRANT_IMAGE_REF
-from blackholememory.qdrant_runtime import validate_qdrant_runtime
-
+from blackholememory.qdrant_runtime import QDRANT_IMAGE_REF, validate_qdrant_runtime
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

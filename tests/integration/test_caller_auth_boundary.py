@@ -8,20 +8,21 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_lifecycle
-from blackholememory import app_core_hook
-from blackholememory import app_core
-from blackholememory import app_ops_task2
-from blackholememory import app_ops
-from blackholememory import app_projects
 from blackholememory import app as bhm_app
-from blackholememory import galaxy_routes
-from blackholememory import code_tools_service
-from blackholememory import app_runtime
-from blackholememory import caller_auth
+from blackholememory import (
+    app_core,
+    app_core_hook,
+    app_lifecycle,
+    app_ops,
+    app_ops_task2,
+    app_projects,
+    app_runtime,
+    caller_auth,
+    code_tools_service,
+    galaxy_routes,
+)
 from blackholememory import ui_session as ui_session_module
-
+from tests.app_patch import patch_app_import
 
 TEST_CALLER_TOKEN = "bhm-test-caller-token-0000000000000001"
 

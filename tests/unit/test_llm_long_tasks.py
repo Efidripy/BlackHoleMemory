@@ -4,13 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.llm_long_tasks import LongTaskBoundsError
-from blackholememory.llm_long_tasks import LongTaskCollision
-from blackholememory.llm_long_tasks import LongTaskStore
-from blackholememory.llm_long_tasks import build_long_task_plan
-from blackholememory.llm_long_tasks import content_addressed_chunk_id
-from blackholememory.llm_long_tasks import deterministic_long_task_cache_key
-from blackholememory.llm_long_tasks import deterministic_long_task_id
+from blackholememory.llm_long_tasks import (
+    LongTaskBoundsError,
+    LongTaskCollision,
+    LongTaskStore,
+    build_long_task_plan,
+    content_addressed_chunk_id,
+    deterministic_long_task_cache_key,
+    deterministic_long_task_id,
+)
 
 
 def _items(count: int = 8) -> list[dict[str, str]]:

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from blackholememory.security_trust_boundary import build_security_trust_boundary_preview
-from blackholememory.security_trust_boundary import verify_security_digest
+from blackholememory.security_trust_boundary import (
+    build_security_trust_boundary_preview,
+    verify_security_digest,
+)
 
 
 def _base_kwargs() -> dict:

@@ -6,14 +6,16 @@ import json
 import pytest
 
 from blackholememory import llm_gateway
-from blackholememory.llm_gateway import GatewayRequest
-from blackholememory.llm_gateway import LocalLLMGateway
-from blackholememory.llm_gateway import LocalOpenAICompatibleAdapter
-from blackholememory.llm_gateway import ModelDefinition
-from blackholememory.llm_gateway import ModelRegistry
-from blackholememory.llm_gateway import PromptDefinition
-from blackholememory.llm_gateway import PromptRegistry
-from blackholememory.llm_gateway import normalize_json_content
+from blackholememory.llm_gateway import (
+    GatewayRequest,
+    LocalLLMGateway,
+    LocalOpenAICompatibleAdapter,
+    ModelDefinition,
+    ModelRegistry,
+    PromptDefinition,
+    PromptRegistry,
+    normalize_json_content,
+)
 from blackholememory.local_endpoint_policy import LocalEndpointError
 
 

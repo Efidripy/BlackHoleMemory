@@ -9,7 +9,6 @@ import pytest
 from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:

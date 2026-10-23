@@ -6,9 +6,11 @@ import sqlite3
 import pytest
 
 from blackholememory.memory_doctor import MemoryDoctorSnapshotError
-from blackholememory.memory_doctor_cli import SCHEMA_VERSION
-from blackholememory.memory_doctor_cli import build_read_only_memory_doctor_report
-from blackholememory.memory_doctor_cli import main
+from blackholememory.memory_doctor_cli import (
+    SCHEMA_VERSION,
+    build_read_only_memory_doctor_report,
+    main,
+)
 
 
 class _ProjectionPoint:

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from qdrant_client import QdrantClient
 
 from blackholememory import app as bhm_app
 from blackholememory.config import settings
-from qdrant_client import QdrantClient
 
 
 def _has_seeded_live_catalog() -> bool:

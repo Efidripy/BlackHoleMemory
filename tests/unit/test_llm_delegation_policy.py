@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.llm_delegation_policy import DelegationPolicyError
-from blackholememory.llm_delegation_policy import decide_delegation
-from blackholememory.llm_delegation_policy import delegation_policy_snapshot
+from blackholememory.llm_delegation_policy import (
+    DelegationPolicyError,
+    decide_delegation,
+    delegation_policy_snapshot,
+)
 
 
 def test_local_bounded_workload_is_explainable_and_proposal_only():

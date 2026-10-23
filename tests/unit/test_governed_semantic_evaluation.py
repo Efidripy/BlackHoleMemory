@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from blackholememory.governed_semantic_evaluation import evaluate_golden_cases
-from blackholememory.governed_semantic_evaluation import load_golden_dataset
-from blackholememory.governed_semantic_evaluation import summarize_shadow_proposals
-
+from blackholememory.governed_semantic_evaluation import (
+    evaluate_golden_cases,
+    load_golden_dataset,
+    summarize_shadow_proposals,
+)
 
 _GOLDEN = Path(__file__).parents[1] / "fixtures" / "governed-semantic-editor-golden.json"
 

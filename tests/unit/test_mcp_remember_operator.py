@@ -7,8 +7,8 @@ from typing import Any
 import httpx
 import pytest
 
-from blackholememory import app_core
 from blackholememory import app as bhm_app
+from blackholememory import app_core
 from blackholememory.mcp_streamable_http import BhmStreamableHttpGateway
 
 ADMIN = "operator-capability-0000000000000001"

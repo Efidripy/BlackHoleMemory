@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("validate_ci_receipt_binding", ROOT / "scripts" / "validate-ci-receipt-binding.py")
 assert SPEC and SPEC.loader

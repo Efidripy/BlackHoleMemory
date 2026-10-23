@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
+from tests.launcher_source import launcher_source_text
 
 # Resolve the launcher beside its helpers instead of an unrelated installed
 # `scripts` package on developer machines.
@@ -20,7 +21,6 @@ if str(SCRIPTS_ROOT) not in sys.path:
 
 import bhm_launcher as launcher
 import bhm_launcher_readiness as launcher_readiness
-
 
 BOOTSTRAP_TOKEN = "bootstrap-token-00000000000000000000+/="
 CALLER_TOKEN = "caller-token-000000000000000000000000"
@@ -73,7 +73,7 @@ def test_cleanup_stale_pyinstaller_dirs_skips_when_rename_fails(tmp_path: Path, 
 
 
 def test_launcher_import_is_safe_without_pyqt6_and_reports_headless_diagnostic() -> None:
-    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+    source = launcher_source_text(SCRIPTS_ROOT)
     assert "input(" not in source
     assert "load_pyqt6_or_prompt()" not in source
 
@@ -162,7 +162,7 @@ def test_launcher_native_presentation_overrides_windows_hidden_startup(monkeypat
 
 
 def test_launcher_keeps_tray_lifecycle_and_schedules_post_event_loop_presentation() -> None:
-    source = (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+    source = launcher_source_text(SCRIPTS_ROOT)
     main_source = source[source.index("def main() -> int:") :]
 
     assert "app.setQuitOnLastWindowClosed(False)" in main_source
@@ -616,7 +616,7 @@ def test_launcher_quick_links_put_home_first_and_galaxy_second() -> None:
 
 def test_operator_drawer_foundation_is_collapsed_and_data_driven() -> None:
     source = (
-        (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+        launcher_source_text(SCRIPTS_ROOT)
         + (SCRIPTS_ROOT / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
         + (SCRIPTS_ROOT / "bhm_launcher_theme.py").read_text(encoding="utf-8")
     )
@@ -807,7 +807,7 @@ def test_projection_reconcile_preview_refuses_blocked_model_dimension_receipt(
 
 def test_operator_preview_context_and_thread_release_are_identity_bound() -> None:
     source = (
-        (SCRIPTS_ROOT / "bhm_launcher.py").read_text(encoding="utf-8")
+        launcher_source_text(SCRIPTS_ROOT)
         + (SCRIPTS_ROOT / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
     )
 

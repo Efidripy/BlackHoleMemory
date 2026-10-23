@@ -4,9 +4,11 @@ import pytest
 
 import blackholememory.memory_service as memory_service_module
 from blackholememory.domain import Artifact
-from blackholememory.memory_service import MemoryServiceNotReady
-from blackholememory.memory_service import MemoryServiceValidationError
-from blackholememory.memory_service import SQLiteMemoryService
+from blackholememory.memory_service import (
+    MemoryServiceNotReady,
+    MemoryServiceValidationError,
+    SQLiteMemoryService,
+)
 from blackholememory.outbox import OutboxStatus
 from blackholememory.resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 

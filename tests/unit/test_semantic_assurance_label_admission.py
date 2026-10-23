@@ -6,14 +6,19 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
-from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_dataset
-from blackholememory.semantic_assurance_corpus_admission import verify_semantic_assurance_corpus_admission
-from blackholememory.semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
-from blackholememory.semantic_assurance_label_admission import admit_semantic_assurance_human_labels
-from blackholememory.semantic_assurance_label_admission import assess_semantic_assurance_v5_readiness_strata
-from blackholememory.semantic_assurance_label_admission import verify_semantic_assurance_label_admission
-
+from blackholememory.semantic_assurance_corpus_admission import (
+    verify_semantic_assurance_corpus_admission,
+)
+from blackholememory.semantic_assurance_evaluation import (
+    evaluate_semantic_assurance,
+    load_semantic_assurance_dataset,
+)
+from blackholememory.semantic_assurance_label_admission import (
+    SemanticAssuranceLabelAdmissionError,
+    admit_semantic_assurance_human_labels,
+    assess_semantic_assurance_v5_readiness_strata,
+    verify_semantic_assurance_label_admission,
+)
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "semantic-assurance-v1.json"
 

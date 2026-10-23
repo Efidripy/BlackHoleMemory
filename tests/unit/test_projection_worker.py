@@ -4,8 +4,7 @@ import threading
 
 import pytest
 
-from blackholememory.projection_worker import ProjectionWorker
-from blackholememory.projection_worker import ProjectionWorkerError
+from blackholememory.projection_worker import ProjectionWorker, ProjectionWorkerError
 from blackholememory.qdrant_projector import ProjectorRunResult
 from blackholememory.runtime_storage import ProjectionWorkerConfig
 

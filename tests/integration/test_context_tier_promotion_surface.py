@@ -4,10 +4,9 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from tests.app_patch import patch_app_import
 from blackholememory import app as bhm_app
 from blackholememory import bhm_mcp
-
+from tests.app_patch import patch_app_import
 
 TEST_CALLER_TOKEN = "bhm-test-caller-token-0000000000000001"
 

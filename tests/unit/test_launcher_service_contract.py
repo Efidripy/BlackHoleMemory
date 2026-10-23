@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from tests.launcher_source import launcher_source_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_frozen_launcher_keeps_sqlite_authoritative_api_independent_of_qdrant():
-    launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+    launcher = launcher_source_text(REPO_ROOT / "scripts")
     dashboard = (REPO_ROOT / "scripts" / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
     authoritative = (REPO_ROOT / "scripts" / "start-bhm-authoritative.ps1").read_text(encoding="utf-8")
     service = (REPO_ROOT / "scripts" / "run-service.ps1").read_text(encoding="utf-8")
@@ -45,13 +46,13 @@ def test_launcher_exposes_operator_gated_qdrant_recovery():
 
 
 def test_launcher_does_not_select_project_root_from_process_cwd():
-    launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+    launcher = launcher_source_text(REPO_ROOT / "scripts")
 
     assert "roots.append(Path.cwd().resolve())" not in launcher
 
 
 def test_launcher_has_single_instance_guard_for_polling_ownership():
-    launcher = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+    launcher = launcher_source_text(REPO_ROOT / "scripts")
 
     assert "QLockFile" in launcher
     assert "bhm-control-deck.lock" in launcher

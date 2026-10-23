@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_governed
 from blackholememory import app as bhm_app
+from blackholememory import app_governed
+from tests.app_patch import patch_app_import
 
 
 def _proposal(*, operation: str, content: str, confidence: float = 0.95, conflicts: list[str] | None = None, decision: str = "proposal_only") -> dict:

@@ -3,13 +3,15 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from blackholememory.domain import Artifact
-from blackholememory.domain import Lifecycle
-from blackholememory.domain import Memory
-from blackholememory.domain import MemoryLink
-from blackholememory.domain import MemoryRevision
-from blackholememory.domain import content_sha256
-from blackholememory.domain import memory_from_record
+from blackholememory.domain import (
+    Artifact,
+    Lifecycle,
+    Memory,
+    MemoryLink,
+    MemoryRevision,
+    content_sha256,
+    memory_from_record,
+)
 
 
 def _memory_record(**overrides):

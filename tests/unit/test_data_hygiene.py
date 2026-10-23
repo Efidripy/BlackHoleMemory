@@ -9,16 +9,19 @@ from pathlib import Path
 import pytest
 
 from blackholememory.code_graph import build_code_graph
-from blackholememory.data_hygiene import load_data_hygiene_policy
-from blackholememory.data_hygiene import plan_data_hygiene
-from blackholememory.data_hygiene import prepare_data_hygiene
-from blackholememory.data_hygiene import purge_data_hygiene
-from blackholememory.data_hygiene import restore_data_hygiene
+from blackholememory.data_hygiene import (
+    load_data_hygiene_policy,
+    plan_data_hygiene,
+    prepare_data_hygiene,
+    purge_data_hygiene,
+    restore_data_hygiene,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import RepositorySourceProvenance
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+)
 from blackholememory.sqlite_retention import create_verified_sqlite_backup
-
 
 AS_OF = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 TARGET_PROJECT = "bhm-surface-smoke-20260820"

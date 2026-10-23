@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.mcp_catalog_contract import CatalogContractError
-from blackholememory.mcp_catalog_contract import build_catalog_contract
+from blackholememory.mcp_catalog_contract import (
+    CatalogContractError,
+    build_catalog_contract,
+)
 
 
 def _initialize() -> dict:

@@ -6,22 +6,24 @@ from types import SimpleNamespace
 import pytest
 
 from blackholememory.domain import Memory
-from blackholememory.governed_semantic_editor import DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS
-from blackholememory.governed_semantic_editor import DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS
-from blackholememory.governed_semantic_editor import GovernedSemanticEditorError
-from blackholememory.governed_semantic_editor import GovernedSemanticEditorUnavailable
-from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA
-from blackholememory.governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_PROMPT_ID
-from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
-from blackholememory.governed_semantic_editor import MAX_MODEL_EVIDENCE_CHARS
-from blackholememory.governed_semantic_editor import MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS
-from blackholememory.governed_semantic_editor import SemanticEditorConfig
-from blackholememory.governed_semantic_editor import _SEMANTIC_EDITOR_NO_OP_EXAMPLE
-from blackholememory.governed_semantic_editor import _model_records
-from blackholememory.governed_semantic_editor import _validate_model_output_shape
-from blackholememory.governed_semantic_editor import build_semantic_proposal
-from blackholememory.governed_semantic_editor import select_authoritative_records
-from blackholememory.governed_semantic_editor import select_consolidatable_records
+from blackholememory.governed_semantic_editor import (
+    _SEMANTIC_EDITOR_NO_OP_EXAMPLE,
+    DEFAULT_SEMANTIC_EDITOR_MAX_TOKENS,
+    DEFAULT_SEMANTIC_EDITOR_TIMEOUT_SECONDS,
+    GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA,
+    GOVERNED_SEMANTIC_EDITOR_PROMPT_ID,
+    MAX_MODEL_EVIDENCE_CHARS,
+    MAX_SEMANTIC_EDITOR_CONTRACT_ATTEMPTS,
+    GovernedSemanticEditorError,
+    GovernedSemanticEditorUnavailable,
+    LocalGatewaySemanticCompletion,
+    SemanticEditorConfig,
+    _model_records,
+    _validate_model_output_shape,
+    build_semantic_proposal,
+    select_authoritative_records,
+    select_consolidatable_records,
+)
 
 
 def _record(memory_id: str, content: str, *, project: str = "multiserversubgen") -> dict:

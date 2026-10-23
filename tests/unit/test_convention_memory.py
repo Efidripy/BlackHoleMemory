@@ -6,15 +6,19 @@ from pathlib import Path
 import pytest
 
 from blackholememory.code_graph import build_code_graph
-from blackholememory.convention_memory import ConventionMemoryError
-from blackholememory.convention_memory import ConventionMemoryInjectedFailure
-from blackholememory.convention_memory import SQLiteConventionMemoryStore
-from blackholememory.convention_memory import build_convention_memory
-from blackholememory.convention_memory import explain_convention_card
-from blackholememory.convention_memory import preview_convention_memory
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.convention_memory import (
+    ConventionMemoryError,
+    ConventionMemoryInjectedFailure,
+    SQLiteConventionMemoryStore,
+    build_convention_memory,
+    explain_convention_card,
+    preview_convention_memory,
+)
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path, str, str]:

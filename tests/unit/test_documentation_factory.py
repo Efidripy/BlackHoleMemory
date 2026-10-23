@@ -4,10 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from blackholememory.documentation_factory import DocumentationFactoryError
-from blackholememory.documentation_factory import build_documentation_factory_preview
-from blackholememory.documentation_factory import verify_documentation_factory_digest
-
+from blackholememory.documentation_factory import (
+    DocumentationFactoryError,
+    build_documentation_factory_preview,
+    verify_documentation_factory_digest,
+)
 
 NOW = datetime(2026, 7, 14, tzinfo=timezone.utc)
 

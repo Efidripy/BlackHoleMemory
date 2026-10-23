@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.llm_cache import LLMCachePrivacyError
-from blackholememory.llm_cache import LLMCacheStore
-from blackholememory.llm_cache import build_cache_identity
-from blackholememory.llm_cache import build_cache_preview
-from blackholememory.llm_cache import fingerprint_result
+from blackholememory.llm_cache import (
+    LLMCachePrivacyError,
+    LLMCacheStore,
+    build_cache_identity,
+    build_cache_preview,
+    fingerprint_result,
+)
 
 
 def _identity(*, content: str = "same content", project: str = "demo"):

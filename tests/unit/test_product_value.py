@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.product_value import build_product_value_benchmark
-from blackholememory.product_value import verify_product_value_digest
+from blackholememory.product_value import (
+    build_product_value_benchmark,
+    verify_product_value_digest,
+)
 
 
 def test_product_value_benchmark_is_positive_and_deterministic():

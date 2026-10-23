@@ -4,7 +4,6 @@ from pathlib import Path
 
 from blackholememory.resource_limits import SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 

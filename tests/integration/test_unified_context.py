@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from blackholememory import app_core_fallback
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core_fallback, app_runtime
 
 
 class _AuthoritativeStub:

@@ -8,13 +8,14 @@ import pytest
 
 import blackholememory.semantic_assurance_evaluation as evaluation
 import blackholememory.semantic_assurance_label_admission as label_admission
-
-from blackholememory.semantic_assurance_evaluation import SemanticAssuranceEvaluationError
-from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
-from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_dataset
-from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_predictions
-from blackholememory.semantic_assurance_evaluation import recompute_semantic_assurance_results
-from blackholememory.semantic_assurance_evaluation import wilson_interval
+from blackholememory.semantic_assurance_evaluation import (
+    SemanticAssuranceEvaluationError,
+    evaluate_semantic_assurance,
+    load_semantic_assurance_dataset,
+    load_semantic_assurance_predictions,
+    recompute_semantic_assurance_results,
+    wilson_interval,
+)
 
 
 def _dataset() -> dict[str, object]:

@@ -16,7 +16,6 @@ from blackholememory.ecosystem_registry_audit import (
     verify_ecosystem_registry_audit,
 )
 
-
 FIXTURE_PATH = Path(__file__).parents[1] / "fixtures" / "ecosystem_registry" / "bhm-ng-011-v1.json"
 
 

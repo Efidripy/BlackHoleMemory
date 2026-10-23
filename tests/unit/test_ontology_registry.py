@@ -4,18 +4,20 @@ import copy
 
 import pytest
 
-from blackholememory.ontology_registry import OntologyEntityType
-from blackholememory.ontology_registry import OntologyRelationWrite
-from blackholememory.ontology_registry import OntologyRelationType
-from blackholememory.ontology_registry import OntologySchema
-from blackholememory.ontology_registry import OntologyRegistryError
-from blackholememory.ontology_registry import build_activation_artifact
-from blackholememory.ontology_registry import build_registry_artifact
-from blackholememory.ontology_registry import admit_relation_write
-from blackholememory.ontology_registry import quarantine_unknown
-from blackholememory.ontology_registry import resolve_active_schema
-from blackholememory.ontology_registry import validate_entity
-from blackholememory.ontology_registry import validate_relation
+from blackholememory.ontology_registry import (
+    OntologyEntityType,
+    OntologyRegistryError,
+    OntologyRelationType,
+    OntologyRelationWrite,
+    OntologySchema,
+    admit_relation_write,
+    build_activation_artifact,
+    build_registry_artifact,
+    quarantine_unknown,
+    resolve_active_schema,
+    validate_entity,
+    validate_relation,
+)
 
 
 def _schema(**overrides: object) -> OntologySchema:

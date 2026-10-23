@@ -6,19 +6,21 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.domain import Artifact
-from blackholememory.domain import Memory
-from blackholememory.domain import MemoryLink
-from blackholememory.freshness_migration import apply_migration as apply_freshness
-from blackholememory.freshness_migration import build_migration_plan as build_freshness_plan
-from blackholememory.memory_class_migration import CAPABILITY_KEY
-from blackholememory.memory_class_migration import CAPABILITY_VERSION
-from blackholememory.memory_class_migration import MEMORY_CLASS_COLUMNS
-from blackholememory.memory_class_migration import MEMORY_CLASS_INDEX
-from blackholememory.memory_class_migration import MemoryClassMigrationError
-from blackholememory.memory_class_migration import apply_migration
-from blackholememory.memory_class_migration import build_migration_plan
 import blackholememory.memory_class_migration as memory_class_migration
+from blackholememory.domain import Artifact, Memory, MemoryLink
+from blackholememory.freshness_migration import apply_migration as apply_freshness
+from blackholememory.freshness_migration import (
+    build_migration_plan as build_freshness_plan,
+)
+from blackholememory.memory_class_migration import (
+    CAPABILITY_KEY,
+    CAPABILITY_VERSION,
+    MEMORY_CLASS_COLUMNS,
+    MEMORY_CLASS_INDEX,
+    MemoryClassMigrationError,
+    apply_migration,
+    build_migration_plan,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.typed_memory_contract import typed_memory_capability_available
 

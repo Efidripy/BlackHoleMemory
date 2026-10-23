@@ -5,16 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.llm_gateway import GatewayResult
-from blackholememory.llm_gateway import ModelDefinition
-from blackholememory.local_security_worker import LocalSecurityWorker
-from blackholememory.local_security_worker import LocalSecurityWorkerBlocked
-from blackholememory.local_security_worker import LocalSecurityWorkerError
-from blackholememory.local_security_worker import normalize_worklist
-from blackholememory.local_security_worker import profile_for
-from blackholememory.local_security_worker import worker_contract_descriptor
+from blackholememory.llm_gateway import GatewayResult, ModelDefinition
+from blackholememory.local_security_worker import (
+    LocalSecurityWorker,
+    LocalSecurityWorkerBlocked,
+    LocalSecurityWorkerError,
+    normalize_worklist,
+    profile_for,
+    worker_contract_descriptor,
+)
 from blackholememory.resource_limits import LLM_SECURITY_REVIEW_TIMEOUT_SECONDS
-
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = "a" * 64

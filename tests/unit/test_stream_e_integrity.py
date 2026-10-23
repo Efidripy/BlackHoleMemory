@@ -5,16 +5,18 @@ import socket
 from pathlib import Path
 from urllib.request import Request
 
+from blackholememory import local_endpoint_policy as endpoint_policy
 from blackholememory.hook_queue import HookJobQueue
 from blackholememory.llm_job_queue import LLMJobQueue
 from blackholememory.observation_store import ObservationStore
 from blackholememory.provenance_attestation import build_provenance_attestation_report
 from blackholememory.qdrant_catalog import build_qdrant_catalog
 from blackholememory.qdrant_retention import run_qdrant_restore_drill
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import index_repository
-from blackholememory import local_endpoint_policy as endpoint_policy
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    SQLiteRepositoryIndexStore,
+    index_repository,
+)
 
 
 def test_untracked_digest_is_recomputed_after_same_stat_metadata(tmp_path: Path):

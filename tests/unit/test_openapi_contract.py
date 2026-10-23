@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from blackholememory.openapi_contract import ADMIN_SECURITY_SCHEME
-from blackholememory.openapi_contract import CALLER_SECURITY_SCHEME
-from blackholememory.openapi_contract import build_openapi_schema
+from blackholememory.openapi_contract import (
+    ADMIN_SECURITY_SCHEME,
+    CALLER_SECURITY_SCHEME,
+    build_openapi_schema,
+)
 
 
 def _fixture_app() -> FastAPI:

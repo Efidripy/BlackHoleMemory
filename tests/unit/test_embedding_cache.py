@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from blackholememory.embedding_cache import EmbeddingCache
-from blackholememory.embedding_cache import embed_queries_with_cache
-from blackholememory.embedding_cache import embed_query_with_cache
+from blackholememory.embedding_cache import (
+    EmbeddingCache,
+    embed_queries_with_cache,
+    embed_query_with_cache,
+)
 
 
 def test_embedding_cache_is_bounded_lru_and_ttl_aware():

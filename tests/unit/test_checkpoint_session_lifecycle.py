@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from blackholememory import app_core_hit
-from blackholememory import app_core_hook
-from blackholememory import app_core
-from blackholememory import app_ops_admin
-from blackholememory import app_ops_task2
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import (
+    app_core,
+    app_core_hit,
+    app_core_hook,
+    app_ops_admin,
+    app_ops_task2,
+    app_runtime,
+)
 
 
 def _install_artifact_stores(monkeypatch):

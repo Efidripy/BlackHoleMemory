@@ -7,12 +7,18 @@ import pytest
 
 from blackholememory.domain import Memory
 from blackholememory.freshness_migration import apply_migration as apply_freshness
-from blackholememory.freshness_migration import build_migration_plan as build_freshness_plan
-from blackholememory.legacy_memory_typing import LegacyMemoryTypingError
-from blackholememory.legacy_memory_typing import apply_legacy_memory_typing
-from blackholememory.legacy_memory_typing import build_legacy_memory_typing_plan
+from blackholememory.freshness_migration import (
+    build_migration_plan as build_freshness_plan,
+)
+from blackholememory.legacy_memory_typing import (
+    LegacyMemoryTypingError,
+    apply_legacy_memory_typing,
+    build_legacy_memory_typing_plan,
+)
 from blackholememory.memory_class_migration import apply_migration as apply_typed_schema
-from blackholememory.memory_class_migration import build_migration_plan as build_typed_schema_plan
+from blackholememory.memory_class_migration import (
+    build_migration_plan as build_typed_schema_plan,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 

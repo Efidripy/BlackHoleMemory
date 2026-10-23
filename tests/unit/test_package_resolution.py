@@ -5,10 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.package_resolution import resolve_dependency_provenance
-from blackholememory.package_resolution import resolve_package_manifests
-from blackholememory.package_resolution_receipt import build_package_resolution_receipt
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.package_resolution import (
+    resolve_dependency_provenance,
+    resolve_package_manifests,
+)
+from blackholememory.package_resolution_receipt import build_package_resolution_receipt
 
 
 def test_package_resolution_is_bounded_and_metadata_only(tmp_path: Path) -> None:

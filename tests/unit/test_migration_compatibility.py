@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from blackholememory.migration_compatibility import build_migration_preview
-from blackholememory.migration_compatibility import compute_source_hash
-from blackholememory.migration_compatibility import verify_migration_digest
+from blackholememory.migration_compatibility import (
+    build_migration_preview,
+    compute_source_hash,
+    verify_migration_digest,
+)
 
 
 def test_migration_preview_is_dry_run_and_preserves_provenance():

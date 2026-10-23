@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 
 from blackholememory.config import settings
-from blackholememory.mem0_adapter import get_qdrant_client
-from blackholememory.mem0_adapter import global_collection_name
-from blackholememory.mem0_adapter import local_collection_name
+from blackholememory.mem0_adapter import (
+    get_qdrant_client,
+    global_collection_name,
+    local_collection_name,
+)
 from blackholememory.native_projection_parity import build_native_projection_parity_plan
 from blackholememory.project_registry import get_default_project_registry
 

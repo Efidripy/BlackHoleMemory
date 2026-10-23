@@ -7,10 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.freshness_migration import FreshnessMigrationError
-from blackholememory.freshness_migration import MIGRATION_TABLES
-from blackholememory.freshness_migration import apply_migration
-from blackholememory.freshness_migration import build_migration_plan
+from blackholememory.freshness_migration import (
+    MIGRATION_TABLES,
+    FreshnessMigrationError,
+    apply_migration,
+    build_migration_plan,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 

@@ -3,13 +3,13 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from blackholememory import app_ops_task
-from blackholememory import app_ops
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
-from blackholememory.ontology_registry import OntologyEntityType
-from blackholememory.ontology_registry import OntologyRelationType
-from blackholememory.ontology_registry import OntologySchema
+from blackholememory import app_ops, app_ops_task, app_runtime
+from blackholememory.ontology_registry import (
+    OntologyEntityType,
+    OntologyRelationType,
+    OntologySchema,
+)
 
 
 class _ArtifactService:

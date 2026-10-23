@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.launcher_source import launcher_source_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
@@ -159,5 +160,5 @@ def test_plugin_does_not_register_a_second_mcp_transport():
 
 
 def test_launcher_exposes_release_operator_path_and_doctor_action():
-    text = (REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8")
+    text = launcher_source_text(REPO_ROOT / "scripts")
     assert "bhm-release-operator.ps1" in text

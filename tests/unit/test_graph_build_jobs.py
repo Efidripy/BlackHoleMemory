@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.graph_build_jobs import GRAPH_BUILD_INTERRUPTED_ERROR
-from blackholememory.graph_build_jobs import GraphBuildBusy
-from blackholememory.graph_build_jobs import SQLiteGraphBuildJobStore
+from blackholememory.graph_build_jobs import (
+    GRAPH_BUILD_INTERRUPTED_ERROR,
+    GraphBuildBusy,
+    SQLiteGraphBuildJobStore,
+)
 
 
 def _start(store: SQLiteGraphBuildJobStore, operation_id: str, snapshot_id: str, boot_id: str = "boot-a"):

@@ -3,10 +3,12 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from blackholememory import app_core
-from blackholememory.error_taxonomy import ERROR_TAXONOMY_SCHEMA_VERSION
-from blackholememory.error_taxonomy import classify_jsonrpc_error
-from blackholememory.error_taxonomy import classify_rest_error
-from blackholememory.error_taxonomy import error_contract_snapshot
+from blackholememory.error_taxonomy import (
+    ERROR_TAXONOMY_SCHEMA_VERSION,
+    classify_jsonrpc_error,
+    classify_rest_error,
+    error_contract_snapshot,
+)
 from blackholememory.mcp_protocol_contract import contract_snapshot
 from blackholememory.openapi_contract import build_openapi_schema
 

@@ -4,14 +4,22 @@ import json
 
 import pytest
 
-from blackholememory.change_impact import IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES, ChangeImpactError, bound_change_impact_preview_response
-from blackholememory.change_impact import build_change_impact_preview, build_impact_binding_receipt
-from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
-from blackholememory.change_impact import build_cross_repo_history_preview, build_git_history_correlation_receipt, build_git_symbol_impact_evidence
-from blackholememory.change_impact import collect_git_diff_hunks
-from blackholememory.change_impact import correlate_diff_hunks_to_symbols, summarize_diff_hunks
 from blackholememory import change_impact
+from blackholememory.change_impact import (
+    IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES,
+    ChangeImpactError,
+    bound_change_impact_preview_response,
+    build_change_impact_preview,
+    build_cross_repo_history_preview,
+    build_git_history_correlation_receipt,
+    build_git_symbol_impact_evidence,
+    build_impact_binding_receipt,
+    collect_git_diff_hunks,
+    correlate_diff_hunks_to_symbols,
+    summarize_diff_hunks,
+)
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
 
 
 def _snapshot() -> dict:

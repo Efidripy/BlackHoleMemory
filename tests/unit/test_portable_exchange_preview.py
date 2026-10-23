@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import ast
 import copy
 import hashlib
 import importlib
 import inspect
-import ast
 
 import pytest
 

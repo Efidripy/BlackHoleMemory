@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from blackholememory.rest_mcp_parity import SCHEMA_VERSION
-from blackholememory.rest_mcp_parity import build_rest_mcp_parity_inventory
+from blackholememory.rest_mcp_parity import (
+    SCHEMA_VERSION,
+    build_rest_mcp_parity_inventory,
+)
 
 
 def test_rest_mcp_parity_inventory_is_deterministic_and_route_complete() -> None:

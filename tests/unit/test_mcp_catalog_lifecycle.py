@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "validate-bhm-mcp-catalog-lifecycle.py"
 SPEC = importlib.util.spec_from_file_location("bhm_mcp_catalog_lifecycle", SCRIPT)
 assert SPEC is not None and SPEC.loader is not None

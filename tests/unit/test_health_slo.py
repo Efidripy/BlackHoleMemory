@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from blackholememory import bhm_mcp_base
-from blackholememory import app_core_hook
-from blackholememory import app_telemetry
-from blackholememory import app_runtime
-from blackholememory import bhm_mcp
+from blackholememory import (
+    app_core_hook,
+    app_runtime,
+    app_telemetry,
+    bhm_mcp,
+    bhm_mcp_base,
+)
 
 
 def _healthy_state():

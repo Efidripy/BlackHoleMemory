@@ -4,10 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from blackholememory.memory_foundry import MemoryFoundryError
-from blackholememory.memory_foundry import build_memory_foundry_preview
-from blackholememory.memory_foundry import verify_memory_foundry_digest
-
+from blackholememory.memory_foundry import (
+    MemoryFoundryError,
+    build_memory_foundry_preview,
+    verify_memory_foundry_digest,
+)
 
 NOW = datetime(2026, 7, 14, tzinfo=timezone.utc)
 

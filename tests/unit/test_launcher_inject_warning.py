@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import psutil
 import pytest
-
-import sys
-from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import bhm_launcher as launcher  # noqa: E402

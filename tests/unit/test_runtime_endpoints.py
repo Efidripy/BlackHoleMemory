@@ -3,11 +3,12 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 
-from blackholememory.runtime_endpoints import endpoint_parts
-from blackholememory.runtime_endpoints import endpoint_url
-from blackholememory.runtime_endpoints import EndpointConfigError
-from blackholememory.runtime_endpoints import validate_loopback_listener_host
-
+from blackholememory.runtime_endpoints import (
+    EndpointConfigError,
+    endpoint_parts,
+    endpoint_url,
+    validate_loopback_listener_host,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

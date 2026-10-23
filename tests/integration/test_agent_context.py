@@ -5,14 +5,15 @@ import json
 
 from fastapi.testclient import TestClient
 
-from blackholememory import app_core_fallback
-from blackholememory import app_core_hook
-from blackholememory import app_core
-from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
-from blackholememory import bhm_mcp
-
+from blackholememory import (
+    app_core,
+    app_core_fallback,
+    app_core_hook,
+    app_retrieval,
+    app_runtime,
+    bhm_mcp,
+)
 
 TEST_CALLER_TOKEN = "bhm-test-caller-token-0000000000000001"
 

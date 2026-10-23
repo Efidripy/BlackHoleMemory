@@ -1,4 +1,6 @@
-from blackholememory.dependency_provenance_receipt import build_dependency_provenance_receipt
+from blackholememory.dependency_provenance_receipt import (
+    build_dependency_provenance_receipt,
+)
 
 
 def test_dependency_provenance_receipt_is_bounded_and_deterministic() -> None:

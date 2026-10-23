@@ -4,9 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.unified_mcp_contract import UnifiedMcpContractError
-from blackholememory.unified_mcp_contract import build_unified_mcp_contract
-from blackholememory.unified_mcp_contract import verify_unified_mcp_contract_digest
+from blackholememory.unified_mcp_contract import (
+    UnifiedMcpContractError,
+    build_unified_mcp_contract,
+    verify_unified_mcp_contract_digest,
+)
 
 
 def test_unified_contract_is_deterministic_and_truthful_when_native_detached():

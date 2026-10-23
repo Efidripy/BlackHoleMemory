@@ -4,7 +4,6 @@ import os
 
 from starlette.testclient import TestClient
 
-
 TEST_CALLER_TOKEN = "bhm-test-caller-token-0000000000000001"
 
 # Tests must be hermetic: a persisted workstation caller token must never

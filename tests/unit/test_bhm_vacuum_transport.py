@@ -8,7 +8,6 @@ import pytest
 
 from blackholememory.local_endpoint_policy import LocalEndpointError
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location(
     "bhm_vacuum",

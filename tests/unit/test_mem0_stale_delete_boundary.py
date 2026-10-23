@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from blackholememory import mem0_adapter
-from blackholememory import memory_repository
+from blackholememory import mem0_adapter, memory_repository
 
 
 class _Client:

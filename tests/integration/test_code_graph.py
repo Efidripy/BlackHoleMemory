@@ -5,12 +5,16 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.code_graph import CodeGraphInjectedFailure
-from blackholememory.code_graph import SQLiteCodeGraphStore
-from blackholememory.code_graph import build_code_graph
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.code_graph import (
+    CodeGraphInjectedFailure,
+    SQLiteCodeGraphStore,
+    build_code_graph,
+)
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _repo(tmp_path: Path) -> tuple[Path, Path, str, str]:

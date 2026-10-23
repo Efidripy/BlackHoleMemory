@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import pytest
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_governed
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_governed, app_runtime
 from blackholememory.caller_auth import CallerPrincipal
-from blackholememory.governed_shared_memory import SharedMemoryRequest
-from blackholememory.governed_shared_memory import decide_shared_memory
+from blackholememory.governed_shared_memory import (
+    SharedMemoryRequest,
+    decide_shared_memory,
+)
 from blackholememory.memory_service import SQLiteMemoryService
-from blackholememory.shared_memory_audit import append_shared_memory_audit
-from blackholememory.shared_memory_audit import build_shared_memory_audit_event
-from blackholememory.shared_memory_audit import caller_identity_from_principal
+from blackholememory.shared_memory_audit import (
+    append_shared_memory_audit,
+    build_shared_memory_audit_event,
+    caller_identity_from_principal,
+)
+from tests.app_patch import patch_app_import
 
 
 def _principal(**overrides: object) -> CallerPrincipal:

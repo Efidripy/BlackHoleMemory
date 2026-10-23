@@ -4,7 +4,6 @@ from pathlib import Path
 
 from blackholememory import galaxy
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LEGACY_LIVE_MEMORY_DEFAULTS = (
     REPO_ROOT / "scripts" / "bhm-code-graph.py",

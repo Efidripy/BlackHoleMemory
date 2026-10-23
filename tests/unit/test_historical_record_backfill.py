@@ -6,14 +6,22 @@ from pathlib import Path
 import pytest
 
 from blackholememory.domain import Memory
-from blackholememory.historical_record_backfill import HistoricalRecordBackfillError
-from blackholememory.historical_record_backfill import apply_historical_record_backfill
-from blackholememory.historical_record_backfill import build_historical_record_backfill_plan
-from blackholememory.memory_class_migration import apply_migration as apply_memory_class_migration
-from blackholememory.memory_class_migration import build_migration_plan as build_memory_class_migration_plan
-from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.freshness_migration import apply_migration as apply_freshness
-from blackholememory.freshness_migration import build_migration_plan as build_freshness_plan
+from blackholememory.freshness_migration import (
+    build_migration_plan as build_freshness_plan,
+)
+from blackholememory.historical_record_backfill import (
+    HistoricalRecordBackfillError,
+    apply_historical_record_backfill,
+    build_historical_record_backfill_plan,
+)
+from blackholememory.memory_class_migration import (
+    apply_migration as apply_memory_class_migration,
+)
+from blackholememory.memory_class_migration import (
+    build_migration_plan as build_memory_class_migration_plan,
+)
+from blackholememory.memory_repository import SQLiteMemoryRepository
 
 
 def _memory(memory_id: str, key: str, content: str) -> Memory:

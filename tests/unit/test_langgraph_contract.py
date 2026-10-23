@@ -3,8 +3,7 @@ from __future__ import annotations
 import pytest
 
 from blackholememory.agents.developer_agent import BHMAgentExecutor
-from blackholememory.langgraph_contract import SCHEMA_VERSION
-from blackholememory.langgraph_contract import build_langgraph_contract
+from blackholememory.langgraph_contract import SCHEMA_VERSION, build_langgraph_contract
 
 
 def test_multi_step_graph_is_explicitly_ephemeral_without_checkpointer() -> None:

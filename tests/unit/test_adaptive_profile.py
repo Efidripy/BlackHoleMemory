@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.adaptive_profile import recommend_context_profile
-from blackholememory.adaptive_profile import summarize_explicit_usefulness
+from blackholememory.adaptive_profile import (
+    recommend_context_profile,
+    summarize_explicit_usefulness,
+)
 
 
 def test_recommendation_is_explainable_and_advisory_by_default():

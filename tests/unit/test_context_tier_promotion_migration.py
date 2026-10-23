@@ -4,10 +4,12 @@ import shutil
 
 import pytest
 
-from blackholememory.context_tier_promotion_migration import ContextTierPromotionMigrationError
-from blackholememory.context_tier_promotion_migration import apply_context_tier_promotion_migration
-from blackholememory.context_tier_promotion_migration import build_context_tier_promotion_migration_plan
-from blackholememory.context_tier_promotion_migration import context_tier_promotion_migration_status
+from blackholememory.context_tier_promotion_migration import (
+    ContextTierPromotionMigrationError,
+    apply_context_tier_promotion_migration,
+    build_context_tier_promotion_migration_plan,
+    context_tier_promotion_migration_status,
+)
 from blackholememory.domain import Memory
 from blackholememory.memory_repository import SQLiteMemoryRepository
 

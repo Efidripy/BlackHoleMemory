@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from blackholememory.semantic_observation import build_semantic_observation
-from blackholememory.semantic_observation import build_semantic_freshness_receipt
+from blackholememory.semantic_observation import (
+    build_semantic_freshness_receipt,
+    build_semantic_observation,
+)
 
 
 def _snapshot(completed_at: str | None) -> dict[str, str]:

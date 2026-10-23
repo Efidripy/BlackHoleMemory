@@ -6,8 +6,10 @@ import pytest
 
 from blackholememory.memory_service import SQLiteMemoryService
 from blackholememory.utility_feedback import UtilityEvent
-from blackholememory.utility_feedback_store import append_utility_event
-from blackholememory.utility_feedback_store import load_utility_events
+from blackholememory.utility_feedback_store import (
+    append_utility_event,
+    load_utility_events,
+)
 
 
 def _event(event_id: str = "event-1") -> UtilityEvent:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILDER = REPO_ROOT / "scripts" / "build-release.ps1"
 VERIFIER = REPO_ROOT / "scripts" / "verify-release-build.py"

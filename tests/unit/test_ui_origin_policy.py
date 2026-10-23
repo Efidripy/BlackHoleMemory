@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.ui_origin_policy import browser_request_is_same_origin
-from blackholememory.ui_origin_policy import request_host_parts
-from blackholememory.ui_origin_policy import request_is_loopback
-from blackholememory.ui_origin_policy import websocket_origin_is_allowed
-
+from blackholememory.ui_origin_policy import (
+    browser_request_is_same_origin,
+    request_host_parts,
+    request_is_loopback,
+    websocket_origin_is_allowed,
+)
 
 PORT = 8000
 

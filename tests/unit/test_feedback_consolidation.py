@@ -4,9 +4,11 @@ import hashlib
 
 import pytest
 
-from blackholememory.feedback_consolidation import FeedbackConsolidationError
-from blackholememory.feedback_consolidation import SCHEMA_VERSION
-from blackholememory.feedback_consolidation import build_feedback_consolidation_preview
+from blackholememory.feedback_consolidation import (
+    SCHEMA_VERSION,
+    FeedbackConsolidationError,
+    build_feedback_consolidation_preview,
+)
 
 
 def _utility_report(*rows: dict[str, object]) -> dict[str, object]:

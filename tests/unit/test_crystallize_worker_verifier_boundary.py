@@ -6,10 +6,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-from blackholememory.local_endpoint_policy import LocalEndpointError
-from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES, LocalEndpointError
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "verify-bhm-crystallize-worker.py"

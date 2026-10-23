@@ -1,5 +1,5 @@
-from blackholememory import app_graphs
 from blackholememory import app as bhm_app
+from blackholememory import app_graphs
 
 
 def test_memory_graph_routes_are_hidden_and_share_one_database_path():

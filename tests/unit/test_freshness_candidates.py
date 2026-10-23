@@ -3,10 +3,12 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-from blackholememory.freshness_candidates import decide_freshness_candidate
-from blackholememory.freshness_candidates import detect_freshness_candidates
-from blackholememory.freshness_candidates import list_freshness_candidates
-from blackholememory.freshness_candidates import upsert_freshness_candidates
+from blackholememory.freshness_candidates import (
+    decide_freshness_candidate,
+    detect_freshness_candidates,
+    list_freshness_candidates,
+    upsert_freshness_candidates,
+)
 from blackholememory.freshness_migration import SQL_MANIFEST
 from blackholememory.memory_repository import SQLiteMemoryRepository
 

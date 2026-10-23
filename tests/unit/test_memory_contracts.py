@@ -7,12 +7,8 @@ from typing import Any
 
 import pytest
 
-from blackholememory import app_core_hook
-from blackholememory import app_core
-from blackholememory import app
-from blackholememory import bhm_mcp
-from blackholememory.memory_contracts import MemoryMetadata
-from blackholememory.memory_contracts import MetadataDomain
+from blackholememory import app, app_core, app_core_hook, bhm_mcp
+from blackholememory.memory_contracts import MemoryMetadata, MetadataDomain
 from blackholememory.openapi_contract import build_openapi_schema
 
 

@@ -9,15 +9,11 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from tests.app_patch import patch_app_import
-from blackholememory import app_core_hook
-from blackholememory import app_governed
-from blackholememory import app_retrieval
 from blackholememory import app as bhm_app
-from blackholememory import app_runtime
+from blackholememory import app_core_hook, app_governed, app_retrieval, app_runtime
 from blackholememory.caller_auth import CallerPrincipal
-from blackholememory.utility_feedback import UtilityEvent
-from blackholememory.utility_feedback import utility_report
+from blackholememory.utility_feedback import UtilityEvent, utility_report
+from tests.app_patch import patch_app_import
 
 
 def _principal() -> CallerPrincipal:

@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from blackholememory.legacy_ontology_proposals import SCHEMA_VERSION
-from blackholememory.legacy_ontology_proposals import build_legacy_ontology_proposals
-from blackholememory.legacy_ontology_proposals import build_live_legacy_ontology_proposals
+from blackholememory.legacy_ontology_proposals import (
+    SCHEMA_VERSION,
+    build_legacy_ontology_proposals,
+    build_live_legacy_ontology_proposals,
+)
 from blackholememory.ontology_registry import OntologySchema
 
 

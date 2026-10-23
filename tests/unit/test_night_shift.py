@@ -4,10 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from blackholememory.night_shift import NightShiftError
-from blackholememory.night_shift import build_night_shift_preview
-from blackholememory.night_shift import verify_night_shift_digest
-
+from blackholememory.night_shift import (
+    NightShiftError,
+    build_night_shift_preview,
+    verify_night_shift_digest,
+)
 
 NOW = datetime(2026, 7, 14, tzinfo=timezone.utc)
 SNAPSHOT = {"gpu_available": True, "vram_used_mib": 4000, "vram_total_mib": 12000, "temperature_c": 55}

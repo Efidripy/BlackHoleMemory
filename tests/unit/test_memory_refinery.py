@@ -11,15 +11,16 @@ from pathlib import Path
 import pytest
 
 from blackholememory.domain import Memory
+from blackholememory.memory_refinery import (
+    MemoryRefineryError,
+    apply_normalization_plan,
+    build_normalization_plan,
+    normalize_memory_record,
+    prepare_rehearsal_copies,
+    prove_rollback_restore,
+)
 from blackholememory.memory_repository import MemoryRevisionConflict
-from blackholememory.memory_refinery import MemoryRefineryError
-from blackholememory.memory_refinery import apply_normalization_plan
-from blackholememory.memory_refinery import build_normalization_plan
-from blackholememory.memory_refinery import normalize_memory_record
-from blackholememory.memory_refinery import prepare_rehearsal_copies
-from blackholememory.memory_refinery import prove_rollback_restore
 from blackholememory.memory_service import SQLiteMemoryService
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REFINERY_SCRIPT = REPO_ROOT / "scripts" / "run-memory-refinery.py"

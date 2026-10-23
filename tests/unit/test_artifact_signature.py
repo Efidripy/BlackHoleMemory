@@ -5,8 +5,10 @@ import hashlib
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from blackholememory.artifact_signature import ArtifactSignatureError
-from blackholememory.artifact_signature import verify_detached_ed25519
+from blackholememory.artifact_signature import (
+    ArtifactSignatureError,
+    verify_detached_ed25519,
+)
 
 
 def test_detached_ed25519_verification_is_read_only() -> None:

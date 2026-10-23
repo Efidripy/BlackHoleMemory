@@ -8,11 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.external_evaluation_admission import ExternalEvaluationAdmissionError
-from blackholememory.external_evaluation_admission import SCHEMA_VERSION
-from blackholememory.external_evaluation_admission import load_external_evaluation_admission_report
-from blackholememory.external_evaluation_admission import validate_external_evaluation_dataset_admission
-from blackholememory.external_evaluation_admission import verify_external_evaluation_admission_report
+from blackholememory.external_evaluation_admission import (
+    SCHEMA_VERSION,
+    ExternalEvaluationAdmissionError,
+    load_external_evaluation_admission_report,
+    validate_external_evaluation_dataset_admission,
+    verify_external_evaluation_admission_report,
+)
 
 
 def _digest(data: bytes) -> str:

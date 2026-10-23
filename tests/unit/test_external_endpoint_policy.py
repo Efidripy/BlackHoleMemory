@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.external_endpoint_policy import PublicEndpointError
-from blackholememory.external_endpoint_policy import validate_public_https_endpoint
+from blackholememory.external_endpoint_policy import (
+    PublicEndpointError,
+    validate_public_https_endpoint,
+)
 
 
 @pytest.mark.parametrize(

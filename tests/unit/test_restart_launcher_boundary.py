@@ -9,7 +9,6 @@ import pytest
 from blackholememory import app_telemetry
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
-
 app = importlib.import_module("blackholememory.app")
 
 

@@ -5,10 +5,12 @@ import time
 
 import pytest
 
-from blackholememory.llm_job_queue import LLMJobIdempotencyCollision
-from blackholememory.llm_job_queue import LLMJobLeaseLost
-from blackholememory.llm_job_queue import LLMJobQueue
-from blackholememory.llm_job_queue import LLMJobQueueFull
+from blackholememory.llm_job_queue import (
+    LLMJobIdempotencyCollision,
+    LLMJobLeaseLost,
+    LLMJobQueue,
+    LLMJobQueueFull,
+)
 
 
 def _queue(tmp_path, *, capacity: int = 8) -> LLMJobQueue:

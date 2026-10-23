@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.interface_contract_catalog import InterfaceCatalogError
-from blackholememory.interface_contract_catalog import assert_legacy_core_compatible
-from blackholememory.interface_contract_catalog import build_interface_contract_catalog
-from blackholememory.interface_contract_catalog import discover_interface_contracts
-from blackholememory.interface_contract_catalog import render_interface_contract_markdown
-from blackholememory.interface_contract_catalog import verify_interface_contract_catalog
+from blackholememory.interface_contract_catalog import (
+    InterfaceCatalogError,
+    assert_legacy_core_compatible,
+    build_interface_contract_catalog,
+    discover_interface_contracts,
+    render_interface_contract_markdown,
+    verify_interface_contract_catalog,
+)
 
 
 def _snapshots():

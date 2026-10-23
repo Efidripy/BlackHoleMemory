@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 import pytest
 
 from blackholememory.local_endpoint_policy import LocalEndpointError
-
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts" / "bhm_night_watch.py"

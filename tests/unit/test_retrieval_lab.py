@@ -4,10 +4,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from blackholememory.retrieval_lab import RetrievalLabError
-from blackholememory.retrieval_lab import build_retrieval_lab_preview
-from blackholememory.retrieval_lab import verify_retrieval_lab_digest
-
+from blackholememory.retrieval_lab import (
+    RetrievalLabError,
+    build_retrieval_lab_preview,
+    verify_retrieval_lab_digest,
+)
 
 NOW = datetime(2026, 7, 14, tzinfo=timezone.utc)
 

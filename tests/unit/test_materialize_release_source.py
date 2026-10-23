@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_MANIFEST = {"schema_version": "bhm.public-script-manifest.v1", "entries": [{"path": "scripts/bhm_launcher.py", "role": "runtime", "release": True}]}
 

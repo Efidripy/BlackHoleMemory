@@ -5,15 +5,18 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from blackholememory import bhm_mcp_code
 from blackholememory import app as bhm_app
-from blackholememory import bhm_mcp
+from blackholememory import bhm_mcp, bhm_mcp_code
 from blackholememory.code_graph import build_code_graph
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
-from blackholememory.semantic_code_search import SemanticCodeSearchError
-from blackholememory.semantic_code_search import semantic_search_metadata
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
+from blackholememory.semantic_code_search import (
+    SemanticCodeSearchError,
+    semantic_search_metadata,
+)
 
 
 def _nodes() -> list[dict[str, str]]:

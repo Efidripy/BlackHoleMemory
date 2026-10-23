@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 
-from blackholememory.factory_integration import build_factory_integration_preview
-from blackholememory.factory_integration import verify_factory_integration_digest
-
+from blackholememory.factory_integration import (
+    build_factory_integration_preview,
+    verify_factory_integration_digest,
+)
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 

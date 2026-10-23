@@ -7,19 +7,24 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.domain import DomainModelError
-from blackholememory.domain import Memory
+from blackholememory.domain import DomainModelError, Memory
 from blackholememory.freshness_migration import apply_migration as apply_freshness
-from blackholememory.freshness_migration import build_migration_plan as build_freshness_plan
+from blackholememory.freshness_migration import (
+    build_migration_plan as build_freshness_plan,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.temporal_contract import TemporalConflictReceipt
-from blackholememory.temporal_contract import TemporalContractUnavailable
-from blackholememory.temporal_contract import temporal_matches
-from blackholememory.temporal_contract import temporal_projection_digest
-from blackholememory.temporal_contract import temporal_capability_available
-from blackholememory.temporal_migration import apply_migration
-from blackholememory.temporal_migration import build_migration_plan
-from blackholememory.temporal_migration import TemporalMigrationError
+from blackholememory.temporal_contract import (
+    TemporalConflictReceipt,
+    TemporalContractUnavailable,
+    temporal_capability_available,
+    temporal_matches,
+    temporal_projection_digest,
+)
+from blackholememory.temporal_migration import (
+    TemporalMigrationError,
+    apply_migration,
+    build_migration_plan,
+)
 
 
 def _record(**overrides: object) -> dict[str, object]:

@@ -4,7 +4,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKBENCH_HTML = REPO_ROOT / "plugins" / "bhm-codex-connector" / "ui" / "bhm-workbench.html"
 

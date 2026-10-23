@@ -5,13 +5,19 @@ from pathlib import Path
 import pytest
 
 from blackholememory.code_graph import build_code_graph
-from blackholememory.code_graph_query import CodeGraphQueryError
-from blackholememory.code_graph_query import explain_code_graph
-from blackholememory.code_graph_query import query_code_graph
-from blackholememory.graph_path_explain_quality_receipt import build_graph_path_explain_quality_receipt
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.code_graph_query import (
+    CodeGraphQueryError,
+    explain_code_graph,
+    query_code_graph,
+)
+from blackholememory.graph_path_explain_quality_receipt import (
+    build_graph_path_explain_quality_receipt,
+)
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path, str, str, str]:

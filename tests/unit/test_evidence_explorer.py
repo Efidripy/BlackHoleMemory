@@ -4,10 +4,12 @@ import hashlib
 
 import pytest
 
-from blackholememory.evidence_explorer import EvidenceExplorerError
-from blackholememory.evidence_explorer import build_evidence_explorer_view
-from blackholememory.evidence_explorer import build_governed_correction_proposal
-from blackholememory.evidence_explorer import verify_evidence_explorer_view
+from blackholememory.evidence_explorer import (
+    EvidenceExplorerError,
+    build_evidence_explorer_view,
+    build_governed_correction_proposal,
+    verify_evidence_explorer_view,
+)
 
 
 def _read_model(project: str = "demo") -> dict:

@@ -1,8 +1,10 @@
 import pytest
 
-from blackholememory.llm_code_fabric import LLMCodeFabricError
-from blackholememory.llm_code_fabric import build_code_fabric_plan
-from blackholememory.llm_code_fabric import verify_code_fabric_plan
+from blackholememory.llm_code_fabric import (
+    LLMCodeFabricError,
+    build_code_fabric_plan,
+    verify_code_fabric_plan,
+)
 
 
 def test_code_fabric_is_proposal_only_and_reuses_router_policy():

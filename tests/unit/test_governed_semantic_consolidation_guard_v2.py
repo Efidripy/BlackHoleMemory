@@ -3,8 +3,10 @@
 Run: uv run pytest -q tests/unit/test_governed_semantic_consolidation_guard_v2.py
 """
 
-from blackholememory.governed_semantic_editor import _apply_semantic_policy
-from blackholememory.governed_semantic_editor import build_semantic_proposal
+from blackholememory.governed_semantic_editor import (
+    _apply_semantic_policy,
+    build_semantic_proposal,
+)
 
 
 def basis(*contents):
