@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib
 
-_MODULES = ['app', 'app_core', 'app_core_fallback', 'app_core_graph', 'app_core_hit', 'app_core_hook', 'app_governed', 'app_graphs', 'app_hooks', 'app_lifecycle', 'app_mcp', 'app_ops', 'app_ops_admin', 'app_ops_entity', 'app_ops_task', 'app_ops_task2', 'app_projects', 'app_retrieval', 'app_runtime', 'app_telemetry', 'code_tools_service', 'llm_routes', 'galaxy_routes', 'ui_routes', 'memory_routes']
+_MODULES = ['app', 'app_core', 'app_core_fallback', 'app_core_graph', 'app_core_hit', 'app_core_hook', 'app_governed', 'app_graphs', 'app_hooks', 'app_lifecycle', 'app_mcp', 'app_ops', 'app_ops_admin', 'app_ops_entity', 'app_ops_task', 'app_ops_task2', 'app_projects', 'app_retrieval', 'app_retrieval_support', 'app_runtime', 'app_telemetry', 'code_tools_service', 'llm_routes', 'galaxy_routes', 'ui_routes', 'memory_routes']
 
 
 def patch_app_import(monkeypatch, name, value) -> None:
