@@ -14,6 +14,7 @@ from tests.app_patch import patch_app_import
 from blackholememory import app_core_fallback
 from blackholememory import app as bhm_app
 from blackholememory import code_tools_service
+from blackholememory import code_tools_service_graph_build
 from blackholememory import graph_build_jobs
 from blackholememory.code_graph import build_code_graph
 from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
@@ -836,7 +837,7 @@ def test_graph_only_defers_slow_build_deduplicates_and_reports_completion(monkey
         monkeypatch.setattr(bhm_app.settings, "repo_root", root)
         monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
         monkeypatch.setattr(graph_build_jobs, "parse_graph_job", slow_parse)
-        monkeypatch.setattr(code_tools_service, "_graph_parse_executor", lambda: parse_executor)
+        monkeypatch.setattr(code_tools_service_graph_build, "_graph_parse_executor", lambda: parse_executor)
         monkeypatch.setattr(code_tools_service, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 0.01)
         transport = httpx.ASGITransport(app=bhm_app.app)
         async with httpx.AsyncClient(
@@ -924,7 +925,7 @@ def test_graph_only_build_parses_in_worker_process(monkeypatch, tmp_path: Path) 
         assert payload["graph_status"] == "ready"
         assert payload["graph"]["repository_snapshot_id"] == indexed["snapshot_id"]
         assert payload["graph_operation"]["phase"] == "completed"
-        assert code_tools_service._GRAPH_PARSE_EXECUTOR is not None
+        assert code_tools_service_graph_build._GRAPH_PARSE_EXECUTOR is not None
     finally:
         bhm_app._shutdown_graph_parse_executor()
 
