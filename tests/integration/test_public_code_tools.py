@@ -11,7 +11,12 @@ import httpx
 from fastapi.testclient import TestClient
 
 from blackholememory import app as bhm_app
-from blackholememory import app_core_fallback, code_tools_service, code_tools_service_graph_build, graph_build_jobs
+from blackholememory import (
+    app_core_fallback,
+    code_tools_service,
+    code_tools_service_graph_build,
+    graph_build_jobs,
+)
 from blackholememory.code_graph import build_code_graph
 from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
 from blackholememory.repository_index import (

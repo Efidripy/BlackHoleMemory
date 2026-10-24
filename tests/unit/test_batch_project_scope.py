@@ -4,7 +4,12 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
-from blackholememory import app_ops_admin, app_runtime, memory_routes, memory_routes_write
+from blackholememory import (
+    app_ops_admin,
+    app_runtime,
+    memory_routes,
+    memory_routes_write,
+)
 
 
 def _code(exc: HTTPException) -> str:

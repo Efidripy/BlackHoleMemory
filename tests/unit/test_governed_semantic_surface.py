@@ -6,7 +6,13 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
-from blackholememory import app_core_fallback, app_core_hook, app_governed, app_governed_base, app_runtime
+from blackholememory import (
+    app_core_fallback,
+    app_core_hook,
+    app_governed,
+    app_governed_base,
+    app_runtime,
+)
 from blackholememory.domain import Memory
 from tests.app_patch import patch_app_import
 

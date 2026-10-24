@@ -74,7 +74,10 @@ def validate_qdrant_runtime(
         "image_has_digest": bool(image and "@" in image and _SHA256.fullmatch(image.rsplit("@", 1)[1])),
         "loopback_bindings": set(bindings) in allowed_binding_sets,
         "launcher_uses_pinned_image": not launcher_text
-        or (QDRANT_IMAGE_REF in launcher_text and '["docker", "pull", QDRANT_IMAGE]' in launcher_text),
+        or (
+            QDRANT_IMAGE_REF in launcher_text
+            and any(call in launcher_text for call in ('["docker", "pull", QDRANT_IMAGE]', '["docker", "pull", _launcher.QDRANT_IMAGE]'))
+        ),
         "no_latest_image": "qdrant/qdrant:latest" not in compose_text and "qdrant/qdrant:latest" not in launcher_text,
     }
     return {
