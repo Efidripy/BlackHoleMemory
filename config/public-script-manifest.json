@@ -404,6 +404,11 @@
       "release": true
     },
     {
+      "path": "scripts/bhm_crystallize_worker_execution.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_crystallize_worker_host.py",
       "role": "runtime-support",
       "release": true
