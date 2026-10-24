@@ -1336,3 +1336,13 @@ def test_health_probe_remains_anonymous(monkeypatch) -> None:
     request = captured[0]
     assert request.get_header("Authorization") is None
     assert request.get_header("User-agent") == "BHM-Control-Deck"
+
+
+def test_logs_window_read_log_tail(tmp_path):
+    from bhm_launcher_ui import _read_log_tail
+    log_file = tmp_path / "test.log"
+    log_file.write_text("\n".join(f"line {i}" for i in range(300)), encoding="utf-8")
+    lines = _read_log_tail(log_file, max_lines=10)
+    assert len(lines) == 10
+    assert lines[-1] == "line 299"
+    assert lines[0] == "line 290"

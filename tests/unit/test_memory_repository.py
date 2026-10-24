@@ -17,6 +17,7 @@ def _memory(
     lifecycle: str = "active",
     updated_at: str = "2026-07-13T10:00:00Z",
     upsert_key: str | None = None,
+    event_role: str = "unclassified",
 ) -> Memory:
     return Memory.from_record(
         {
@@ -30,10 +31,12 @@ def _memory(
             "session_refs": [],
             "created_at": "2026-07-13T09:00:00Z",
             "updated_at": updated_at,
+            "event_role": event_role,
             "metadata": {
                 "raw_title": "Repository contract",
                 "lifecycle": lifecycle,
                 "upsert_key": upsert_key,
+                "event_role": event_role,
             },
         }
     )
@@ -352,3 +355,14 @@ def test_repository_replaces_and_deletes_complete_link_snapshot_atomically(tmp_p
     assert repository.delete_links([second.id]) == 1
     assert repository.delete_links([second.id]) == 0
     assert repository.list_links(project="blackholememory") == []
+
+
+def test_repository_count_memories_supports_exclude_event_role(tmp_path):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    fact = _memory(memory_id="mem_fact", event_role="fact")
+    trace = _memory(memory_id="mem_trace", event_role="trace")
+    repository.save_memory(fact)
+    repository.save_memory(trace)
+    assert repository.count_memories(project="blackholememory") == 2
+    assert repository.count_memories(project="blackholememory", exclude_event_role="trace") == 1
+    assert repository.count_memories(project="blackholememory", event_role="trace") == 1
