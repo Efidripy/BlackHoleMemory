@@ -14,7 +14,14 @@ from blackholememory import app as bhm_app
 from blackholememory import (
     app_core_fallback,
     code_tools_service,
+<<<<<<< HEAD
     code_tools_service_graph_build,
+=======
+    code_tools_service_analysis,
+    code_tools_service_graph,
+    code_tools_service_graph_build,
+    code_tools_service_index,
+>>>>>>> codex/f17-a40
     graph_build_jobs,
 )
 from blackholememory.code_graph import build_code_graph
@@ -107,9 +114,10 @@ def test_public_architecture_response_is_transport_bounded(monkeypatch, tmp_path
         "clone_hints": [],
         "execution": {"authority": "proposal", "raw_source_returned": False},
     }
-    monkeypatch.setattr(code_tools_service, "build_architecture_intelligence", lambda *_args, **_kwargs: dict(intelligence))
-    monkeypatch.setattr(code_tools_service, "build_architecture_explain_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
-    monkeypatch.setattr(code_tools_service, "build_graph_analysis_quality_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
+    for mod in (code_tools_service, code_tools_service_analysis):
+        monkeypatch.setattr(mod, "build_architecture_intelligence", lambda *_args, **_kwargs: dict(intelligence))
+        monkeypatch.setattr(mod, "build_architecture_explain_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
+        monkeypatch.setattr(mod, "build_graph_analysis_quality_receipt", lambda *_args, **_kwargs: {"receipt": clusters})
     patch_app_import(monkeypatch,
         "build_architecture_memory",
         lambda *_args, **_kwargs: {"proposals": {"clusters": clusters}, "execution": {"raw_source_returned": False}},
@@ -144,7 +152,8 @@ def test_public_impact_preview_response_is_transport_bounded(monkeypatch, tmp_pa
         preview["decision_card"]["impact"] = list(preview["impact"])
         return preview
 
-    monkeypatch.setattr(code_tools_service, "build_change_impact_preview", oversized_preview)
+    for mod in (code_tools_service, code_tools_service_analysis):
+        monkeypatch.setattr(mod, "build_change_impact_preview", oversized_preview)
     response = TestClient(bhm_app.app).post(
         "/bhm/code-tools",
         json={
@@ -842,7 +851,8 @@ def test_graph_only_defers_slow_build_deduplicates_and_reports_completion(monkey
         monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
         monkeypatch.setattr(graph_build_jobs, "parse_graph_job", slow_parse)
         monkeypatch.setattr(code_tools_service_graph_build, "_graph_parse_executor", lambda: parse_executor)
-        monkeypatch.setattr(code_tools_service, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 0.01)
+        for mod in (code_tools_service, code_tools_service_index):
+            monkeypatch.setattr(mod, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 0.01)
         transport = httpx.ASGITransport(app=bhm_app.app)
         async with httpx.AsyncClient(
             transport=transport,
@@ -920,7 +930,8 @@ def test_graph_only_build_parses_in_worker_process(monkeypatch, tmp_path: Path) 
     )
     monkeypatch.setattr(bhm_app.settings, "repo_root", root)
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
-    monkeypatch.setattr(code_tools_service, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 60.0)
+    for mod in (code_tools_service, code_tools_service_index):
+        monkeypatch.setattr(mod, "BHM_CODE_GRAPH_SOFT_WAIT_SECONDS", 60.0)
     request = {"operation": "index", "project": "demo", "root": "repo", "apply": True, "graph_only": True, "snapshot_id": indexed["snapshot_id"]}
     try:
         response = TestClient(bhm_app.app).post("/bhm/code-tools", json=request)
@@ -944,7 +955,8 @@ def test_coverage_probe_timeout_is_retryable_and_fail_closed(monkeypatch, tmp_pa
 
     monkeypatch.setattr(bhm_app.settings, "repo_root", root)
     monkeypatch.setattr(bhm_app.settings, "runtime_dir", runtime_dir)
-    monkeypatch.setattr(code_tools_service, "repository_index_status", timed_out_status)
+    for mod in (code_tools_service, code_tools_service_graph, code_tools_service_index):
+        monkeypatch.setattr(mod, "repository_index_status", timed_out_status)
     client = TestClient(bhm_app.app)
 
     response = client.post(

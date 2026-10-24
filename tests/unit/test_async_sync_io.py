@@ -11,7 +11,13 @@ from pathlib import Path
 import pytest
 
 from blackholememory import app as bhm_app
-from blackholememory import app_retrieval, app_runtime, code_tools_service
+from blackholememory import (
+    app_retrieval,
+    app_runtime,
+    code_tools_service,
+    code_tools_service_base,
+    code_tools_service_index,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 
@@ -102,21 +108,23 @@ def test_bounded_read_propagates_sqlite_error_and_releases_admission() -> None:
 def test_code_tools_status_does_not_run_index_reads_on_event_loop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        code_tools_service,
-        "_public_code_request_scope",
-        lambda request: (Path("repo"), "demo"),
-    )
-    monkeypatch.setattr(code_tools_service, "_validate_explicit_public_code_root", lambda *args: None)
-    monkeypatch.setattr(code_tools_service, "_public_code_root_id", lambda *args, **kwargs: "root-id")
+    for mod in (code_tools_service, code_tools_service_base):
+        monkeypatch.setattr(
+            mod,
+            "_public_code_request_scope",
+            lambda request: (Path("repo"), "demo"),
+        )
+        monkeypatch.setattr(mod, "_validate_explicit_public_code_root", lambda *args: None)
+        monkeypatch.setattr(mod, "_public_code_root_id", lambda *args, **kwargs: "root-id")
+        monkeypatch.setattr(mod, "_current_code_graph_snapshot", lambda *args, **kwargs: {})
 
     def blocking_index_status(*args, **kwargs) -> dict:
         del args, kwargs
         time.sleep(0.15)
         return {"status": "ready"}
 
-    monkeypatch.setattr(code_tools_service, "repository_index_status", blocking_index_status)
-    monkeypatch.setattr(code_tools_service, "_current_code_graph_snapshot", lambda *args, **kwargs: {})
+    for mod in (code_tools_service, code_tools_service_index):
+        monkeypatch.setattr(mod, "repository_index_status", blocking_index_status)
 
     async def exercise() -> tuple[float, int]:
         ticks: list[float] = []
