@@ -35,7 +35,6 @@ if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
-from blackholememory.observation_store import ObservationStore  # noqa: E402
 from blackholememory.local_endpoint_policy import LocalEndpointError  # noqa: E402
 from blackholememory.local_endpoint_policy import open_local_url  # noqa: E402
 from blackholememory.local_endpoint_policy import read_bounded_response  # noqa: E402
@@ -795,220 +794,6 @@ async def async_rest_call(
 
 
 
-def normalize_raw_item_for_file(file_name: str, item: JsonDict, max_record_chars: int) -> JsonDict | None:
-    if file_name == MEMORIES_DB_FILE:
-        return normalize_live_memory(item, max_record_chars)
-    if file_name == OBSERVATIONS_DB_FILE:
-        return normalize_observation(item, max_record_chars, source_file=file_name)
-    return None
-
-
-def raw_item_matches_batch_selector(
-    file_name: str,
-    item: JsonDict,
-    batch: JsonDict,
-    max_record_chars: int,
-) -> bool:
-    if not is_active(item):
-        return False
-    record = normalize_raw_item_for_file(file_name, item, max_record_chars)
-    if record is None:
-        return False
-    if spam_reason(record):
-        return False
-    if safe_str(record.get("project")) != batch["project"]:
-        return False
-    if batch.get("group_kind") == "project" or batch.get("topic") == "mixed":
-        return True
-    return topic_for(record) == batch["topic"]
-
-
-async def mark_archived_on_disk_async(
-    runtime_dir: Path,
-    batch: JsonDict,
-    crystal_id: str,
-    args: argparse.Namespace,
-) -> JsonDict:
-    now = utc_now()
-    selected_by_file: dict[str, set[str]] = defaultdict(set)
-    archive_records = batch.get("archive_records") or batch["records"]
-    high_tier_selector = batch.get("tier") in {TIER_SINGULARITY, TIER_BIG_BANG}
-    source_files = sorted({safe_str(record.get("source_file")) for record in archive_records if record.get("source_file")})
-    if not high_tier_selector:
-        for record in archive_records:
-            selected_by_file[record["source_file"]].add(record["id"])
-
-    result: JsonDict = {}
-    for file_name in source_files:
-        source_ids = selected_by_file.get(file_name, set())
-        path = runtime_dir / file_name
-        changed = 0
-
-        if file_name == MEMORIES_DB_FILE:
-            result[file_name] = {
-                "changed": 0,
-                "path": str(resolve_runtime_storage_config(runtime_dir=runtime_dir).database_path),
-                "strategy": "sqlite-authoritative-api-only",
-                "streamed": False,
-                "replaced": False,
-                "skipped": True,
-                "read_only": True,
-                "reason": "lifecycle archive is owned by BHM REST facade",
-            }
-            continue
-
-        if file_name == OBSERVATIONS_DB_FILE:
-            store = ObservationStore(path)
-            if high_tier_selector:
-                candidate_items = store.load(
-                    project=batch["project"],
-                    include_archived=False,
-                )
-                source_ids = {
-                    safe_str(item.get("eventId") or item.get("id"))
-                    for item in candidate_items
-                    if raw_item_matches_batch_selector(file_name, item, batch, args.max_record_chars)
-                }
-            changed = store.archive(
-                sorted(source_ids),
-                archived_at=now,
-                archive_reason=f"condensed into knowledge crystal {crystal_id}",
-                condensed_into=crystal_id,
-                archived_by=WORKER_NAME,
-                scale_tier=safe_str(batch.get("tier") or TIER_MICRO),
-            )
-            result[file_name] = {
-                "changed": changed,
-                "path": str(path),
-                "strategy": "sqlite-lifecycle-projection",
-                "streamed": False,
-                "replaced": False,
-            }
-            continue
-
-        result[file_name] = {
-            "changed": 0,
-            "path": str(path),
-            "strategy": "unsupported-source",
-            "streamed": False,
-            "replaced": False,
-            "skipped": True,
-            "reason": "only SQLite memory and observation sources are supported",
-        }
-    return result
-
-
-def mark_archived_on_disk(
-    runtime_dir: Path,
-    batch: JsonDict,
-    crystal_id: str,
-    args: argparse.Namespace,
-) -> JsonDict:
-    return run_coroutine_sync(mark_archived_on_disk_async(runtime_dir, batch, crystal_id, args))
-
-
-async def apply_crystal(args: argparse.Namespace, batch: JsonDict, crystal_payload: JsonDict) -> JsonDict:
-    await ensure_bhm_ready(args)
-    project_hub_id = await get_or_rebuild_project_hub(args, batch["project"])
-    refs = crystal_payload["metadata"].get("source_refs") or []
-    consolidation = await consolidate_long_term_crystal(args, batch, crystal_payload)
-    if consolidation.get("applied"):
-        crystal_id = safe_str(consolidation.get("crystal_id"))
-    else:
-        crystal_id = await upsert_crystal(args, crystal_payload)
-        await source_refs_attach(args, crystal_id, batch["project"], refs)
-    links = link_items_for_batch(crystal_id, batch, project_hub_id)
-    link_result = await create_links(args, links)
-    live_archive = await archive_live_memory_sources(args, batch, crystal_id)
-    disk_archive = await mark_archived_on_disk_async(args.runtime_dir, batch, crystal_id, args)
-    return {
-        "crystal_id": crystal_id,
-        "project_hub_id": project_hub_id,
-        "source_refs_attached": int(consolidation.get("source_refs_attached") or len(refs)),
-        "consolidation": consolidation,
-        "links_created": int(link_result.get("created_count") or 0),
-        "link_result": link_result,
-        "live_memories_archived": int(live_archive.get("archived_count") or 0),
-        "live_archive": live_archive,
-        "disk_archive": disk_archive,
-    }
-
-
-def build_report(
-    args: argparse.Namespace,
-    stats: JsonDict,
-    batch: JsonDict | None,
-    crystal_payload: JsonDict | None,
-    crystal_id: str,
-    project_hub_id: str | None,
-    apply_result: JsonDict | None,
-    soft_fail: str | None = None,
-) -> JsonDict:
-    records = batch["records"] if batch else []
-    archive_records = (batch.get("archive_records") or records) if batch else []
-    archive_targets = (batch.get("archive_targets") or [record.get("id") for record in archive_records]) if batch else []
-    archive_target_strings = [safe_str(value) for value in archive_targets]
-    live_archive_target_count = sum(1 for record in archive_records if record.get("source_kind") == "memory")
-    return {
-        "worker": WORKER_NAME,
-        "mode": "apply" if args.apply else "dry-run",
-        "ok": soft_fail is None and batch is not None and crystal_payload is not None,
-        "soft_fail": soft_fail,
-        "stats": stats,
-        "harvest": {
-            "project": batch["project"] if batch else None,
-            "group_kind": batch["group_kind"] if batch else None,
-            "group_key": batch["group_key"] if batch else None,
-            "tier": batch.get("tier") if batch else None,
-            "source_count": int(batch.get("total_pool_count") or len(records)) if batch else 0,
-            "total_pool_count": int(batch.get("total_pool_count") or len(records)) if batch else 0,
-            "prompt_sample_count": len(records),
-            "prompt_source_ids": [record.get("id") for record in records],
-            "archive_target_count": len(archive_target_strings),
-            "archive_targets": report_list(archive_target_strings, args),
-            "archive_targets_digest": stable_checksum("|".join(sorted(archive_target_strings))),
-            "archive_targets_truncated": len(archive_target_strings) > report_limit(args),
-            "source_breakdown": dict(Counter(record.get("source_file") for record in archive_records)),
-            "context_zones": batch.get("context_zones") if batch else {},
-        },
-        "crystal": None
-        if crystal_payload is None
-        else {
-            "id": crystal_id,
-            "upsert_key": crystal_payload["upsert_key"],
-            "type": crystal_payload["type"],
-            "content": crystal_payload["content"],
-            "metadata": report_metadata(crystal_payload["metadata"], args),
-        },
-        "consolidation": apply_result.get("consolidation") if apply_result else None,
-        "archive": {
-            "hard_delete": False,
-            "planned_status": "archived",
-            "tier_policy": batch.get("tier") if batch else None,
-            "planned_target_count": len(archive_target_strings),
-            "planned_live_memory_target_count": live_archive_target_count,
-            "rest_chunk_size": BATCH_REST_CHUNK_SIZE,
-            "bulk_filter_endpoint": BULK_ARCHIVE_ENDPOINT,
-            "bulk_filter_attempted": False,
-            "batch_archive_endpoint": "/bhm/memories/batch-archive",
-            "fallback_method": "parallel_batch_archive_chunks"
-            if batch and batch.get("tier") in {TIER_SINGULARITY, TIER_BIG_BANG}
-            else "batch_archive_chunks",
-            "applied": bool(args.apply and apply_result),
-            "live_result": apply_result.get("live_archive") if apply_result else None,
-            "result": apply_result.get("disk_archive") if apply_result else None,
-        },
-        "links": {
-            "source_to_logs": "relation=condenses for live-memory sources; observation ids are stored as source_refs",
-            "source_to_project_hub": "relation=belongs_to_project_hub",
-            "project_hub_id": project_hub_id,
-            "rest_chunk_size": BATCH_REST_CHUNK_SIZE,
-            "result": apply_result.get("link_result") if apply_result else None,
-            "created": apply_result.get("links_created") if apply_result else 0,
-        },
-    }
-
-
 async def run_once_async(args: argparse.Namespace) -> tuple[bool, JsonDict]:
     try:
         records, stats = await harvest_records_for_runtime(args)
@@ -1190,6 +975,14 @@ from bhm_crystallize_worker_consolidation import (  # noqa: E402,F401
     try_bulk_archive_by_filter,
     unique_strings,
     upsert_crystal,
+)
+from bhm_crystallize_worker_execution import (  # noqa: E402,F401
+    apply_crystal,
+    build_report,
+    mark_archived_on_disk,
+    mark_archived_on_disk_async,
+    normalize_raw_item_for_file,
+    raw_item_matches_batch_selector,
 )
 
 if __name__ == "__main__":
