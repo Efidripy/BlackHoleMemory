@@ -19,7 +19,6 @@ from typing import Any, Mapping, Sequence
 from .filesystem_boundaries import assert_safe_path
 from .memory_repository import MemoryRepositoryError
 from .memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_VERSION
-from .projection_reconciliation import _generation_source_basis_digest
 
 _BINDING_REQUIRED = frozenset(
     {
@@ -38,14 +37,16 @@ _BINDING_REQUIRED = frozenset(
 )
 _GENERATION_COLLECTION_PATTERN = re.compile(r"bhm_projection_generation_[a-z0-9_-]+")
 
+def _generation_source_basis_digest(*args: Any, **kwargs: Any) -> Any:
+    from .projection_reconciliation import _generation_source_basis_digest as _impl
+
+    return _impl(*args, **kwargs)
 
 class ProjectionGenerationBindingError(MemoryRepositoryError):
     """A binding or its authority proof is incomplete or changed."""
 
-
 class ProjectionRouteUnavailable(ProjectionGenerationBindingError):
     """A migrated project has no safe local Qdrant route."""
-
 
 @dataclass(frozen=True)
 class ProjectionCollectionRoute:
@@ -60,7 +61,6 @@ class ProjectionCollectionRoute:
     reason: str
     legacy_allowed: bool
 
-
 @dataclass(frozen=True)
 class _BindingAuthoritySnapshot:
     active: tuple["ProjectionGenerationBinding", ...]
@@ -68,14 +68,11 @@ class _BindingAuthoritySnapshot:
     available: bool
     legacy_schema: bool
 
-
 def _canonical_json(value: object) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
-
 def _sha256(value: object) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
-
 
 def _now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
@@ -561,6 +558,9 @@ def resolve_projection_route(
         memories = []
         for item in group:
             memories.extend(repository.list_memories(project=item.project, include_archived=True, include_tombstoned=True, limit=10_000))
+
+
+
         if _generation_source_basis_digest(memories) != candidate.source_basis_digest:
             return ProjectionCollectionRoute(None, "binding_source_drift", False)
     except Exception:  # broad: return fail-closed route when source inspection is unavailable

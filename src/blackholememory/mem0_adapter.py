@@ -18,7 +18,11 @@ import warnings
 from datetime import datetime
 from datetime import timezone
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mem0 import Memory
+    from qdrant_client import QdrantClient
 
 os.environ.setdefault("MEM0_TELEMETRY", "False")
 logging.getLogger("posthog").setLevel(logging.CRITICAL + 1)
@@ -26,9 +30,16 @@ logging.getLogger("mem0.utils.spacy_models").setLevel(logging.ERROR)
 logging.getLogger("mem0.vector_stores.qdrant").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message="Api key is used with an insecure connection.*")
 
-from mem0 import Memory
-from qdrant_client import QdrantClient
-from qdrant_client.http import models as qdrant_models
+class _LazyQdrantModels:
+    _models: Any = None
+
+    def __getattr__(self, name: str) -> Any:
+        if self._models is None:
+            from qdrant_client.http import models as _qm
+            self._models = _qm
+        return getattr(self._models, name)
+
+qdrant_models: Any = _LazyQdrantModels()
 
 from .config import settings
 from .local_endpoint_policy import LocalEndpointError
@@ -71,7 +82,6 @@ from .mem0_adapter_graph import (
     reciprocal_rank_fusion,  # noqa: F401
 )
 
-
 LOCAL_COLLECTION_PREFIX = "bhm_local_memory"
 GLOBAL_COLLECTION_NAME = "bhm_global_core_knowledge"
 _QDRANT_UNAVAILABLE_CACHE_TTL_SECONDS = 2.0
@@ -92,18 +102,14 @@ _qdrant_health_diagnostic: dict[str, Any] = {
 }
 QDRANT_LOCAL_PATH = settings.runtime_dir / "qdrant-local"
 
-
 class StorageNotReady(RuntimeError):
     """Raised when configured storage policy cannot provide its required backend."""
-
 
 def _qdrant_health_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
-
 def _qdrant_health_latency_ms(started_at: float) -> int:
     return max(0, min(int(round((time.monotonic() - started_at) * 1000)), 60_000))
-
 
 def _qdrant_health_failure_class(error: BaseException) -> tuple[str, int | None]:
     """Classify local probe failures without exposing endpoint or exception text."""
@@ -129,7 +135,6 @@ def _qdrant_health_failure_class(error: BaseException) -> tuple[str, int | None]
         return "connection_refused", None
     return "transport_error", None
 
-
 def _record_qdrant_health_success(*, checked_at: str, latency_ms: int) -> None:
     with _qdrant_health_cache_lock:
         _qdrant_health_diagnostic.update(
@@ -143,7 +148,6 @@ def _record_qdrant_health_success(*, checked_at: str, latency_ms: int) -> None:
                 "total_successes": int(_qdrant_health_diagnostic["total_successes"]) + 1,
             }
         )
-
 
 def _record_qdrant_health_failure(
     *, checked_at: str, failure_class: str, http_status: int | None, latency_ms: int
@@ -161,7 +165,6 @@ def _record_qdrant_health_failure(
             }
         )
 
-
 def qdrant_health_diagnostics() -> dict[str, Any]:
     """Return bounded probe provenance for authenticated runtime health only."""
 
@@ -176,7 +179,6 @@ def qdrant_health_diagnostics() -> dict[str, Any]:
         }
     )
     return payload
-
 
 def _reset_qdrant_health_diagnostics_for_tests() -> None:
     """Reset process-local probe state for deterministic unit tests."""
@@ -198,7 +200,6 @@ def _reset_qdrant_health_diagnostics_for_tests() -> None:
                 "total_successes": 0,
             }
         )
-
 
 def _remote_qdrant_available(*, opener: Any = None, timeout: float = QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS) -> bool:
     global _qdrant_unavailable_until, _qdrant_available_until
@@ -251,7 +252,6 @@ def _remote_qdrant_available(*, opener: Any = None, timeout: float = QDRANT_HEAL
             _qdrant_unavailable_until = time.monotonic() + _QDRANT_UNAVAILABLE_CACHE_TTL_SECONDS
     return available
 
-
 def _qdrant_connection_config() -> dict[str, Any]:
     state = evaluate_storage_state(None, remote_available=_remote_qdrant_available())
     if state.backend == "remote":
@@ -268,7 +268,6 @@ def _qdrant_connection_config() -> dict[str, Any]:
         return {"path": str(QDRANT_LOCAL_PATH)}
     raise StorageNotReady(state.reason)
 
-
 def _memory_collection_names(client: QdrantClient) -> list[str]:
     collections = client.get_collections().collections
     names: list[str] = []
@@ -277,7 +276,6 @@ def _memory_collection_names(client: QdrantClient) -> list[str]:
         if name == GLOBAL_COLLECTION_NAME or name.startswith(f"{LOCAL_COLLECTION_PREFIX}_"):
             names.append(name)
     return names
-
 
 def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
     client = get_qdrant_client()
@@ -474,10 +472,8 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
         "errors": errors,
     }
 
-
 async def evict_stale_memories(threshold: float = 0.2) -> dict[str, Any]:
     return await asyncio.to_thread(_evict_stale_memories_sync, threshold)
-
 
 def _project_slug(project_name: str | None = None) -> str:
     raw = canonical_project_id(project_name or settings.qdrant_collection or settings.app_name or "blackholememory")
@@ -573,7 +569,9 @@ def build_mem0_config(collection_name: str) -> dict[str, Any]:
 
 
 @lru_cache(maxsize=1)
-def get_qdrant_client() -> QdrantClient:
+def get_qdrant_client() -> Any:
+    from qdrant_client import QdrantClient
+
     config = dict(_qdrant_connection_config())
     config.setdefault("timeout", QDRANT_SDK_TIMEOUT_SECONDS)
     return QdrantClient(**config)
@@ -615,8 +613,10 @@ def ensure_memory_collections(project_name: str | None = None) -> dict[str, Any]
     }
 
 
-@lru_cache(maxsize=None)
-def get_mem0_memory(collection_name: str | None = None, *, ensure_collection: bool = True) -> Memory:
+@lru_cache(maxsize=16)
+def get_mem0_memory(collection_name: str | None = None, *, ensure_collection: bool = True) -> Any:
+    from mem0 import Memory
+
     resolved_collection_name = collection_name or local_collection_name(settings.qdrant_collection)
     if ensure_collection:
         _ensure_qdrant_collection(resolved_collection_name)
