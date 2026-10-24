@@ -524,15 +524,18 @@ class MemoryRepositoryRecordsMixin:
             datetime.now(timezone.utc) - timedelta(seconds=lease_seconds)
         ).isoformat().replace("+00:00", "Z")
         with self._write_transaction() as connection:
-            connection.execute(
-                """
-                UPDATE memory_outbox SET
-                    status = 'pending', claimed_at = NULL, claim_token = NULL,
-                    updated_at = ?
-                WHERE status = 'processing' AND claimed_at IS NOT NULL AND claimed_at < ?
-                """,
-                (now, expired_before),
-            )
+            # The UPDATE below has no index on claimed_at and scanned the whole outbox (wide payload rows) on every
+            # poll; the claimable index answers "is anything processing at all?" without touching the table.
+            if connection.execute("SELECT 1 FROM memory_outbox WHERE status = 'processing' LIMIT 1").fetchone():
+                connection.execute(
+                    """
+                    UPDATE memory_outbox SET
+                        status = 'pending', claimed_at = NULL, claim_token = NULL,
+                        updated_at = ?
+                    WHERE status = 'processing' AND claimed_at IS NOT NULL AND claimed_at < ?
+                    """,
+                    (now, expired_before),
+                )
             rows = connection.execute(
                 """
                 SELECT event_id FROM memory_outbox
