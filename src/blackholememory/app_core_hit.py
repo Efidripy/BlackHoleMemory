@@ -29,7 +29,7 @@ from . import memory_contracts as _memory_contracts
 from .retention import parse_timestamp
 from .temporal_contract import TemporalValidationError
 from .temporal_contract import temporal_matches
-from . import app_core
+from . import app_core_memory_base as app_core
 from . import app_core_fallback
 from . import app_core_graph
 
