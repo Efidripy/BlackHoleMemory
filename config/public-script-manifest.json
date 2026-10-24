@@ -434,6 +434,36 @@
       "release": true
     },
     {
+      "path": "scripts/bhm_launcher_base.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_env.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_paths.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_transport.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_workers.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_ui.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_launcher_operator.py",
       "role": "runtime-support",
       "release": true
