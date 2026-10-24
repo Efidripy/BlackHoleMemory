@@ -5,7 +5,7 @@
 import sys
 import types
 
-from . import _common as _common
+from . import _common as _common, _common_base as _common_base, _common_search as _common_search, _common_speculative as _common_speculative
 from . import _core as _core
 from . import executor_shared as executor_shared
 from . import executor_shared_base as executor_shared_base, executor_shared_censor as executor_shared_censor, executor_shared_nodes as executor_shared_nodes
@@ -39,12 +39,12 @@ class _DeveloperAgentFacadeModule(types.ModuleType):
     """Keep legacy facade monkeypatches bound to their owning split module."""
 
     _PATCH_TARGETS = {
-        "_MCP_PLAYWRIGHT_SEARCH_PROVIDER": (_common, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
-        "_SPECULATIVE_RAG_SEARCH_PROVIDER": (_common, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
-        "_read_bhm_env": (_common, _core, llm_client, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
-        "configured_caller_token": (_common,),
+        "_MCP_PLAYWRIGHT_SEARCH_PROVIDER": (_common, _common_search, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
+        "_SPECULATIVE_RAG_SEARCH_PROVIDER": (_common, _common_speculative, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
+        "_read_bhm_env": (_common, _common_base, _common_search, _common_speculative, _core, llm_client, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
+        "configured_caller_token": (_common, _common_speculative),
         "analyze_screenshot": (swarm_tools,),
-        "_repo_root": (_common, quarantine),
+        "_repo_root": (_common, _common_base, quarantine),
         "_is_pid_running": (swarm_tools, _core, executor_shared),
         "_grace_wait": (swarm_tools,),
         "_terminate_spawned_pid_tree": (executor_shared, _core),
