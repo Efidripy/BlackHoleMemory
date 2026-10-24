@@ -3,15 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 from collections.abc import Awaitable, Callable
-from collections import deque
-from dataclasses import dataclass
-from datetime import datetime, timezone
-import hashlib
+from contextlib import asynccontextmanager
 import json
-import threading
-import time
 from typing import Any
 
 from mcp import types
@@ -20,48 +14,42 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import Receive, Scope, Send
 
-from .caller_auth import authorize_projects
-from .capability import ADMIN_CAPABILITY_HEADER, MCP_OPERATOR_HEADER_STATE, MCP_OPERATOR_SESSION, is_admin_capability_valid
-from .caller_auth import configured_caller_principal
-from .caller_auth import extract_request_projects
-from .caller_auth import is_caller_token_valid
-from .caller_auth import parse_bearer_token
+from .caller_auth import (
+    authorize_projects,
+    configured_caller_principal,
+    extract_request_projects,
+    is_caller_token_valid,
+    parse_bearer_token,
+)
+from .capability import (
+    ADMIN_CAPABILITY_HEADER,
+    MCP_OPERATOR_HEADER_STATE,
+    MCP_OPERATOR_SESSION,
+    is_admin_capability_valid,
+)
 from .mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
+from .mcp_streamable_http_base import (
+    DEFAULT_DISPATCH_TIMEOUT_SECONDS,
+    DEFAULT_MAX_BODY_BYTES,
+    DEFAULT_MAX_CONCURRENT_CALLS,
+    DEFAULT_MAX_SESSIONS,
+    DEFAULT_RETRY_INTERVAL_MS,
+    DEFAULT_SESSION_IDLE_SECONDS,
+    JsonRpcDispatcher,
+    SCHEMA_VERSION,
+    StreamableHttpContractError,
+    TRANSPORT_CONTRACT_SCHEMA_VERSION,
+    _catalog_hash,
+    _result,
+    _transport_contract_digest,
+    _utc_now as _utc_now,
+)
+from .mcp_streamable_http_session import (
+    HttpMcpSessionRegistry,
+    _HttpSession as _HttpSession,
+    _HttpSessionAdmissionTicket,
+)
 from .resource_limits import MCP_SESSION_ADMISSION_TIMEOUT_SECONDS
-
-
-JsonRpcDispatcher = Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
-
-SCHEMA_VERSION = "bhm.mcp.streamable-http.v1"
-TRANSPORT_CONTRACT_SCHEMA_VERSION = "bhm.mcp.transport-contract.v1"
-DEFAULT_RETRY_INTERVAL_MS = 1_000
-DEFAULT_SESSION_IDLE_SECONDS = 300.0
-DEFAULT_MAX_SESSIONS = 32
-DEFAULT_MAX_BODY_BYTES = 1_048_576
-DEFAULT_DISPATCH_TIMEOUT_SECONDS = 30.0
-DEFAULT_MAX_CONCURRENT_CALLS = 10
-
-
-class StreamableHttpContractError(RuntimeError):
-    """Raised when the shared BHM JSON-RPC surface returns an invalid result."""
-
-
-def _result(response: dict[str, Any] | None, *, method: str) -> dict[str, Any]:
-    if not isinstance(response, dict):
-        raise StreamableHttpContractError(f"{method} returned no JSON-RPC response")
-    error = response.get("error")
-    if isinstance(error, dict):
-        code = error.get("code", "error")
-        message = str(error.get("message") or "MCP request failed")
-        raise StreamableHttpContractError(f"{method} failed ({code}): {message}")
-    result = response.get("result")
-    if not isinstance(result, dict):
-        raise StreamableHttpContractError(f"{method} returned no result object")
-    return result
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _headers(scope: Scope) -> dict[str, str]:
@@ -112,391 +100,6 @@ async def _send_auth_error(send: Send, status: int, code: str) -> None:
         headers.append((b"www-authenticate", b"Bearer"))
     await send({"type": "http.response.start", "status": status, "headers": headers})
     await send({"type": "http.response.body", "body": payload})
-
-
-def _catalog_hash(tools: Any) -> str | None:
-    if not isinstance(tools, list):
-        return None
-    payload = json.dumps(tools, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def _transport_contract_digest(
-    catalog_hash: str | None,
-    *,
-    server_id: str,
-    server_version: str,
-    protocol_version: str,
-) -> str | None:
-    """Build a deterministic, metadata-only identity for one transport catalog."""
-
-    if not catalog_hash:
-        return None
-    payload = {
-        "schema_version": TRANSPORT_CONTRACT_SCHEMA_VERSION,
-        "server_id": str(server_id or "bhm")[:64],
-        "server_version": str(server_version or "unknown")[:64],
-        "protocol_version": str(protocol_version or "unknown")[:32],
-        "catalog_hash": str(catalog_hash)[:128],
-    }
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-
-
-@dataclass
-class _HttpSession:
-    session_id: str
-    client_id: str
-    client_version: str
-    protocol_version: str
-    state: str
-    created_at: str
-    updated_at: str
-    last_request: str
-    catalog_hash: str | None
-    contract_digest: str | None
-    tool_count: int | None
-    transport_loss_count: int
-    last_transport_event: str | None
-    expires_at_monotonic: float
-    slot_held: bool
-    contract_verified: bool
-    rehydrated: bool
-
-
-@dataclass
-class _HttpSessionAdmissionTicket:
-    sequence: int
-    event: asyncio.Event
-    admitted: bool = False
-    committed: bool = False
-    cancelled: bool = False
-
-
-class HttpMcpSessionRegistry:
-    """Bounded, redacted truth surface for SDK-owned HTTP MCP sessions."""
-
-    def __init__(
-        self,
-        *,
-        idle_seconds: float,
-        max_sessions: int = DEFAULT_MAX_SESSIONS,
-        admission_timeout_seconds: float = MCP_SESSION_ADMISSION_TIMEOUT_SECONDS,
-    ) -> None:
-        self.idle_seconds = max(float(idle_seconds), 30.0)
-        self.max_sessions = max(int(max_sessions), 1)
-        self.admission_timeout_seconds = max(float(admission_timeout_seconds), 0.1)
-        self._lock = threading.RLock()
-        self._sessions: dict[str, _HttpSession] = {}
-        self._expired_count = 0
-        self._waiters: deque[_HttpSessionAdmissionTicket] = deque()
-        self._reservations = 0
-        self._next_sequence = 0
-
-    def _active_slots_locked(self) -> int:
-        return sum(item.slot_held for item in self._sessions.values()) + self._reservations
-
-    def _wake_next_locked(self) -> None:
-        while self._waiters and self._active_slots_locked() < self.max_sessions:
-            waiter = self._waiters.popleft()
-            if waiter.cancelled:
-                continue
-            waiter.admitted = True
-            self._reservations += 1
-            waiter.event.set()
-
-    def _purge(self, now: float) -> None:
-        removed = False
-        for session_id in [
-            key for key, item in self._sessions.items() if now >= item.expires_at_monotonic
-        ]:
-            self._sessions.pop(session_id, None)
-            self._expired_count = min(self._expired_count + 1, self.max_sessions)
-            removed = True
-        if removed:
-            self._wake_next_locked()
-
-    async def acquire_initialize_slot(self) -> _HttpSessionAdmissionTicket:
-        """Reserve one bounded SDK session slot in FIFO order."""
-
-        waiter = _HttpSessionAdmissionTicket(
-            sequence=self._next_sequence,
-            event=asyncio.Event(),
-        )
-        with self._lock:
-            self._next_sequence += 1
-            self._purge(time.monotonic())
-            if not self._waiters and self._active_slots_locked() < self.max_sessions:
-                waiter.admitted = True
-                self._reservations += 1
-            else:
-                self._waiters.append(waiter)
-        if waiter.admitted:
-            return waiter
-        try:
-            await asyncio.wait_for(waiter.event.wait(), timeout=self.admission_timeout_seconds)
-            return waiter
-        except BaseException:  # broad: release admission slot for cancellation and all task termination paths
-            self.cancel_initialize_slot(waiter)
-            raise
-
-    def cancel_initialize_slot(self, waiter: _HttpSessionAdmissionTicket | None) -> None:
-        if waiter is None:
-            return
-        with self._lock:
-            if waiter.cancelled or waiter.committed:
-                return
-            waiter.cancelled = True
-            if waiter.admitted:
-                self._reservations = max(self._reservations - 1, 0)
-            else:
-                try:
-                    self._waiters.remove(waiter)
-                except ValueError:
-                    pass
-            self._wake_next_locked()
-
-    def register(
-        self,
-        session_id: str,
-        *,
-        client_id: str,
-        client_version: str,
-        protocol_version: str,
-        admission: _HttpSessionAdmissionTicket | None = None,
-    ) -> bool:
-        key = str(session_id or "").strip()
-        if not key:
-            self.cancel_initialize_slot(admission)
-            return False
-        now = time.monotonic()
-        timestamp = _utc_now()
-        with self._lock:
-            self._purge(now)
-            if key in self._sessions:
-                self.cancel_initialize_slot(admission)
-                return False
-            if admission is not None:
-                if admission.cancelled or not admission.admitted:
-                    return False
-                admission.committed = True
-                self._reservations = max(self._reservations - 1, 0)
-            elif self._active_slots_locked() >= self.max_sessions:
-                return False
-            self._sessions[key] = _HttpSession(
-                session_id=key,
-                client_id=" ".join(str(client_id or "unknown").split())[:64] or "unknown",
-                client_version=" ".join(str(client_version or "unknown").split())[:64] or "unknown",
-                protocol_version=str(protocol_version or "unknown")[:32],
-                state="initialized",
-                created_at=timestamp,
-                updated_at=timestamp,
-                last_request="initialize",
-                catalog_hash=None,
-                contract_digest=None,
-                tool_count=None,
-                transport_loss_count=0,
-                last_transport_event=None,
-                expires_at_monotonic=now + self.idle_seconds,
-                slot_held=True,
-                contract_verified=False,
-                rehydrated=False,
-            )
-            return True
-
-    def confirm_validated_tool_call(
-        self,
-        session_id: str,
-        *,
-        client_id: str,
-        client_version: str,
-        protocol_version: str,
-        catalog_hash: str | None = None,
-        contract_digest: str | None = None,
-        tool_count: int | None = None,
-    ) -> bool:
-        """Atomically record evidence from the SDK-validated ``call_tool`` handler."""
-
-        key = str(session_id or "").strip()
-        if not key:
-            return False
-        now = time.monotonic()
-        timestamp = _utc_now()
-        with self._lock:
-            self._purge(now)
-            item = self._sessions.get(key)
-            rehydrated = item is None
-            if item is None:
-                if self._active_slots_locked() >= self.max_sessions:
-                    return False
-                item = _HttpSession(
-                    session_id=key,
-                    client_id=" ".join(str(client_id or "unknown").split())[:64] or "unknown",
-                    client_version=" ".join(str(client_version or "unknown").split())[:64] or "unknown",
-                    protocol_version=str(protocol_version or "unknown")[:32],
-                    state="initialized",
-                    created_at=timestamp,
-                    updated_at=timestamp,
-                    last_request="session_rehydrated",
-                    catalog_hash=None,
-                    contract_digest=None,
-                    tool_count=None,
-                    transport_loss_count=0,
-                    last_transport_event=None,
-                    expires_at_monotonic=now + self.idle_seconds,
-                    slot_held=True,
-                    contract_verified=False,
-                    rehydrated=True,
-                )
-                self._sessions[key] = item
-            elif not item.slot_held:
-                if self._active_slots_locked() >= self.max_sessions:
-                    return False
-                item.slot_held = True
-            item.updated_at = timestamp
-            item.last_request = "tools/call"
-            item.state = "healthy"
-            item.catalog_hash = catalog_hash or item.catalog_hash
-            item.contract_digest = contract_digest or item.contract_digest
-            # A recovered SDK session has no initialize/clientInfo evidence;
-            # its digest is telemetry only and must not be used as drift proof.
-            if not rehydrated and contract_digest:
-                item.contract_verified = True
-            if isinstance(tool_count, int) and tool_count >= 0:
-                item.tool_count = min(tool_count, 128)
-            item.expires_at_monotonic = now + self.idle_seconds
-            return True
-
-    def touch(
-        self,
-        session_id: str,
-        *,
-        method: str,
-        catalog_hash: str | None = None,
-        contract_digest: str | None = None,
-        tool_count: int | None = None,
-    ) -> None:
-        key = str(session_id or "").strip()
-        now = time.monotonic()
-        with self._lock:
-            self._purge(now)
-            item = self._sessions.get(key)
-            if item is None or method == "tools/call":
-                return
-            if not item.slot_held:
-                if self._active_slots_locked() >= self.max_sessions:
-                    return
-                item.slot_held = True
-            item.updated_at = _utc_now()
-            item.last_request = str(method or "unknown")[:96]
-            item.expires_at_monotonic = now + self.idle_seconds
-            if method == "tools/list":
-                item.state = "catalog_ready"
-                item.catalog_hash = catalog_hash or item.catalog_hash
-                item.contract_digest = contract_digest or item.contract_digest
-                if contract_digest:
-                    item.contract_verified = True
-                if isinstance(tool_count, int) and tool_count >= 0:
-                    item.tool_count = min(tool_count, 128)
-
-    def mark_transport_loss(self, session_id: str, *, reason: str = "transport_lost") -> None:
-        """Keep a redacted recovery marker when the HTTP transport drops.
-
-        The MCP SDK owns transport teardown and may remove its internal session
-        after a broken send.  The BHM registry must retain only bounded,
-        non-sensitive evidence so diagnostics can distinguish a recoverable
-        transport loss from a clean DELETE or idle expiry.
-        """
-        key = str(session_id or "").strip()
-        if not key:
-            return
-        now = time.monotonic()
-        with self._lock:
-            self._purge(now)
-            item = self._sessions.get(key)
-            if item is None:
-                return
-            item.updated_at = _utc_now()
-            item.last_request = "transport_loss"
-            item.state = "pending"
-            item.slot_held = False
-            item.transport_loss_count = min(item.transport_loss_count + 1, 32)
-            item.last_transport_event = " ".join(str(reason or "transport_lost").split())[:64]
-            item.expires_at_monotonic = now + self.idle_seconds
-            self._wake_next_locked()
-
-    def release(self, session_id: str) -> None:
-        with self._lock:
-            self._sessions.pop(str(session_id or "").strip(), None)
-            self._wake_next_locked()
-
-    def reset(self) -> None:
-        with self._lock:
-            self._sessions.clear()
-            self._expired_count = 0
-            self._reservations = 0
-            while self._waiters:
-                waiter = self._waiters.popleft()
-                waiter.cancelled = True
-                waiter.event.set()
-
-    def snapshot(self, *, current_contract_digest: str | None = None) -> dict[str, Any]:
-        now = time.monotonic()
-        with self._lock:
-            self._purge(now)
-            rows = []
-            for item in sorted(self._sessions.values(), key=lambda value: value.created_at):
-                rows.append(
-                    {
-                        "session_ref": hashlib.sha256(item.session_id.encode("utf-8")).hexdigest()[:12],
-                        "client_id": item.client_id,
-                        "client_version": item.client_version,
-                        "protocol_version": item.protocol_version,
-                        "transport": "streamable_http",
-                        "state": item.state,
-                        "created_at": item.created_at,
-                        "updated_at": item.updated_at,
-                        "last_request": item.last_request,
-                        "catalog_hash": item.catalog_hash,
-                        "contract_digest": item.contract_digest,
-                        "tool_count": item.tool_count,
-                        "transport_loss_count": item.transport_loss_count,
-                        "last_transport_event": item.last_transport_event,
-                        "active": item.slot_held,
-                        "contract_state": (
-                            "unverified"
-                            if item.rehydrated or not item.contract_verified or not item.contract_digest
-                            else "aligned"
-                            if not current_contract_digest or item.contract_digest == current_contract_digest
-                            else "drifted"
-                        ),
-                        "lease_remaining_seconds": round(
-                            max(0.0, item.expires_at_monotonic - now),
-                            3,
-                        ),
-                    }
-                )
-            attached = sum(item["state"] in {"catalog_ready", "healthy"} for item in rows)
-            pending = len(rows) - attached
-            contract_drift = sum(item["contract_state"] == "drifted" for item in rows)
-            queued = len(self._waiters)
-            active = sum(item["active"] for item in rows)
-            return {
-                "schema_version": SCHEMA_VERSION,
-                "authoritative_source": "streamable_http_sessions",
-                "status": "attached" if attached else ("pending" if pending else "detached"),
-                "attached_count": attached,
-                "active_count": active,
-                "reserved_count": self._reservations,
-                "queued_count": queued,
-                "pending_count": pending + queued,
-                "session_count": len(rows),
-                "contract_drift_count": contract_drift,
-                "expired_count": self._expired_count,
-                "max_sessions": self.max_sessions,
-                "idle_seconds": self.idle_seconds,
-                "sessions": rows,
-            }
 
 
 class _StreamableHttpAsgiApp:
@@ -906,11 +509,14 @@ class BhmStreamableHttpGateway:
 __all__ = [
     "BhmStreamableHttpGateway",
     "DEFAULT_DISPATCH_TIMEOUT_SECONDS",
+    "DEFAULT_MAX_BODY_BYTES",
     "DEFAULT_MAX_CONCURRENT_CALLS",
-    "DEFAULT_SESSION_IDLE_SECONDS",
+    "DEFAULT_MAX_SESSIONS",
     "DEFAULT_RETRY_INTERVAL_MS",
+    "DEFAULT_SESSION_IDLE_SECONDS",
     "HttpMcpSessionRegistry",
+    "JsonRpcDispatcher",
     "SCHEMA_VERSION",
-    "TRANSPORT_CONTRACT_SCHEMA_VERSION",
     "StreamableHttpContractError",
+    "TRANSPORT_CONTRACT_SCHEMA_VERSION",
 ]
