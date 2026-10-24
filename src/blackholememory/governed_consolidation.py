@@ -447,3 +447,7 @@ def apply_approved_proposal(*, database_path: Path | str, proposal_id: str, proj
 __all__ = [
     "GOVERNED_CONSOLIDATION_ANALYZER", "GOVERNED_CONSOLIDATION_CAPABILITY_KEY", "GOVERNED_CONSOLIDATION_CAPABILITY_VERSION", "GOVERNED_CONSOLIDATION_SCHEMA_VERSION", "GovernedApplyResult", "GovernedConsolidationApprovalRequired", "GovernedConsolidationDisabled", "GovernedConsolidationError", "GovernedConsolidationMigrationRequired", "GovernedConsolidationRepository", "GovernedConsolidationStale", "analyze_records", "apply_approved_proposal", "build_proposal", "dry_run_apply", "runtime_enabled", "runtime_status", "validate_proposal_current",
 ]
+
+from .governed_consolidation_base import (  # noqa: E402,F401
+    validate_semantic_operator_attestation as validate_semantic_operator_attestation,
+)

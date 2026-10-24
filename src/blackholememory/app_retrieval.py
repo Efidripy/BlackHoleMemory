@@ -1062,3 +1062,8 @@ def register(app) -> None:
     app.get("/bhm/utility-feedback/report")(bhm_utility_feedback_report)
     app.get("/bhm/utility-feedback/consolidation-preview")(bhm_utility_feedback_consolidation_preview)
     app.post("/bhm/context-tier-promotion/rollback")(bhm_context_tier_promotion_rollback)
+
+from .app_retrieval_context import (  # noqa: E402,F401
+    _tier_budget_for_context as _tier_budget_for_context,
+    _tier_for_context_hit as _tier_for_context_hit,
+)

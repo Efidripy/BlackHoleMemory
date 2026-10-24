@@ -411,3 +411,13 @@ def build_git_symbol_impact_evidence(
 
 
 __all__ = ["CHANGE_IMPACT_SCHEMA_VERSION", "IMPACT_BINDING_SCHEMA_VERSION", "IMPACT_PREVIEW_RESPONSE_BOUNDS_SCHEMA_VERSION", "IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES", "DIFF_HUNK_SUMMARY_SCHEMA_VERSION", "GIT_HISTORY_CORRELATION_SCHEMA_VERSION", "ChangeImpactError", "bound_change_impact_preview_response", "build_change_impact_preview", "build_impact_binding_receipt", "build_cross_repo_history_preview", "build_git_history_correlation_receipt", "build_git_symbol_impact_evidence", "collect_git_change_paths", "collect_git_diff_hunks", "collect_git_history_stats", "correlate_diff_hunks_to_symbols", "correlate_git_history_to_symbols", "summarize_diff_hunks"]
+
+from .change_impact_base import (  # noqa: E402,F401
+    IMPACT_EDGE_KINDS as IMPACT_EDGE_KINDS,
+    MAX_CROSS_REPOSITORIES as MAX_CROSS_REPOSITORIES,
+    MAX_CROSS_REPO_LINKS as MAX_CROSS_REPO_LINKS,
+    MAX_HISTORY_RECEIPT_PATHS as MAX_HISTORY_RECEIPT_PATHS,
+    MAX_IMPACT_NODES as MAX_IMPACT_NODES,
+    MAX_TEST_PATHS as MAX_TEST_PATHS,
+    MIN_CONFIDENCE as MIN_CONFIDENCE,
+)
