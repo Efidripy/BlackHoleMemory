@@ -56,7 +56,7 @@ REDACTION_SINKS = (
     SinkExpectation("llm-ingress", "redaction", "llm_job_sqlite", "src/blackholememory/llm_routes_jobs.py", "sanitized_before_write", ("sanitize_llm_value", "stored_payload"), "tests/unit/test_llm_safety.py"),
     SinkExpectation("llm-proposal", "redaction", "llm_output", "src/blackholememory/llm_safety.py", "recursive_sanitized", ("def build_proposal_envelope", "sanitize_llm_value(output"), "tests/unit/test_llm_safety.py"),
     SinkExpectation("langgraph-checkpoint", "redaction", "checkpoint_sqlite", "src/blackholememory/langgraph_checkpoint.py", "sanitized_before_write", ("self._dump(_redact(values[channel]", "self._dump(_redact(value, key=channel_name))"), "tests/unit/test_langgraph_checkpoint.py"),
-    SinkExpectation("source-registry", "redaction", "json_file", "src/blackholememory/source_registry.py", "sanitized_before_write", ("_redact_persisted_payload", "_redact_source_url"), "tests/unit/test_source_registry_web_transport.py"),
+    SinkExpectation("source-registry", "redaction", "json_file", "src/blackholememory/source_registry_base.py", "sanitized_before_write", ("_redact_persisted_payload", "_redact_source_url"), "tests/unit/test_source_registry_web_transport.py"),
     SinkExpectation("mcp-broker", "redaction", "mcp_error", "src/blackholememory/infra/mcp_broker.py", "text_redacted", ("redact_secret_text",), "tests/unit/test_mcp_broker_limits.py"),
 )
 
