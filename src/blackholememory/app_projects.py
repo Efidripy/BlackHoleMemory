@@ -475,9 +475,25 @@ def bhm_project_similarity_report(request: ProjectSimilarityReportRequest, http_
     return _project_similarity_report(request)
 
 
+_DEFAULT_FALLBACK_MEMORY_RECORDS = app_core_hit._fallback_memory_records
+
+
+def _count_profile_records(project: str) -> int:
+    if app_core_hit._fallback_memory_records is not _DEFAULT_FALLBACK_MEMORY_RECORDS:
+        return len(app_core_hit._fallback_memory_records(project=project, include_logs=True))
+    try:
+        return rt._memory_service().count_records(
+            project=rt._canonical_project(project),
+            include_archived=False,
+            exclude_event_role="trace",
+        )
+    except Exception:
+        return len(app_core_hit._fallback_memory_records(project=project, include_logs=True))
+
+
 async def bhm_profile(project: str = "e-github-workspace") -> dict:
-    memory_records, policy_snapshot, registry_snapshot = await asyncio.gather(
-        asyncio.to_thread(app_core_hit._fallback_memory_records, project=project, include_logs=True),
+    memory_count, policy_snapshot, registry_snapshot = await asyncio.gather(
+        asyncio.to_thread(_count_profile_records, project=project),
         asyncio.to_thread(app_core_hook._load_policy_profile_snapshot),
         asyncio.to_thread(_load_mcp_registry_snapshot),
     )
@@ -526,8 +542,8 @@ async def bhm_profile(project: str = "e-github-workspace") -> dict:
         },
         "profile": {
             "project": project,
-            "sessionCount": len(memory_records),
-            "memoryCount": len(memory_records),
+            "sessionCount": memory_count,
+            "memoryCount": memory_count,
             "source": "live-memory-snapshot",
         },
     }
