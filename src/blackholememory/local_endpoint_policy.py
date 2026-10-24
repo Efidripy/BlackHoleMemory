@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import threading
 import urllib.error
 import urllib.request
 from typing import Any
@@ -152,6 +153,27 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     http_error_308 = _reject
 
 
+_DEFAULT_BUILD_OPENER = urllib.request.build_opener
+_LOCAL_OPENER: urllib.request.OpenerDirector | None = None
+_LOCAL_OPENER_LOCK = threading.Lock()
+
+
+def _get_local_opener() -> urllib.request.OpenerDirector:
+    global _LOCAL_OPENER
+    if urllib.request.build_opener is not _DEFAULT_BUILD_OPENER:
+        return urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            _NoRedirectHandler(),
+        )
+    if _LOCAL_OPENER is None:
+        with _LOCAL_OPENER_LOCK:
+            if _LOCAL_OPENER is None:
+                _LOCAL_OPENER = urllib.request.build_opener(
+                    urllib.request.ProxyHandler({}),
+                    _NoRedirectHandler(),
+                )
+    return _LOCAL_OPENER
+
 def open_local_url(
     request: urllib.request.Request,
     *,
@@ -180,10 +202,7 @@ def open_local_url(
         ):
             raise LocalEndpointError("local-only request target differs from configured endpoint")
     pinned_request = _pin_request_host(request)
-    opener = urllib.request.build_opener(
-        urllib.request.ProxyHandler({}),
-        _NoRedirectHandler(),
-    )
+    opener = _get_local_opener()
     return opener.open(pinned_request, timeout=timeout)
 
 

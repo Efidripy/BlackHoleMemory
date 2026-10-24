@@ -108,6 +108,18 @@ class TelemetryRequestState:
 _TELEMETRY_REQUEST_STATE = TelemetryRequestState()
 
 
+_TELEMETRY_POOL: ThreadPoolExecutor | None = None
+_TELEMETRY_POOL_LOCK = threading.Lock()
+
+
+def _get_telemetry_pool() -> ThreadPoolExecutor:
+    global _TELEMETRY_POOL
+    if _TELEMETRY_POOL is None:
+        with _TELEMETRY_POOL_LOCK:
+            if _TELEMETRY_POOL is None:
+                _TELEMETRY_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="bhm-launcher-telemetry")
+    return _TELEMETRY_POOL
+
 def fetch_telemetry(project: str | None = None) -> dict[str, str]:
     global _LAST_TELEMETRY
     project_name = _launcher.validate_launcher_project(project or _launcher.resolve_launcher_project())
@@ -136,8 +148,8 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
             _launcher._TELEMETRY_REQUEST_STATE.record_result(path, result)
         return key, result
 
-    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="bhm-launcher-telemetry") as pool:
-        results = dict(pool.map(execute, requests.items()))
+    pool = _get_telemetry_pool()
+    results = dict(pool.map(execute, requests.items()))
 
     launcher = results["launcher"].data
     graph = results["graph"].data
