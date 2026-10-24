@@ -188,7 +188,8 @@ def test_direct_qdrant_client_uses_shared_sdk_timeout(monkeypatch) -> None:
         def __init__(self, **kwargs):
             captured.update(kwargs)
 
-    monkeypatch.setattr(mem0_adapter, "QdrantClient", FakeClient)
+    import qdrant_client  # get_qdrant_client imports the SDK lazily
+    monkeypatch.setattr(qdrant_client, "QdrantClient", FakeClient)
     monkeypatch.setattr(mem0_adapter, "_qdrant_connection_config", lambda: {"url": "http://127.0.0.1:6333"})
     mem0_adapter.get_qdrant_client.cache_clear()
     try:
