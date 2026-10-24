@@ -149,14 +149,13 @@ def _build_worker(config, *, openai_base_url: str | None = None):
     repository = SQLiteMemoryRepository(config.database_path)
     repository.initialize()
     client = get_qdrant_client()
-    embedding_models: dict[str, Any] = {}
+    shared_embedding_model: Any = None
 
     def vectorizer(memory):
-        model = embedding_models.get(memory.project)
-        if model is None:
-            model = get_project_mem0_memory(memory.project).embedding_model
-            embedding_models[memory.project] = model
-        return model.embed(memory.current_revision.content, "add")
+        nonlocal shared_embedding_model
+        if shared_embedding_model is None:
+            shared_embedding_model = get_project_mem0_memory(memory.project).embedding_model
+        return shared_embedding_model.embed(memory.current_revision.content, "add")
 
     def ensure_collection(collection_name: str) -> None:
         if client.collection_exists(collection_name):

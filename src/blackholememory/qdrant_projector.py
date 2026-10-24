@@ -12,13 +12,13 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from qdrant_client.http import models as qdrant_models
 
 from .config import settings
 from .domain import Lifecycle
 from .domain import Memory
 from .mem0_adapter import global_collection_name
 from .mem0_adapter import local_collection_name
+from .mem0_adapter import qdrant_models
 from .outbox import OutboxEvent
 from .vector_routing import route_vector_targets
 from .temporal_contract import temporal_contract_enabled

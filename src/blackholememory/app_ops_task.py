@@ -77,7 +77,6 @@ def _retention_policy_path() -> Path:
     configured = os.getenv("BHM_RETENTION_POLICY_PATH", "").strip()
     return Path(configured).expanduser() if configured else settings.repo_root / "config" / "retention-policy.json"
 
-
 def _websocket_origin_is_allowed(websocket: WebSocket, *, require_exact_origin: bool) -> bool:
     return websocket_origin_is_allowed(
         host_header=websocket.headers.get("host"),
@@ -86,12 +85,27 @@ def _websocket_origin_is_allowed(websocket: WebSocket, *, require_exact_origin: 
         require_exact_origin=require_exact_origin,
 )
 
+_graph: Any = None
 
-graph = build_graph()
+def _get_graph() -> Any:
 
+    global _graph
+
+    if _graph is None:
+
+        _graph = build_graph()
+
+    return _graph
+
+def __getattr__(name: str) -> Any:
+
+    if name == "graph":
+
+        return _get_graph()
+
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 STATIC_DIR = Path(__file__).parent / "static"
-
 
 def _request_ingress(request: Request) -> IngressKind:
     """Downgrade the known MCP bridge; callers do not select their trust class."""
@@ -167,7 +181,6 @@ def _create_adr(request: AdrCreateRequest) -> tuple[str, dict]:
     app_ops_task2._save_adrs(items)
     return action, record
 
-
 def _list_adrs(project: str | None, limit: int, offset: int) -> tuple[list[dict], int]:
     items = app_ops_task2._load_adrs()
     if project:
@@ -177,8 +190,6 @@ def _list_adrs(project: str | None, limit: int, offset: int) -> tuple[list[dict]
     start = max(offset, 0)
     end = start + max(min(limit, 200), 1)
     return items[start:end], total
-
-
 
 def _recent_failures_feed(request: RecentFailuresFeedRequest) -> dict:
     project = rt._canonical_project(request.project) if request.project else None
@@ -197,7 +208,6 @@ def _recent_failures_feed(request: RecentFailuresFeedRequest) -> dict:
     failures.sort(key=lambda item: item["artifact"].get("updated_at") or item["artifact"].get("created_at") or "", reverse=True)
     return {"project": project, "items": failures[: max(min(request.limit, 200), 1)]}
 
-
 def index() -> FileResponse:
     return FileResponse(
         STATIC_DIR / "index.html",
@@ -208,31 +218,23 @@ def index() -> FileResponse:
         },
     )
 
-
 def favicon_ico() -> FileResponse:
     return FileResponse(STATIC_DIR / "bhm-favicon.svg", media_type="image/svg+xml")
-
 
 def favicon_svg() -> FileResponse:
     return FileResponse(STATIC_DIR / "bhm-favicon.svg", media_type="image/svg+xml")
 
-
 def redoc_bundle() -> FileResponse:
     return FileResponse(STATIC_DIR / "redoc.standalone.js", media_type="application/javascript")
-
 
 def force_graph_bundle() -> FileResponse:
     return FileResponse(STATIC_DIR / "3d-force-graph.min.js", media_type="application/javascript")
 
-
-
 def three_module_bundle() -> FileResponse:
     return FileResponse(STATIC_DIR / "three.module.min.js", media_type="application/javascript")
 
-
 def three_core_bundle() -> FileResponse:
     return FileResponse(STATIC_DIR / "three.core.min.js", media_type="application/javascript")
-
 
 def local_redoc() -> HTMLResponse:
     html = f"""<!DOCTYPE html>
@@ -258,7 +260,6 @@ def local_redoc() -> HTMLResponse:
 </html>"""
     return HTMLResponse(html)
 
-
 def _convention_memory_preview_response(request: ConventionMemoryPreviewRequest) -> dict[str, Any]:
     project = rt._canonical_project(request.project)
     database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
@@ -274,7 +275,6 @@ def _convention_memory_preview_response(request: ConventionMemoryPreviewRequest)
         detail = redact_secret_text(str(exc)).value[:500]
         status_code = 503 if "unavailable" in detail.casefold() else 422
         raise HTTPException(status_code=status_code, detail={"error": "convention_preview_rejected", "detail": detail}) from exc
-
 
 def bhm_conventions_preview(request: ConventionMemoryPreviewRequest) -> dict[str, Any]:
     """Internal read-only convention/architecture-memory preview."""
@@ -350,7 +350,7 @@ def bhm_security_trust_boundary_preview(request: SecurityTrustBoundaryPreviewReq
 
 
 def graph_status() -> dict:
-    state = graph.invoke({"action": "status"})
+    state = _get_graph().invoke({"action": "status"})
     return {"ok": True, "state": state}
 
 
