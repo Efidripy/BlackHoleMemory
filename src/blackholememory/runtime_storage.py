@@ -12,22 +12,26 @@ import os
 import sqlite3
 import threading
 import time
-from dataclasses import asdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
-from typing import Mapping
+from typing import Any, Mapping
 
-from .filesystem_boundaries import FilesystemBoundaryError
-from .filesystem_boundaries import assert_safe_path
-from .memory_repository import FRESHNESS_SCHEMA_TABLES as MEMORY_STORE_FRESHNESS_SCHEMA_TABLES
-from .memory_repository import GOVERNED_CONSOLIDATION_SCHEMA_TABLES as MEMORY_STORE_GOVERNED_CONSOLIDATION_SCHEMA_TABLES
-from .memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_TABLES as MEMORY_STORE_PROJECTION_GENERATION_BINDING_SCHEMA_TABLES
-from .memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_VERSION
-from .memory_repository import SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS
+from .filesystem_boundaries import FilesystemBoundaryError, assert_safe_path
+from .memory_repository import (
+    FRESHNESS_SCHEMA_TABLES as MEMORY_STORE_FRESHNESS_SCHEMA_TABLES,
+)
+from .memory_repository import (
+    GOVERNED_CONSOLIDATION_SCHEMA_TABLES as MEMORY_STORE_GOVERNED_CONSOLIDATION_SCHEMA_TABLES,
+)
+from .memory_repository import (
+    PROJECTION_GENERATION_BINDING_SCHEMA_TABLES as MEMORY_STORE_PROJECTION_GENERATION_BINDING_SCHEMA_TABLES,
+)
+from .memory_repository import (
+    PROJECTION_GENERATION_BINDING_SCHEMA_VERSION,
+    SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS,
+)
 from .resource_limits import SQLITE_READINESS_PROBE_TIMEOUT_SECONDS
-
 
 RUNTIME_MEMORY_STORE_ENV = "BHM_MEMORY_STORE_MODE"
 MEMORY_STORE_PATH_ENV = "BHM_MEMORY_STORE_PATH"

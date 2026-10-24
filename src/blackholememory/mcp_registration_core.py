@@ -6,7 +6,6 @@ from typing import Any
 
 from .mcp_surfaces import CORE_TOOL_NAMES
 
-
 GROUP_NAME = "core"
 
 

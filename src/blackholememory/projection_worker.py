@@ -5,13 +5,11 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any
-from typing import Callable
+from typing import Any, Callable
 from uuid import uuid4
 
 from .outbox import utc_now_iso
-from .qdrant_projector import ProjectorRunResult
-from .qdrant_projector import QdrantProjector
+from .qdrant_projector import ProjectorRunResult, QdrantProjector
 from .runtime_storage import ProjectionWorkerConfig
 
 

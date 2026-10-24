@@ -5,8 +5,16 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from ._common import PARSER_REGISTRY, _IGNORED_CALLS, _ROUTE_METHODS, _clip, _node, _symbol_node_key
+from ._common import (
+    _IGNORED_CALLS,
+    _ROUTE_METHODS,
+    PARSER_REGISTRY,
+    _clip,
+    _node,
+    _symbol_node_key,
+)
 from .draft import _GraphDraft
+
 
 def _ast_name(node: ast.AST | None) -> str:
     if isinstance(node, ast.Name):

@@ -6,8 +6,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable
-from typing import Iterator
+from typing import Callable, Iterator
 
 
 class ValidationBudgetExceeded(RuntimeError):

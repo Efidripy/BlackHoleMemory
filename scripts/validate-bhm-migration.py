@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import json
 import os
@@ -12,12 +10,14 @@ import sys
 import tempfile
 from pathlib import Path
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
-from blackholememory.migration_compatibility import build_migration_preview
-from blackholememory.migration_compatibility import compute_source_hash
-from blackholememory.migration_compatibility import verify_migration_digest
-
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.migration_compatibility import (
+    build_migration_preview,
+    compute_source_hash,
+    verify_migration_digest,
+)
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-migration.py"

@@ -15,7 +15,6 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-
 TEXT_SUFFIXES = {
     ".bat",
     ".cmd",

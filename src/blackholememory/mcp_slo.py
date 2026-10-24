@@ -10,7 +10,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-
 SCHEMA_VERSION = "bhm.mcp.slo-error-budget.v1"
 TARGETS = {
     "cold_initialize_catalog_p95_ms": 5_000.0,

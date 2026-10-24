@@ -17,6 +17,7 @@ from .repository_index_snapshots import (
     _snapshot_digest_files,
 )
 from .repository_index_types import (
+    _REPOSITORY_INDEX_TABLES,
     REPOSITORY_INDEX_BUSY_TIMEOUT_MS,
     REPOSITORY_INDEX_SCHEMA_VERSION,
     REPOSITORY_INDEX_STORE_SCHEMA_VERSION,
@@ -26,7 +27,6 @@ from .repository_index_types import (
     RepositorySkip,
     RepositorySourceProvenance,
     RepositoryState,
-    _REPOSITORY_INDEX_TABLES,
     _canonical_json,
     _clip,
     _sha256_file,

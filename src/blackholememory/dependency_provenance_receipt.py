@@ -7,7 +7,6 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
-
 DEPENDENCY_PROVENANCE_RECEIPT_SCHEMA_VERSION = "bhm.dependency-provenance-receipt.v1"
 
 

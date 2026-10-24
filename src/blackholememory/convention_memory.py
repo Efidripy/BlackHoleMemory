@@ -18,13 +18,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .code_graph import CODE_GRAPH_EXTRACTOR_VERSION
-from .code_graph import CODE_GRAPH_SCHEMA_VERSION
-from .code_graph import SQLiteCodeGraphStore
+from .code_graph import (
+    CODE_GRAPH_EXTRACTOR_VERSION,
+    CODE_GRAPH_SCHEMA_VERSION,
+    SQLiteCodeGraphStore,
+)
 from .filesystem_boundaries import assert_safe_path
 from .repository_index import SQLiteRepositoryIndexStore
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
-
 
 CONVENTION_SCHEMA_VERSION = "bhm.repository-conventions.v1"
 CONVENTION_STORE_SCHEMA_VERSION = 1

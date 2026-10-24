@@ -20,7 +20,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 POLICY_SCHEMA = "bhm.local-artifact-retention-policy.v1"
 DEFAULT_POLICY = Path(__file__).resolve().parents[1] / "config" / "local-artifact-retention-policy.json"
 

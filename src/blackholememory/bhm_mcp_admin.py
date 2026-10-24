@@ -1,25 +1,27 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
+
 from pydantic import Field
 
 from . import bhm_mcp_base as _base
 from .bhm_mcp_base import (
-    BhmBatchLinkItem,
-    BhmBatchUpsertItem,
     DEFAULT_PROJECT,
     TAXONOMY_METADATA_HINT,
-    _jsonable_or_text,
-    _metadata_payload,
-    _parse_csv,
-    _batch_link_item_payload,
-    _batch_upsert_item_payload,
-    _mcp_authority_rejection,
-    mcp,
+    BhmBatchLinkItem,
+    BhmBatchUpsertItem,
     MemoryClass,
     MemoryEventRole,
     MemoryMetadata,
+    _batch_link_item_payload,
+    _batch_upsert_item_payload,
+    _jsonable_or_text,
+    _mcp_authority_rejection,
+    _metadata_payload,
+    _parse_csv,
+    mcp,
 )
+
 
 @mcp.tool(name="bhm_query_suggestions", description="Suggest useful memory queries for a project based on current live-memory contents.")
 def bhm_query_suggestions(project: str | None = None) -> dict[str, Any]:

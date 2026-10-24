@@ -17,7 +17,6 @@ from typing import Any
 
 from .observation_security import contains_secret_like
 
-
 REGISTRY_SCHEMA_VERSION = "bhm.ecosystem-registry.v1"
 CAPTURE_SCHEMA_VERSION = "bhm.ecosystem-source-capture.v1"
 AUDIT_SCHEMA_VERSION = "bhm.ecosystem-audit-queue.v1"

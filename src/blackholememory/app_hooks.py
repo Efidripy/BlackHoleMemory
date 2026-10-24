@@ -9,43 +9,59 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from fastapi import HTTPException
-from fastapi import Request
-from pydantic import BaseModel
-from . import app_runtime as rt
-from .app_runtime import _env_float, _env_int, _safe_exception_text, _safe_json_list, _write_json_atomic
-from .api_models import FactCrystalDomain, FactCrystalPriority, FactCrystalSemanticType, SearchRequest, MemoryCrystallizeRequest, FactSynthesisRequest, SessionCapturePreviewRequest, FactCrystal, BhmMatchSearchRequest, LessonRequest, LessonStrengthenRequest, BhmHookCompactRequest, BhmHookIdleRequest
-from .config import settings
-from .llm_gateway import GatewayRequest
-from .llm_gateway import LocalLLMGateway
-from .llm_gateway import LocalOpenAICompatibleAdapter
-from .llm_gateway import ModelDefinition
-from .llm_gateway import ModelRegistry
-from .llm_gateway import PromptDefinition
-from .llm_gateway import PromptRegistry
-from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
-from .ingress_admission import IngressKind
-from .mem0_adapter import initial_decay_metadata
-from .mem0_adapter import normalize_importance_score
-from .context_tier_lifecycle import build_context_tier_lifecycle_receipt
-from .hook_queue import HookJobCollision
-from .hook_queue import HookQueueError
-from .hook_queue import HookQueueFull
-from .observation_contract import ObservationIngressV1
-from .observation_contract import build_observation_record
-from .observation_security import OBSERVATION_COMPACT_MAX_INPUT_BYTES
-from .observation_security import OBSERVATION_IDLE_MAX_INPUT_BYTES
-from .observation_security import OBSERVATION_MAX_INPUT_BYTES
-from .observation_security import ObservationPayloadTooLarge
-from .observation_security import redact_secret_text
-from .observation_security import secure_observation_payload
-from .session_capture import SessionCaptureError
-from .session_capture import build_session_capture_preview
-from . import app_core_fallback
-from . import app_core_hook
-from . import app_core
-from . import app_retrieval
 
+from fastapi import HTTPException, Request
+from pydantic import BaseModel
+
+from . import app_core, app_core_fallback, app_core_hook, app_retrieval
+from . import app_runtime as rt
+from .api_models import (
+    BhmHookCompactRequest,
+    BhmHookIdleRequest,
+    BhmMatchSearchRequest,
+    FactCrystal,
+    FactCrystalDomain,
+    FactCrystalPriority,
+    FactCrystalSemanticType,
+    FactSynthesisRequest,
+    LessonRequest,
+    LessonStrengthenRequest,
+    MemoryCrystallizeRequest,
+    SearchRequest,
+    SessionCapturePreviewRequest,
+)
+from .app_runtime import (
+    _env_float,
+    _env_int,
+    _safe_exception_text,
+    _safe_json_list,
+    _write_json_atomic,
+)
+from .config import settings
+from .context_tier_lifecycle import build_context_tier_lifecycle_receipt
+from .hook_queue import HookJobCollision, HookQueueError, HookQueueFull
+from .ingress_admission import IngressKind
+from .llm_gateway import (
+    GatewayRequest,
+    LocalLLMGateway,
+    LocalOpenAICompatibleAdapter,
+    ModelDefinition,
+    ModelRegistry,
+    PromptDefinition,
+    PromptRegistry,
+)
+from .mem0_adapter import initial_decay_metadata, normalize_importance_score
+from .observation_contract import ObservationIngressV1, build_observation_record
+from .observation_security import (
+    OBSERVATION_COMPACT_MAX_INPUT_BYTES,
+    OBSERVATION_IDLE_MAX_INPUT_BYTES,
+    OBSERVATION_MAX_INPUT_BYTES,
+    ObservationPayloadTooLarge,
+    redact_secret_text,
+    secure_observation_payload,
+)
+from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
+from .session_capture import SessionCaptureError, build_session_capture_preview
 
 _HOOK_QUEUE_MAX_ATTEMPTS = _env_int("BHM_HOOK_QUEUE_MAX_ATTEMPTS", 3, 1)
 

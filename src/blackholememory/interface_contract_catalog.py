@@ -13,7 +13,6 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-
 SCHEMA_VERSION = "bhm.interface-contract-catalog.v1"
 MAX_ENTRIES = 512
 _SIDE_EFFECTS = {"read-only", "sqlite-authority", "projection-only", "operator-confirmed"}

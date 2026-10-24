@@ -11,23 +11,23 @@ from typing import Any, Iterable
 
 import psutil
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 # ruff: noqa: E402
-from blackholememory.data_hygiene import DataHygieneError
-from blackholememory.data_hygiene import load_data_hygiene_policy
-from blackholememory.data_hygiene import plan_data_hygiene
-from blackholememory.data_hygiene import prepare_data_hygiene
-from blackholememory.data_hygiene import purge_data_hygiene
-from blackholememory.data_hygiene import restore_data_hygiene
-from blackholememory.data_hygiene import verify_projection_absence
+from blackholememory.data_hygiene import (
+    DataHygieneError,
+    load_data_hygiene_policy,
+    plan_data_hygiene,
+    prepare_data_hygiene,
+    purge_data_hygiene,
+    restore_data_hygiene,
+    verify_projection_absence,
+)
 from blackholememory.local_endpoint_policy import validate_local_endpoint
 from blackholememory.runtime_endpoints import endpoint_parts
-
 
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 DEFAULT_POLICY = REPO_ROOT / "config" / "data-hygiene-policy.json"

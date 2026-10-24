@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from bhm_crystallize_worker_host import worker as _worker
 from bhm_crystallize_worker_base import MAX_PAYLOAD_CHARS, trim_text
+from bhm_crystallize_worker_host import worker as _worker
+
 
 def build_frequency_map(batch: _worker.JsonDict, max_record_chars: int, include_example_content: bool = True) -> _worker.JsonDict:
     pool = batch.get("pool_records") or batch["records"]

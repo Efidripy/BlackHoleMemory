@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-
 LLM_DELEGATION_POLICY_VERSION = "bhm.llm.delegation-policy.v1"
 LOCAL_CONFIDENCE_THRESHOLD = 0.72
 LOCAL_EVIDENCE_THRESHOLD = 1

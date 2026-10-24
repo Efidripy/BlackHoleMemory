@@ -6,10 +6,10 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .semantic_assurance_label_admission_base import (
-    SCHEMA_VERSION_V4,
-    SCHEMA_VERSION_V5,
     _REQUIRED_HUMAN_ISOLATION_KEYS,
     _REQUIRED_RISK_CLASSES,
+    SCHEMA_VERSION_V4,
+    SCHEMA_VERSION_V5,
     SemanticAssuranceLabelAdmissionError,
     _dataset_binding,
     _digest,
@@ -21,7 +21,6 @@ from .semantic_assurance_label_admission_base import (
     _validate_protocol,
     _validate_reviewers,
 )
-
 
 V5_READINESS_STRATA_DIAGNOSTIC_SCHEMA_VERSION = "bhm.semantic-assurance-v5-readiness-strata-diagnostic.v1"
 

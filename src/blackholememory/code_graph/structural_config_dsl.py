@@ -14,6 +14,7 @@ from ._common import (
 )
 from .draft import _GraphDraft
 
+
 def _is_starlark_path(path: str) -> bool:
     """Return true for Starlark/Bazel files without treating arbitrary BUILD names as code."""
 

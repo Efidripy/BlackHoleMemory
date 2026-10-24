@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import math
 import threading
-from collections import Counter
-from collections import deque
-from datetime import datetime
-from datetime import timezone
+from collections import Counter, deque
+from datetime import datetime, timezone
 from typing import Any
 
 from .retrieval_funnel import normalize_dimension
-
 
 LLM_TELEMETRY_SCHEMA_VERSION = 1
 DEFAULT_MAX_GROUPS = 64

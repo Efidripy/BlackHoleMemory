@@ -10,7 +10,6 @@ from typing import Any, Mapping, Sequence
 
 from .llm_safety import sanitize_llm_value
 
-
 DOCUMENTATION_FACTORY_SCHEMA_VERSION = "bhm.llm.documentation-factory.v1"
 DOCUMENTATION_FACTORY_MAX_DOCUMENTS = 64
 DOCUMENTATION_FACTORY_MAX_ASSETS = 32

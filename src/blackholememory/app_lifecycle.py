@@ -14,43 +14,104 @@ from typing import Any, Mapping
 
 from fastapi import Request
 
-from . import app_core
-from . import app_core_fallback
-from . import app_core_hook
+from . import app_core, app_core_fallback, app_core_hook
 from . import app_runtime as rt
 from .app_lifecycle_hooks import (
     _HOOK_QUEUE_BOOT_ID as _HOOK_QUEUE_BOOT_ID,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _HOOK_QUEUE_POLL_SECONDS as _HOOK_QUEUE_POLL_SECONDS,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _HOOK_QUEUE_RETRY_BASE_SECONDS as _HOOK_QUEUE_RETRY_BASE_SECONDS,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _HOOK_SCRIPT_MODULE_CACHE as _HOOK_SCRIPT_MODULE_CACHE,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _HOOK_SCRIPT_MODULE_LOCK as _HOOK_SCRIPT_MODULE_LOCK,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _HOOK_TRANSIT_ITEM_CHAR_LIMIT as _HOOK_TRANSIT_ITEM_CHAR_LIMIT,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _append_hook_observation as _append_hook_observation,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _apply_idle_duplicate_merge as _apply_idle_duplicate_merge,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _build_hook_crystallize_request as _build_hook_crystallize_request,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _execute_hook_job as _execute_hook_job,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _handle_compact_hook as _handle_compact_hook,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_compact_concepts as _hook_compact_concepts,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_compact_files as _hook_compact_files,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_item_text as _hook_item_text,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_job_heartbeat as _hook_job_heartbeat,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_job_log_context as _hook_job_log_context,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_job_result_summary as _hook_job_result_summary,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_queue_worker as _hook_queue_worker,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_text_or_none as _hook_text_or_none,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _hook_timestamp as _hook_timestamp,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _materialize_hook_transit_sources as _materialize_hook_transit_sources,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _merge_memories as _merge_memories,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _refresh_decay_scores_for_project as _refresh_decay_scores_for_project,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _repo_script_module as _repo_script_module,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _run_idle_graph_healer as _run_idle_graph_healer,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _run_idle_reflection_daemon as _run_idle_reflection_daemon,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _run_idle_reflection_pipeline as _run_idle_reflection_pipeline,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _start_hook_queue_workers as _start_hook_queue_workers,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _stop_hook_queue_workers as _stop_hook_queue_workers,  # noqa: F401
+)
+from .app_lifecycle_hooks import (
     _with_context_tier_lifecycle_receipt as _with_context_tier_lifecycle_receipt,  # noqa: F401
 )
-from .app_runtime import _MAX_CONCURRENT_WRITES, _env_float, _safe_exception_text, _write_json_atomic
+from .app_runtime import (
+    _MAX_CONCURRENT_WRITES,
+    _env_float,
+    _safe_exception_text,
+    _write_json_atomic,
+)
 from .local_endpoint_policy import open_local_url
 from .mcp_surfaces import resolve_mcp_surface
 from .mem0_adapter import (

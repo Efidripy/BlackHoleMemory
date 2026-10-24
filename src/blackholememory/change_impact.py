@@ -10,11 +10,11 @@ from typing import Any, Mapping, Sequence
 
 from .change_impact_base import (
     CHANGE_IMPACT_SCHEMA_VERSION,
+    DIFF_HUNK_SUMMARY_SCHEMA_VERSION,
+    GIT_HISTORY_CORRELATION_SCHEMA_VERSION,
     IMPACT_BINDING_SCHEMA_VERSION,
     IMPACT_PREVIEW_RESPONSE_BOUNDS_SCHEMA_VERSION,
     IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES,
-    DIFF_HUNK_SUMMARY_SCHEMA_VERSION,
-    GIT_HISTORY_CORRELATION_SCHEMA_VERSION,
     MAX_CHANGED_PATHS,
     MAX_DIFF_HUNKS,
     MAX_GIT_HISTORY_COMMITS,
@@ -30,7 +30,10 @@ from .change_impact_history import (
     correlate_diff_hunks_to_symbols,
     correlate_git_history_to_symbols,
 )
-from .change_impact_preview import bound_change_impact_preview_response, build_change_impact_preview
+from .change_impact_preview import (
+    bound_change_impact_preview_response,
+    build_change_impact_preview,
+)
 from .git_history_test_receipt import build_commit_symbol_test_history_receipt
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 

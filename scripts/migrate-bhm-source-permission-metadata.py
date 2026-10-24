@@ -15,7 +15,6 @@ from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
-
 REGISTRY_SCHEMA_V1 = "bhm.source-registry.v1"
 REGISTRY_SCHEMA_V2 = "bhm.source-registry.v2"
 MANIFEST_SCHEMA_V1 = "bhm.source-manifest.v1"

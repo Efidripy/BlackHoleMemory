@@ -5,12 +5,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
 import urllib.parse
 import urllib.request
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,11 +20,9 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.runtime_endpoints import endpoint_url
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.local_endpoint_policy import open_local_url, read_bounded_response
 from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
-
+from blackholememory.runtime_endpoints import endpoint_url
 
 DEFAULT_BASE_URL = endpoint_url("qdrant_http")
 # Compatibility name retained; the registry-backed operator bound is canonical.

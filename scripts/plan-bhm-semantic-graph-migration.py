@@ -9,8 +9,10 @@ from pathlib import Path
 
 from blackholememory.config import settings
 from blackholememory.mem0_adapter import SEMANTIC_GRAPH_PATH
-from blackholememory.semantic_graph_migration_plan import SemanticGraphMigrationPlanError
-from blackholememory.semantic_graph_migration_plan import build_live_semantic_graph_migration_plan
+from blackholememory.semantic_graph_migration_plan import (
+    SemanticGraphMigrationPlanError,
+    build_live_semantic_graph_migration_plan,
+)
 
 
 def main() -> int:

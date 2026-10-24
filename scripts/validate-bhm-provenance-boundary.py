@@ -9,8 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from blackholememory.provenance_boundary import build_provenance_boundary_report
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.provenance_boundary import build_provenance_boundary_report
 
 
 def main() -> int:

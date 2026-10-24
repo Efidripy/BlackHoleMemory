@@ -12,17 +12,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from blackholememory.code_graph import CODE_GRAPH_EXTRACTOR_VERSION  # noqa: E402
-from blackholememory.code_graph import CODE_GRAPH_SCHEMA_VERSION  # noqa: E402
-from blackholememory.code_graph import CODE_GRAPH_STORE_SCHEMA_VERSION  # noqa: E402
-from blackholememory.code_graph import PARSER_REGISTRY  # noqa: E402
-from blackholememory.code_graph import PARSER_REGISTRY_DIGEST  # noqa: E402
-from blackholememory.memory_repository import MEMORY_STORE_SCHEMA_VERSION  # noqa: E402
-from blackholememory.migration_compatibility import MIGRATION_COMPATIBILITY_SCHEMA_VERSION  # noqa: E402
-from blackholememory.retention import RETENTION_BACKUP_SCHEMA_VERSION  # noqa: E402
-from blackholememory.retention import RETENTION_POLICY_SCHEMA_VERSION  # noqa: E402
-from blackholememory.runtime_storage import _MEMORY_STORE_SCHEMA_VERSION  # noqa: E402
+from blackholememory.code_graph import (
+    CODE_GRAPH_EXTRACTOR_VERSION,  # noqa: E402
+    CODE_GRAPH_SCHEMA_VERSION,  # noqa: E402
+    CODE_GRAPH_STORE_SCHEMA_VERSION,  # noqa: E402
+    PARSER_REGISTRY,  # noqa: E402
+    PARSER_REGISTRY_DIGEST,  # noqa: E402
+)
 from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
+from blackholememory.memory_repository import MEMORY_STORE_SCHEMA_VERSION  # noqa: E402
+from blackholememory.migration_compatibility import (
+    MIGRATION_COMPATIBILITY_SCHEMA_VERSION,  # noqa: E402
+)
+from blackholememory.retention import (
+    RETENTION_BACKUP_SCHEMA_VERSION,  # noqa: E402
+    RETENTION_POLICY_SCHEMA_VERSION,  # noqa: E402
+)
+from blackholememory.runtime_storage import _MEMORY_STORE_SCHEMA_VERSION  # noqa: E402
 
 
 def _digest(value: object) -> str:

@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 VERSION_MANIFEST_PATH = "config/version-manifest.json"
 _SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 

@@ -10,10 +10,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from blackholememory.change_impact import build_git_symbol_impact_evidence
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 
 GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 

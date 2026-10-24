@@ -8,54 +8,62 @@ Build example:
 
 from __future__ import annotations
 
-import os  # noqa: F401
 import json  # noqa: F401
+import os  # noqa: F401
 import queue  # noqa: F401
 import re  # noqa: F401
 import shutil  # noqa: F401
 import stat  # noqa: F401
 import subprocess  # noqa: F401
 import sys
+import tempfile
 import threading  # noqa: F401
 import time  # noqa: F401
-import tempfile
 import urllib.error  # noqa: F401
 import urllib.request  # noqa: F401
 import webbrowser  # noqa: F401
-from datetime import datetime  # noqa: F401
 from dataclasses import dataclass  # noqa: F401
+from datetime import datetime  # noqa: F401
 from pathlib import Path  # noqa: F401
 from typing import Any, Callable  # noqa: F401
 from urllib.parse import parse_qs, quote, urlsplit, urlunsplit  # noqa: F401
 
-
-import psutil  # noqa: F401  (tests reach the shared module through launcher.psutil)
-
 import bhm_launcher_host
-from bhm_launcher_readiness import MAX_HTTP_BYTES  # noqa: F401
-from bhm_launcher_readiness import LocalEndpointError  # noqa: F401
-from bhm_launcher_readiness import open_local_url  # noqa: F401
-from bhm_launcher_readiness import probe_http  # noqa: F401
-from bhm_launcher_readiness import read_bounded_response  # noqa: F401
-from bhm_launcher_readiness import start_when_ready  # noqa: F401
-from bhm_launcher_config import load_settings as load_validated_launcher_settings  # noqa: F401
-from bhm_launcher_config import save_settings as save_validated_launcher_settings  # noqa: F401
-from bhm_launcher_theme import COLOR_CYAN  # noqa: F401
-from bhm_launcher_theme import COLOR_GREEN  # noqa: F401
-from bhm_launcher_theme import COLOR_RED  # noqa: F401
-from bhm_launcher_theme import COLOR_YELLOW  # noqa: F401
-from bhm_launcher_theme import build_qss
-from bhm_runtime_endpoints import endpoint_port
-from bhm_runtime_endpoints import endpoint_url
+import psutil  # noqa: F401  (tests reach the shared module through launcher.psutil)
+from bhm_launcher_config import (
+    load_settings as load_validated_launcher_settings,  # noqa: F401
+)
+from bhm_launcher_config import (
+    save_settings as save_validated_launcher_settings,  # noqa: F401
+)
+from bhm_launcher_readiness import (
+    MAX_HTTP_BYTES,  # noqa: F401
+    LocalEndpointError,  # noqa: F401
+    open_local_url,  # noqa: F401
+    probe_http,  # noqa: F401
+    read_bounded_response,  # noqa: F401
+    start_when_ready,  # noqa: F401
+)
+from bhm_launcher_theme import (
+    COLOR_CYAN,  # noqa: F401
+    COLOR_GREEN,  # noqa: F401
+    COLOR_RED,  # noqa: F401
+    COLOR_YELLOW,  # noqa: F401
+    build_qss,
+)
+from bhm_runtime_endpoints import endpoint_port, endpoint_url
+
 from blackholememory.filesystem_boundaries import append_bytes_safely  # noqa: F401
-from blackholememory.resource_limits import PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS
-from blackholememory.resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS
-from blackholememory.resource_limits import PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS  # noqa: F401
-from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_POLL_SECONDS
-from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LAUNCHER_TELEMETRY_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS
+from blackholememory.resource_limits import (
+    LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS,  # noqa: F401
+    LAUNCHER_SERVICE_READINESS_POLL_SECONDS,
+    LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS,
+    LAUNCHER_TELEMETRY_TIMEOUT_SECONDS,
+    LAUNCHER_UI_SESSION_MINT_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_LAUNCHER_INSTALL_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_OPERATOR_CONTROL_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS,
+)
 
 
 class PyQt6UnavailableError(RuntimeError):
@@ -169,36 +177,90 @@ def load_pyqt6() -> bool:
     global _PYQT6_IMPORT_ERROR
 
     try:
-        from PyQt6.QtCore import QLockFile as _QLockFile, QThread as _QThread, QTimer as _QTimer, Qt as _Qt, pyqtSignal as _pyqtSignal
+        from PyQt6.QtCore import QLockFile as _QLockFile
+        from PyQt6.QtCore import Qt as _Qt
+        from PyQt6.QtCore import QThread as _QThread
+        from PyQt6.QtCore import QTimer as _QTimer
+        from PyQt6.QtCore import pyqtSignal as _pyqtSignal
         from PyQt6.QtGui import (
             QAction as _QAction,
-            QColor as _QColor,
+        )
+        from PyQt6.QtGui import (
             QCloseEvent as _QCloseEvent,
+        )
+        from PyQt6.QtGui import (
+            QColor as _QColor,
+        )
+        from PyQt6.QtGui import (
             QIcon as _QIcon,
+        )
+        from PyQt6.QtGui import (
             QPainter as _QPainter,
+        )
+        from PyQt6.QtGui import (
             QPixmap as _QPixmap,
+        )
+        from PyQt6.QtGui import (
             QTextCursor as _QTextCursor,
         )
         from PyQt6.QtWidgets import (
             QApplication as _QApplication,
+        )
+        from PyQt6.QtWidgets import (
             QComboBox as _QComboBox,
+        )
+        from PyQt6.QtWidgets import (
             QFileDialog as _QFileDialog,
+        )
+        from PyQt6.QtWidgets import (
             QFrame as _QFrame,
+        )
+        from PyQt6.QtWidgets import (
             QGridLayout as _QGridLayout,
+        )
+        from PyQt6.QtWidgets import (
             QHBoxLayout as _QHBoxLayout,
+        )
+        from PyQt6.QtWidgets import (
             QLabel as _QLabel,
+        )
+        from PyQt6.QtWidgets import (
             QLineEdit as _QLineEdit,
+        )
+        from PyQt6.QtWidgets import (
             QMainWindow as _QMainWindow,
+        )
+        from PyQt6.QtWidgets import (
             QMenu as _QMenu,
+        )
+        from PyQt6.QtWidgets import (
             QMessageBox as _QMessageBox,
+        )
+        from PyQt6.QtWidgets import (
             QProgressBar as _QProgressBar,
+        )
+        from PyQt6.QtWidgets import (
             QPushButton as _QPushButton,
+        )
+        from PyQt6.QtWidgets import (
             QScrollArea as _QScrollArea,
+        )
+        from PyQt6.QtWidgets import (
             QSizePolicy as _QSizePolicy,
+        )
+        from PyQt6.QtWidgets import (
             QStackedWidget as _QStackedWidget,
+        )
+        from PyQt6.QtWidgets import (
             QSystemTrayIcon as _QSystemTrayIcon,
+        )
+        from PyQt6.QtWidgets import (
             QTextEdit as _QTextEdit,
+        )
+        from PyQt6.QtWidgets import (
             QVBoxLayout as _QVBoxLayout,
+        )
+        from PyQt6.QtWidgets import (
             QWidget as _QWidget,
         )
     except ImportError as exc:
@@ -252,35 +314,34 @@ bhm_launcher_host.bind(sys.modules[__name__])
 # constants are initialized because those constants construct their values at
 # module import time.
 from bhm_launcher_base import (  # noqa: E402,F401
-    OperatorActionSpec,
-    ServiceStatus,
     JsonRequestResult,
     LauncherUiSessionError,
+    OperatorActionSpec,
+    ServiceStatus,
 )
-
 from bhm_launcher_paths import (  # noqa: E402,F401
-    is_frozen,
-    bundled_resource_root,
-    cleanup_stale_pyinstaller_dirs,
-    app_dir,
-    candidate_roots,
-    find_project_root,
-    find_resource_root,
-    find_state_root,
-    find_resource_cache_root,
-    load_ui_version,
-    has_docker,
-    host_python_executable,
-    ensure_persistent_file,
+    _assert_launchable_source,
     _assert_owned_path,
     _assert_owned_plugin_target,
-    _assert_launchable_source,
+    app_dir,
+    bundled_resource_root,
+    candidate_roots,
+    cleanup_stale_pyinstaller_dirs,
+    creation_flags,
+    ensure_persistent_file,
     ensure_persistent_plugin_source,
     environment_ready,
+    find_project_root,
+    find_resource_cache_root,
+    find_resource_root,
+    find_state_root,
     force_setup_requested,
-    now_text,
+    has_docker,
     hidden_startupinfo,
-    creation_flags,
+    host_python_executable,
+    is_frozen,
+    load_ui_version,
+    now_text,
 )
 
 REFRESH_SECONDS = 3
@@ -716,151 +777,139 @@ def main() -> int:
     return app.exec()
 
 
-from bhm_launcher_transport import (  # noqa: E402,F401
-    _rotate_launcher_log,
-    append_launcher_log,
-    load_launcher_settings,
-    save_launcher_settings,
-    http_status,
-    stabilize_service_status,
-    run_bounded_control_command,
-    terminate_process_tree,
-    _read_process_or_user_env_value,
-    _required_bhm_caller_token,
-    validate_launcher_project,
-    resolve_launcher_project,
-    _caller_headers,
-    request_json,
-    post_json,
-    get_json,
-    _is_bhm_human_ui_url,
-    mint_bhm_ui_bootstrap_token,
-    browser_target_for_url,
-    open_launcher_link,
-    safe_post_json,
-    safe_json_request,
-    _result_error_label,
-    compact_error,
+from bhm_launcher_dashboard import (  # noqa: E402,F401
+    DashboardScreen,
 )
-
-from bhm_launcher_workers import (  # noqa: E402,F401
-    InstallWorker,
-    MonitorThread,
-    ServiceOperationThread,
-    CanonicalApiOperationThread,
-    OperatorActionThread,
+from bhm_launcher_integrations import (  # noqa: E402,F401
+    CLAUDE_DESKTOP_RESTART_HINT,
+    CLAUDE_DESKTOP_RUNNING_PROMPT,
+    CODEX_PLUGIN_ID,
+    MCP_SERVER_NAME,
+    IntegrationsOnboardingScreen,
+    IntegrationsPanel,
+    IntegrationsWindow,
+    claude_desktop_mcp_config_payload,
+    claude_desktop_mcp_server_entry,
+    claude_desktop_running,
+    codex_plugin_status,
+    confirm_inject_with_claude_closed,
+    find_codex_plugin_source,
+    inject_mcp_config,
+    install_codex_plugin,
+    mcp_config_json,
+    mcp_config_payload,
+    mcp_integration_status,
+    merge_json_file,
+    operator_write_status,
 )
-
-from bhm_launcher_ui import (  # noqa: E402,F401
-    make_bhm_icon,
-    make_status_tray_icon,
-    _show_native_windows_window,
-    present_launcher_window,
-    SetupScreen,
-    StatusBadge,
-    MetricCard,
-    ServiceCard,
-    LogsWindow,
-    OperatorResultWindow,
-    LinkButton,
-    MainWindow,
+from bhm_launcher_operator import (  # noqa: E402,F401
+    _operator_database_path,
+    _operator_projection_report_path,
+    _operator_receipt_path,
+    _operator_runtime_root,
+    _resolve_owned_runtime_file,
+    _run_operator_json,
+    _run_operator_report,
+    operator_cleanup_apply,
+    operator_cleanup_preview,
+    operator_consolidation_apply,
+    operator_consolidation_preview,
+    operator_exchange_apply,
+    operator_exchange_preview,
+    operator_export,
+    operator_index_status,
+    operator_integrity_audit,
+    operator_orphan_classification,
+    operator_projection_rebuild,
+    operator_projection_status,
+    operator_qdrant_catalog,
+    operator_receipts,
+    operator_reconcile_apply,
+    operator_reconcile_preview,
+    operator_repair_indexes,
+    operator_restore_backup,
+    operator_restore_preview,
+    operator_sqlite_backup,
 )
-
+from bhm_launcher_service import (  # noqa: E402,F401
+    SIDECAR_PID_FILENAME,
+    SIDECAR_ROLE,
+    SIDECAR_START_TIMEOUT_SECONDS,
+    SIDECAR_STOP_FILENAME,
+    _sidecar_paths,
+    _sidecar_started_at,
+    canonical_api_command,
+    powershell_args,
+    release_operator_path,
+    run_authoritative_api_transaction,
+    run_canonical_api_command,
+    run_detached,
+    run_release_doctor,
+    sidecar_status,
+    start_sidecar,
+    stop_sidecar,
+    terminate_detached_processes,
+)
 from bhm_launcher_telemetry import (  # noqa: E402,F401
     _LAST_TELEMETRY,
+    _TELEMETRY_REQUEST_STATE,
     LlmInventoryCache,
     TelemetryPathState,
     TelemetryRequestState,
-    _TELEMETRY_REQUEST_STATE,
     fetch_telemetry,
-    tcp_status,
     llm_api_status,
     merge_llm_readiness_and_inventory,
     observe_local_llm,
     remote_status,
+    tcp_status,
 )
-
-
-from bhm_launcher_integrations import (  # noqa: E402,F401
-    MCP_SERVER_NAME,
-    CODEX_PLUGIN_ID,
-    mcp_config_payload,
-    claude_desktop_mcp_server_entry,
-    claude_desktop_mcp_config_payload,
-    mcp_config_json,
-    merge_json_file,
-    inject_mcp_config,
-    mcp_integration_status,
-    operator_write_status,
-    CLAUDE_DESKTOP_RUNNING_PROMPT,
-    CLAUDE_DESKTOP_RESTART_HINT,
-    claude_desktop_running,
-    confirm_inject_with_claude_closed,
-    find_codex_plugin_source,
-    install_codex_plugin,
-    codex_plugin_status,
-    IntegrationsPanel,
-    IntegrationsOnboardingScreen,
-    IntegrationsWindow,
+from bhm_launcher_transport import (  # noqa: E402,F401
+    _caller_headers,
+    _is_bhm_human_ui_url,
+    _read_process_or_user_env_value,
+    _required_bhm_caller_token,
+    _result_error_label,
+    _rotate_launcher_log,
+    append_launcher_log,
+    browser_target_for_url,
+    compact_error,
+    get_json,
+    http_status,
+    load_launcher_settings,
+    mint_bhm_ui_bootstrap_token,
+    open_launcher_link,
+    post_json,
+    request_json,
+    resolve_launcher_project,
+    run_bounded_control_command,
+    safe_json_request,
+    safe_post_json,
+    save_launcher_settings,
+    stabilize_service_status,
+    terminate_process_tree,
+    validate_launcher_project,
 )
-
-
-from bhm_launcher_dashboard import (  # noqa: E402,F401
-    DashboardScreen,
+from bhm_launcher_ui import (  # noqa: E402,F401
+    LinkButton,
+    LogsWindow,
+    MainWindow,
+    MetricCard,
+    OperatorResultWindow,
+    ServiceCard,
+    SetupScreen,
+    StatusBadge,
+    _show_native_windows_window,
+    make_bhm_icon,
+    make_status_tray_icon,
+    present_launcher_window,
 )
-
-
-from bhm_launcher_operator import (  # noqa: E402,F401
-    _operator_database_path,
-    _operator_runtime_root,
-    _resolve_owned_runtime_file,
-    _run_operator_json,
-    _operator_receipt_path,
-    _operator_projection_report_path,
-    _run_operator_report,
-    operator_integrity_audit,
-    operator_cleanup_preview,
-    operator_sqlite_backup,
-    operator_restore_backup,
-    operator_restore_preview,
-    operator_cleanup_apply,
-    operator_repair_indexes,
-    operator_projection_rebuild,
-    operator_projection_status,
-    operator_qdrant_catalog,
-    operator_orphan_classification,
-    operator_index_status,
-    operator_receipts,
-    operator_consolidation_preview,
-    operator_consolidation_apply,
-    operator_reconcile_preview,
-    operator_reconcile_apply,
-    operator_exchange_preview,
-    operator_export,
-    operator_exchange_apply,
+from bhm_launcher_workers import (  # noqa: E402,F401
+    CanonicalApiOperationThread,
+    InstallWorker,
+    MonitorThread,
+    OperatorActionThread,
+    ServiceOperationThread,
 )
-
-
-from bhm_launcher_service import (  # noqa: E402,F401
-    SIDECAR_ROLE,
-    SIDECAR_PID_FILENAME,
-    SIDECAR_STOP_FILENAME,
-    SIDECAR_START_TIMEOUT_SECONDS,
-    _sidecar_paths,
-    _sidecar_started_at,
-    sidecar_status,
-    start_sidecar,
-    stop_sidecar,
-    run_detached,
-    canonical_api_command,
-    run_canonical_api_command,
-    run_authoritative_api_transaction,
-    terminate_detached_processes,
-    powershell_args,
-    release_operator_path,
-    run_release_doctor,
-)
-
 
 if __name__ not in ("bhm_launcher", "__main__") and _HOST_PREVIOUS is not None:
     bhm_launcher_host.bind(_HOST_PREVIOUS)  # spec-loaded copies (release tests) must not steal the handle

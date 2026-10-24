@@ -11,9 +11,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from .context_profiles import DEFAULT_CONTEXT_PROFILE
-from .context_profiles import resolve_context_profile
-
+from .context_profiles import DEFAULT_CONTEXT_PROFILE, resolve_context_profile
 
 PROFILE_NAMES = ("low-context", "standard", "deep")
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_./:-]+")

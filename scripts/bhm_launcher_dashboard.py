@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-from typing import Callable
 import subprocess
+from typing import Any, Callable
 
+from bhm_launcher_host import launcher as _launcher
 from bhm_launcher_integrations import IntegrationsWindow
 from bhm_launcher_readiness import probe_http
 from bhm_launcher_telemetry import remote_status
-from bhm_launcher_theme import COLOR_CYAN
-from bhm_launcher_theme import COLOR_GREEN
-from bhm_launcher_theme import COLOR_PINK
-from bhm_launcher_theme import COLOR_YELLOW
-
-from bhm_launcher_host import launcher as _launcher
+from bhm_launcher_theme import COLOR_CYAN, COLOR_GREEN, COLOR_PINK, COLOR_YELLOW
 
 
 class DashboardScreen(_launcher.QWidget):

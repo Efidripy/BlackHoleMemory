@@ -17,7 +17,6 @@ from typing import Any
 
 from .observation_security import contains_secret_like
 
-
 FIXTURE_SCHEMA_VERSION = "bhm.causal-read-model-fixture.v1"
 REPORT_SCHEMA_VERSION = "bhm.causal-read-model-experiment.v1"
 MAX_FIXTURE_BYTES = 128 * 1024

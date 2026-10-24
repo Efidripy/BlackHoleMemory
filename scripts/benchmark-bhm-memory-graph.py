@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import hashlib
 import json
@@ -12,8 +10,8 @@ import tempfile
 import time
 from pathlib import Path
 
-from blackholememory.memory_graph import build_memory_graph
-from blackholememory.memory_graph import query_memory_graph
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.memory_graph import build_memory_graph, query_memory_graph
 
 
 def _fixture(items: int) -> tuple[list[dict], list[dict]]:

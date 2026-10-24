@@ -12,7 +12,6 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-
 RESOLUTION_QUALITY_SCHEMA_VERSION = "bhm.type-package-resolution-quality.v1"
 _MAX_ROWS = 256
 

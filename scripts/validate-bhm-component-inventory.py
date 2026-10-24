@@ -8,8 +8,8 @@ import json
 import subprocess
 from pathlib import Path
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
 GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS

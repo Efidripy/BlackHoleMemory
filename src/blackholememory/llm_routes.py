@@ -47,12 +47,12 @@ from .llm_long_tasks import (
 )
 from .llm_resource_governor import LLMResourceGovernorError
 from .llm_routes_base import (
-    _Deps,  # noqa: F401
     _LLM_CACHE_STORE,  # noqa: F401
     _LLM_JOB_QUEUE,  # noqa: F401
     _LLM_JOB_QUEUE_CAPACITY,  # noqa: F401
     _LLM_LEARNING_STORE,  # noqa: F401
     _LLM_LONG_TASK_STORE,  # noqa: F401
+    _Deps,  # noqa: F401
     _deps,
     _llm_public_job,  # noqa: F401
     _repository_intelligence_scope,  # noqa: F401

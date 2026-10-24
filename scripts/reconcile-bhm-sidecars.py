@@ -7,9 +7,11 @@ import json
 import sys
 from pathlib import Path
 
-from blackholememory.sidecar_reconciliation import SidecarReconciliationError
-from blackholememory.sidecar_reconciliation import apply_reconciliation_plan
-from blackholememory.sidecar_reconciliation import build_reconciliation_plan
+from blackholememory.sidecar_reconciliation import (
+    SidecarReconciliationError,
+    apply_reconciliation_plan,
+    build_reconciliation_plan,
+)
 
 
 def main() -> int:

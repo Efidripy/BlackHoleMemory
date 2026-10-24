@@ -1,68 +1,143 @@
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal
+
 from pydantic import Field
-from .local_endpoint_policy import validate_local_endpoint
-from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
-from .agent_playbook_contract import build_agent_playbook
 
 from . import bhm_mcp_base as _base
+from .agent_playbook_contract import build_agent_playbook
 from .bhm_mcp_base import (
     DEFAULT_PROJECT,
     TAXONOMY_METADATA_HINT,
-    _json_object as _json_object,
-    _metadata_json_object,
-    _parse_csv,
-    _mcp_authority_rejection,
-    mcp,
     MemoryClass,
     MemoryEventRole,
+    _mcp_authority_rejection,
+    _metadata_json_object,
+    _parse_csv,
+    mcp,
 )
-
-
+from .bhm_mcp_base import (
+    _json_object as _json_object,
+)
 from .bhm_mcp_memory_curation import (
     bhm_checkpoint_create as bhm_checkpoint_create,
+)
+from .bhm_mcp_memory_curation import (
     bhm_checkpoint_get_latest as bhm_checkpoint_get_latest,
+)
+from .bhm_mcp_memory_curation import (
     bhm_checkpoint_list as bhm_checkpoint_list,
+)
+from .bhm_mcp_memory_curation import (
     bhm_delete_memory as bhm_delete_memory,
+)
+from .bhm_mcp_memory_curation import (
     bhm_detect_conflicts as bhm_detect_conflicts,
+)
+from .bhm_mcp_memory_curation import (
     bhm_detect_duplicates as bhm_detect_duplicates,
+)
+from .bhm_mcp_memory_curation import (
     bhm_get_memories_by_concept as bhm_get_memories_by_concept,
+)
+from .bhm_mcp_memory_curation import (
     bhm_get_memories_by_type as bhm_get_memories_by_type,
+)
+from .bhm_mcp_memory_curation import (
     bhm_list_pinned_memories as bhm_list_pinned_memories,
+)
+from .bhm_mcp_memory_curation import (
     bhm_memory_lint as bhm_memory_lint,
+)
+from .bhm_mcp_memory_curation import (
     bhm_merge_memories as bhm_merge_memories,
+)
+from .bhm_mcp_memory_curation import (
     bhm_pin_memory as bhm_pin_memory,
+)
+from .bhm_mcp_memory_curation import (
     bhm_project_map_get as bhm_project_map_get,
+)
+from .bhm_mcp_memory_curation import (
     bhm_project_map_upsert as bhm_project_map_upsert,
+)
+from .bhm_mcp_memory_curation import (
     bhm_project_resolve as bhm_project_resolve,
+)
+from .bhm_mcp_memory_curation import (
     bhm_project_retire as bhm_project_retire,
+)
+from .bhm_mcp_memory_curation import (
     bhm_set_memory_confidence as bhm_set_memory_confidence,
+)
+from .bhm_mcp_memory_curation import (
     bhm_unpin_memory as bhm_unpin_memory,
+)
+from .bhm_mcp_memory_curation import (
     bhm_vote_memory_quality as bhm_vote_memory_quality,
 )
 from .bhm_mcp_memory_records import (
     bhm_adr_create as bhm_adr_create,
+)
+from .bhm_mcp_memory_records import (
     bhm_adr_list as bhm_adr_list,
+)
+from .bhm_mcp_memory_records import (
     bhm_adr_supersede as bhm_adr_supersede,
+)
+from .bhm_mcp_memory_records import (
     bhm_handoff_create as bhm_handoff_create,
+)
+from .bhm_mcp_memory_records import (
     bhm_handoff_list as bhm_handoff_list,
+)
+from .bhm_mcp_memory_records import (
     bhm_memory_timeline as bhm_memory_timeline,
+)
+from .bhm_mcp_memory_records import (
     bhm_risk_register_get as bhm_risk_register_get,
+)
+from .bhm_mcp_memory_records import (
     bhm_risk_register_update as bhm_risk_register_update,
+)
+from .bhm_mcp_memory_records import (
     bhm_session_record_create as bhm_session_record_create,
+)
+from .bhm_mcp_memory_records import (
     bhm_session_record_list as bhm_session_record_list,
+)
+from .bhm_mcp_memory_records import (
     bhm_source_refs_attach as bhm_source_refs_attach,
+)
+from .bhm_mcp_memory_records import (
     bhm_source_refs_get as bhm_source_refs_get,
+)
+from .bhm_mcp_memory_records import (
     bhm_task_close as bhm_task_close,
+)
+from .bhm_mcp_memory_records import (
     bhm_task_context_get as bhm_task_context_get,
+)
+from .bhm_mcp_memory_records import (
     bhm_task_context_update as bhm_task_context_update,
+)
+from .bhm_mcp_memory_records import (
     bhm_task_get as bhm_task_get,
+)
+from .bhm_mcp_memory_records import (
     bhm_task_list as bhm_task_list,
+)
+from .bhm_mcp_memory_records import (
     bhm_task_open as bhm_task_open,
+)
+from .bhm_mcp_memory_records import (
     bhm_validation_snapshot_get as bhm_validation_snapshot_get,
+)
+from .bhm_mcp_memory_records import (
     bhm_validation_snapshot_save as bhm_validation_snapshot_save,
 )
+from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
+from .local_endpoint_policy import validate_local_endpoint
 
 
 @mcp.tool(name="bhm_health", description="Check BHM readiness, cutover state, and native BHM health.")

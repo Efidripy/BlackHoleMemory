@@ -11,7 +11,6 @@ import tempfile
 from pathlib import Path
 from types import ModuleType
 
-
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "1.8.2"
 REVISION = "0123456789abcdef0123456789abcdef01234567"

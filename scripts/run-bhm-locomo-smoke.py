@@ -7,10 +7,11 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.external_evaluation_admission import load_external_evaluation_admission_report
+from blackholememory.external_evaluation_admission import (
+    load_external_evaluation_admission_report,
+)
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.locomo_smoke import LoCoMoSmokeError
-from blackholememory.locomo_smoke import run_locomo_lexical_smoke
+from blackholememory.locomo_smoke import LoCoMoSmokeError, run_locomo_lexical_smoke
 
 
 def _require_inside(root: Path, candidate: Path, *, label: str) -> Path:

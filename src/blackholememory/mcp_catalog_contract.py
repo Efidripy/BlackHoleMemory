@@ -7,10 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from .version_manifest import BROKER_VERSION
-from .version_manifest import PLUGIN_VERSION
-from .version_manifest import RUNTIME_VERSION
-
+from .version_manifest import BROKER_VERSION, PLUGIN_VERSION, RUNTIME_VERSION
 
 SCHEMA_VERSION = "bhm.mcp.catalog-contract.v1"
 MAX_CANONICAL_BYTES = 1_048_576

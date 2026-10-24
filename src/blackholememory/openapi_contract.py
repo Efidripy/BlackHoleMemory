@@ -7,11 +7,9 @@ from typing import Any, Literal
 
 from fastapi.openapi.utils import get_openapi
 
-from .capability import ADMIN_CAPABILITY_HEADER
-from .capability import admin_route_requires_capability
 from .caller_auth import caller_route_requires_auth
-from .error_taxonomy import ERROR_TAXONOMY_SCHEMA_VERSION
-from .error_taxonomy import error_contract_snapshot
+from .capability import ADMIN_CAPABILITY_HEADER, admin_route_requires_capability
+from .error_taxonomy import ERROR_TAXONOMY_SCHEMA_VERSION, error_contract_snapshot
 from .version_manifest import RUNTIME_VERSION
 
 OpenApiSurface = Literal["public", "admin"]

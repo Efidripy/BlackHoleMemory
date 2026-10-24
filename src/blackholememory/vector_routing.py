@@ -13,7 +13,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
-
 _TARGETS = frozenset({"local", "global"})
 _GLOBAL_THRESHOLD = 3.0
 _GLOBAL_MARGIN = 0.5

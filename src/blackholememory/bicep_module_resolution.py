@@ -13,7 +13,6 @@ import json
 from pathlib import PurePosixPath
 from typing import Any, Mapping, Sequence
 
-
 BICEP_MODULE_RESOLUTION_SCHEMA_VERSION = "bhm.bicep-module-resolution.v1"
 MAX_BICEP_MODULE_RESOLUTION_ITEMS = 256
 

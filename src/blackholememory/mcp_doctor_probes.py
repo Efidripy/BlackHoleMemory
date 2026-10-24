@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from collections import Counter
 import json
 import time
-from typing import Any, Mapping
 import urllib.error
 import urllib.request
+from collections import Counter
+from typing import Any, Mapping
 
 from .local_endpoint_policy import (
     LocalEndpointError,
@@ -15,19 +15,19 @@ from .local_endpoint_policy import (
     read_bounded_response,
 )
 from .mcp_catalog_contract import CatalogContractError, build_catalog_contract
-from .mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
-from .version_manifest import PACKAGE_VERSION
 from .mcp_doctor_base import (
-    DoctorConfig,
     MAX_FINGERPRINTS,
     MAX_HTTP_BYTES,
     MAX_ISSUES,
+    DoctorConfig,
     _bhm_request_headers,
     _bounded_float,
     _bounded_int,
     _run_json_script,
     _safe_issue_code,
 )
+from .mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
+from .version_manifest import PACKAGE_VERSION
 
 
 def _configured_sources(config: DoctorConfig) -> dict[str, Any]:

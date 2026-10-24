@@ -12,7 +12,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNTIME = ROOT / ".runtime"
 EXPECTED_EXTERNAL_DATABASES = {"memories.sqlite3", "observations.sqlite3", "hook-jobs.sqlite3"}

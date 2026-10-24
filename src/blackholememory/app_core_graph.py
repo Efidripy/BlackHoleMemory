@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import sqlite3
 from typing import Any
+
+from . import app_core_hit
 from . import app_runtime as rt
 from .memory_service import MemoryServiceNotReady
 from .temporal_contract import temporal_capability_available
-from . import app_core_hit
-
 
 _GRAPH_EXPANSION_RELATIONS = frozenset({"depends_on", "upgrades"})
 

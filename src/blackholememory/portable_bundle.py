@@ -17,7 +17,6 @@ from typing import Any
 
 from .observation_security import contains_secret_like, secure_observation_payload
 
-
 SCHEMA_VERSION = "bhm.portable.redacted-bundle.v1"
 REDACTION_POLICY_VERSION = "bhm.redaction.v1"
 AUTHORITY = "sqlite-authoritative"

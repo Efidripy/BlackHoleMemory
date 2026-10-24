@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import json
 import os
@@ -12,13 +10,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
-from blackholememory.llm_code_fabric import LLMCodeFabricError
-from blackholememory.llm_code_fabric import build_code_fabric_plan
-from blackholememory.llm_code_fabric import verify_code_fabric_plan
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.llm_code_fabric import (
+    LLMCodeFabricError,
+    build_code_fabric_plan,
+    verify_code_fabric_plan,
+)
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
-
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-llm-code-fabric.py"

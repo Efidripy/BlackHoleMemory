@@ -11,16 +11,19 @@ import sqlite3
 from collections.abc import Iterable
 from typing import Any
 
-from .domain import Memory
-from .domain import MemoryRevision
-from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY
-from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION
-from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_TABLE
-from .exact_identifier_retrieval import exact_identifier_record_text
-from .exact_identifier_retrieval import exact_identifier_tokens
-from .memory_repository_base import MemoryRepositoryIntegrityError
-from .memory_repository_base import _bounded_page
-from .memory_repository_base import _json_loads
+from .domain import Memory, MemoryRevision
+from .exact_identifier_retrieval import (
+    EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY,
+    EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION,
+    EXACT_IDENTIFIER_INDEX_TABLE,
+    exact_identifier_record_text,
+    exact_identifier_tokens,
+)
+from .memory_repository_base import (
+    MemoryRepositoryIntegrityError,
+    _bounded_page,
+    _json_loads,
+)
 from .temporal_contract import normalize_temporal_timestamp
 
 

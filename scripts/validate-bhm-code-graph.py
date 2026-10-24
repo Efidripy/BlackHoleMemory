@@ -2,24 +2,26 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
-import json
 import argparse
+import json
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
+from blackholememory.code_graph import (
+    CodeGraphInjectedFailure,
+    CodeGraphInputChangedError,
+    SQLiteCodeGraphStore,
+    build_code_graph,
+)
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-from blackholememory.code_graph import CodeGraphInjectedFailure
-from blackholememory.code_graph import CodeGraphInputChangedError
-from blackholememory.code_graph import SQLiteCodeGraphStore
-from blackholememory.code_graph import build_code_graph
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = REPO_ROOT / "config" / "cbm-integration.json"

@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import re
 
-from ._common import PARSER_REGISTRY, _node, _symbol_node_key, _structural_decl_kind
+from ._common import PARSER_REGISTRY, _node, _structural_decl_kind, _symbol_node_key
 from .draft import _GraphDraft
+
 
 def _extract_dockerfile_structural(
     draft: _GraphDraft,

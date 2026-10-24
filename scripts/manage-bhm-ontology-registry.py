@@ -10,14 +10,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from blackholememory.ontology_registry import ACTIVATION_ARTIFACT_TYPE
-from blackholememory.ontology_registry import ARTIFACT_TYPE
-from blackholememory.ontology_registry import OntologyRegistryError
-from blackholememory.ontology_registry import OntologySchema
-from blackholememory.ontology_registry import build_activation_artifact
-from blackholememory.ontology_registry import build_registry_artifact
-from blackholememory.runtime_storage import resolve_runtime_storage_config
 from blackholememory.memory_service import SQLiteMemoryService
+from blackholememory.ontology_registry import (
+    ACTIVATION_ARTIFACT_TYPE,
+    ARTIFACT_TYPE,
+    OntologyRegistryError,
+    OntologySchema,
+    build_activation_artifact,
+    build_registry_artifact,
+)
+from blackholememory.runtime_storage import resolve_runtime_storage_config
 
 
 def _now() -> str:

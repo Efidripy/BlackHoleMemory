@@ -5,10 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Mapping
 from collections import Counter
+from collections.abc import Mapping
 from typing import Any
-
 
 PACKAGE_RESOLUTION_RECEIPT_SCHEMA_VERSION = "bhm.package-resolution-receipt.v1"
 QUALIFIED_ALIAS_SCHEMA_VERSION = "bhm.qualified-package-alias.v1"

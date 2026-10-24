@@ -8,7 +8,6 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
-
 GRAPH_QUERY_QUALITY_RECEIPT_SCHEMA_VERSION = "bhm.code-graph.query-quality-receipt.v1"
 
 

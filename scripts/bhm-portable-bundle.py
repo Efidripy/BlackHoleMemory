@@ -11,9 +11,15 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import read_bytes_safely, replace_bytes_safely
-from blackholememory.portable_bundle import MAX_BUNDLE_BYTES, build_portable_bundle, dry_run_import
-
+from blackholememory.filesystem_boundaries import (
+    read_bytes_safely,
+    replace_bytes_safely,
+)
+from blackholememory.portable_bundle import (
+    MAX_BUNDLE_BYTES,
+    build_portable_bundle,
+    dry_run_import,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ROOT = REPO_ROOT / ".runtime" / "portable-bundles"

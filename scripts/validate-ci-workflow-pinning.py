@@ -7,7 +7,6 @@ import json
 import re
 from pathlib import Path
 
-
 USES_RE = re.compile(r"^\s*(?:-\s+)?uses:\s*([^\s#]+)")
 SHA_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 

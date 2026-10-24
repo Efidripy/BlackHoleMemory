@@ -14,7 +14,6 @@ import re
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
-
 TYPE_REFERENCE_RESOLUTION_SCHEMA_VERSION = "bhm.type-reference-resolution.v2"
 MAX_TYPE_REFERENCE_ITEMS = 256
 _SYMBOL_KINDS = {"class", "interface", "trait", "struct", "record", "enum", "type", "namespace", "module", "function", "method", "object"}

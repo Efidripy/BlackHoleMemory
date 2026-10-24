@@ -30,7 +30,6 @@ from .repository_index import (
 from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
 from .runtime_storage import resolve_runtime_storage_config
 
-
 _PUBLIC_CODE_TOOL_OPERATIONS = frozenset(
     {"index", "status", "projects", "watch", "search", "code_search", "code_snippet", "graph_artifact_export", "graph_artifact_verify", "graph_artifact_promotion_plan", "graph_query", "graph", "schema", "coverage", "architecture", "trace", "trace_evidence", "impact", "impact_preview", "cross_repo", "package_resolution", "dependency_provenance", "type_references", "bicep_module_resolution"}
 )

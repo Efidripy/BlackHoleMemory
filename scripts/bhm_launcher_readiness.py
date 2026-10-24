@@ -10,13 +10,16 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from blackholememory.local_endpoint_policy import LocalEndpointError
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import read_bounded_response
-from blackholememory.resource_limits import LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_POLL_SECONDS
-from blackholememory.resource_limits import LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS
-
+from blackholememory.local_endpoint_policy import (
+    LocalEndpointError,
+    open_local_url,
+    read_bounded_response,
+)
+from blackholememory.resource_limits import (
+    LAUNCHER_HTTP_PROBE_TIMEOUT_SECONDS,
+    LAUNCHER_SERVICE_READINESS_POLL_SECONDS,
+    LAUNCHER_SERVICE_READINESS_TIMEOUT_SECONDS,
+)
 
 Probe = Callable[[], tuple[bool, str]]
 Start = Callable[[], Any]

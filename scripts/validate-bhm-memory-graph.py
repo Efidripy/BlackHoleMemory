@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import hashlib
 import json
@@ -13,13 +11,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
-from blackholememory.memory_graph import MemoryGraphError
-from blackholememory.memory_graph import build_memory_graph
-from blackholememory.memory_graph import query_memory_graph
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
-
+from blackholememory.memory_graph import (
+    MemoryGraphError,
+    build_memory_graph,
+    query_memory_graph,
+)
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-memory-graph.py"

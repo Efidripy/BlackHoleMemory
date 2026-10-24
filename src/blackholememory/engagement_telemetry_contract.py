@@ -18,7 +18,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-
 SCHEMA_VERSION = "bhm.engagement-telemetry.v1"
 CORRELATION_VERSION = "bhm.engagement-correlation.v1"
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")

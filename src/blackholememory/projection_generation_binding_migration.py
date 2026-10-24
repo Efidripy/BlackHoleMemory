@@ -13,10 +13,12 @@ from pathlib import Path
 from typing import Mapping
 
 from .filesystem_boundaries import assert_safe_path
-from .memory_repository import GOVERNED_CONSOLIDATION_SCHEMA_VERSION
-from .memory_repository import MemoryRepositoryError
-from .memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_TABLES
-from .memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_VERSION
+from .memory_repository import (
+    GOVERNED_CONSOLIDATION_SCHEMA_VERSION,
+    PROJECTION_GENERATION_BINDING_SCHEMA_TABLES,
+    PROJECTION_GENERATION_BINDING_SCHEMA_VERSION,
+    MemoryRepositoryError,
+)
 
 MIGRATION_SCHEMA_VERSION = "bhm.projection-generation-binding-migration.v1"
 _BASE_TABLES = frozenset(

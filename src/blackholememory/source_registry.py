@@ -21,53 +21,54 @@ import urllib.error
 import urllib.request
 from datetime import UTC, datetime  # noqa: F401
 
-from .source_registry_base import Any
-from .source_registry_base import CREDENTIAL_PATTERNS
-from .source_registry_base import DEPENDENCY_NAMES
-from .source_registry_base import LICENSE_NAMES
-from .source_registry_base import LICENSE_SIGNATURES  # noqa: F401
-from .source_registry_base import MANIFEST_SCHEMA
-from .source_registry_base import MANIFEST_SCHEMA_V1
-from .source_registry_base import MAX_SECRET_SCAN_BYTES
-from .source_registry_base import MAX_WEB_REDIRECTS  # noqa: F401
-from .source_registry_base import MAX_WEB_RESPONSE_BYTES
-from .source_registry_base import PERMISSION_FIELDS
-from .source_registry_base import PERMISSION_STATUS_VALUES  # noqa: F401
-from .source_registry_base import PRIVATE_KEY_BLOCK
-from .source_registry_base import Path
-from .source_registry_base import REGISTRY_SCHEMA  # noqa: F401
-from .source_registry_base import REGISTRY_SCHEMA_V1  # noqa: F401
-from .source_registry_base import RISKY_BASENAMES
-from .source_registry_base import RISKY_SUFFIXES
-from .source_registry_base import SECURITY_NAMES
-from .source_registry_base import SUPPORTED_MANIFEST_SCHEMAS
-from .source_registry_base import SUPPORTED_REGISTRY_SCHEMAS
-from .source_registry_base import SourceRegistryError
-from .source_registry_base import TRANSFER_MODE_VALUES  # noqa: F401
-from .source_registry_base import _classify_license_file
-from .source_registry_base import _expected_license_kind
-from .source_registry_base import _ExternalRedirectHandler  # noqa: F401
-from .source_registry_base import _json_load
-from .source_registry_base import _json_write_atomic
-from .source_registry_base import _open_web_source
-from .source_registry_base import _permission_defaults
-from .source_registry_base import _permission_metadata
-from .source_registry_base import _redact_source_url
-from .source_registry_base import _run_git
-from .source_registry_base import _sha256_bytes
-from .source_registry_base import _sha256_file
-from .source_registry_base import _utc_now
-from .source_registry_base import _validate_copy_scope
-from .source_registry_base import _validate_git_source_url
-from .source_registry_base import _validate_permission_metadata
-from .source_registry_base import _validate_web_source_url
-from .source_registry_base import bounded_source_registry_web_timeout  # noqa: F401
-from .filesystem_boundaries import assert_safe_path
-from .filesystem_boundaries import replace_bytes_safely
+from .filesystem_boundaries import assert_safe_path, replace_bytes_safely
 from .resource_limits import (
     PROCESS_EXECUTION_SOURCE_REGISTRY_CLONE_TIMEOUT_SECONDS,
     PROCESS_EXECUTION_SOURCE_REGISTRY_FETCH_TIMEOUT_SECONDS,
     SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS,
+)
+from .source_registry_base import (
+    CREDENTIAL_PATTERNS,
+    DEPENDENCY_NAMES,
+    LICENSE_NAMES,
+    LICENSE_SIGNATURES,  # noqa: F401
+    MANIFEST_SCHEMA,
+    MANIFEST_SCHEMA_V1,
+    MAX_SECRET_SCAN_BYTES,
+    MAX_WEB_REDIRECTS,  # noqa: F401
+    MAX_WEB_RESPONSE_BYTES,
+    PERMISSION_FIELDS,
+    PERMISSION_STATUS_VALUES,  # noqa: F401
+    PRIVATE_KEY_BLOCK,
+    REGISTRY_SCHEMA,  # noqa: F401
+    REGISTRY_SCHEMA_V1,  # noqa: F401
+    RISKY_BASENAMES,
+    RISKY_SUFFIXES,
+    SECURITY_NAMES,
+    SUPPORTED_MANIFEST_SCHEMAS,
+    SUPPORTED_REGISTRY_SCHEMAS,
+    TRANSFER_MODE_VALUES,  # noqa: F401
+    Any,
+    Path,
+    SourceRegistryError,
+    _classify_license_file,
+    _expected_license_kind,
+    _ExternalRedirectHandler,  # noqa: F401
+    _json_load,
+    _json_write_atomic,
+    _open_web_source,
+    _permission_defaults,
+    _permission_metadata,
+    _redact_source_url,
+    _run_git,
+    _sha256_bytes,
+    _sha256_file,
+    _utc_now,
+    _validate_copy_scope,
+    _validate_git_source_url,
+    _validate_permission_metadata,
+    _validate_web_source_url,
+    bounded_source_registry_web_timeout,  # noqa: F401
 )
 
 

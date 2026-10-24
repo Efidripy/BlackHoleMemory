@@ -6,20 +6,25 @@ from __future__ import annotations
 import json
 import shutil
 import sqlite3
+import sys
 import tempfile
 from pathlib import Path
-import sys
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from blackholememory.freshness_migration import apply_migration as apply_freshness  # noqa: E402
-from blackholememory.freshness_migration import build_migration_plan as build_freshness_plan  # noqa: E402
-from blackholememory.memory_class_migration import apply_migration  # noqa: E402
-from blackholememory.memory_class_migration import build_migration_plan  # noqa: E402
+from blackholememory.freshness_migration import (
+    apply_migration as apply_freshness,  # noqa: E402
+)
+from blackholememory.freshness_migration import (
+    build_migration_plan as build_freshness_plan,  # noqa: E402
+)
+from blackholememory.memory_class_migration import (
+    apply_migration,  # noqa: E402
+    build_migration_plan,  # noqa: E402
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository  # noqa: E402
 
 

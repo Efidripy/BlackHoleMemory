@@ -10,7 +10,6 @@ from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
-
 DISPOSITIONS = {
     "CXM": ("no-adoption-required", "hash/dedupe and timeline/detail retrieval are already BHM-native; no incremental delta is demonstrated", ["src/blackholememory/repository_index.py", "src/blackholememory/app.py", "tests/unit/test_repository_index.py"]),
     "AXM": ("no-adoption-required", "tiered disclosure, retention and durable task state are already represented by BHM primitives; no second workflow authority is allowed", ["src/blackholememory/retention.py", "src/blackholememory/task_graph.py", "tests/unit/test_task_graph.py"]),

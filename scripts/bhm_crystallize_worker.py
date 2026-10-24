@@ -12,6 +12,7 @@ Safety contract:
 - runtime/API failures are soft-fails that leave source files unchanged.
 """
 from __future__ import annotations
+
 import argparse
 import asyncio
 import json
@@ -22,9 +23,8 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib import error
-from urllib import parse
-from urllib import request
+from urllib import error, parse, request
+
 # The source path is intentionally bootstrapped before project imports.
 # ruff: noqa: E402
 
@@ -35,15 +35,8 @@ if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
-from blackholememory.observation_store import ObservationStore  # noqa: E402
-from blackholememory.local_endpoint_policy import LocalEndpointError  # noqa: E402
-from blackholememory.local_endpoint_policy import open_local_url  # noqa: E402
-from blackholememory.local_endpoint_policy import read_bounded_response  # noqa: E402
-from blackholememory.local_endpoint_policy import validate_local_endpoint  # noqa: E402
-from blackholememory.runtime_endpoints import endpoint_url  # noqa: E402,F401
-from blackholememory.runtime_storage import MemoryStoreMode  # noqa: E402
-from blackholememory.runtime_storage import resolve_runtime_storage_config  # noqa: E402
 from bhm_crystallize_worker_base import (  # noqa: E402,F401
+    _ANONYMOUS_BHM_HEALTH_PATHS,
     ACTIVE_ZONE_RECENT_COUNT,
     ACTIVE_ZONE_WINDOW,
     ALLOWED_SYNTHESIS_ENDPOINTS,
@@ -82,8 +75,6 @@ from bhm_crystallize_worker_base import (  # noqa: E402,F401
     FROZEN_ZONE_AGE,
     FROZEN_ZONE_LIMIT,
     GLOBAL_CORE_COLLECTION_NAME,
-    JsonDict,
-    JsonList,
     LOCAL_ENTITY_VECTOR_PATTERNS,
     MACRO_MIN,
     MACRO_PROMPT_LIMIT,
@@ -103,7 +94,6 @@ from bhm_crystallize_worker_base import (  # noqa: E402,F401
     SINGULARITY_MIN,
     SRC_ROOT,
     SYSTEM_INSIGHT_VECTOR_PATTERNS,
-    SoftFail,
     THREE_ZONE_CONTEXT_PROMPT,
     TIER_BIG_BANG,
     TIER_MACRO,
@@ -115,7 +105,9 @@ from bhm_crystallize_worker_base import (  # noqa: E402,F401
     VALID_PRIORITIES,
     VALID_SEMANTIC_EDGE_TYPES,
     WORKER_NAME,
-    _ANONYMOUS_BHM_HEALTH_PATHS,
+    JsonDict,
+    JsonList,
+    SoftFail,
     api_memory_to_record,
     default_runtime_dir,
     existing_or_creatable_dir,
@@ -148,6 +140,19 @@ from bhm_crystallize_worker_base import (  # noqa: E402,F401
     utc_now,
 )
 from bhm_crystallize_worker_host import bind as bind_worker  # noqa: E402
+
+from blackholememory.local_endpoint_policy import (
+    LocalEndpointError,  # noqa: E402
+    open_local_url,  # noqa: E402
+    read_bounded_response,  # noqa: E402
+    validate_local_endpoint,  # noqa: E402
+)
+from blackholememory.observation_store import ObservationStore  # noqa: E402
+from blackholememory.runtime_endpoints import endpoint_url  # noqa: E402,F401
+from blackholememory.runtime_storage import (
+    MemoryStoreMode,  # noqa: E402
+    resolve_runtime_storage_config,  # noqa: E402
+)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1123,43 +1128,13 @@ def main(argv: list[str] | None = None) -> int:
     return run_coroutine_sync(main_async(argv))
 
 
-from bhm_crystallize_worker_synthesis import (  # noqa: E402,F401
-    available_stage_text_chars,
-    base_stage_payload,
-    build_big_bang_passport,
-    build_frequency_map,
-    build_map_stage_payload,
-    build_reduce_stage_payload,
-    build_single_chunk_payload,
-    build_synthesis_payload,
-    call_synthesis_endpoint,
-    chunk_log_entries,
-    clip_text,
-    combine_intermediate_summaries,
-    deterministic_synthesis,
-    ensure_bhm_ready,
-    fit_stage_payload,
-    format_crystal_fields,
-    parse_synthesis_response,
-    stage_session_id,
-    synthesis_context,
-    synthesis_fact_payload,
-    synthesis_log_entries,
-    synthesis_payload_chars,
-    synthesis_zone_items,
-    synthesize_crystal,
-    synthesize_with_map_reduce,
-    synthesize_with_bhm,
-    tier_system_prompt,
-    time_bounds,
-)
 from bhm_crystallize_worker_consolidation import (  # noqa: E402,F401
     _matches_any_pattern,
     archive_live_memory_sources,
     build_crystal_payload,
     build_upsert_key,
-    classify_crystal_vector_targets,
     chunked,
+    classify_crystal_vector_targets,
     collect_consolidation_candidates,
     consolidate_long_term_crystal,
     consolidated_content,
@@ -1190,6 +1165,36 @@ from bhm_crystallize_worker_consolidation import (  # noqa: E402,F401
     try_bulk_archive_by_filter,
     unique_strings,
     upsert_crystal,
+)
+from bhm_crystallize_worker_synthesis import (  # noqa: E402,F401
+    available_stage_text_chars,
+    base_stage_payload,
+    build_big_bang_passport,
+    build_frequency_map,
+    build_map_stage_payload,
+    build_reduce_stage_payload,
+    build_single_chunk_payload,
+    build_synthesis_payload,
+    call_synthesis_endpoint,
+    chunk_log_entries,
+    clip_text,
+    combine_intermediate_summaries,
+    deterministic_synthesis,
+    ensure_bhm_ready,
+    fit_stage_payload,
+    format_crystal_fields,
+    parse_synthesis_response,
+    stage_session_id,
+    synthesis_context,
+    synthesis_fact_payload,
+    synthesis_log_entries,
+    synthesis_payload_chars,
+    synthesis_zone_items,
+    synthesize_crystal,
+    synthesize_with_bhm,
+    synthesize_with_map_reduce,
+    tier_system_prompt,
+    time_bounds,
 )
 
 if __name__ == "__main__":

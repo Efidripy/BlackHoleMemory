@@ -9,15 +9,20 @@ import urllib.request
 from pathlib import Path
 
 from blackholememory.config import settings
-from blackholememory.external_evaluation_admission import load_external_evaluation_admission_report
+from blackholememory.external_evaluation_admission import (
+    load_external_evaluation_admission_report,
+)
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import read_bounded_response
-from blackholememory.local_endpoint_policy import validate_local_endpoint
-from blackholememory.longmemeval_semantic import LongMemEvalSemanticError
-from blackholememory.longmemeval_semantic import run_longmemeval_qdrant_semantic_smoke
+from blackholememory.local_endpoint_policy import (
+    open_local_url,
+    read_bounded_response,
+    validate_local_endpoint,
+)
+from blackholememory.longmemeval_semantic import (
+    LongMemEvalSemanticError,
+    run_longmemeval_qdrant_semantic_smoke,
+)
 from blackholememory.runtime_endpoints import endpoint_url
-
 
 _MAX_EMBEDDING_RESPONSE_BYTES = 512 * 1024
 

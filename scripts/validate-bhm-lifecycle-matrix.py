@@ -14,15 +14,14 @@ from __future__ import annotations
 import argparse
 import ast
 import json
-from pathlib import Path
+import os
 import re
 import subprocess
 import sys
-import os
+from pathlib import Path
 from typing import Any
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_PATH = ROOT / "src" / "blackholememory" / "app.py"

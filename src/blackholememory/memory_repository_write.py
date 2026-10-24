@@ -9,20 +9,18 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from collections.abc import Iterable
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
-from .domain import Lifecycle
-from .domain import Memory
-from .domain import MemoryLink
+from .domain import Lifecycle, Memory, MemoryLink
 from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_TABLE
-from .memory_repository_base import MemoryRepositoryIntegrityError
-from .memory_repository_base import MemoryRevisionConflict
-from .memory_repository_base import SaveMemoryResult
-from .memory_repository_base import _json_dumps
-from .memory_repository_base import _json_loads
+from .memory_repository_base import (
+    MemoryRepositoryIntegrityError,
+    MemoryRevisionConflict,
+    SaveMemoryResult,
+    _json_dumps,
+    _json_loads,
+)
 from .outbox import utc_now_iso
 
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from . import app_core_hit
-from . import app_runtime as rt
 from . import app_core_memory_base as _base
-from .mem0_adapter import ensure_decay_metadata
-from .mem0_adapter import global_collection_name
-from .mem0_adapter import local_collection_name
+from . import app_runtime as rt
+from .mem0_adapter import (
+    ensure_decay_metadata,
+    global_collection_name,
+    local_collection_name,
+)
+
 
 def _sync_mem0_record(record: dict) -> dict[str, list[str]]:
     metadata = ensure_decay_metadata(

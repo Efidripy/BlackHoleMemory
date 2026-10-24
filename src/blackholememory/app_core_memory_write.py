@@ -9,19 +9,24 @@ from typing import Any, Mapping
 
 from fastapi import HTTPException
 
-from . import app_core_fallback
-from . import app_core_hit
-from . import app_runtime as rt
+from . import app_core_fallback, app_core_hit
 from . import app_core_memory_base as _base
 from . import app_core_memory_projection as _projection
-from .api_models import RememberRequest, MemoryUpdateRequest, MemoryUpsertRequest, MemoryCrystallizeRequest, MemoryDetectRequest
-from .mem0_adapter import ensure_decay_metadata
-from .mem0_adapter import initial_decay_metadata
-from .temporal_contract import normalize_temporal_fields
-from .temporal_contract import temporal_contract_enabled
-from .typed_memory_contract import classify_new_memory
-from .typed_memory_contract import TypedMemoryContractUnavailable
-from .typed_memory_contract import typed_memory_capability_available
+from . import app_runtime as rt
+from .api_models import (
+    MemoryCrystallizeRequest,
+    MemoryDetectRequest,
+    MemoryUpdateRequest,
+    MemoryUpsertRequest,
+    RememberRequest,
+)
+from .mem0_adapter import ensure_decay_metadata, initial_decay_metadata
+from .temporal_contract import normalize_temporal_fields, temporal_contract_enabled
+from .typed_memory_contract import (
+    TypedMemoryContractUnavailable,
+    classify_new_memory,
+    typed_memory_capability_available,
+)
 
 MemoryClassSource = _base.MemoryClassSource
 EVENT_ROLE_SCHEMA_VERSION = _base.EVENT_ROLE_SCHEMA_VERSION

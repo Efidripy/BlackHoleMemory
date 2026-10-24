@@ -22,7 +22,6 @@ from typing import Any, Iterable
 from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
-
 SQLITE_RETENTION_SCHEMA_VERSION = "bhm.sqlite-retention.v1"
 _LOGGER = logging.getLogger(__name__)
 _AUTOMATIC_RETENTION_LOCK = threading.Lock()

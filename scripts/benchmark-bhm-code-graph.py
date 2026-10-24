@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import json
 import tempfile
@@ -11,9 +9,12 @@ import time
 from pathlib import Path
 
 from blackholememory.code_graph import build_code_graph
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _fixture(root: Path, files: int, lines_per_file: int) -> None:

@@ -8,12 +8,13 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from .semantic_assurance_evaluation import CONFLICT_LABELS
-from .semantic_assurance_evaluation import ENTAILMENT_LABELS
-from .semantic_assurance_evaluation import FACTUALITY_LABELS
-from .semantic_assurance_evaluation import OPERATION_LABELS
-from .semantic_assurance_evaluation import RELEVANCE_LABELS
-
+from .semantic_assurance_evaluation import (
+    CONFLICT_LABELS,
+    ENTAILMENT_LABELS,
+    FACTUALITY_LABELS,
+    OPERATION_LABELS,
+    RELEVANCE_LABELS,
+)
 
 # v1 remains available for structural parser compatibility.  It deliberately
 # cannot assert that a corpus was admitted before reviewer distribution.

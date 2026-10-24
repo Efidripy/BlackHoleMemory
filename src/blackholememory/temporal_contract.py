@@ -21,7 +21,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .filesystem_boundaries import assert_safe_path
 
-
 FEATURE_FLAG = "BHM_TEMPORAL_CONTRACT_ENABLED"
 PROJECTION_READY_FLAG = "BHM_TEMPORAL_PROJECTION_READY"
 CAPABILITY_KEY = "temporal_memory_contract_version"

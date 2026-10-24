@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import hashlib
 import json
@@ -13,19 +11,23 @@ import sys
 import tempfile
 from pathlib import Path
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 from blackholememory import app as bhm_app
 from blackholememory.code_graph import build_code_graph
-from blackholememory.convention_memory import ConventionMemoryInjectedFailure
-from blackholememory.convention_memory import SQLiteConventionMemoryStore
-from blackholememory.convention_memory import build_convention_memory
-from blackholememory.convention_memory import explain_convention_card
-from blackholememory.convention_memory import preview_convention_memory
+from blackholememory.convention_memory import (
+    ConventionMemoryInjectedFailure,
+    SQLiteConventionMemoryStore,
+    build_convention_memory,
+    explain_convention_card,
+    preview_convention_memory,
+)
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
-
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
+from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = ROOT / "config" / "cbm-integration.json"

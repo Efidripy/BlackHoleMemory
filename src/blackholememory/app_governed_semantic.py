@@ -12,28 +12,32 @@ import os
 import uuid
 from collections import Counter
 from typing import Any, Mapping
+
+from . import app_core_fallback, app_core_hook
+from . import app_governed_base as _base
 from . import app_runtime as rt
-from .app_runtime import ResponseTimeout
 from .api_models import GovernedSemanticProposalRequest
-from .governed_consolidation import GovernedConsolidationError
-from .governed_consolidation import GovernedConsolidationRepository
-from .governed_semantic_editor import GovernedSemanticEditorError
-from .governed_semantic_editor import GovernedSemanticEditorUnavailable
-from .governed_semantic_editor import LocalGatewaySemanticCompletion
-from .governed_semantic_editor import MAX_RETRIEVAL_CANDIDATES
-from .governed_semantic_editor import SemanticEditorConfig
-from .governed_semantic_editor import build_semantic_proposal
-from .governed_semantic_editor import clamp_retrieval_limit
-from .governed_semantic_editor import deterministic_no_op
-from .governed_semantic_editor import select_authoritative_records
-from .governed_semantic_editor import select_consolidatable_records
+from .app_runtime import ResponseTimeout
+from .governed_consolidation import (
+    GovernedConsolidationError,
+    GovernedConsolidationRepository,
+)
+from .governed_semantic_editor import (
+    MAX_RETRIEVAL_CANDIDATES,
+    GovernedSemanticEditorError,
+    GovernedSemanticEditorUnavailable,
+    LocalGatewaySemanticCompletion,
+    SemanticEditorConfig,
+    build_semantic_proposal,
+    clamp_retrieval_limit,
+    deterministic_no_op,
+    select_authoritative_records,
+    select_consolidatable_records,
+)
 from .governed_semantic_evaluation import summarize_shadow_proposals
 from .llm_resource_governor import AdmissionRequest
 from .mem0_adapter import StorageNotReady
 from .memory_service import MemoryServiceNotReady
-from . import app_core_fallback
-from . import app_core_hook
-from . import app_governed_base as _base
 
 
 def _governed_semantic_lexical_fallback_records(

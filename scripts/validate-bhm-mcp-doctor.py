@@ -7,14 +7,12 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
 import urllib.request
+from pathlib import Path
 from typing import Any, Mapping
 
-from bhm_runtime_endpoints import endpoint_url
-from bhm_runtime_endpoints import validate_loopback_endpoint
-
+from bhm_runtime_endpoints import endpoint_url, validate_loopback_endpoint
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -51,16 +49,19 @@ if __name__ == "__main__":
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.mcp_final_gate import EXPECTED_CLIENTS
-from blackholememory.mcp_doctor import DoctorConfig
-from blackholememory.mcp_doctor import VALIDATION_SCHEMA_VERSION
-from blackholememory.mcp_doctor import run_doctor
 from blackholememory.caller_auth import configured_caller_token
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import LocalEndpointError
-from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.local_endpoint_policy import (
+    LocalEndpointError,
+    open_local_url,
+    read_bounded_response,
+)
+from blackholememory.mcp_doctor import (
+    VALIDATION_SCHEMA_VERSION,
+    DoctorConfig,
+    run_doctor,
+)
+from blackholememory.mcp_final_gate import EXPECTED_CLIENTS
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
-
 
 # P26 adds bounded code-intelligence tools to the canonical catalog.  The
 # validator must retain the historical minimum without rejecting a healthy

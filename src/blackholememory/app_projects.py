@@ -9,23 +9,40 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from fastapi import HTTPException
-from fastapi import Request
+
+from fastapi import HTTPException, Request
+
+from . import app_core, app_core_fallback, app_core_hit, app_core_hook
 from . import app_runtime as rt
+from .api_models import (
+    MemoryPinRequest,
+    MemoryUpsertRequest,
+    ProjectMapCompareRequest,
+    ProjectMapUpsertRequest,
+    ProjectOnlyRequest,
+    ProjectRetirementRequest,
+    ProjectSimilarityReportRequest,
+    ProjectSummaryCompareRequest,
+    ProjectSummaryListRequest,
+    ProjectSummaryPinRequest,
+    ProjectSummaryRefreshAllRequest,
+    RebuildProjectSummaryRequest,
+    SlotAppendRequest,
+    SlotLabelRequest,
+    SlotReplaceRequest,
+    SlotRequest,
+)
 from .app_runtime import _safe_exception_text, _write_json_atomic
-from .api_models import MemoryUpsertRequest, ProjectMapUpsertRequest, MemoryPinRequest, RebuildProjectSummaryRequest, ProjectSummaryListRequest, ProjectSummaryRefreshAllRequest, ProjectSummaryCompareRequest, ProjectOnlyRequest, ProjectRetirementRequest, ProjectSummaryPinRequest, ProjectMapCompareRequest, ProjectSimilarityReportRequest, SlotRequest, SlotAppendRequest, SlotReplaceRequest, SlotLabelRequest
-from .config import settings
 from .capability import ADMIN_CAPABILITY_HEADER
+from .config import settings
 from .mem0_adapter import mem0_runtime_plan
 from .project_registry import ProjectResolution
-from .project_retirement import ProjectRetirementError
-from .project_retirement import apply_project_retirement
-from .project_retirement import preview_project_retirement
+from .project_retirement import (
+    ProjectRetirementError,
+    apply_project_retirement,
+    preview_project_retirement,
+)
 from .runtime_storage import resolve_runtime_storage_config
-from . import app_core_fallback
-from . import app_core_hit
-from . import app_core_hook
-from . import app_core
 
 
 def _slot_store_path() -> Path:

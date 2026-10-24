@@ -3,72 +3,93 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import hashlib
 import json
+import logging
 from typing import Any, Callable, Mapping, Sequence
-from fastapi import HTTPException
-from fastapi import Query
-from fastapi import Request
-from . import app_runtime as rt
-from .app_runtime import ResponseTimeout, _ensure_provider_warmup_ready_sync, _run_bounded_read, _safe_exception_text  # noqa: F401
-from .api_models import SearchRequest, MemoryAdvancedSearchRequest, ContextCompileRequest, AgentContextRequest, ContextTierPromotionRollbackRequest, RetrievalExplainRequest, UtilityFeedbackEventRequest, UnifiedContextCompileRequest, SearchByRefRequest, SearchByUpsertKeyRequest, HybridSearchRequest
-from .config import settings
-from .caller_auth import authorize_projects  # noqa: F401
-from .mem0_adapter import global_collection_name
-from .mem0_adapter import local_collection_name
-from .context_compiler import MAX_CONTEXT_ITEM_CHARS
-from .context_compiler import compile_context
-from .context_profiles import resolve_context_profile
-from .context_tiers import ContextTier
-from .context_tiers import TierBudget
-from .context_tiers import TieredContextItem
-from .context_tiers import compile_tiered_context
-from .context_tier_promotion import ContextTierPromotionDisabled  # noqa: F401
-from .context_tier_promotion import ContextTierPromotionError  # noqa: F401
-from .context_tier_promotion import ContextTierPromotionMigrationRequired  # noqa: F401
-from .context_tier_promotion import ContextTierPromotionStale  # noqa: F401
-from .context_tier_promotion import rollback_tier_promotion  # noqa: F401
-from .context_tier_promotion import runtime_enabled as context_tier_promotion_enabled  # noqa: F401
-from .adaptive_profile import recommend_context_profile
-from .adaptive_profile import summarize_explicit_usefulness
-from .context_confidence import assess_context_confidence
-from .feedback_consolidation import FeedbackConsolidationError  # noqa: F401
-from .feedback_consolidation import build_feedback_consolidation_preview  # noqa: F401
-from .retrieval_explanation import explain_retrieval_hit
-from .runtime_storage import resolve_runtime_storage_config
-from .memory_service import MemoryServiceNotReady  # noqa: F401
-from .utility_feedback import UtilityEvent  # noqa: F401
-from .utility_feedback_store import append_utility_event  # noqa: F401
-from .memory_search_service import MemorySearchDependencies
-from .memory_search_service import MemorySearchService
-from .memory_search_service import read_only_side_effects
-from .retrieval_scope import resolve_history_scope
-from .observation_security import redact_secret_text
-from .unified_context import UnifiedContextError
-from .unified_context import build_unified_context_from_graph
-from .unified_context import classify_context_item
-from . import app_core_fallback
-from . import app_core_graph
-from . import app_core_hit
-from . import app_core_hook
-from . import app_core
 
+from fastapi import HTTPException, Query, Request
+
+from . import app_core, app_core_fallback, app_core_graph, app_core_hit, app_core_hook
+from . import app_runtime as rt
+from .adaptive_profile import recommend_context_profile, summarize_explicit_usefulness
+from .api_models import (
+    AgentContextRequest,
+    ContextCompileRequest,
+    ContextTierPromotionRollbackRequest,
+    HybridSearchRequest,
+    MemoryAdvancedSearchRequest,
+    RetrievalExplainRequest,
+    SearchByRefRequest,
+    SearchByUpsertKeyRequest,
+    SearchRequest,
+    UnifiedContextCompileRequest,
+    UtilityFeedbackEventRequest,
+)
 from .app_retrieval_support import (
-    _is_fallback_grace_error,
-    _fallback_rank_records,  # noqa: F401
-    _fallback_grace_mem0_search,
-    _fallback_grace_memories_response,
-    _emit_memory_pulses_from_records,
-    _emit_memory_pulses_from_mem0_items,
     _authoritative_context_compile_request,
-    _record_utility_feedback_event,
-    _utility_feedback_consolidation_preview,
-    _require_context_tier_promotion_enabled,  # noqa: F401
     _context_tier_promotion_error,  # noqa: F401
     _context_tier_promotion_project,  # noqa: F401
     _context_tier_promotion_rollback,
+    _emit_memory_pulses_from_mem0_items,
+    _emit_memory_pulses_from_records,
+    _fallback_grace_mem0_search,
+    _fallback_grace_memories_response,
+    _fallback_rank_records,  # noqa: F401
+    _is_fallback_grace_error,
+    _record_utility_feedback_event,
+    _require_context_tier_promotion_enabled,  # noqa: F401
+    _utility_feedback_consolidation_preview,
 )
+from .app_runtime import (  # noqa: F401
+    ResponseTimeout,
+    _ensure_provider_warmup_ready_sync,
+    _run_bounded_read,
+    _safe_exception_text,
+)
+from .caller_auth import authorize_projects  # noqa: F401
+from .config import settings
+from .context_compiler import MAX_CONTEXT_ITEM_CHARS, compile_context
+from .context_confidence import assess_context_confidence
+from .context_profiles import resolve_context_profile
+from .context_tier_promotion import (
+    ContextTierPromotionDisabled,  # noqa: F401
+    ContextTierPromotionError,  # noqa: F401
+    ContextTierPromotionMigrationRequired,  # noqa: F401
+    ContextTierPromotionStale,  # noqa: F401
+    rollback_tier_promotion,  # noqa: F401
+)
+from .context_tier_promotion import (
+    runtime_enabled as context_tier_promotion_enabled,  # noqa: F401
+)
+from .context_tiers import (
+    ContextTier,
+    TierBudget,
+    TieredContextItem,
+    compile_tiered_context,
+)
+from .feedback_consolidation import (
+    FeedbackConsolidationError,  # noqa: F401
+    build_feedback_consolidation_preview,  # noqa: F401
+)
+from .mem0_adapter import global_collection_name, local_collection_name
+from .memory_search_service import (
+    MemorySearchDependencies,
+    MemorySearchService,
+    read_only_side_effects,
+)
+from .memory_service import MemoryServiceNotReady  # noqa: F401
+from .observation_security import redact_secret_text
+from .retrieval_explanation import explain_retrieval_hit
+from .retrieval_scope import resolve_history_scope
+from .runtime_storage import resolve_runtime_storage_config
+from .unified_context import (
+    UnifiedContextError,
+    build_unified_context_from_graph,
+    classify_context_item,
+)
+from .utility_feedback import UtilityEvent  # noqa: F401
+from .utility_feedback_store import append_utility_event  # noqa: F401
 
 _LOGGER = logging.getLogger(__name__)
 

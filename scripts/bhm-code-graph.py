@@ -7,14 +7,17 @@ import json
 import os
 from pathlib import Path
 
-from blackholememory.code_graph import CODE_GRAPH_SCHEMA_VERSION
-from blackholememory.code_graph import CodeGraphError
-from blackholememory.code_graph import SQLiteCodeGraphStore
-from blackholememory.code_graph import build_code_graph
+from blackholememory.code_graph import (
+    CODE_GRAPH_SCHEMA_VERSION,
+    CodeGraphError,
+    SQLiteCodeGraphStore,
+    build_code_graph,
+)
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import probe_repository_state
-
+from blackholememory.repository_index import (
+    SQLiteRepositoryIndexStore,
+    probe_repository_state,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"

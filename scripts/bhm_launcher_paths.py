@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from bhm_launcher_base import CODEX_PLUGIN_ID
-
 from bhm_launcher_host import launcher as _launcher
 
 

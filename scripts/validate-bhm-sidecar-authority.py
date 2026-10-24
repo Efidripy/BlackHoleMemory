@@ -9,7 +9,6 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-
 SCHEMA_VERSION = "bhm.sidecar-authority-preflight.v1"
 SIDECAR_NAMES = (
     "slots.json",

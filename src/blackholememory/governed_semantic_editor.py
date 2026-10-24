@@ -17,19 +17,22 @@ from dataclasses import dataclass, replace
 from typing import Any, Protocol
 from uuid import uuid4
 
-from .governed_consolidation import MAX_BASIS
-from .governed_consolidation import OPERATIONS
-from .governed_consolidation import GovernedConsolidationError
-from .governed_consolidation import build_proposal
-from .governed_consolidation import canonical_json_sha256
-from .llm_gateway import GatewayRequest
-from .llm_gateway import LocalLLMGateway
-from .llm_gateway import LocalOpenAICompatibleAdapter
-from .llm_gateway import ModelDefinition
-from .llm_gateway import ModelRegistry
-from .llm_gateway import PromptDefinition
-from .llm_gateway import PromptRegistry
-
+from .governed_consolidation import (
+    MAX_BASIS,
+    OPERATIONS,
+    GovernedConsolidationError,
+    build_proposal,
+    canonical_json_sha256,
+)
+from .llm_gateway import (
+    GatewayRequest,
+    LocalLLMGateway,
+    LocalOpenAICompatibleAdapter,
+    ModelDefinition,
+    ModelRegistry,
+    PromptDefinition,
+    PromptRegistry,
+)
 
 GOVERNED_SEMANTIC_EDITOR_SCHEMA_VERSION = "bhm.governed-semantic-editor.v1"
 GOVERNED_SEMANTIC_EDITOR_ANALYZER = "bhm-local-semantic-editor/v1"

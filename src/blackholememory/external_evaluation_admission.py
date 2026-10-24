@@ -14,9 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .filesystem_boundaries import assert_safe_path
-from .filesystem_boundaries import read_bytes_safely
-
+from .filesystem_boundaries import assert_safe_path, read_bytes_safely
 
 SCHEMA_VERSION = "bhm.evaluation.external-dataset-admission.v1"
 _MAX_MANIFEST_BYTES = 64 * 1024

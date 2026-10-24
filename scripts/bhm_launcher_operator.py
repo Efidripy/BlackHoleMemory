@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from datetime import timezone
-from pathlib import Path
-from typing import Any
-from urllib.parse import urlencode
 import json
 import os
 import shutil
 import subprocess
-
-from bhm_launcher_readiness import MAX_HTTP_BYTES
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlencode
 
 from bhm_launcher_host import launcher as _launcher
+from bhm_launcher_readiness import MAX_HTTP_BYTES
 
 
 def _operator_database_path() -> Path:
@@ -137,7 +135,10 @@ def operator_cleanup_preview(project: str) -> dict[str, Any]:
 
 
 def operator_sqlite_backup(_project: str) -> dict[str, Any]:
-    from blackholememory.sqlite_retention import create_verified_sqlite_backup, verify_sqlite_database
+    from blackholememory.sqlite_retention import (
+        create_verified_sqlite_backup,
+        verify_sqlite_database,
+    )
 
     database = _launcher._operator_database_path().resolve()
     if not database.is_file():
@@ -150,7 +151,10 @@ def operator_sqlite_backup(_project: str) -> dict[str, Any]:
 
 
 def operator_restore_backup(path: str, _project: str) -> dict[str, Any]:
-    from blackholememory.sqlite_retention import create_verified_sqlite_backup, verify_sqlite_database
+    from blackholememory.sqlite_retention import (
+        create_verified_sqlite_backup,
+        verify_sqlite_database,
+    )
 
     root = _launcher.find_project_root()
     backup_root = (root / ".runtime" / "backups").resolve()

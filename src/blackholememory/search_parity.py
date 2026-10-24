@@ -11,11 +11,9 @@ import inspect
 import sys
 from typing import Any
 
-from . import app
-from . import bhm_mcp
+from . import app, bhm_mcp
 from .openapi_contract import build_openapi_schema
 from .rest_mcp_parity import _decorated_route_map
-
 
 SCHEMA_VERSION = "bhm.search-parity-matrix.v1"
 CODE_SEARCH_MODES = ("text", "path", "symbol", "metadata")

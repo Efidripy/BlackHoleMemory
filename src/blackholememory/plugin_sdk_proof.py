@@ -17,8 +17,12 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .filesystem_boundaries import FilesystemBoundaryError, FilesystemReadLimitError, assert_safe_path, read_bytes_safely
-
+from .filesystem_boundaries import (
+    FilesystemBoundaryError,
+    FilesystemReadLimitError,
+    assert_safe_path,
+    read_bytes_safely,
+)
 
 SCHEMA_VERSION = "bhm.plugin-sdk-proof.v1"
 LOCAL_TEST_PLUGIN_ID = "bhm.local-test-audit"

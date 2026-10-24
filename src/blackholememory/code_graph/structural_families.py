@@ -8,10 +8,16 @@ from typing import Any
 
 from ..bicep_parser import parse_bicep
 from ._common import (
-    PARSER_REGISTRY, _brace_end, _clip, _node, _sha256, _symbol_node_key,
+    PARSER_REGISTRY,
+    _brace_end,
+    _clip,
+    _node,
+    _sha256,
     _structural_decl_kind,
+    _symbol_node_key,
 )
 from .draft import _GraphDraft
+
 
 def _extract_zig_structural(
     draft: _GraphDraft,

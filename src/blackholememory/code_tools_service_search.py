@@ -8,9 +8,10 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from . import app_runtime as rt
-from .app_runtime import _run_bounded_read, _safe_exception_text
+from . import code_tools_service_base as _base
 from .api_models import PublicCodeToolRequest
-from .code_graph import CodeGraphError, PARSER_REGISTRY_DIGEST, SQLiteCodeGraphStore
+from .app_runtime import _run_bounded_read, _safe_exception_text
+from .code_graph import PARSER_REGISTRY_DIGEST, CodeGraphError, SQLiteCodeGraphStore
 from .code_search import (
     CodeSearchError,
     fuse_code_search_matches,
@@ -18,15 +19,13 @@ from .code_search import (
     search_repository_code,
     semantic_fusion_enabled,
 )
+from .code_tools_service_base import _LOGGER, _deps
 from .observation_security import redact_secret_text
 from .repository_index import RepositoryIndexError, SQLiteRepositoryIndexStore
 from .semantic_code_search import SemanticCodeSearchError, semantic_search_metadata
 from .semantic_fusion_provenance_receipt import build_semantic_fusion_provenance_receipt
 from .semantic_observation import build_semantic_observation
 from .semantic_relevance_receipt import build_semantic_relevance_receipt
-
-from . import code_tools_service_base as _base
-from .code_tools_service_base import _LOGGER, _deps
 
 
 async def _handle_code_search_or_snippet(

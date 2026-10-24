@@ -4,9 +4,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .qdrant_runtime import QDRANT_DEFAULT_URL
-from .runtime_endpoints import endpoint_host
-from .runtime_endpoints import endpoint_port
-from .runtime_endpoints import endpoint_url
+from .runtime_endpoints import endpoint_host, endpoint_port, endpoint_url
 
 
 def _memory_env_candidates() -> list[Path]:

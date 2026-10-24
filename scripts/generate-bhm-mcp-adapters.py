@@ -24,10 +24,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit, urlunsplit
 
+from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
 from blackholememory.runtime_endpoints import endpoint_url
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MANIFEST = REPO_ROOT / "config" / "mcp-registration.json"

@@ -6,15 +6,22 @@ relations; it never stores source text or an external graph authority.
 """
 
 from __future__ import annotations
+
 import re
 from collections import Counter
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping
 
-from ..filesystem_boundaries import assert_safe_path
 from ..code_graph_capabilities import build_parser_capability_matrix
+from ..filesystem_boundaries import assert_safe_path
 from ..repository_index import SQLiteRepositoryIndexStore
 from ._common import (
+    _CODE_GRAPH_TABLES,  # noqa: F401
+    _IGNORED_CALLS,
+    _INVENTORY_METADATA_LANGUAGES,
+    _JS_KEYWORDS,
+    _LANGUAGE_BY_SUFFIX,
+    _SPECIAL_TEXT_NAMES,
     CODE_GRAPH_BUSY_TIMEOUT_MS,  # noqa: F401
     CODE_GRAPH_EXTRACTOR_VERSION,
     CODE_GRAPH_MAX_EDGES,
@@ -25,24 +32,18 @@ from ._common import (
     PARSER_CAPABILITY_SCHEMA_VERSION,
     PARSER_REGISTRY,
     PARSER_REGISTRY_DIGEST,
-    _CODE_GRAPH_TABLES,  # noqa: F401
-    _IGNORED_CALLS,
-    _INVENTORY_METADATA_LANGUAGES,
-    _JS_KEYWORDS,
-    _LANGUAGE_BY_SUFFIX,
-    _SPECIAL_TEXT_NAMES,
     CodeGraphError,
     CodeGraphInjectedFailure,  # noqa: F401
     CodeGraphInputChangedError,
     CodeGraphLimitError,
-    _canonical_json,
     _brace_end,
+    _canonical_json,
     _clip,
     _external_node_key,
     _file_node_key,
     _language_for_path,
-    _module_metadata,
     _module_candidates,
+    _module_metadata,
     _node,
     _node_key,
     _repository_node_key,
@@ -69,14 +70,10 @@ from .structural import (
     _extract_family_structural,
     _extract_generic_structural,
     _extract_github_actions_workflow,
-    _extract_gomod_metadata,
     _extract_gn_metadata,
+    _extract_gomod_metadata,
     _extract_hcl_metadata,
     _extract_inventory_metadata_structural,
-    _is_generic_hcl,
-    _is_github_actions_workflow,
-    _is_kconfig_path,
-    _is_starlark_path,
     _extract_kconfig_metadata,
     _extract_kdl_metadata,
     _extract_llvm_tablegen_structural,
@@ -84,9 +81,14 @@ from .structural import (
     _extract_metadata_structural,
     _extract_starlark_metadata,
     _extract_zig_structural,
+    _is_generic_hcl,
+    _is_github_actions_workflow,
+    _is_kconfig_path,
+    _is_starlark_path,
     _parse_js_imports,
     _structural_decl_kind,
 )
+
 
 def parser_capability_matrix() -> dict[str, Any]:
     """Return the truthful parser-vs-inventory capability matrix."""

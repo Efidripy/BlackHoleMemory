@@ -10,7 +10,6 @@ import socket
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -18,14 +17,16 @@ if str(SRC_ROOT) not in sys.path:
 
 # ruff: noqa: E402
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.sqlite_retention import SQLiteRetentionError
-from blackholememory.sqlite_retention import SQLiteRetentionPolicy
-from blackholememory.sqlite_retention import apply_sqlite_retention
-from blackholememory.sqlite_retention import compact_sqlite_database
-from blackholememory.sqlite_retention import create_verified_sqlite_backup
-from blackholememory.sqlite_retention import plan_sqlite_retention
-from blackholememory.sqlite_retention import utc_now_iso
-from blackholememory.sqlite_retention import verify_sqlite_database
+from blackholememory.sqlite_retention import (
+    SQLiteRetentionError,
+    SQLiteRetentionPolicy,
+    apply_sqlite_retention,
+    compact_sqlite_database,
+    create_verified_sqlite_backup,
+    plan_sqlite_retention,
+    utc_now_iso,
+    verify_sqlite_database,
+)
 
 
 def _default_database() -> Path:

@@ -16,11 +16,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .code_graph import CodeGraphError
-from .code_graph import extract_code_graph
+from .code_graph import CodeGraphError, extract_code_graph
 from .filesystem_boundaries import assert_safe_path
 from .repository_index import SQLiteRepositoryIndexStore
-
 
 GRAPH_BUILD_BUSY_TIMEOUT_SECONDS = 5.0
 GRAPH_BUILD_PROGRESS_INTERVAL_SECONDS = 1.0

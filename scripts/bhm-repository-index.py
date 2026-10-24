@@ -10,15 +10,16 @@ from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.observation_security import redact_secret_text
-from blackholememory.repository_index import RepositoryIndexLimits
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import RepositoryWatcher
-from blackholememory.repository_index import STALE_JOB_DISPOSITION_REASON
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
-from blackholememory.repository_index import repository_index_status
-
+from blackholememory.repository_index import (
+    STALE_JOB_DISPOSITION_REASON,
+    RepositoryIndexLimits,
+    RepositorySourceProvenance,
+    RepositoryWatcher,
+    SQLiteRepositoryIndexStore,
+    index_repository,
+    probe_repository_state,
+    repository_index_status,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_CONTEXT_PROFILE = "standard"
 CONTEXT_PROFILE_CONFIG = "config/context-profiles.json"
 

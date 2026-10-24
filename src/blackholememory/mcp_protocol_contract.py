@@ -6,7 +6,6 @@ from typing import Any, Mapping
 
 from .error_taxonomy import error_contract_snapshot
 
-
 PROTOCOL_CONTRACT_SCHEMA_VERSION = "bhm.mcp.protocol-conformance.v2"
 CURRENT_PROTOCOL_VERSION = "2025-06-18"
 LEGACY_PROTOCOL_VERSIONS = ("2024-11-05",)

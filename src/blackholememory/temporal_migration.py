@@ -18,10 +18,15 @@ from typing import Any, Mapping
 from .filesystem_boundaries import assert_safe_path
 from .freshness_migration import canonical_json, sha256_file
 from .memory_repository import FRESHNESS_SCHEMA_TABLES, FRESHNESS_SCHEMA_VERSION
-from .temporal_contract import CAPABILITY_KEY, CAPABILITY_VERSION
-from .temporal_contract import TEMPORAL_COLUMNS, TEMPORAL_INDEXES, TEMPORAL_SCHEMA_VERSION, TEMPORAL_TABLES
-from .temporal_contract import normalize_temporal_fields
-
+from .temporal_contract import (
+    CAPABILITY_KEY,
+    CAPABILITY_VERSION,
+    TEMPORAL_COLUMNS,
+    TEMPORAL_INDEXES,
+    TEMPORAL_SCHEMA_VERSION,
+    TEMPORAL_TABLES,
+    normalize_temporal_fields,
+)
 
 TEMPORAL_CONFLICT_INDEXES = frozenset({"idx_temporal_conflicts_project_memory_time"})
 SQL_MANIFEST = (

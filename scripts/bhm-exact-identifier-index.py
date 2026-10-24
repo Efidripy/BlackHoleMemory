@@ -23,10 +23,9 @@ if str(SRC) not in sys.path:
 
 from blackholememory.exact_identifier_index_migration import (  # noqa: E402
     ExactIdentifierIndexMigrationError,
+    apply_migration,  # noqa: E402
+    build_migration_plan,  # noqa: E402
 )
-from blackholememory.exact_identifier_index_migration import apply_migration  # noqa: E402
-from blackholememory.exact_identifier_index_migration import build_migration_plan  # noqa: E402
-
 
 DEFAULT_DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 ARTIFACT_ROOT = ROOT / ".runtime" / "exact-identifier-index-migration"

@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import json
 import subprocess
@@ -12,10 +10,12 @@ import tempfile
 import time
 from pathlib import Path
 
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import RepositoryWatcher
-from blackholememory.repository_index import index_repository
-
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    RepositoryWatcher,
+    index_repository,
+)
 
 WI01_PROCESS_TIMEOUT_SECONDS = 60
 

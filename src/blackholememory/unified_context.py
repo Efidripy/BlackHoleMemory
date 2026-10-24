@@ -15,13 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from .code_graph_query import query_code_graph
-from .context_compiler import DEFAULT_CONTEXT_TOKEN_BUDGET
-from .context_compiler import MAX_CONTEXT_ITEM_CHARS
-from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
-from .context_compiler import compile_context
-from .convention_memory import ConventionMemoryError
-from .convention_memory import SQLiteConventionMemoryStore
-
+from .context_compiler import (
+    DEFAULT_CONTEXT_TOKEN_BUDGET,
+    MAX_CONTEXT_ITEM_CHARS,
+    MAX_CONTEXT_TOKEN_BUDGET,
+    compile_context,
+)
+from .convention_memory import ConventionMemoryError, SQLiteConventionMemoryStore
 
 UNIFIED_CONTEXT_SCHEMA_VERSION = "bhm.unified-context.v1"
 UNIFIED_CONTEXT_MAX_ITEMS_PER_SOURCE = 32

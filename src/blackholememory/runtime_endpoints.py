@@ -7,8 +7,8 @@ an explicit URL variable wins over host/port composition.
 
 from __future__ import annotations
 
-import json
 import ipaddress
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path

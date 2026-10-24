@@ -14,24 +14,20 @@ import hashlib
 import json
 import os
 import sqlite3
+import sys
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import read_bounded_response
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
+from blackholememory.local_endpoint_policy import open_local_url, read_bounded_response
 from blackholememory.resource_limits import QDRANT_OPERATOR_HTTP_TIMEOUT_SECONDS
-
 
 CONFIG = ROOT / "config" / "cbm-integration.json"
 DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"

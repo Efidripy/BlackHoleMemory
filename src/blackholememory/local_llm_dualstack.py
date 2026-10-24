@@ -14,10 +14,11 @@ import urllib.request
 from collections.abc import Mapping
 from typing import Any
 
-from .local_endpoint_policy import LocalEndpointError
-from .local_endpoint_policy import open_local_url
-from .local_endpoint_policy import read_bounded_response
-
+from .local_endpoint_policy import (
+    LocalEndpointError,
+    open_local_url,
+    read_bounded_response,
+)
 
 SCHEMA_VERSION = "bhm.local-llm-dualstack.v1"
 DEFAULT_TIMEOUT_SECONDS = 2.0

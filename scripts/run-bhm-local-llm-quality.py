@@ -7,12 +7,13 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.local_model_quality_evaluation import DEFAULT_BASE_URL
-from blackholememory.local_model_quality_evaluation import LocalModelQualityError
-from blackholememory.local_model_quality_evaluation import load_quality_dataset
-from blackholememory.local_model_quality_evaluation import run_quality_evaluation
-from blackholememory.local_model_quality_evaluation import write_quality_receipt
-
+from blackholememory.local_model_quality_evaluation import (
+    DEFAULT_BASE_URL,
+    LocalModelQualityError,
+    load_quality_dataset,
+    run_quality_evaluation,
+    write_quality_receipt,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = REPO_ROOT / "tests" / "fixtures" / "local_model_quality" / "russian-grounded-v1.json"

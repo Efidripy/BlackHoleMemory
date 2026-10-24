@@ -15,11 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .caller_auth import CallerPrincipal
 from .domain import Artifact
-from .governed_shared_memory import CallerIdentity
-from .governed_shared_memory import PolicyReceipt
-from .governed_shared_memory import SharedMemoryRequest
+from .governed_shared_memory import CallerIdentity, PolicyReceipt, SharedMemoryRequest
 from .memory_repository import MemoryRepositoryIntegrityError
-
 
 SCHEMA_VERSION = "bhm.governed-shared-memory.audit.v1"
 ARTIFACT_TYPE = "shared_memory_policy_audit"

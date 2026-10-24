@@ -27,8 +27,8 @@ from .api_models import (
     SecretScanRequest,
 )
 from .lifecycle_suggestions import build_lifecycle_suggestions
-from .observation_security import redact_secret_text
 from .memory_routes_base import MemoryClass, MemoryEventRole, _deps
+from .observation_security import redact_secret_text
 
 
 def _list_live_memories(

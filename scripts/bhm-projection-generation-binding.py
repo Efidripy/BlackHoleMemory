@@ -11,13 +11,17 @@ import json
 from pathlib import Path
 from typing import Any
 
-from blackholememory.projection_generation_binding import active_projection_generation_bindings
-from blackholememory.projection_generation_binding import apply_projection_generation_binding_plan
-from blackholememory.projection_generation_binding import build_projection_generation_binding_plan
-from blackholememory.projection_generation_binding import rollback_projection_generation_binding
-from blackholememory.projection_generation_binding_migration import apply_projection_generation_binding_migration
-from blackholememory.projection_generation_binding_migration import build_projection_generation_binding_migration_plan
-from blackholememory.projection_generation_binding_migration import projection_generation_binding_migration_status
+from blackholememory.projection_generation_binding import (
+    active_projection_generation_bindings,
+    apply_projection_generation_binding_plan,
+    build_projection_generation_binding_plan,
+    rollback_projection_generation_binding,
+)
+from blackholememory.projection_generation_binding_migration import (
+    apply_projection_generation_binding_migration,
+    build_projection_generation_binding_migration_plan,
+    projection_generation_binding_migration_status,
+)
 
 
 def _load_json(path: str) -> Any:

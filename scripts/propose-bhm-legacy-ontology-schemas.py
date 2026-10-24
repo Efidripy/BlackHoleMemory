@@ -8,7 +8,9 @@ import json
 from pathlib import Path
 
 from blackholememory.config import settings
-from blackholememory.legacy_ontology_proposals import build_live_legacy_ontology_proposals
+from blackholememory.legacy_ontology_proposals import (
+    build_live_legacy_ontology_proposals,
+)
 from blackholememory.mem0_adapter import SEMANTIC_GRAPH_PATH
 
 

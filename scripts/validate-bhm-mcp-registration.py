@@ -8,12 +8,13 @@ import os
 from pathlib import Path
 from typing import Any
 
-from blackholememory.mcp_registration import RegistrationContractError
-from blackholememory.mcp_registration import canonical_fixture
-from blackholememory.mcp_registration import evaluate_registrations
-from blackholememory.mcp_registration import load_contract
-from blackholememory.mcp_registration import load_registrations
-
+from blackholememory.mcp_registration import (
+    RegistrationContractError,
+    canonical_fixture,
+    evaluate_registrations,
+    load_contract,
+    load_registrations,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = REPO_ROOT / "config" / "mcp-registration.json"

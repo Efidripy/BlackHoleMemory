@@ -8,17 +8,17 @@ import argparse
 import json
 import re
 import sys
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.filesystem_boundaries import write_bytes_exclusive
-
+from blackholememory.filesystem_boundaries import (
+    assert_safe_path,
+    replace_bytes_safely,
+    write_bytes_exclusive,
+)
 
 WINDOWS_USER = re.compile(r"(?i)[A-Z]:\\Users\\[^\\\s`\"'<>]+")
 WINDOWS_WORKSPACE = re.compile(r"(?i)[A-Z]:\\GitHub(?=[\\/\s`\"'<>.,)\]]|$)")

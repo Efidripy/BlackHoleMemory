@@ -2,28 +2,30 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Any
-from urllib.parse import urlencode
-from urllib.parse import urlsplit
 import json
 import re
 import socket
 import threading
 import time
 import urllib.request
-
-from bhm_launcher_readiness import LocalEndpointError
-from bhm_launcher_readiness import MAX_HTTP_BYTES
-from bhm_launcher_readiness import read_bounded_response
-from bhm_runtime_endpoints import endpoint_parts
-from blackholememory.resource_limits import LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS
-from blackholememory.resource_limits import LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any
+from urllib.parse import urlencode, urlsplit
 
 from bhm_launcher_host import launcher as _launcher
+from bhm_launcher_readiness import (
+    MAX_HTTP_BYTES,
+    LocalEndpointError,
+    read_bounded_response,
+)
+from bhm_runtime_endpoints import endpoint_parts
 
+from blackholememory.resource_limits import (
+    LAUNCHER_REMOTE_HTTP_TIMEOUT_SECONDS,
+    LAUNCHER_TCP_PROBE_TIMEOUT_SECONDS,
+)
 
 _LAST_TELEMETRY: dict[str, str] = {
     "memory_count": "--",

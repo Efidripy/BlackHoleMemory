@@ -10,8 +10,8 @@ client reload; it is never promoted to an automatic reconnect.
 
 from __future__ import annotations
 
-import importlib.util
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -22,8 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .filesystem_boundaries import assert_safe_path
-from .filesystem_boundaries import replace_bytes_safely
+from .filesystem_boundaries import assert_safe_path, replace_bytes_safely
 
 SCHEMA_VERSION = "bhm.mcp.repair.v1"
 MAX_CLIENTS = 2

@@ -8,7 +8,6 @@ import json
 import subprocess
 from pathlib import Path
 
-
 GIT_PROBE_TIMEOUT_SECONDS = 30
 PUBLIC_SCRIPT_MANIFEST = "config/public-script-manifest.json"
 

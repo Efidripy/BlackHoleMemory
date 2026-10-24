@@ -8,7 +8,6 @@ import json
 import zipfile
 from pathlib import Path, PurePosixPath
 
-
 REQUIRED_FILES = {
     "BHM_Launcher.exe",
     "config/version-manifest.json",

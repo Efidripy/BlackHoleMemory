@@ -16,7 +16,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-
 BHM_APP_NAMES = {"bhm_app", "app_module"}
 
 

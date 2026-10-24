@@ -8,10 +8,8 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
-from datetime import timezone
+from datetime import datetime, timezone
 from typing import Any
-
 
 SCHEMA_VERSION = 1
 DEFAULT_MAX_GROUPS = 128

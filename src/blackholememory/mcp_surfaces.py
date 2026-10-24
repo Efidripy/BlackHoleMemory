@@ -13,7 +13,6 @@ import os
 from enum import StrEnum
 from typing import Any
 
-
 MCP_SURFACE_ENV = "BHM_MCP_SURFACE"
 
 

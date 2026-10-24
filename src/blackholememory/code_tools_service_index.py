@@ -10,12 +10,20 @@ from fastapi import HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from . import app_runtime as rt
-from .app_runtime import _run_bounded_read
+from . import code_tools_service_base as _base
 from .api_models import PublicCodeToolRequest
+from .app_runtime import _run_bounded_read
 from .code_graph import (
-    CodeGraphError,
     PARSER_REGISTRY_DIGEST,
+    CodeGraphError,
     build_code_graph,
+)
+from .code_tools_service_graph_build import (
+    _get_or_start_graph_build_operation,
+    _graph_build_job_store,
+    _graph_build_result_from_snapshot,
+    _latest_graph_build_operation,
+    _public_graph_build_operation,
 )
 from .observation_security import redact_secret_text
 from .repository_index import (
@@ -32,14 +40,6 @@ from .resource_limits import (
     BHM_CODE_GRAPH_SOFT_WAIT_SECONDS,
     BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS,
     BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS,
-)
-from . import code_tools_service_base as _base
-from .code_tools_service_graph_build import (
-    _get_or_start_graph_build_operation,
-    _graph_build_job_store,
-    _graph_build_result_from_snapshot,
-    _latest_graph_build_operation,
-    _public_graph_build_operation,
 )
 
 

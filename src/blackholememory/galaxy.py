@@ -3,8 +3,7 @@ from __future__ import annotations
 import json
 import math
 import re
-from collections import Counter
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -12,7 +11,6 @@ from typing import Any
 from .config import settings
 from .memory_service import SQLiteMemoryService
 from .observation_store import ObservationStore
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LIVE_MEMORY_DIR = settings.runtime_dir / "live-memory"

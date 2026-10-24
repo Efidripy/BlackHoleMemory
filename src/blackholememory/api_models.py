@@ -4,11 +4,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
-from .config import settings
-from .memory_contracts import MemoryMetadata, MemoryClass, MemoryEventRole
-from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
-from .governed_shared_memory import SharedOperation, SharedVisibility
-from .utility_feedback import UtilityEventType
 from .api_models_services import (
     CapabilityRoutePreviewRequest,  # noqa: F401
     ChangeImpactPreviewRequest,  # noqa: F401
@@ -39,6 +34,11 @@ from .api_models_services import (
     UnifiedContextCompileRequest,  # noqa: F401
     UnifiedMcpContractPreviewRequest,  # noqa: F401
 )
+from .config import settings
+from .context_compiler import MAX_CONTEXT_TOKEN_BUDGET
+from .governed_shared_memory import SharedOperation, SharedVisibility
+from .memory_contracts import MemoryClass, MemoryEventRole, MemoryMetadata
+from .utility_feedback import UtilityEventType
 
 FactCrystalDomain = Literal["frontend", "backend", "infra", "security", "product", "general"]
 FactCrystalPriority = Literal["low", "medium", "high", "critical"]
