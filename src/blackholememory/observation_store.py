@@ -271,6 +271,21 @@ class ObservationStore(ObservationStoreBase):
             params.append(project)
         where = f"WHERE {' AND '.join(clauses)}"
         with closing(self._connect()) as connection:
+            # The joined form fetches every wide event row (~1.5 GB for 228k events); events that were purged are
+            # rare, so count straight from the covering (project, occurred_at) index and join only when needed.
+            purged_params = [project] if project else []
+            purged = connection.execute(
+                "SELECT COUNT(*) FROM observation_state AS s JOIN observation_events AS e ON e.event_id = s.event_id "
+                "WHERE s.lifecycle = 'purged'" + (" AND e.project = ?" if project else ""),
+                purged_params,
+            ).fetchone()[0]
+            if not purged:
+                fast = connection.execute(
+                    "SELECT COUNT(*) AS count, COALESCE(MAX(NULLIF(occurred_at, '')), '') AS latest "
+                    "FROM observation_events" + (" WHERE project = ?" if project else ""),
+                    purged_params,
+                ).fetchone()
+                return {"count": int(fast["count"] or 0), "latest": str(fast["latest"] or "")}
             row = connection.execute(
                 f"""
                 SELECT
