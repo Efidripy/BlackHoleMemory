@@ -11,7 +11,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
-from qdrant_client.http import models as qdrant_models
+from .mem0_adapter import qdrant_models
 
 from .projection_reconciliation import ProjectionReviewClassification
 from .projection_reconciliation import ProjectionReviewDisposition

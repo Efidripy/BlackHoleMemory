@@ -1,7 +1,5 @@
 from typing import TypedDict
 
-from langgraph.graph import END, START, StateGraph
-
 
 class AppState(TypedDict, total=False):
     action: str
@@ -15,6 +13,8 @@ def _bootstrap_node(state: AppState) -> AppState:
 
 
 def build_graph():
+    from langgraph.graph import END, START, StateGraph
+
     graph = StateGraph(AppState)
     graph.add_node("bootstrap", _bootstrap_node)
     graph.add_edge(START, "bootstrap")
