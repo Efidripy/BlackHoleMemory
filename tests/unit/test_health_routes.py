@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -61,6 +62,19 @@ def test_health_domain_builders_keep_route_contract_shapes() -> None:
     assert health["mem0"] == {"status": "projection-only"}
     assert health["source_identity"] == {"status": "verified", "revision": "a" * 40, "tree_state": "clean"}
     assert build_cutover(runtime)["required_ok"] is True
+
+
+def test_public_readiness_skips_diagnostic_callbacks() -> None:
+    runtime = _runtime()
+    calls: list[str] = []
+    optimized = replace(
+        runtime,
+        mem0_runtime_plan=lambda: calls.append("mem0") or {"status": "unexpected"},
+        provider_warmup_status=lambda: calls.append("warmup") or {"ready": False},
+    )
+
+    assert build_ready_public(optimized) == {"ok": True, "status": "ready"}
+    assert calls == []
 
 
 def test_health_domain_slo_uses_supplied_route_factories() -> None:

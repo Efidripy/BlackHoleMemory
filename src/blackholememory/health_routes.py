@@ -95,7 +95,31 @@ def build_ready(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
 
 
 def build_ready_public(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
-    return health_ready_public_payload(ready=build_ready(runtime))
+    # The anonymous launcher probe only exposes the readiness bit.  Avoid
+    # assembling the full diagnostics payload here: mem0 runtime planning and
+    # provider warmup probes may perform network/configuration work, while
+    # neither value participates in the readiness decision.
+    storage = runtime.storage_runtime_state()
+    memory_store = runtime.memory_store_state()
+    storage_payload = storage.as_dict()
+    memory_store_payload = memory_store.as_dict()
+    projection_required = (
+        runtime.projection_required_for_core()
+        or memory_store.configured_mode != runtime.sqlite_authoritative_mode
+    )
+    dependency_report = _dependency_report_for_core(
+        runtime,
+        projection_required=projection_required,
+    )
+    ready = {
+        "ok": (
+            bool(dependency_report["ok"])
+            and bool(memory_store_payload["ready"])
+            and not runtime.fallback_grace_active()
+            and (bool(storage_payload["ready"]) or not projection_required)
+        )
+    }
+    return health_ready_public_payload(ready=ready)
 
 
 def build_bhm_health(runtime: HealthRuntimeDependencies) -> dict[str, Any]:
