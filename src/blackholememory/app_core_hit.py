@@ -6,7 +6,7 @@ import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
-from qdrant_client.http import models as qdrant_models
+
 from . import app_runtime as rt
 from .app_runtime import _env_float
 from .config import settings
@@ -15,7 +15,7 @@ from .mem0_adapter import decay_lambda_for_payload
 from .mem0_adapter import ensure_decay_metadata
 from .mem0_adapter import get_global_core_memory
 from .mem0_adapter import get_project_mem0_memory
-from .mem0_adapter import get_qdrant_client
+from .mem0_adapter import get_qdrant_client, qdrant_models
 from .mem0_adapter import global_collection_name
 from .mem0_adapter import lexical_score
 from .mem0_adapter import local_collection_name

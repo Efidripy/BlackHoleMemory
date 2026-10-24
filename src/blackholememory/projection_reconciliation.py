@@ -10,7 +10,7 @@ from datetime import datetime
 from datetime import timezone
 from typing import Any
 
-from qdrant_client.http import models as qdrant_models
+from .mem0_adapter import qdrant_models
 
 from .domain import Lifecycle
 from .memory_repository import MemoryRepository
