@@ -356,7 +356,7 @@ MUTATION_EXPECTATIONS: dict[tuple[str, str, str], BoundaryExpectation] = {
         disposition="reparse-checked-quarantine-cleanup",
         scope_signals=("_assert_no_reparse_components", "target == self.root", "shutil.rmtree(target)"),
     ),
-    ("src/blackholememory/source_registry.py", "_remove_tree", "shutil.rmtree"): BoundaryExpectation(
+    ("src/blackholememory/source_registry_base.py", "_remove_tree", "shutil.rmtree"): BoundaryExpectation(
         disposition="owner-root-reparse-checked-cleanup",
         scope_signals=("_assert_owned_tree_target(path, owner_root)", "remove_readonly", "shutil.rmtree(path, onerror=remove_readonly)"),
     ),
