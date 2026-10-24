@@ -97,6 +97,28 @@ def _fallback_memory_records(
     ]
 
 
+_ORIGINAL_FALLBACK_MEMORY_RECORDS = _fallback_memory_records
+
+
+def _count_fallback_memory_records(
+    *,
+    project: str | None = None,
+    include_logs: bool = True,
+) -> int:
+    if _fallback_memory_records is not _ORIGINAL_FALLBACK_MEMORY_RECORDS:
+        return len(_fallback_memory_records(project=project, include_logs=include_logs))
+    try:
+        service = rt._memory_service()
+        canonical = rt._canonical_project(project) if project else None
+        return service.count_records(
+            project=canonical,
+            exclude_event_role=MemoryEventRole.TRACE.value,
+            include_archived=False,
+        )
+    except Exception:
+        return len(_fallback_memory_records(project=project, include_logs=include_logs))
+
+
 def _freshness_matches(record: Mapping[str, Any], freshness_days: int | None) -> bool:
     """Keep only records updated within the requested UTC freshness window."""
 

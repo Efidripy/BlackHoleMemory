@@ -346,21 +346,22 @@ class LLMJobQueue:
             connection = self._connect()
             try:
                 connection.execute("BEGIN IMMEDIATE")
-                connection.execute(
-                    """
-                    UPDATE llm_jobs
-                    SET status = 'queued',
-                        available_at = ?,
-                        updated_at = ?,
-                        last_error = 'processing lease expired; requeued',
-                        lease_owner = NULL,
-                        lease_expires_at = NULL
-                    WHERE status = 'processing'
-                      AND lease_expires_at IS NOT NULL
-                      AND lease_expires_at <= ?
-                    """,
-                    (now_epoch, now_iso, now_epoch),
-                )
+                if connection.execute("SELECT 1 FROM llm_jobs WHERE status = 'processing' LIMIT 1").fetchone():
+                    connection.execute(
+                        """
+                        UPDATE llm_jobs
+                        SET status = 'queued',
+                            available_at = ?,
+                            updated_at = ?,
+                            last_error = 'processing lease expired; requeued',
+                            lease_owner = NULL,
+                            lease_expires_at = NULL
+                        WHERE status = 'processing'
+                          AND lease_expires_at IS NOT NULL
+                          AND lease_expires_at <= ?
+                        """,
+                        (now_epoch, now_iso, now_epoch),
+                    )
                 if self._is_paused_connection(connection):
                     connection.commit()
                     return None
