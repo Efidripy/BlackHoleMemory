@@ -8,10 +8,10 @@ import types
 from . import _common as _common
 from . import _core as _core
 from . import executor_shared as executor_shared
+from . import executor_shared_base as executor_shared_base, executor_shared_censor as executor_shared_censor, executor_shared_nodes as executor_shared_nodes
 from . import llm_client as llm_client
 from . import quarantine as quarantine
 from . import swarm_tools as swarm_tools
-
 from ._common import *  # noqa: F401,F403
 from ._core import *  # noqa: F401,F403
 from .llm_client import *  # noqa: F401,F403
@@ -39,9 +39,9 @@ class _DeveloperAgentFacadeModule(types.ModuleType):
     """Keep legacy facade monkeypatches bound to their owning split module."""
 
     _PATCH_TARGETS = {
-        "_MCP_PLAYWRIGHT_SEARCH_PROVIDER": (_common, executor_shared),
-        "_SPECULATIVE_RAG_SEARCH_PROVIDER": (_common, executor_shared),
-        "_read_bhm_env": (_common, _core, llm_client, executor_shared),
+        "_MCP_PLAYWRIGHT_SEARCH_PROVIDER": (_common, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
+        "_SPECULATIVE_RAG_SEARCH_PROVIDER": (_common, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
+        "_read_bhm_env": (_common, _core, llm_client, executor_shared, executor_shared_base, executor_shared_censor, executor_shared_nodes),
         "configured_caller_token": (_common,),
         "analyze_screenshot": (swarm_tools,),
         "_repo_root": (_common, quarantine),
