@@ -14,14 +14,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from blackholememory.governed_shared_memory import SharedMemoryGrant
-from blackholememory.memory_service import SQLiteMemoryService
+from blackholememory.shared_memory_grants import SharedGrantRevocation
+from blackholememory.shared_memory_grants import build_grant_artifact
+from blackholememory.shared_memory_grants import build_revocation_artifact
+from blackholememory.shared_memory_grants import grant_digest
 from blackholememory.runtime_storage import resolve_runtime_storage_config
-from blackholememory.shared_memory_grants import (
-    SharedGrantRevocation,
-    build_grant_artifact,
-    build_revocation_artifact,
-    grant_digest,
-)
+from blackholememory.memory_service import SQLiteMemoryService
 
 
 def _now() -> str:

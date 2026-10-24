@@ -6,6 +6,7 @@ import contextvars
 import hmac
 import os
 
+
 ADMIN_CAPABILITY_HEADER = "x-bhm-admin-capability"
 ADMIN_CAPABILITY_ENV_NAMES = ("BHM_ADMIN_CAPABILITY", "BHM_MCP_ADMIN_CAPABILITY")
 

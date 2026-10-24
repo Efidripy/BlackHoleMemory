@@ -9,8 +9,8 @@ import os
 import subprocess
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 UNSAFE_SOURCE_FEATURE_FLAGS = frozenset(

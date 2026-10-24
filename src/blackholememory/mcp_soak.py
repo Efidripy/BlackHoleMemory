@@ -12,6 +12,7 @@ from typing import Any
 
 from .mcp_surfaces import CORE_TOOL_NAMES
 
+
 SCHEMA_VERSION = "bhm.mcp.multi-session-soak.v1"
 MAX_CLIENTS = 10
 DEFAULT_CLIENTS = 10

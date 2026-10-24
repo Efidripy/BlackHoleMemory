@@ -9,15 +9,15 @@ from typing import Any, Mapping
 
 from .filesystem_boundaries import assert_safe_path
 from .package_resolution_base import (
-    _BLOCKED_PARTS,
-    _LOCKFILE_NAMES,
     DEPENDENCY_PROVENANCE_SCHEMA_VERSION,
+    DependencyProvenanceError,
     MAX_JSON_DEPTH,
     MAX_JSON_NODES,
     MAX_LOCKFILE_BYTES,
     MAX_LOCKFILE_DEPENDENCIES,
     MAX_LOCKFILES,
-    DependencyProvenanceError,
+    _BLOCKED_PARTS,
+    _LOCKFILE_NAMES,
     _bounded_files,
     _digest,
     _safe_name,

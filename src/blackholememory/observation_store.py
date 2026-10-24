@@ -13,6 +13,7 @@ from typing import Any, Iterable, Literal, Sequence
 
 from .filesystem_boundaries import assert_safe_path
 
+
 OBSERVATION_STORE_SCHEMA_VERSION = 2
 OBSERVATION_STORE_BUSY_TIMEOUT_MS = 5_000
 OBSERVATION_STORE_WRITE_RETRY_DELAYS = (0.025, 0.05, 0.1, 0.2, 0.4)

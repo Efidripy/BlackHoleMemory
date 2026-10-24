@@ -6,7 +6,9 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
-from .observation_security import PayloadSanitizer, redact_secret_text
+from .observation_security import PayloadSanitizer
+from .observation_security import redact_secret_text
+
 
 HUMAN_UI_BRIDGE_SCHEMA_VERSION = "bhm.human-ui-bridge.v1"
 OBSIDIAN_BRIDGE_SCHEMA_VERSION = "bhm.obsidian-bridge.v1"

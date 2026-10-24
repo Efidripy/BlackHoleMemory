@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
-from datetime import datetime, timezone
+from collections.abc import Mapping
+from collections.abc import Sequence
+from datetime import datetime
+from datetime import timezone
 from typing import Any
 
 from qdrant_client.http import models as qdrant_models
@@ -36,13 +38,11 @@ from .projection_reconciliation_generation import (
     apply_projection_generation_plan,  # noqa: F401
     build_projection_generation_plan,  # noqa: F401
 )
-from .qdrant_projector import (
-    QdrantProjector,
-    build_generation_point_payload,  # noqa: F401
-    deterministic_point_id,
-    projection_payload_digest,
-    projection_payload_digest_from_payload,
-)
+from .qdrant_projector import QdrantProjector
+from .qdrant_projector import build_generation_point_payload  # noqa: F401
+from .qdrant_projector import deterministic_point_id
+from .qdrant_projector import projection_payload_digest
+from .qdrant_projector import projection_payload_digest_from_payload
 from .qdrant_validation_bounds import ValidationScanBudget
 
 _QDRANT_RETRIEVE_BATCH_SIZE = 256

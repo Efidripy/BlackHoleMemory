@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+
 MODEL_ROUTER_SCHEMA_VERSION = "bhm.llm.model-router.v1"
 MODEL_ROUTER_CONTEXT_PROFILES = (8192, 16384, 32768)
 MODEL_ROUTER_CAPABILITIES = ("classification", "coding", "reasoning", "vision", "embedding", "json")

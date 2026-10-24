@@ -4,16 +4,15 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StrictStr,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
+from pydantic import StrictStr
+from pydantic import field_validator
+from pydantic import model_validator
 
 from .observation_security import ObservationSensitivity
+
 
 OBSERVATION_SCHEMA_VERSION = "1.0"
 ObservationPayloadState = Literal["raw", "sanitized"]

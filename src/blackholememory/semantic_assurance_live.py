@@ -20,23 +20,18 @@ from urllib.parse import urlparse
 
 import httpx
 
-from blackholememory.semantic_assurance_evaluation import (
-    SemanticAssuranceEvaluationError,
-    evaluate_semantic_assurance,
-    load_semantic_assurance_dataset,
-)
-from blackholememory.semantic_assurance_label_admission import (
-    SemanticAssuranceLabelAdmissionError,
-    verify_semantic_assurance_label_admission,
-)
-from blackholememory.semantic_assurance_live_event import (
-    _digest,
-    _event_chain,
-    _event_chain_is_valid,
-    _event_chain_seed,
-    _event_record,
-    _is_sha256,
-)
+from blackholememory.semantic_assurance_evaluation import SemanticAssuranceEvaluationError
+from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
+from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_dataset
+from blackholememory.semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
+from blackholememory.semantic_assurance_label_admission import verify_semantic_assurance_label_admission
+from blackholememory.semantic_assurance_live_event import _digest
+from blackholememory.semantic_assurance_live_event import _event_chain
+from blackholememory.semantic_assurance_live_event import _event_chain_is_valid
+from blackholememory.semantic_assurance_live_event import _event_chain_seed
+from blackholememory.semantic_assurance_live_event import _event_record
+from blackholememory.semantic_assurance_live_event import _is_sha256
+
 
 # V3 adds a content-free event ledger.  V4 adds the forward-only V6 label
 # admission bindings, V5 the curator-audited V6 evidence chain.  The generic adapter may still run a small fixture; the
@@ -568,9 +563,7 @@ def _v6_curator_audited_label_admission_binding(
         "sealed_readiness_strata_minimum_population": 80,
     }
     if schema_version == _LABEL_ADMISSION_RECEIPT_V6:
-        from .semantic_assurance_label_admission import (
-            _v6_sealed_risk_label_matrix_binding,
-        )
+        from .semantic_assurance_label_admission import _v6_sealed_risk_label_matrix_binding
 
         expected_matrix = _v6_sealed_risk_label_matrix_binding(
             dataset["cases"],

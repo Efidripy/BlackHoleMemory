@@ -31,31 +31,27 @@ from typing import Any
 import httpx
 from qdrant_client.http import models as qdrant_models
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory.config import settings  # noqa: E402
-from blackholememory.llm_gateway import (
-    GatewayRequest,  # noqa: E402
-    LocalLLMGateway,  # noqa: E402
-    LocalOpenAICompatibleAdapter,  # noqa: E402
-    ModelDefinition,  # noqa: E402
-    ModelRegistry,  # noqa: E402
-    PromptDefinition,  # noqa: E402
-    PromptRegistry,  # noqa: E402
-)
-from blackholememory.local_endpoint_policy import (
-    MAX_RESPONSE_BYTES,  # noqa: E402
-    validate_local_endpoint,  # noqa: E402
-)
-from blackholememory.mem0_adapter import (
-    get_global_core_memory,  # noqa: E402
-    get_qdrant_client,  # noqa: E402
-    global_collection_name,  # noqa: E402
-)
+from blackholememory.llm_gateway import GatewayRequest  # noqa: E402
+from blackholememory.llm_gateway import LocalLLMGateway  # noqa: E402
+from blackholememory.llm_gateway import LocalOpenAICompatibleAdapter  # noqa: E402
+from blackholememory.llm_gateway import ModelDefinition  # noqa: E402
+from blackholememory.llm_gateway import ModelRegistry  # noqa: E402
+from blackholememory.llm_gateway import PromptDefinition  # noqa: E402
+from blackholememory.llm_gateway import PromptRegistry  # noqa: E402
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES  # noqa: E402
+from blackholememory.local_endpoint_policy import validate_local_endpoint  # noqa: E402
+from blackholememory.mem0_adapter import get_global_core_memory  # noqa: E402
+from blackholememory.mem0_adapter import get_qdrant_client  # noqa: E402
+from blackholememory.mem0_adapter import global_collection_name  # noqa: E402
 from blackholememory.resource_limits import LLM_REFLECTION_TIMEOUT_SECONDS  # noqa: E402
+
 
 JsonDict = dict[str, Any]
 

@@ -13,16 +13,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from .governed_consolidation import (
-    GovernedConsolidationError,
-    GovernedConsolidationRepository,
-    validate_proposal_identity,
-)
-from .governed_semantic_editor import (
-    GOVERNED_SEMANTIC_EDITOR_ANALYZER,
-    GOVERNED_SEMANTIC_EDITOR_POLICY_VERSION,
-    GOVERNED_SEMANTIC_EDITOR_SCHEMA_VERSION,
-)
+from .governed_consolidation import GovernedConsolidationRepository
+from .governed_consolidation import GovernedConsolidationError
+from .governed_consolidation import validate_proposal_identity
+from .governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_ANALYZER
+from .governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_POLICY_VERSION
+from .governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_SCHEMA_VERSION
+
 
 GOVERNED_AUTO_REVIEW_APPLY_POLICY_VERSION = "bhm-governed-auto-review/v1"
 GOVERNED_AUTO_REVIEW_APPLY_ACTOR = "bhm-governed-auto-review/v1"

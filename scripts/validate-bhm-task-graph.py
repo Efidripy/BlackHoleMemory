@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -11,16 +13,14 @@ import sys
 import tempfile
 from pathlib import Path
 
-from blackholememory import app as bhm_app
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-from blackholememory.task_graph import (
-    TaskGraphError,
-    build_task_graph,
-    query_task_graph,
-    simulate_conflict_recovery_fixture,
-)
+from blackholememory import app as bhm_app
+from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
+from blackholememory.task_graph import TaskGraphError
+from blackholememory.task_graph import build_task_graph
+from blackholememory.task_graph import query_task_graph
+from blackholememory.task_graph import simulate_conflict_recovery_fixture
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-task-graph.py"

@@ -5,12 +5,14 @@ from __future__ import annotations
 
 # The script adds the repository's src directory before importing project modules.
 # ruff: noqa: E402
+
 import argparse
 import json
 import socket
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,18 +21,17 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.projection_reconciliation import (
-    QdrantSurfaceAdapter,
-    build_projection_reconciliation_plan,
-    classify_projection_review_entries,
-    projection_review_classification_digest,
-)
-from blackholememory.resource_limits import LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS
+from blackholememory.mem0_adapter import get_qdrant_client
+from blackholememory.projection_reconciliation import QdrantSurfaceAdapter
+from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
+from blackholememory.projection_reconciliation import classify_projection_review_entries
+from blackholememory.projection_reconciliation import projection_review_classification_digest
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.runtime_endpoints import endpoint_parts
 from blackholememory.runtime_storage import inspect_memory_store_schema
+from blackholememory.resource_limits import LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS
+
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")

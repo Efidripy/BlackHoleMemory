@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .domain import Artifact
 
+
 SCHEMA_VERSION = "bhm.ontology-registry.v1"
 ARTIFACT_TYPE = "ontology_registry"
 ACTIVATION_ARTIFACT_TYPE = "ontology_registry_activation"

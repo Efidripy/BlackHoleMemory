@@ -9,15 +9,15 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 from blackholememory.context_compiler import compile_context  # noqa: E402
-from blackholememory.retrieval_benchmark import (
-    build_default_benchmark_cases,  # noqa: E402
-    evaluate_benchmark,  # noqa: E402
-    filter_benchmark_hits,  # noqa: E402
-)
+from blackholememory.retrieval_benchmark import build_default_benchmark_cases  # noqa: E402
+from blackholememory.retrieval_benchmark import evaluate_benchmark  # noqa: E402
+from blackholememory.retrieval_benchmark import filter_benchmark_hits  # noqa: E402
+
 
 BASELINE_BUDGET = 1200
 TUNED_BUDGET = 350

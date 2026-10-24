@@ -3,23 +3,25 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated
+from typing import Any
 
 import httpx
 from fastmcp import FastMCP
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from pydantic import Field
 
+from .config import settings
 from . import memory_contracts as _memory_contracts
 from .capability import MCP_OPERATOR_HEADER_STATE
-from .config import settings
-from .ingress_admission import IngressKind, admit_ingress
-from .local_endpoint_policy import MAX_RESPONSE_BYTES, validate_local_endpoint
-from .resource_limits import (
-    BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS,
-    BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS,
-    BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS,
-    BHM_INTERNAL_HTTP_TIMEOUT_SECONDS,
-)
+from .ingress_admission import IngressKind
+from .ingress_admission import admit_ingress
+from .local_endpoint_policy import MAX_RESPONSE_BYTES
+from .local_endpoint_policy import validate_local_endpoint
+from .resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_GRAPH_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS
+from .resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS
 
 MemoryMetadata = _memory_contracts.MemoryMetadata
 MemoryClass = _memory_contracts.MemoryClass

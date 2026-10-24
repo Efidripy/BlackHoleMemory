@@ -23,11 +23,9 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory import app as bhm_app
-from blackholememory.caller_auth import (
-    caller_route_policy,
-    caller_route_policy_is_explicit,
-)
 from blackholememory.capability import admin_route_requires_capability
+from blackholememory.caller_auth import caller_route_policy
+from blackholememory.caller_auth import caller_route_policy_is_explicit
 from blackholememory.mcp_registration_groups import partition_registration_groups
 
 

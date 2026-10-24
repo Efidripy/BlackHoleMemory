@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .domain import Artifact
 
+
 SCHEMA_VERSION = "bhm.consolidation.change-set-review.v1"
 ARTIFACT_TYPE = "consolidation_change_set_review"
 ReviewDecision = Literal["approved_no_apply", "rejected", "deferred"]

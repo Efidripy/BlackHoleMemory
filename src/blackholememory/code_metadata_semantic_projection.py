@@ -15,6 +15,7 @@ from typing import Any
 
 from .mem0_adapter import local_collection_name
 
+
 SCHEMA_VERSION = "bhm.code-metadata-semantic-projection.v1"
 DEFAULT_MAX_FILES = 128
 MAX_PATH_CHARS = 512

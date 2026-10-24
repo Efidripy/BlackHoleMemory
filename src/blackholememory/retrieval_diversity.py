@@ -6,6 +6,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+
 _TOKEN_RE = re.compile(r"[\w-]+", re.UNICODE)
 _MAX_TEXT_CHARS = 4000
 

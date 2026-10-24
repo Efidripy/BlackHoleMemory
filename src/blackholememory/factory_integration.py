@@ -10,6 +10,7 @@ from typing import Any, Mapping, Sequence
 from .documentation_factory import build_documentation_factory_preview
 from .qa_incident_factory import build_qa_incident_preview
 
+
 FACTORY_INTEGRATION_SCHEMA_VERSION = "bhm.factory-integration.v1"
 FACTORY_INTEGRATION_MAX_ITEMS = 64
 

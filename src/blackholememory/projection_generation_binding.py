@@ -17,10 +17,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .filesystem_boundaries import assert_safe_path
-from .memory_repository import (
-    PROJECTION_GENERATION_BINDING_SCHEMA_VERSION,
-    MemoryRepositoryError,
-)
+from .memory_repository import MemoryRepositoryError
+from .memory_repository import PROJECTION_GENERATION_BINDING_SCHEMA_VERSION
 from .projection_reconciliation import _generation_source_basis_digest
 
 _BINDING_REQUIRED = frozenset(

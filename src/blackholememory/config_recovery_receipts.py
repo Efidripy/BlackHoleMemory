@@ -14,6 +14,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+
 SCHEMA_VERSION = "bhm.config-recovery-receipt.v1"
 MAX_CONFIG_ITEMS = 64
 MAX_LEASE_SECONDS = 3600

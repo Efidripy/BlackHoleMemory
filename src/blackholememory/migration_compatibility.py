@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 
 from .observation_security import PayloadSanitizer
 
+
 MIGRATION_COMPATIBILITY_SCHEMA_VERSION = "bhm.migration-compatibility.v1"
 MIGRATION_MAX_RECORDS = 64
 MIGRATION_MAX_METADATA_KEYS = 32

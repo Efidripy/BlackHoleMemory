@@ -14,20 +14,19 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.memory_service import SQLiteMemoryService
-from blackholememory.task_dependencies import (
-    ARTIFACT_TYPE,
-    COMPLETENESS_ARTIFACT_TYPE,
-    SCHEMA_VERSION,
-    TaskDependencyCompletenessAttestation,
-    TaskDependencyDeclaration,
-    TaskDependencyError,
-    append_task_dependency,
-    append_task_dependency_completeness_attestation,
-    load_task_dependencies,
-    load_task_dependency_completeness_attestation,
-)
+from blackholememory.task_dependencies import ARTIFACT_TYPE
+from blackholememory.task_dependencies import COMPLETENESS_ARTIFACT_TYPE
+from blackholememory.task_dependencies import SCHEMA_VERSION
+from blackholememory.task_dependencies import TaskDependencyDeclaration
+from blackholememory.task_dependencies import TaskDependencyCompletenessAttestation
+from blackholememory.task_dependencies import TaskDependencyError
+from blackholememory.task_dependencies import append_task_dependency
+from blackholememory.task_dependencies import append_task_dependency_completeness_attestation
+from blackholememory.task_dependencies import load_task_dependencies
+from blackholememory.task_dependencies import load_task_dependency_completeness_attestation
 
 
 def _emit(value: object, report: str | None = None) -> None:

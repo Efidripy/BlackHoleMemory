@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections import Counter, defaultdict
+from collections import Counter
+from collections import defaultdict
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .ontology_registry import OntologyEntityType, OntologyRelationType, OntologySchema
+from .ontology_registry import OntologyEntityType
+from .ontology_registry import OntologyRelationType
+from .ontology_registry import OntologySchema
 from .semantic_graph_migration_plan import load_semantic_graph_migration_inputs
+
 
 SCHEMA_VERSION = "bhm.legacy-ontology-proposals.v1"
 _MAX_EDGES = 10_000

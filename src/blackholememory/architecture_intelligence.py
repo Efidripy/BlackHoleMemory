@@ -6,10 +6,11 @@ source text, never mutate SQLite/Qdrant and only emit reviewable proposals.
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 import hashlib
 import json
-from collections import defaultdict, deque
 from typing import Any, Mapping, Sequence
+
 
 ARCHITECTURE_INTELLIGENCE_SCHEMA_VERSION = "bhm.architecture-intelligence.v1"
 ARCHITECTURE_MEMORY_SCHEMA_VERSION = "bhm.architecture-memory.v1"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 # Third-party imports intentionally follow local telemetry/logging setup.
 # ruff: noqa: E402
+
 import asyncio
 import hashlib
 import json
@@ -16,7 +17,8 @@ import urllib.error
 import urllib.request
 import warnings
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -32,22 +34,22 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
 
 from .config import settings
-from .filesystem_boundaries import append_bytes_safely, replace_bytes_safely
-from .local_endpoint_policy import (
-    LocalEndpointError,
-    open_local_url,
-    read_bounded_response,
-    validate_local_endpoint,
-)
+from .filesystem_boundaries import append_bytes_safely
+from .filesystem_boundaries import replace_bytes_safely
+from .local_endpoint_policy import LocalEndpointError
+from .local_endpoint_policy import open_local_url
+from .local_endpoint_policy import read_bounded_response
+from .local_endpoint_policy import validate_local_endpoint
 from .project_registry import canonical_project_id
-from .resource_limits import (
-    QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS,
-    QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS,
-    QDRANT_SDK_TIMEOUT_SECONDS,
-)
 from .retrieval_fusion import weighted_rank_fusion
-from .runtime_storage import MemoryStoreMode, resolve_runtime_storage_mode
-from .storage_state import StorageState, evaluate_storage_state
+from .resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
+from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS
+from .resource_limits import QDRANT_HEALTH_SUCCESS_CACHE_TTL_SECONDS
+from .runtime_storage import MemoryStoreMode
+from .runtime_storage import resolve_runtime_storage_mode
+from .storage_state import StorageState
+from .storage_state import evaluate_storage_state
+
 
 LOCAL_COLLECTION_PREFIX = "bhm_local_memory"
 GLOBAL_COLLECTION_NAME = "bhm_global_core_knowledge"

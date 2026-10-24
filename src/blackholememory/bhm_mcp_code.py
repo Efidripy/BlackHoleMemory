@@ -3,12 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from . import bhm_mcp_base as _base
+from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
 from .bhm_mcp_base import (
     DEFAULT_PROJECT,
     mcp,
 )
-from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
-
 
 def _public_code_tool(
     operation: str,

@@ -17,6 +17,7 @@ from .code_graph import CODE_GRAPH_SCHEMA_VERSION, SQLiteCodeGraphStore
 from .code_graph_query import _edge_view, _node_view
 from .graph_query_quality_receipt import build_graph_query_quality_receipt
 
+
 CODE_GRAPH_DSL_SCHEMA_VERSION = "bhm.code-graph.dsl.v4"
 MAX_DSL_QUERY_CHARS = 1_200
 MAX_DSL_ROWS = 128

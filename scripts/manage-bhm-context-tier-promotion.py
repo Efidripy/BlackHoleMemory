@@ -12,12 +12,10 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.context_tier_promotion import (
-    apply_tier_promotion,
-    build_tier_promotion_plan,
-    dry_run_tier_promotion,
-    rollback_tier_promotion,
-)
+from blackholememory.context_tier_promotion import apply_tier_promotion
+from blackholememory.context_tier_promotion import build_tier_promotion_plan
+from blackholememory.context_tier_promotion import dry_run_tier_promotion
+from blackholememory.context_tier_promotion import rollback_tier_promotion
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 

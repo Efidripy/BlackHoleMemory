@@ -15,7 +15,8 @@ import json
 import sys
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 _AUDIT_PATH = Path(__file__).with_name("audit-bhm-cleanup.py")
 _SPEC = importlib.util.spec_from_file_location("bhm_cleanup_audit", _AUDIT_PATH)

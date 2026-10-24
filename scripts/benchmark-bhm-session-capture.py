@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -10,8 +12,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.session_capture import build_session_capture_preview
+
 
 NOW = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
 

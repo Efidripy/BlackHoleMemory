@@ -6,10 +6,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from blackholememory import app_core_hook, app_ops_task2, app_runtime
+from blackholememory import app_core_hook
+from blackholememory import app_ops_task2
+from blackholememory import app_runtime
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.memory_graph import build_memory_graph
 from blackholememory.task_graph import build_task_graph
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"

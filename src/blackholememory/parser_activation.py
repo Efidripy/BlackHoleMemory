@@ -18,16 +18,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .code_graph import (
-    PARSER_REGISTRY,
-    PARSER_REGISTRY_DIGEST,
-    SQLiteCodeGraphStore,
-    build_code_graph,
-    verify_code_graph_snapshot,
-)
-from .filesystem_boundaries import assert_safe_path, replace_bytes_safely
-from .repository_index import SQLiteRepositoryIndexStore, probe_repository_state
+from .code_graph import PARSER_REGISTRY
+from .code_graph import PARSER_REGISTRY_DIGEST
+from .code_graph import SQLiteCodeGraphStore
+from .code_graph import build_code_graph
+from .code_graph import verify_code_graph_snapshot
+from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import replace_bytes_safely
+from .repository_index import SQLiteRepositoryIndexStore
+from .repository_index import probe_repository_state
 from .resource_limits import SQLITE_PARSER_BACKUP_TIMEOUT_SECONDS
+
 
 PARSER_ACTIVATION_SCHEMA_VERSION = "bhm.code-graph-parser-v2.activation.v1"
 DEFAULT_PREVIOUS_CODE_REVISION = "d0cdf0d2"

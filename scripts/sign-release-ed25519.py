@@ -19,10 +19,8 @@ import os
 import re
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import (
-    FilesystemBoundaryError,
-    assert_safe_path,
-)
+from blackholememory.filesystem_boundaries import FilesystemBoundaryError
+from blackholememory.filesystem_boundaries import assert_safe_path
 
 
 def sha256(payload: bytes) -> str:

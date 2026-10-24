@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
 
+
 SCHEMA_VERSION = "bhm.p28.wi108.semantic-freshness.v1"
 DEFAULT_MAX_SNAPSHOT_AGE_SECONDS = 86_400.0
 DEFAULT_PROVIDER_P95_BUDGET_MS = 5_000.0

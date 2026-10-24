@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+
 SEMANTIC_FUSION_PROVENANCE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-fusion.provenance-receipt.v1"
 MAX_PROVENANCE_ITEMS = 128
 

@@ -7,6 +7,7 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
+
 REQUIRED_NATIVE_FIELDS = ("user_id", "data")
 DEFAULT_PAGE_SIZE = 256
 MAX_PAGES = 10_000

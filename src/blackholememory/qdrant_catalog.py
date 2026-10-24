@@ -12,9 +12,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .mem0_adapter import global_collection_name, local_collection_name
-from .project_registry import ProjectRegistry, get_default_project_registry
+from .mem0_adapter import global_collection_name
+from .mem0_adapter import local_collection_name
+from .project_registry import ProjectRegistry
+from .project_registry import get_default_project_registry
 from .qdrant_validation_bounds import ValidationScanBudget
+
 
 CATALOG_SCHEMA_VERSION = "1.0"
 _LOCAL_PREFIX = "bhm_local_memory_"

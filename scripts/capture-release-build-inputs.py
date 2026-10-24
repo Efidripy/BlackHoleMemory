@@ -12,7 +12,8 @@ import sys
 import tomllib
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 def digest_file(path: Path) -> str:

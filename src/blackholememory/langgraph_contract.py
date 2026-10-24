@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from .langgraph_checkpoint import (
-    CHECKPOINT_SCHEMA_VERSION,
-    SQLiteLangGraphCheckpointSaver,
-)
+from .langgraph_checkpoint import CHECKPOINT_SCHEMA_VERSION
+from .langgraph_checkpoint import SQLiteLangGraphCheckpointSaver
+
 
 SCHEMA_VERSION = "bhm.langgraph.contract.v1"
 

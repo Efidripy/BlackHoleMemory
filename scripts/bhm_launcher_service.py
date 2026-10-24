@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from typing import Callable
 import json
 import subprocess
 import time
-from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable
 
-import psutil
-from bhm_launcher_host import launcher as _launcher
 from bhm_launcher_readiness import probe_http
-
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.resource_limits import (
-    PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS,
-    PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS,
-)
+from blackholememory.resource_limits import PROCESS_EXECUTION_DOCTOR_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS
+import psutil
+
+from bhm_launcher_host import launcher as _launcher
+
 
 SIDECAR_ROLE = "bhm-projection-sidecar"
 

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ctypes
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 import json
 import os
 import socket
@@ -8,22 +10,17 @@ import stat
 import tempfile
 import threading
 import uuid
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any, Callable
 
-from ..filesystem_boundaries import FilesystemBoundaryError, assert_safe_path
-from ..mcp_protocol_contract import (
-    BHM_REMEMBER_ALLOWED_ARGUMENTS,
-    validate_bhm_remember_arguments,
-)
 from ..observation_security import redact_secret_text
-from ..resource_limits import (
-    MCP_BROKER_CAPACITY_WAIT_SECONDS,
-    MCP_BROKER_JOIN_TIMEOUT_SECONDS,
-    MCP_BROKER_WAKE_TIMEOUT_SECONDS,
-)
+from ..filesystem_boundaries import FilesystemBoundaryError
+from ..filesystem_boundaries import assert_safe_path
+from ..mcp_protocol_contract import BHM_REMEMBER_ALLOWED_ARGUMENTS
+from ..mcp_protocol_contract import validate_bhm_remember_arguments
+from ..resource_limits import MCP_BROKER_CAPACITY_WAIT_SECONDS
+from ..resource_limits import MCP_BROKER_JOIN_TIMEOUT_SECONDS
+from ..resource_limits import MCP_BROKER_WAKE_TIMEOUT_SECONDS
 
 JsonRpcHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
 ConnectionCloseHandler = Callable[[str, str], None]

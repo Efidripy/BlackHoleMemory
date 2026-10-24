@@ -7,12 +7,10 @@ import json
 from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.llm_code_fabric import (
-    LLM_CODE_FABRIC_SCHEMA_VERSION,
-    LLM_CODE_FABRIC_TASKS,
-    LLMCodeFabricError,
-    build_code_fabric_plan,
-)
+from blackholememory.llm_code_fabric import LLM_CODE_FABRIC_SCHEMA_VERSION
+from blackholememory.llm_code_fabric import LLM_CODE_FABRIC_TASKS
+from blackholememory.llm_code_fabric import LLMCodeFabricError
+from blackholememory.llm_code_fabric import build_code_fabric_plan
 
 
 def _emit(value: object, report: str | None = None) -> None:

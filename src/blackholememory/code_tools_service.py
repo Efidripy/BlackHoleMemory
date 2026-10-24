@@ -13,45 +13,32 @@ from fastapi import HTTPException, Request
 
 from .api_models import PublicCodeToolRequest
 
-# Re-exports from code_tools_service_analysis
-from .code_tools_service_analysis import (
-    _op_architecture,  # noqa: F401
-    _op_bicep_module_resolution,  # noqa: F401
-    _op_cross_repo,  # noqa: F401
-    _op_dependency_provenance,  # noqa: F401
-    _op_impact_preview,  # noqa: F401
-    _op_package_resolution,  # noqa: F401
-    _op_projects,  # noqa: F401
-    _op_trace_evidence,  # noqa: F401
-    _op_type_references,  # noqa: F401
-    build_architecture_explain_receipt,  # noqa: F401
-    build_architecture_intelligence,  # noqa: F401
-    build_change_impact_preview,  # noqa: F401
-    build_graph_analysis_quality_receipt,  # noqa: F401
-)
-
 # Re-exports from code_tools_service_base
 from .code_tools_service_base import (
-    _LOGGER,  # noqa: F401
     _Deps,  # noqa: F401
+    _LOGGER,  # noqa: F401
     _deps,  # noqa: F401
     _resolve_code_tool_context,  # noqa: F401
     _resolve_code_tool_scope,  # noqa: F401
     configure,  # noqa: F401
 )
 
-# Re-exports from code_tools_service_graph
-from .code_tools_service_graph import (
-    _op_coverage,  # noqa: F401
-    _op_graph,  # noqa: F401
-    _op_graph_artifact_export,  # noqa: F401
-    _op_graph_artifact_promotion_plan,  # noqa: F401
-    _op_graph_artifact_verify,  # noqa: F401
-    _op_graph_query,  # noqa: F401
-    _op_impact,  # noqa: F401
-    _op_schema,  # noqa: F401
-    _op_search,  # noqa: F401
-    _op_trace,  # noqa: F401
+# Re-exports from code_tools_service_scope
+from .code_tools_service_scope import (
+    _PUBLIC_CODE_TOOL_OPERATIONS,  # noqa: F401
+    _current_code_graph_snapshot,  # noqa: F401
+    _public_code_contract_digest,  # noqa: F401
+    _public_code_embedding_contract,  # noqa: F401
+    _public_code_indexed_root_paths,  # noqa: F401
+    _public_code_projects,  # noqa: F401
+    _public_code_request_context,  # noqa: F401
+    _public_code_request_scope,  # noqa: F401
+    _public_code_root_id,  # noqa: F401
+    _public_code_root_matches_configured_root,  # noqa: F401
+    _resolve_bounded_repository_root,  # noqa: F401
+    _resolve_implicit_public_code_root,  # noqa: F401
+    _resolve_public_code_root,  # noqa: F401
+    _validate_explicit_public_code_root,  # noqa: F401
 )
 
 # Re-exports from code_tools_service_graph_build
@@ -81,29 +68,43 @@ from .code_tools_service_index import (
     repository_index_status,  # noqa: F401
 )
 
-# Re-exports from code_tools_service_scope
-from .code_tools_service_scope import (
-    _PUBLIC_CODE_TOOL_OPERATIONS,  # noqa: F401
-    _current_code_graph_snapshot,  # noqa: F401
-    _public_code_contract_digest,  # noqa: F401
-    _public_code_embedding_contract,  # noqa: F401
-    _public_code_indexed_root_paths,  # noqa: F401
-    _public_code_projects,  # noqa: F401
-    _public_code_request_context,  # noqa: F401
-    _public_code_request_scope,  # noqa: F401
-    _public_code_root_id,  # noqa: F401
-    _public_code_root_matches_configured_root,  # noqa: F401
-    _resolve_bounded_repository_root,  # noqa: F401
-    _resolve_implicit_public_code_root,  # noqa: F401
-    _resolve_public_code_root,  # noqa: F401
-    _validate_explicit_public_code_root,  # noqa: F401
-)
-
 # Re-exports from code_tools_service_search
 from .code_tools_service_search import (
     _op_code_search,  # noqa: F401
     _op_code_snippet,  # noqa: F401
 )
+
+# Re-exports from code_tools_service_graph
+from .code_tools_service_graph import (
+    _op_coverage,  # noqa: F401
+    _op_graph,  # noqa: F401
+    _op_graph_artifact_export,  # noqa: F401
+    _op_graph_artifact_promotion_plan,  # noqa: F401
+    _op_graph_artifact_verify,  # noqa: F401
+    _op_graph_query,  # noqa: F401
+    _op_impact,  # noqa: F401
+    _op_schema,  # noqa: F401
+    _op_search,  # noqa: F401
+    _op_trace,  # noqa: F401
+)
+
+# Re-exports from code_tools_service_analysis
+from .code_tools_service_analysis import (
+    _op_architecture,  # noqa: F401
+    _op_bicep_module_resolution,  # noqa: F401
+    _op_cross_repo,  # noqa: F401
+    _op_dependency_provenance,  # noqa: F401
+    _op_impact_preview,  # noqa: F401
+    _op_package_resolution,  # noqa: F401
+    _op_projects,  # noqa: F401
+    _op_trace_evidence,  # noqa: F401
+    _op_type_references,  # noqa: F401
+    build_architecture_explain_receipt,  # noqa: F401
+    build_architecture_intelligence,  # noqa: F401
+    build_change_impact_preview,  # noqa: F401
+    build_graph_analysis_quality_receipt,  # noqa: F401
+)
+
 
 _PUBLIC_CODE_TOOL_HANDLERS = {
     "projects": _op_projects,

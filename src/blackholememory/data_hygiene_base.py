@@ -20,11 +20,10 @@ from typing import Any, Mapping, Sequence
 from .filesystem_boundaries import assert_safe_path
 from .memory_repository import SQLiteMemoryRepository
 from .qdrant_projector import QdrantProjector, deterministic_point_id
-from .resource_limits import (
-    QDRANT_SDK_TIMEOUT_SECONDS,
-    SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,
-)
+from .resource_limits import QDRANT_SDK_TIMEOUT_SECONDS
+from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .retention import sha256_file, sqlite_quick_check
+
 
 DATA_HYGIENE_POLICY_SCHEMA_VERSION = "bhm.data-hygiene-policy.v1"
 DATA_HYGIENE_PLAN_SCHEMA_VERSION = "bhm.data-hygiene-plan.v1"

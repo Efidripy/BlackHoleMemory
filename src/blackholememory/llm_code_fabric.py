@@ -6,8 +6,11 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
-from .llm_delegation_policy import DelegationPolicyError, decide_delegation
-from .model_router import ModelRouterError, route_model
+from .llm_delegation_policy import DelegationPolicyError
+from .llm_delegation_policy import decide_delegation
+from .model_router import ModelRouterError
+from .model_router import route_model
+
 
 LLM_CODE_FABRIC_SCHEMA_VERSION = "bhm.llm.code-fabric.v1"
 LLM_CODE_FABRIC_TASKS = ("code_summary", "query_expansion", "rerank", "relation_proposal", "convention_proposal", "test_plan", "incident_draft", "docs_draft")

@@ -13,13 +13,13 @@ from typing import Any
 
 from .config import settings
 from .memory_repository import MemoryRepository
-from .projection_reconciliation import (
-    QdrantSurfaceAdapter,
-    ReconciliationAction,
-    build_projection_reconciliation_plan,
-)
+from .projection_reconciliation import QdrantSurfaceAdapter
+from .projection_reconciliation import ReconciliationAction
+from .projection_reconciliation import build_projection_reconciliation_plan
 from .qdrant_catalog import build_qdrant_catalog
-from .qdrant_validation_bounds import ValidationBudgetExceeded, ValidationScanBudget
+from .qdrant_validation_bounds import ValidationBudgetExceeded
+from .qdrant_validation_bounds import ValidationScanBudget
+
 
 LIFECYCLE_DECISIONS = frozenset({"retain", "rebuild", "review", "purge"})
 

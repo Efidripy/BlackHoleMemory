@@ -12,6 +12,7 @@ from .semantic_assurance_live import (
     DEFAULT_MODEL_VARIANT,
     LIVE_PRIVATE_EVALUATION_BUNDLE_SCHEMA_VERSION_V6,
     LIVE_PUBLIC_RECEIPT_SCHEMA_VERSION_V6,
+    LIVE_RECEIPT_SCHEMA_VERSION as LIVE_RECEIPT_SCHEMA_VERSION_V3,
     LIVE_RECEIPT_SCHEMA_VERSION_V4,
     LIVE_RECEIPT_SCHEMA_VERSION_V5,
     LIVE_RECEIPT_SCHEMA_VERSION_V6,
@@ -19,22 +20,20 @@ from .semantic_assurance_live import (
     SemanticAssuranceLiveError,
     verify_semantic_assurance_live_v6_evidence,
 )
-from .semantic_assurance_live import (
-    LIVE_RECEIPT_SCHEMA_VERSION as LIVE_RECEIPT_SCHEMA_VERSION_V3,
-)
 from .semantic_assurance_readiness_metrics import (
+    LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5,
+    LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V6,
+    SemanticAssuranceReadinessError,
     _MINIMUM_SEALED_CASE_COUNT,
     _REQUIRED_RISK_CLASSES,
     _REQUIRED_SEALED_REPEATS,
     _V6_SEALED_CONFLICT_CLASSES,
-    LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5,
-    LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V6,
-    SemanticAssuranceReadinessError,
     _digest,
     _digest_text,
     _offline_report,
     _text,
 )
+
 
 LIVE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-live-receipt.v1"
 LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V3 = "bhm.semantic-assurance-human-label-admission-receipt.v3"

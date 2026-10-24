@@ -18,6 +18,7 @@ from typing import Any, Mapping
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
+
 SCHEMA_VERSION = "bhm.ci.receipt-binding.v1"
 GIT_TIMEOUT_SECONDS = 30
 TOOL_TIMEOUT_SECONDS = 15

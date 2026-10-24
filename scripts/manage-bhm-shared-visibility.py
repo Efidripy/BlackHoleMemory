@@ -19,8 +19,10 @@ from pathlib import Path
 from typing import Any
 
 from blackholememory.domain import Memory
-from blackholememory.memory_service import MemoryServiceNotReady, SQLiteMemoryService
+from blackholememory.memory_service import MemoryServiceNotReady
+from blackholememory.memory_service import SQLiteMemoryService
 from blackholememory.runtime_storage import resolve_runtime_storage_config
+
 
 SCHEMA_VERSION = "bhm.governed-shared-memory.visibility-plan.v1"
 _BATCH_KEY = "shared_visibility_batch_id"

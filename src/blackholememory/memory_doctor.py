@@ -12,6 +12,7 @@ from typing import Any, Mapping
 
 from .filesystem_boundaries import assert_safe_path
 
+
 SCHEMA_VERSION = "bhm.memory-doctor.v1"
 SQLITE_SNAPSHOT_SCHEMA_VERSION = "bhm.memory-doctor.sqlite-snapshot.v1"
 QDRANT_SNAPSHOT_SCHEMA_VERSION = "bhm.memory-doctor.qdrant-snapshot.v1"

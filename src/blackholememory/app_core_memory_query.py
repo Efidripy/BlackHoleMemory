@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from . import app_core_fallback, app_core_hit
-from . import app_core_memory_base as _base
+from . import app_core_fallback
+from . import app_core_hit
 from . import app_runtime as rt
+from . import app_core_memory_base as _base
 from .api_models import SearchRequest
-
 
 def _vector_item_matches_search_request(item: dict, request: SearchRequest) -> bool:
     metadata = item.get("metadata") or {}

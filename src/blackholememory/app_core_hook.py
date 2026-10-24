@@ -6,35 +6,37 @@ import asyncio
 import json
 import os
 import re
-import sqlite3
 import subprocess
+import sqlite3
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
-
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
+from fastapi import Request
 from pydantic import BaseModel
-
 from . import app_runtime as rt
-from . import memory_contracts as _memory_contracts
-from .api_models import BhmHookCompactRequest, BhmHookRequest
 from .app_runtime import _env_float, _env_int, _safe_exception_text, _write_json_atomic
-from .caller_auth import authorize_projects
+from .api_models import BhmHookRequest, BhmHookCompactRequest
 from .config import settings
-from .hook_queue import HookJobQueue
-from .llm_resource_governor import GovernorConfig, LLMResourceGovernor
-from .memory_service import MemoryServiceNotReady
-from .observation_contract import ObservationIngressV1
-from .observation_store import ObservationIdCollision, ObservationStore
-from .repository_index import probe_repository_state
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
-from .retrieval_funnel import RetrievalFunnel
-from .runtime_storage import resolve_runtime_storage_config
+from .caller_auth import authorize_projects
 from .ui_origin_policy import request_host_parts
+from .runtime_storage import resolve_runtime_storage_config
+from .memory_service import MemoryServiceNotReady
 from .utility_feedback import utility_report
 from .utility_feedback_store import load_utility_events
+from . import memory_contracts as _memory_contracts
+from .hook_queue import HookJobQueue
+from .observation_contract import ObservationIngressV1
+from .observation_store import ObservationIdCollision
+from .observation_store import ObservationStore
+from .retrieval_funnel import RetrievalFunnel
+from .repository_index import probe_repository_state
+from .llm_resource_governor import GovernorConfig
+from .llm_resource_governor import LLMResourceGovernor
+
 
 MetadataActionability = _memory_contracts.MetadataActionability
 

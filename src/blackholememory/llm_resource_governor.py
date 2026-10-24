@@ -16,6 +16,7 @@ from typing import Any, Callable, Literal
 
 from .resource_limits import PROCESS_EXECUTION_GPU_SNAPSHOT_TIMEOUT_SECONDS
 
+
 LLMWorkload = Literal["interactive", "foreground", "background"]
 WORKLOAD_PRIORITY: dict[LLMWorkload, int] = {
     "interactive": 0,

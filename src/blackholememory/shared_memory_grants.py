@@ -13,12 +13,11 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .domain import Artifact
-from .governed_shared_memory import (
-    SharedMemoryGrant,
-    SharedMemoryPolicyError,
-    _text,
-    _timestamp,
-)
+from .governed_shared_memory import SharedMemoryGrant
+from .governed_shared_memory import SharedMemoryPolicyError
+from .governed_shared_memory import _timestamp
+from .governed_shared_memory import _text
+
 
 SCHEMA_VERSION = "bhm.governed-shared-memory.grant-ledger.v1"
 GRANT_ARTIFACT_TYPE = "shared_memory_grant"

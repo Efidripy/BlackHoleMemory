@@ -14,7 +14,8 @@ import re
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .filesystem_boundaries import FilesystemBoundaryError, assert_safe_path
+from .filesystem_boundaries import FilesystemBoundaryError
+from .filesystem_boundaries import assert_safe_path
 
 CODE_SEARCH_SCHEMA_VERSION = "bhm.code-search.v1"
 CODE_SEARCH_SEMANTIC_FUSION_VERSION = "bhm.code-search.semantic-fusion.v1"

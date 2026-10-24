@@ -9,11 +9,11 @@ from datetime import datetime
 from pathlib import Path
 
 from .filesystem_boundaries import assert_safe_path
-from .governed_consolidation import (
-    GOVERNED_CONSOLIDATION_CAPABILITY_KEY,
-    GOVERNED_CONSOLIDATION_CAPABILITY_VERSION,
-)
-from .memory_repository import FRESHNESS_SCHEMA_VERSION, MemoryRepositoryError
+from .governed_consolidation import GOVERNED_CONSOLIDATION_CAPABILITY_KEY
+from .governed_consolidation import GOVERNED_CONSOLIDATION_CAPABILITY_VERSION
+from .memory_repository import FRESHNESS_SCHEMA_VERSION
+from .memory_repository import MemoryRepositoryError
+
 
 GOVERNED_CONSOLIDATION_SQLITE_SCHEMA_VERSION = 3
 MIGRATION_SCHEMA_VERSION = "bhm.governed-consolidation-migration.v1"

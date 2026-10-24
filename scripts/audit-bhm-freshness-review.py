@@ -15,10 +15,12 @@ import hashlib
 import json
 import sqlite3
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone
 from pathlib import Path
 from statistics import median
 from typing import Any
+
 
 SCHEMA_VERSION = "bhm.freshness-review-inventory.v1"
 REPO_ROOT = Path(__file__).resolve().parents[1]

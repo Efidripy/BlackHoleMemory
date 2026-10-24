@@ -7,14 +7,12 @@ import json
 from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.memory_graph import (
-    MEMORY_GRAPH_OPERATIONS,
-    MEMORY_GRAPH_SCHEMA_VERSION,
-    MemoryGraphError,
-    build_memory_graph,
-    explain_memory_graph,
-    query_memory_graph,
-)
+from blackholememory.memory_graph import MEMORY_GRAPH_OPERATIONS
+from blackholememory.memory_graph import MEMORY_GRAPH_SCHEMA_VERSION
+from blackholememory.memory_graph import MemoryGraphError
+from blackholememory.memory_graph import build_memory_graph
+from blackholememory.memory_graph import explain_memory_graph
+from blackholememory.memory_graph import query_memory_graph
 
 
 def _emit(value: object, report: str | None = None) -> None:

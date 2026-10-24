@@ -16,13 +16,9 @@ from typing import Any
 
 from .filesystem_boundaries import assert_safe_path
 from .package_resolution_base import (
-    _BLOCKED_PARTS,
-    _LOCKFILE_NAMES,  # noqa: F401
-    _MANIFEST_NAMES,
-    _NAME_RE,  # noqa: F401
-    _REQ_RE,  # noqa: F401
     CONSTRAINT_PROVENANCE_SCHEMA_VERSION,
     DEPENDENCY_PROVENANCE_SCHEMA_VERSION,
+    DependencyProvenanceError,
     MANIFEST_IDENTITY_SCHEMA_VERSION,
     MAX_JSON_DEPTH,  # noqa: F401
     MAX_JSON_NODES,  # noqa: F401
@@ -34,8 +30,12 @@ from .package_resolution_base import (
     MAX_PACKAGES,
     MAX_TRAVERSAL_ENTRIES,  # noqa: F401
     PACKAGE_RESOLUTION_SCHEMA_VERSION,
-    DependencyProvenanceError,
     PackageResolutionError,
+    _BLOCKED_PARTS,
+    _LOCKFILE_NAMES,  # noqa: F401
+    _MANIFEST_NAMES,
+    _NAME_RE,  # noqa: F401
+    _REQ_RE,  # noqa: F401
     _bounded_files,
     _constraint_descriptor,  # noqa: F401
     _constraint_variant,

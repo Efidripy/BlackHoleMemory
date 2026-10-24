@@ -14,14 +14,11 @@ import json
 import sys
 from pathlib import Path
 
-from blackholememory.governed_semantic_editor import (
-    LocalGatewaySemanticCompletion,
-    SemanticEditorConfig,
-)
-from blackholememory.governed_semantic_model_evaluation import (
-    evaluate_model_evidence_cases,
-    load_model_evidence_dataset,
-)
+from blackholememory.governed_semantic_editor import LocalGatewaySemanticCompletion
+from blackholememory.governed_semantic_editor import SemanticEditorConfig
+from blackholememory.governed_semantic_model_evaluation import evaluate_model_evidence_cases
+from blackholememory.governed_semantic_model_evaluation import load_model_evidence_dataset
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = REPO_ROOT / "tests" / "fixtures" / "governed-semantic-editor-evidence.json"

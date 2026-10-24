@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from .llm_safety import sanitize_llm_value
 
+
 QA_INCIDENT_SCHEMA_VERSION = "bhm.llm.qa-incident-factory.v1"
 QA_INCIDENT_MAX_ARTIFACTS = 64
 QA_INCIDENT_MAX_DRAFTS = 64

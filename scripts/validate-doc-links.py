@@ -13,6 +13,7 @@ import json
 import re
 from pathlib import Path
 
+
 MARKDOWN_LINK_RE = re.compile(r"!?(?:\[[^\]]*\])\((?:<([^>]+)>|([^\s)]+))(?:\s+[^)]*)?\)")
 SKIP_DIRS = {"audits", "ops", "research", "benchmarks"}
 SKIP_SCHEMES = ("http://", "https://", "mailto:", "data:", "javascript:")

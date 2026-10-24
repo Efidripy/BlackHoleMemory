@@ -293,9 +293,7 @@ def verify(
     valid = False
     if not failures:
         try:
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import (
-                Ed25519PublicKey,
-            )
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
             Ed25519PublicKey.from_public_bytes(public_key_bytes).verify(signature_bytes, canonical_json(signed_envelope))
             valid = True

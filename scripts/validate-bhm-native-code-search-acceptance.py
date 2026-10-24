@@ -18,6 +18,7 @@ from typing import Any, Mapping
 from urllib.error import HTTPError
 from urllib.request import Request
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -25,16 +26,13 @@ if str(SRC_ROOT) not in sys.path:
 
 from blackholememory.caller_auth import configured_caller_token  # noqa: E402
 from blackholememory.config import settings  # noqa: E402
-from blackholememory.local_endpoint_policy import (
-    MAX_RESPONSE_BYTES,  # noqa: E402
-    open_local_url,  # noqa: E402
-    read_bounded_response,  # noqa: E402
-    validate_local_endpoint,  # noqa: E402
-)
-from blackholememory.resource_limits import (
-    BHM_INTERNAL_HTTP_TIMEOUT_SECONDS,  # noqa: E402
-)
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES  # noqa: E402
+from blackholememory.local_endpoint_policy import open_local_url  # noqa: E402
+from blackholememory.local_endpoint_policy import read_bounded_response  # noqa: E402
+from blackholememory.local_endpoint_policy import validate_local_endpoint  # noqa: E402
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS  # noqa: E402
 from blackholememory.runtime_endpoints import endpoint_url  # noqa: E402
+
 
 SCHEMA_VERSION = "bhm.native-code-search-acceptance.v1"
 MODE_CASES: tuple[tuple[str, str], ...] = (

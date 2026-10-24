@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 import os
+from pathlib import Path
+from queue import Empty, Queue
 import subprocess
 import sys
 import threading
-from dataclasses import dataclass
-from pathlib import Path
-from queue import Empty, Queue
 from typing import Any, Mapping
 from urllib.parse import urlsplit
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import os
@@ -11,14 +13,10 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.product_value import (
-    build_product_value_benchmark,
-    verify_product_value_digest,
-)
-from blackholememory.resource_limits import (
-    PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS,
-)
+from blackholememory.resource_limits import PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
+from blackholememory.product_value import build_product_value_benchmark
+from blackholememory.product_value import verify_product_value_digest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-product-value.py"

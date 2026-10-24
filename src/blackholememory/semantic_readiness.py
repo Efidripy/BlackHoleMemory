@@ -16,6 +16,7 @@ import time
 from collections.abc import Mapping
 from typing import Any
 
+
 SEMANTIC_READINESS_SCHEMA_VERSION = "bhm.semantic-readiness.v1"
 DEFAULT_CACHE_TTL_SECONDS = 30.0
 

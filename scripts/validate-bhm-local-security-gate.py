@@ -5,18 +5,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
-from blackholememory.local_security_gate import (
-    evaluate_local_security_gate,  # noqa: E402
-    load_json_object,  # noqa: E402
-)
+from blackholememory.local_security_gate import evaluate_local_security_gate  # noqa: E402
+from blackholememory.local_security_gate import load_json_object  # noqa: E402
 
 
 def _write_report(path: Path | None, rendered: str) -> None:

@@ -10,12 +10,11 @@ import sys
 import urllib.request
 from pathlib import Path
 
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.local_endpoint_policy import open_local_url, read_bounded_response
-from blackholememory.resource_limits import (
-    BHM_INTERNAL_HTTP_TIMEOUT_SECONDS,
-    PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS,
-)
+from blackholememory.resource_limits import PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS
+from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION_TIMEOUT_SECONDS = PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS

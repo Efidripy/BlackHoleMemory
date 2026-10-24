@@ -12,13 +12,13 @@ from .filesystem_boundaries import assert_safe_path
 from .observation_security import redact_secret_text
 from .repository_index_store_base import _RepositoryIndexStoreBase
 from .repository_index_types import (
-    _REPOSITORY_INDEX_TABLES,
     STALE_JOB_DISPOSITION_APPLY_SCHEMA_VERSION,
     STALE_JOB_DISPOSITION_ERROR_CODE,
     STALE_JOB_DISPOSITION_PLAN_SCHEMA_VERSION,
     STALE_JOB_DISPOSITION_REASON,
     RepositoryIndexError,
     RepositoryState,
+    _REPOSITORY_INDEX_TABLES,
     _canonical_json,
     _clip,
     _sha256_bytes,

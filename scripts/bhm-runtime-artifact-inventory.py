@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+
 POLICY_SCHEMA = "bhm.runtime-artifact-governance.v1"
 DEFAULT_POLICY = Path(__file__).resolve().parents[1] / "config" / "runtime-artifact-governance.json"
 

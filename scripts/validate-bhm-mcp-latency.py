@@ -5,6 +5,7 @@ from __future__ import annotations
 
 # The script adds the repository's src directory before importing project modules.
 # ruff: noqa: E402
+
 import argparse
 import asyncio
 import json
@@ -14,17 +15,16 @@ import time
 from pathlib import Path
 from typing import Any
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from blackholememory import app_core
-from blackholememory.mcp_latency import (
-    MCP_ATTACH_MAX_MS,
-    MCP_CATALOG_MAX_BYTES,
-    evaluate_mcp_latency,
-)
+from blackholememory.mcp_latency import MCP_ATTACH_MAX_MS
+from blackholememory.mcp_latency import MCP_CATALOG_MAX_BYTES
+from blackholememory.mcp_latency import evaluate_mcp_latency
 from blackholememory.mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
 
 

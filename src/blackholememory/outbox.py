@@ -9,7 +9,10 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel
+from pydantic import ConfigDict
+from pydantic import Field
+from pydantic import field_validator
 
 
 class OutboxStatus(str, Enum):

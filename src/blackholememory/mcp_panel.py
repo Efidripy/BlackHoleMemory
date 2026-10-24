@@ -15,8 +15,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .filesystem_boundaries import assert_safe_path
-from .mcp_reconnect_receipt import build_mcp_reconnect_receipt
 from .mcp_surfaces import CORE_TOOL_NAMES
+from .mcp_reconnect_receipt import build_mcp_reconnect_receipt
+
 
 SCHEMA_VERSION = "bhm.mcp.panel.v1"
 # The expanded CBM-compatible core catalog is the single source of truth.

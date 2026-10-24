@@ -21,25 +21,26 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import sys
 from pathlib import Path
+import sys
 from typing import Any, Mapping
 from urllib.parse import urlsplit
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.mcp_catalog_contract import (
-    CatalogContractError,
-    build_catalog_contract,
-)
-from blackholememory.mcp_doctor import _get_json, _http_mcp_request
+from blackholememory.mcp_catalog_contract import CatalogContractError
+from blackholememory.mcp_catalog_contract import build_catalog_contract
+from blackholememory.mcp_doctor import _get_json
+from blackholememory.mcp_doctor import _http_mcp_request
 from blackholememory.mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.runtime_endpoints import endpoint_url
+
 
 SCHEMA_VERSION = "bhm.mcp.catalog-lifecycle-validation.v1"
 MAX_PROBES = 25

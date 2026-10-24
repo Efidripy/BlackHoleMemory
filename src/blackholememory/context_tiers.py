@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+
 SCHEMA_VERSION = "bhm.context-tiers.v1"
 
 

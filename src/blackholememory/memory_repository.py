@@ -15,32 +15,30 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .filesystem_boundaries import assert_safe_path
-from .memory_repository_base import (
-    _REQUIRED_MEMORY_STORE_TABLES,  # noqa: F401
-    FRESHNESS_SCHEMA_TABLES,  # noqa: F401
-    FRESHNESS_SCHEMA_VERSION,  # noqa: F401
-    GOVERNED_CONSOLIDATION_SCHEMA_TABLES,  # noqa: F401
-    GOVERNED_CONSOLIDATION_SCHEMA_VERSION,  # noqa: F401
-    MEMORY_STORE_BUSY_TIMEOUT_MS,  # noqa: F401
-    MEMORY_STORE_SCHEMA_LATEST_VERSION,  # noqa: F401
-    MEMORY_STORE_SCHEMA_VERSION,  # noqa: F401
-    MEMORY_STORE_WRITE_RETRY_DELAYS,  # noqa: F401
-    PROJECTION_GENERATION_BINDING_SCHEMA_TABLES,  # noqa: F401
-    PROJECTION_GENERATION_BINDING_SCHEMA_VERSION,  # noqa: F401
-    SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS,  # noqa: F401
-    MemoryNotFoundError,  # noqa: F401
-    MemoryRepository,  # noqa: F401
-    MemoryRepositoryError,  # noqa: F401
-    MemoryRepositoryIntegrityError,  # noqa: F401
-    MemoryRevisionConflict,  # noqa: F401
-    RepositoryHealth,  # noqa: F401
-    SaveMemoryResult,  # noqa: F401
-    _bounded_page,  # noqa: F401
-    _json_dumps,  # noqa: F401
-    _json_loads,  # noqa: F401
-    _memory_event_id,  # noqa: F401
-    _memory_event_type,  # noqa: F401
-)
+from .memory_repository_base import FRESHNESS_SCHEMA_TABLES  # noqa: F401
+from .memory_repository_base import FRESHNESS_SCHEMA_VERSION  # noqa: F401
+from .memory_repository_base import GOVERNED_CONSOLIDATION_SCHEMA_TABLES  # noqa: F401
+from .memory_repository_base import GOVERNED_CONSOLIDATION_SCHEMA_VERSION  # noqa: F401
+from .memory_repository_base import MEMORY_STORE_BUSY_TIMEOUT_MS  # noqa: F401
+from .memory_repository_base import MEMORY_STORE_SCHEMA_LATEST_VERSION  # noqa: F401
+from .memory_repository_base import MEMORY_STORE_SCHEMA_VERSION  # noqa: F401
+from .memory_repository_base import MEMORY_STORE_WRITE_RETRY_DELAYS  # noqa: F401
+from .memory_repository_base import MemoryNotFoundError  # noqa: F401
+from .memory_repository_base import MemoryRepository  # noqa: F401
+from .memory_repository_base import MemoryRepositoryError  # noqa: F401
+from .memory_repository_base import MemoryRepositoryIntegrityError  # noqa: F401
+from .memory_repository_base import MemoryRevisionConflict  # noqa: F401
+from .memory_repository_base import PROJECTION_GENERATION_BINDING_SCHEMA_TABLES  # noqa: F401
+from .memory_repository_base import PROJECTION_GENERATION_BINDING_SCHEMA_VERSION  # noqa: F401
+from .memory_repository_base import RepositoryHealth  # noqa: F401
+from .memory_repository_base import SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS  # noqa: F401
+from .memory_repository_base import SaveMemoryResult  # noqa: F401
+from .memory_repository_base import _REQUIRED_MEMORY_STORE_TABLES  # noqa: F401
+from .memory_repository_base import _bounded_page  # noqa: F401
+from .memory_repository_base import _json_dumps  # noqa: F401
+from .memory_repository_base import _json_loads  # noqa: F401
+from .memory_repository_base import _memory_event_id  # noqa: F401
+from .memory_repository_base import _memory_event_type  # noqa: F401
 from .memory_repository_read import MemoryRepositoryReadMixin  # noqa: F401
 from .memory_repository_records import MemoryRepositoryRecordsMixin  # noqa: F401
 from .memory_repository_write import MemoryRepositoryWriteMixin  # noqa: F401

@@ -14,6 +14,7 @@ from typing import Any, Literal, Sequence
 from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS
 
+
 HOOK_QUEUE_SCHEMA_VERSION = 2
 # Compatibility name retained for diagnostics and existing callers.
 HOOK_QUEUE_BUSY_TIMEOUT_MS = int(SQLITE_HOOK_QUEUE_BUSY_TIMEOUT_SECONDS * 1000)

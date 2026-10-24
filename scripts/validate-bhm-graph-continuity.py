@@ -6,10 +6,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from blackholememory import app_core_hook
+from blackholememory import app_graphs
+from blackholememory import app_hooks
 from blackholememory import app as bhm_app
-from blackholememory import app_core_hook, app_graphs, app_hooks, app_runtime
+from blackholememory import app_runtime
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.unified_context import build_unified_context_from_graph
+
 
 ROOT = Path(__file__).resolve().parents[1]
 

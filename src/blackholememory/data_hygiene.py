@@ -8,8 +8,8 @@ No full SQLite backup is created by this module.
 """
 
 from .data_hygiene_base import (
-    DATA_HYGIENE_PLAN_SCHEMA_VERSION,  # noqa: F401
     DATA_HYGIENE_POLICY_SCHEMA_VERSION,  # noqa: F401
+    DATA_HYGIENE_PLAN_SCHEMA_VERSION,  # noqa: F401
     DATA_HYGIENE_ROLLBACK_SCHEMA_VERSION,  # noqa: F401
     DataHygieneError,  # noqa: F401
     DataHygienePolicy,  # noqa: F401

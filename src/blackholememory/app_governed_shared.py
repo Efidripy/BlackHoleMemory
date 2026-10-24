@@ -6,33 +6,24 @@ Moved out of app_governed.py (FIX-017).
 from __future__ import annotations
 
 from typing import Any
-
 from fastapi import HTTPException
-
-from . import app_core, app_core_hook
 from . import app_runtime as rt
-from .api_models import SharedMemoryPolicyPreflightRequest, SharedMemoryReadRequest
 from .app_runtime import _safe_exception_text
+from .api_models import SharedMemoryPolicyPreflightRequest, SharedMemoryReadRequest
 from .caller_auth import authorize_projects
-from .governed_shared_memory import (
-    SharedMemoryRequest,
-    SharedOperation,
-    SharedVisibility,
-    decide_shared_memory,
-)
 from .memory_service import MemoryServiceNotReady
-from .shared_memory_audit import (
-    append_shared_memory_audit,
-    build_shared_memory_audit_event,
-    caller_identity_from_principal,
-)
-from .shared_memory_grants import (
-    GRANT_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_ARTIFACT_TYPE,
-)
-from .shared_memory_grants import (
-    REVOCATION_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_REVOCATION_ARTIFACT_TYPE,
-)
+from .governed_shared_memory import SharedMemoryRequest
+from .governed_shared_memory import SharedOperation
+from .governed_shared_memory import SharedVisibility
+from .governed_shared_memory import decide_shared_memory
+from .shared_memory_audit import append_shared_memory_audit
+from .shared_memory_audit import build_shared_memory_audit_event
+from .shared_memory_audit import caller_identity_from_principal
+from .shared_memory_grants import GRANT_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_ARTIFACT_TYPE
+from .shared_memory_grants import REVOCATION_ARTIFACT_TYPE as SHARED_MEMORY_GRANT_REVOCATION_ARTIFACT_TYPE
 from .shared_memory_grants import resolve_effective_grants
+from . import app_core
+from . import app_core_hook
 
 
 def _shared_memory_policy_preflight(

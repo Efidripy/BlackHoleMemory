@@ -12,6 +12,7 @@ import time
 from collections.abc import Mapping, MutableMapping, Sequence
 from typing import Any
 
+
 PROJECT = "jmaka"
 ROOT = "Jmaka"
 MAX_FILES_PER_RUN = 666

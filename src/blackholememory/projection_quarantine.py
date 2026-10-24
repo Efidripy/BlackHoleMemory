@@ -13,10 +13,9 @@ from typing import Any
 
 from qdrant_client.http import models as qdrant_models
 
-from .projection_reconciliation import (
-    ProjectionReviewClassification,
-    ProjectionReviewDisposition,
-)
+from .projection_reconciliation import ProjectionReviewClassification
+from .projection_reconciliation import ProjectionReviewDisposition
+
 
 QUARANTINE_SCHEMA_VERSION = "1.0"
 

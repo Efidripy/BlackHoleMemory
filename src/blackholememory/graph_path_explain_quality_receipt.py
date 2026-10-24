@@ -13,6 +13,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
+
 GRAPH_PATH_EXPLAIN_QUALITY_RECEIPT_SCHEMA_VERSION = "bhm.code-graph.path-explain-quality-receipt.v1"
 _MAX_PATHS = 128
 _MAX_HOPS = 8

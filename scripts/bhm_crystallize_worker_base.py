@@ -35,13 +35,12 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.memory_service import (
-    MemoryServiceNotReady,  # noqa: E402
-    SQLiteMemoryService,  # noqa: E402
-)
 from blackholememory.observation_store import ObservationStore  # noqa: E402
+from blackholememory.memory_service import MemoryServiceNotReady  # noqa: E402
+from blackholememory.memory_service import SQLiteMemoryService  # noqa: E402
 from blackholememory.runtime_endpoints import endpoint_url  # noqa: E402
 from blackholememory.runtime_storage import resolve_runtime_storage_config  # noqa: E402
+
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")

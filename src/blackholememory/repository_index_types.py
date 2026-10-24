@@ -13,6 +13,7 @@ from typing import Any
 
 from .observation_security import redact_secret_text
 
+
 REPOSITORY_INDEX_SCHEMA_VERSION = "bhm.repository-index.v1"
 REPOSITORY_INDEX_STORE_SCHEMA_VERSION = 2
 STALE_JOB_DISPOSITION_PLAN_SCHEMA_VERSION = "bhm.repository-index.stale-job-disposition-plan.v1"

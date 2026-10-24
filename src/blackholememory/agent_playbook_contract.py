@@ -13,6 +13,7 @@ import json
 from enum import StrEnum
 from typing import Any
 
+
 SCHEMA_VERSION = "bhm.agent-playbook.v1"
 
 

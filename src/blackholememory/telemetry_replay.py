@@ -11,6 +11,7 @@ from typing import Any
 from .retrieval_funnel import RetrievalFunnel
 from .usage_telemetry import UsageTelemetry
 
+
 REPLAY_SCHEMA_VERSION = 1
 DEFAULT_USAGE_EVENTS = 256
 DEFAULT_FUNNEL_SESSIONS = 64

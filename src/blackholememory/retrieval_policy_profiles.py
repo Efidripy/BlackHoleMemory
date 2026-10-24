@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+
 SCHEMA_VERSION = "bhm.retrieval-policy-profile.v1"
 _CHANNELS = ("lexical", "vector", "entity", "recency", "provenance")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$")

@@ -11,16 +11,16 @@ from pathlib import Path
 
 import psutil
 
+
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from blackholememory.freshness_migration import (
-    FreshnessMigrationError,  # noqa: E402
-    apply_migration,  # noqa: E402
-    build_migration_plan,  # noqa: E402
-)
+from blackholememory.freshness_migration import FreshnessMigrationError  # noqa: E402
+from blackholememory.freshness_migration import apply_migration  # noqa: E402
+from blackholememory.freshness_migration import build_migration_plan  # noqa: E402
+
 
 DEFAULT_DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 ARTIFACT_ROOT = ROOT / ".runtime" / "freshness-migration"

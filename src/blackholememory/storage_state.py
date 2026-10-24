@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+
 
 STORAGE_MODE_ENV = "BHM_STORAGE_MODE"
 QDRANT_REQUIRED_FOR_CORE_ENV = "BHM_QDRANT_REQUIRED_FOR_CORE"

@@ -6,27 +6,29 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import sys
 import urllib.request
-from pathlib import Path
 from typing import Any
 
-from bhm_runtime_endpoints import endpoint_url, validate_loopback_endpoint
+from bhm_runtime_endpoints import endpoint_url
+from bhm_runtime_endpoints import validate_loopback_endpoint
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.caller_auth import configured_caller_token
-from blackholememory.local_endpoint_policy import (
-    LocalEndpointError,
-    open_local_url,
-    read_bounded_response,
-)
+from blackholememory.mcp_panel import EXPECTED_CORE_TOOL_COUNT
+from blackholememory.mcp_panel import SCHEMA_VERSION
 from blackholememory.mcp_final_gate import EXPECTED_CLIENTS
-from blackholememory.mcp_panel import EXPECTED_CORE_TOOL_COUNT, SCHEMA_VERSION
+from blackholememory.caller_auth import configured_caller_token
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import LocalEndpointError
+from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+
 
 VALIDATION_SCHEMA_VERSION = "bhm.mcp.panel-validation.v1"
 FORBIDDEN_KEYS = {

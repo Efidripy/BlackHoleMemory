@@ -1,386 +1,95 @@
 from __future__ import annotations
 
-import asyncio
-import copy  # noqa: F401
-import json
-import os  # noqa: F401
-import sqlite3  # noqa: F401
-import subprocess  # noqa: F401
-import threading  # noqa: F401
 import time
-import urllib.request  # noqa: F401
+import asyncio
+import json
 from contextlib import asynccontextmanager
-from datetime import (
-    datetime,  # noqa: F401
-    timedelta,  # noqa: F401
-    timezone,  # noqa: F401
-)
-from pathlib import Path  # noqa: F401
 from typing import Any
 
-from fastapi import (
-    FastAPI,
-    HTTPException,  # noqa: F401
-    Request,
-)
+from fastapi import FastAPI
+from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.routing import Route
 
-from . import (
-    app_core,
-    app_core_fallback,
-    app_core_hit,
-    app_core_hook,
-    app_governed,
-    app_graphs,
-    app_hooks,
-    app_lifecycle,
-    app_mcp,
-    app_ops,
-    app_ops_admin,
-    app_ops_task,
-    app_ops_task2,
-    app_projects,
-    app_retrieval,
-    app_telemetry,
-    code_tools_service,
-    galaxy_routes,
-    graph_build_jobs,  # noqa: F401
-    llm_routes,
-    memory_routes,
-    ui_routes,
-)
-from . import app_runtime as rt
-from .api_models import (
-    AdminExportRequest,  # noqa: F401
-    AdminImportApplyRequest,  # noqa: F401
-    AdminImportPreviewRequest,  # noqa: F401
-    AdrCreateRequest,  # noqa: F401
-    AdrSupersedeRequest,  # noqa: F401
-    AgentContextRequest,  # noqa: F401
-    AliasResolveRequest,  # noqa: F401
-    ArtifactBatchDeleteRequest,  # noqa: F401
-    ArtifactBatchRelinkRequest,  # noqa: F401
-    ArtifactBatchRestoreRequest,  # noqa: F401
-    ArtifactDeleteRequest,  # noqa: F401
-    ArtifactListRequest,  # noqa: F401
-    ArtifactRestoreRequest,  # noqa: F401
-    BatchAttachSourceRefsRequest,  # noqa: F401
-    BatchLinkMemoriesRequest,  # noqa: F401
-    BatchMemoryIdsRequest,  # noqa: F401
-    BatchMemoryLinkItem,  # noqa: F401
-    BatchMemoryUpsertItem,  # noqa: F401
-    BatchRestoreRequest,  # noqa: F401
-    BatchUpsertMemoriesRequest,  # noqa: F401
-    BhmHookCompactRequest,  # noqa: F401
-    BhmHookIdleRequest,  # noqa: F401
-    BhmHookRequest,  # noqa: F401
-    BhmMatchSearchRequest,  # noqa: F401
-    CapabilityRoutePreviewRequest,  # noqa: F401
-    ChangeImpactPreviewRequest,  # noqa: F401
-    CheckpointCreateRequest,  # noqa: F401
-    CodeGraphQueryRequest,  # noqa: F401
-    ConsolidationChangeSetPreviewRequest,  # noqa: F401
-    ConsolidationChangeSetReviewRequest,  # noqa: F401
-    ContextCompileRequest,  # noqa: F401
-    ContextTierPromotionRollbackRequest,  # noqa: F401
-    ConventionMemoryPreviewRequest,  # noqa: F401
-    DocumentationFactoryPreviewRequest,  # noqa: F401
-    EntityCatalogRequest,  # noqa: F401
-    EntityExtractRequest,  # noqa: F401
-    EntityLinkMemoriesRequest,  # noqa: F401
-    EntitySearchRequest,  # noqa: F401
-    FactCrystal,  # noqa: F401
-    FactCrystalDomain,  # noqa: F401
-    FactCrystalPriority,  # noqa: F401
-    FactCrystalSemanticType,  # noqa: F401
-    FactoryIntegrationPreviewRequest,  # noqa: F401
-    FactSynthesisRequest,  # noqa: F401
-    FactSynthesisThreeZoneContext,  # noqa: F401
-    ForgetApplyRequest,  # noqa: F401
-    ForgetPreviewRequest,  # noqa: F401
-    GalaxyDataLink,  # noqa: F401
-    GalaxyDataNode,  # noqa: F401
-    GalaxyDataResponse,  # noqa: F401
-    GalaxyStatsResponse,  # noqa: F401
-    GovernedConsolidationApplyRequest,  # noqa: F401
-    GovernedConsolidationCreateRequest,  # noqa: F401
-    GovernedConsolidationDecisionRequest,  # noqa: F401
-    GovernedConsolidationProposalRequest,  # noqa: F401
-    GovernedSemanticProposalRequest,  # noqa: F401
-    HandoffCreateRequest,  # noqa: F401
-    HardDeleteMemoryRequest,  # noqa: F401
-    HardDeleteRestorePreviewRequest,  # noqa: F401
-    HumanUiBridgePreviewRequest,  # noqa: F401
-    HybridSearchRequest,  # noqa: F401
-    IntegrityRepairStrictRequest,  # noqa: F401
-    LauncherStatsResponse,  # noqa: F401
-    LessonRequest,  # noqa: F401
-    LessonStrengthenRequest,  # noqa: F401
-    LinkCycleDetectRequest,  # noqa: F401
-    LLMCachePreviewRequest,  # noqa: F401
-    LLMCandidatePlanRequest,  # noqa: F401
-    LLMCodeFabricPlanRequest,  # noqa: F401
-    LLMDelegationDecisionRequest,  # noqa: F401
-    LLMJobSubmitRequest,  # noqa: F401
-    LLMLearningCurateRequest,  # noqa: F401
-    LLMLearningReviewRequest,  # noqa: F401
-    McpRepairRequest,  # noqa: F401
-    MemoryAdvancedSearchRequest,  # noqa: F401
-    MemoryAliasRequest,  # noqa: F401
-    MemoryArchiveRequest,  # noqa: F401
-    MemoryChangelogRequest,  # noqa: F401
-    MemoryCompactionReportRequest,  # noqa: F401
-    MemoryCompactRequest,  # noqa: F401
-    MemoryConfidenceRequest,  # noqa: F401
-    MemoryCrystallizeRequest,  # noqa: F401
-    MemoryDeleteRequest,  # noqa: F401
-    MemoryDetectRequest,  # noqa: F401
-    MemoryDiffRequest,  # noqa: F401
-    MemoryFoundryPreviewRequest,  # noqa: F401
-    MemoryGcCandidatesRequest,  # noqa: F401
-    MemoryGraphQueryRequest,  # noqa: F401
-    MemoryLinkDeleteRequest,  # noqa: F401
-    MemoryLinkRequest,  # noqa: F401
-    MemoryLintRequest,  # noqa: F401
-    MemoryMergePreviewRequest,  # noqa: F401
-    MemoryMergeRequest,  # noqa: F401
-    MemoryPinRequest,  # noqa: F401
-    MemoryRecentActivityRequest,  # noqa: F401
-    MemoryRedactRequest,  # noqa: F401
-    MemoryReviewQueueRequest,  # noqa: F401
-    MemorySchemaValidateRequest,  # noqa: F401
-    MemorySourceRefsRequest,  # noqa: F401
-    MemoryStalenessReportRequest,  # noqa: F401
-    MemoryTimelineRequest,  # noqa: F401
-    MemoryTriageQueueRequest,  # noqa: F401
-    MemoryUpdateRequest,  # noqa: F401
-    MemoryUpsertRequest,  # noqa: F401
-    MemoryUsedRequest,  # noqa: F401
-    MemoryVerifyRequest,  # noqa: F401
-    MemoryVoteRequest,  # noqa: F401
-    MigrationPreviewRequest,  # noqa: F401
-    ModelRouterDecisionRequest,  # noqa: F401
-    NightShiftPreviewRequest,  # noqa: F401
-    OrphanArtifactRelinkRequest,  # noqa: F401
-    OverlapCleanupApplyRequest,  # noqa: F401
-    OverlapReportRequest,  # noqa: F401
-    PolicyEnforceMemoryRequest,  # noqa: F401
-    PolicyGuardRequest,  # noqa: F401
-    PolicyProfileSetRequest,  # noqa: F401
-    ProjectMapCompareRequest,  # noqa: F401
-    ProjectMapUpsertRequest,  # noqa: F401
-    ProjectOnlyRequest,  # noqa: F401
-    ProjectRetirementRequest,  # noqa: F401
-    ProjectSimilarityReportRequest,  # noqa: F401
-    ProjectSummaryCompareRequest,  # noqa: F401
-    ProjectSummaryListRequest,  # noqa: F401
-    ProjectSummaryPinRequest,  # noqa: F401
-    ProjectSummaryRefreshAllRequest,  # noqa: F401
-    PublicCodeToolRequest,  # noqa: F401
-    QAIncidentPreviewRequest,  # noqa: F401
-    RebuildProjectSummaryRequest,  # noqa: F401
-    RecentFailuresFeedRequest,  # noqa: F401
-    ReflectRequest,  # noqa: F401
-    RelationApplySuggestionsRequest,  # noqa: F401
-    RelationConfidenceRequest,  # noqa: F401
-    RelationPruneLowQualityRequest,  # noqa: F401
-    RelationSuggestRequest,  # noqa: F401
-    RelationVoteRequest,  # noqa: F401
-    RememberRequest,  # noqa: F401
-    RepairLiveIndexesRequest,  # noqa: F401
-    RepositoryIntelligencePreviewRequest,  # noqa: F401
-    RestoreMemoryRequest,  # noqa: F401
-    RetrievalExplainRequest,  # noqa: F401
-    RetrievalLabPreviewRequest,  # noqa: F401
-    ReviewQueueApplyRequest,  # noqa: F401
-    RiskRegisterUpdateRequest,  # noqa: F401
-    SchemaUpgradeAllRequest,  # noqa: F401
-    ScopedMaintenanceRequest,  # noqa: F401
-    SearchByRefRequest,  # noqa: F401
-    SearchByUpsertKeyRequest,  # noqa: F401
-    SearchRequest,  # noqa: F401
-    SecretScanRequest,  # noqa: F401
-    SecurityTrustBoundaryPreviewRequest,  # noqa: F401
-    SessionCapturePreviewRequest,  # noqa: F401
-    SessionRecordCreateRequest,  # noqa: F401
-    SharedMemoryPolicyPreflightRequest,  # noqa: F401
-    SharedMemoryReadRequest,  # noqa: F401
-    SlotAppendRequest,  # noqa: F401
-    SlotLabelRequest,  # noqa: F401
-    SlotReplaceRequest,  # noqa: F401
-    SlotRequest,  # noqa: F401
-    SourceRefsDetachRequest,  # noqa: F401
-    SourceRefsReplaceRequest,  # noqa: F401
-    StrictSchemaValidateRequest,  # noqa: F401
-    TaskCloseRequest,  # noqa: F401
-    TaskContextUpdateRequest,  # noqa: F401
-    TaskGraphQueryRequest,  # noqa: F401
-    TaskIngressControlRequest,  # noqa: F401
-    TaskOpenRequest,  # noqa: F401
-    TriageQueueApplyRequest,  # noqa: F401
-    TypeMigrateRequest,  # noqa: F401
-    UiSessionExchangeRequest,  # noqa: F401
-    UnifiedContextCompileRequest,  # noqa: F401
-    UnifiedMcpContractPreviewRequest,  # noqa: F401
-    UtilityFeedbackEventRequest,  # noqa: F401
-    ValidationSnapshotSaveRequest,  # noqa: F401
-    ValidationTrendReportRequest,  # noqa: F401
-)  # noqa: F401
-from .app_runtime import (
-    _MAX_CONCURRENT_WRITES,  # noqa: F401
-    ResponseTimeout,
-    _env_float,  # noqa: F401
-    _run_bounded_read,  # noqa: F401
-    _safe_exception_text,
-    _write_json_atomic,  # noqa: F401
-)  # noqa: F401
-from .architecture_intelligence import (
-    build_architecture_explain_receipt,  # noqa: F401
-    build_architecture_intelligence,  # noqa: F401
-    build_architecture_memory,  # noqa: F401
-    build_graph_analysis_quality_receipt,  # noqa: F401
-)
-from .caller_auth import (
-    MAX_PROJECT_INSPECTION_BYTES,
-    CallerRoutePolicy,
-    authorize_project_root,  # noqa: F401
-    authorize_projects,
-    caller_auth_configuration_error,
-    caller_project_scope_requires_explicit,
-    caller_route_policy,
-    configured_caller_principal,
-    extract_request_projects,
-    is_caller_token_valid,
-    parse_bearer_token,
-)
-from .capability import (
-    ADMIN_CAPABILITY_HEADER,
-    admin_route_requires_capability,
-    is_admin_capability_valid,
-)
-from .change_impact import (
-    build_change_impact_preview,  # noqa: F401
-    collect_git_change_paths,  # noqa: F401
-    collect_git_history_stats,  # noqa: F401
-)
-from .code_tools_service import (
-    _PUBLIC_CODE_TOOL_OPERATIONS,  # noqa: F401
-    _get_or_start_graph_build_operation,  # noqa: F401
-    _graph_build_job_store,  # noqa: F401
-    _graph_build_operation_id,  # noqa: F401
-    _graph_build_result_from_snapshot,  # noqa: F401
-    _latest_graph_build_operation,  # noqa: F401
-    _public_code_contract_digest,  # noqa: F401
-    _public_code_embedding_contract,  # noqa: F401
-    _public_code_projects,  # noqa: F401
-    _public_code_request_context,  # noqa: F401
-    _public_code_root_matches_configured_root,  # noqa: F401
-    _public_graph_build_operation,  # noqa: F401
-    _resolve_bounded_repository_root,  # noqa: F401
-    _resolve_implicit_public_code_root,  # noqa: F401
-    _resolve_public_code_root,  # noqa: F401
-    _run_graph_build_operation,  # noqa: F401
-    _shutdown_graph_parse_executor,  # noqa: F401
-    bhm_public_code_tools,  # noqa: F401
-)
-from .config import settings
-from .context_compiler import MAX_CONTEXT_ITEM_CHARS  # noqa: F401
-from .context_tier_promotion import rollback_tier_promotion  # noqa: F401
-from .context_tier_promotion import (
-    runtime_enabled as context_tier_promotion_enabled,  # noqa: F401
-)
-from .exact_identifier_retrieval import exact_identifier_enabled  # noqa: F401
-from .galaxy_routes import (
-    _atlas_cache,  # noqa: F401
-    _galaxy_label_from_text,  # noqa: F401
-    _galaxy_memory_collection_names,  # noqa: F401
-    _galaxy_memory_record_node,  # noqa: F401
-    _galaxy_node_color,  # noqa: F401
-    _galaxy_node_value,  # noqa: F401
-    _galaxy_payload_is_active,  # noqa: F401
-    _galaxy_payload_text,  # noqa: F401
-    _galaxy_point_node,  # noqa: F401
-    _galaxy_string_list,  # noqa: F401
-    _load_galaxy_active_nodes,  # noqa: F401
-    _load_galaxy_active_nodes_sync,  # noqa: F401
-    _load_galaxy_authoritative_nodes_sync,  # noqa: F401
-    _load_galaxy_code_project_nodes,  # noqa: F401
-    _load_galaxy_code_project_nodes_sync,  # noqa: F401
-    _merge_galaxy_node,  # noqa: F401
-    bhm_galaxy_atlas,  # noqa: F401
-    bhm_galaxy_classic_view,  # noqa: F401
-    bhm_galaxy_data,  # noqa: F401
-    bhm_galaxy_stats,  # noqa: F401
-    bhm_galaxy_view,  # noqa: F401
-)
-from .governed_consolidation import GovernedConsolidationRepository  # noqa: F401
-from .governed_consolidation import (
-    runtime_enabled as governed_consolidation_enabled,  # noqa: F401
-)
-from .governed_consolidation import (
-    runtime_status as governed_consolidation_status,  # noqa: F401
-)
-from .governed_semantic_editor import (
-    GovernedSemanticEditorUnavailable,  # noqa: F401
-    LocalGatewaySemanticCompletion,  # noqa: F401
-    build_semantic_proposal,  # noqa: F401
-)
-from .graph import build_graph  # noqa: F401
-from .health import dependency_report  # noqa: F401
-from .llm_gateway import LocalOpenAICompatibleAdapter  # noqa: F401
-from .llm_routes import (
-    _LLM_CACHE_STORE,  # noqa: F401
-    _LLM_JOB_QUEUE_CAPACITY,  # noqa: F401
-    _LLM_LONG_TASK_STORE,  # noqa: F401
-    _llm_public_job,  # noqa: F401
-    _repository_intelligence_scope,  # noqa: F401
-    bhm_llm_cache_preview,  # noqa: F401
-    bhm_llm_cache_status,  # noqa: F401
-    bhm_llm_cancel_job,  # noqa: F401
-    bhm_llm_candidate_plan,  # noqa: F401
-    bhm_llm_capabilities,  # noqa: F401
-    bhm_llm_code_fabric_plan,  # noqa: F401
-    bhm_llm_delegation_decide,  # noqa: F401
-    bhm_llm_documentation_factory_preview,  # noqa: F401
-    bhm_llm_job_result,  # noqa: F401
-    bhm_llm_job_status,  # noqa: F401
-    bhm_llm_learning_curate,  # noqa: F401
-    bhm_llm_learning_review,  # noqa: F401
-    bhm_llm_learning_status,  # noqa: F401
-    bhm_llm_memory_foundry_preview,  # noqa: F401
-    bhm_llm_model_router_decide,  # noqa: F401
-    bhm_llm_model_router_snapshot,  # noqa: F401
-    bhm_llm_night_shift_preview,  # noqa: F401
-    bhm_llm_qa_incident_preview,  # noqa: F401
-    bhm_llm_repository_intelligence_preview,  # noqa: F401
-    bhm_llm_retrieval_lab_preview,  # noqa: F401
-    bhm_llm_submit_job,  # noqa: F401
-)
+from fastapi import HTTPException  # noqa: F401
+from .resource_limits import PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS  # noqa: F401
+from .resource_limits import PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS  # noqa: F401
+from .resource_limits import PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS  # noqa: F401
+from pathlib import Path  # noqa: F401
+from .resource_limits import QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS  # noqa: F401
+from .app_runtime import _MAX_CONCURRENT_WRITES  # noqa: F401
+from .app_runtime import _env_float  # noqa: F401
+from .mem0_adapter import _remote_qdrant_available  # noqa: F401
+from .app_runtime import _write_json_atomic  # noqa: F401
+from datetime import datetime  # noqa: F401
+from .mem0_adapter import get_qdrant_client  # noqa: F401
+from .mem0_adapter import global_collection_name  # noqa: F401
 from .local_endpoint_policy import open_local_url  # noqa: F401
-from .mcp_repair import (
-    build_repair_preview,  # noqa: F401
-    build_reprobe,  # noqa: F401
-)
-from .mcp_surfaces import CORE_TOOL_NAMES  # noqa: F401
-from .mem0_adapter import (
-    StorageNotReady,
-    _remote_qdrant_available,  # noqa: F401
-    ensure_memory_collections,
-    get_global_core_memory,  # noqa: F401
-    get_project_mem0_memory,  # noqa: F401
-    get_qdrant_client,  # noqa: F401
-    global_collection_name,  # noqa: F401
-    lexical_score,  # noqa: F401
-    local_collection_name,  # noqa: F401
-    mem0_runtime_plan,  # noqa: F401
-    storage_runtime_state,
-)
-from .memory_doctor import (
-    load_authoritative_sqlite_snapshot,  # noqa: F401
-    run_authoritative_sqlite_memory_doctor,  # noqa: F401
-)
-from .memory_pulse_bus import MemoryPulseBus  # noqa: F401
+import os  # noqa: F401
+import subprocess  # noqa: F401
+import threading  # noqa: F401
+from datetime import timezone  # noqa: F401
+from . import app_lifecycle
+from .resource_limits import BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS  # noqa: F401
+from .resource_limits import BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS  # noqa: F401
+from .governed_consolidation import GovernedConsolidationRepository  # noqa: F401
+from .governed_semantic_editor import GovernedSemanticEditorUnavailable  # noqa: F401
+from .sync_service import InvalidTombstone  # noqa: F401
+from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS  # noqa: F401
+from .governed_semantic_editor import LocalGatewaySemanticCompletion  # noqa: F401
+from .llm_gateway import LocalOpenAICompatibleAdapter  # noqa: F401
+from .context_compiler import MAX_CONTEXT_ITEM_CHARS  # noqa: F401
+from .observation_security import OBSERVATION_COMPACT_MAX_INPUT_BYTES  # noqa: F401
+from .observation_security import OBSERVATION_IDLE_MAX_INPUT_BYTES  # noqa: F401
+from .observation_security import OBSERVATION_MAX_INPUT_BYTES  # noqa: F401
+from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS  # noqa: F401
+from .sync_service import UndoWindowExpired  # noqa: F401
+from .app_runtime import _run_bounded_read  # noqa: F401
+from .shared_memory_audit import append_shared_memory_audit  # noqa: F401
+from .utility_feedback_store import append_utility_event  # noqa: F401
+from .change_impact import build_change_impact_preview  # noqa: F401
+from .graph import build_graph  # noqa: F401
+from .mcp_repair import build_repair_preview  # noqa: F401
+from .mcp_repair import build_reprobe  # noqa: F401
+from .governed_semantic_editor import build_semantic_proposal  # noqa: F401
+from .change_impact import collect_git_change_paths  # noqa: F401
+from .change_impact import collect_git_history_stats  # noqa: F401
+from .context_tier_promotion import runtime_enabled as context_tier_promotion_enabled  # noqa: F401
+import copy  # noqa: F401
+from .health import dependency_report  # noqa: F401
+from .exact_identifier_retrieval import exact_identifier_enabled  # noqa: F401
+from .mem0_adapter import get_global_core_memory  # noqa: F401
+from .mem0_adapter import get_project_mem0_memory  # noqa: F401
+from .governed_consolidation import runtime_enabled as governed_consolidation_enabled  # noqa: F401
+from .governed_consolidation import runtime_status as governed_consolidation_status  # noqa: F401
+from .mem0_adapter import lexical_score  # noqa: F401
+from .memory_doctor import load_authoritative_sqlite_snapshot  # noqa: F401
+from .utility_feedback_store import load_utility_events  # noqa: F401
+from .mem0_adapter import local_collection_name  # noqa: F401
+from .mem0_adapter import mem0_runtime_plan  # noqa: F401
+from .projection_generation_binding import resolve_projection_route  # noqa: F401
+from .context_tier_promotion import rollback_tier_promotion  # noqa: F401
+from .memory_doctor import run_authoritative_sqlite_memory_doctor  # noqa: F401
+import sqlite3  # noqa: F401
+from .temporal_contract import temporal_contract_enabled  # noqa: F401
+from datetime import timedelta  # noqa: F401
+from .typed_memory_contract import typed_memory_capability_available  # noqa: F401
+from . import app_core_fallback
+from . import app_core_hit
+from . import app_core_hook
+from . import app_core
+from . import app_governed
+from . import app_graphs
+from . import app_hooks
+from . import app_mcp
+from . import app_ops_admin
+from . import app_ops_task
+from . import app_ops_task2
+from . import app_ops
+from . import app_projects
+from . import app_retrieval
+from . import app_telemetry
+from . import memory_routes
 from .memory_routes import (
     _access_updates_for_hits,  # noqa: F401
     _add_semantic_dependency_links,  # noqa: F401
@@ -477,47 +186,10 @@ from .memory_routes import (
     bhm_memory_vote_quality,  # noqa: F401
     bhm_secret_scan_existing_memories,  # noqa: F401
 )
-from .observation_security import (
-    OBSERVATION_COMPACT_MAX_INPUT_BYTES,  # noqa: F401
-    OBSERVATION_IDLE_MAX_INPUT_BYTES,  # noqa: F401
-    OBSERVATION_MAX_INPUT_BYTES,  # noqa: F401
-    observation_body_limit,
-)
-from .openapi_contract import build_openapi_schema
-from .projection_generation_binding import resolve_projection_route  # noqa: F401
-from .repository_index import (
-    index_repository,  # noqa: F401
-    repository_index_status,  # noqa: F401
-)
-from .repository_intelligence import collect_repository_files  # noqa: F401
-from .resource_limits import (
-    BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS,  # noqa: F401
-    BHM_CODE_GRAPH_SOFT_WAIT_SECONDS,  # noqa: F401
-    BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS,  # noqa: F401
-    BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS,  # noqa: F401
-    BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS,  # noqa: F401
-    BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS,  # noqa: F401
-    BHM_INDEX_MAX_FILES_PER_RUN,  # noqa: F401
-    LLM_HTTP_TIMEOUT_SECONDS,  # noqa: F401
-    PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS,  # noqa: F401
-    PROCESS_EXECUTION_LONG_VALIDATOR_TIMEOUT_SECONDS,  # noqa: F401
-    PROCESS_EXECUTION_PID_INSPECTION_TIMEOUT_SECONDS,  # noqa: F401
-    PROCESS_EXECUTION_TERMINATION_GRACE_SECONDS,  # noqa: F401
-    QDRANT_HEALTH_HTTP_TIMEOUT_SECONDS,  # noqa: F401
-    SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS,  # noqa: F401
-)
-from .runtime_endpoints import validate_loopback_listener_host
-from .runtime_storage import MemoryStoreMode, resolve_runtime_storage_config
-from .shared_memory_audit import append_shared_memory_audit  # noqa: F401
-from .sqlite_retention import SQLiteRetentionPolicy, automatic_sqlite_retention_loop
-from .storage_state import qdrant_required_for_core
-from .surface_report import build_surface_report
-from .sync_service import (
-    InvalidTombstone,  # noqa: F401
-    UndoWindowExpired,  # noqa: F401
-)
-from .temporal_contract import temporal_contract_enabled  # noqa: F401
-from .typed_memory_contract import typed_memory_capability_available  # noqa: F401
+from .ui_session import BOOTSTRAP_TTL_SECONDS  # noqa: F401
+from .ui_session import SESSION_TTL_SECONDS  # noqa: F401
+from .ui_session import UiSessionRegistry  # noqa: F401
+from . import ui_routes
 from .ui_routes import (
     _UI_SESSIONS,  # noqa: F401
     _ui_browser_request_is_same_origin,  # noqa: F401
@@ -531,18 +203,309 @@ from .ui_routes import (
     bhm_ui_session_renew,  # noqa: F401
     bhm_ui_session_status,  # noqa: F401
 )
-from .ui_session import (
-    BOOTSTRAP_TTL_SECONDS,  # noqa: F401
-    SESSION_TTL_SECONDS,  # noqa: F401
-    UI_SESSION_COOKIE,
-    UiSessionRegistry,  # noqa: F401
-    ui_session_route_allowed,
+from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS  # noqa: F401
+from . import galaxy_routes
+from .galaxy_routes import (
+    _atlas_cache,  # noqa: F401
+    _galaxy_label_from_text,  # noqa: F401
+    _galaxy_memory_collection_names,  # noqa: F401
+    _galaxy_memory_record_node,  # noqa: F401
+    _galaxy_node_color,  # noqa: F401
+    _galaxy_node_value,  # noqa: F401
+    _galaxy_payload_is_active,  # noqa: F401
+    _galaxy_payload_text,  # noqa: F401
+    _galaxy_point_node,  # noqa: F401
+    _galaxy_string_list,  # noqa: F401
+    _load_galaxy_active_nodes,  # noqa: F401
+    _load_galaxy_active_nodes_sync,  # noqa: F401
+    _load_galaxy_authoritative_nodes_sync,  # noqa: F401
+    _load_galaxy_code_project_nodes,  # noqa: F401
+    _load_galaxy_code_project_nodes_sync,  # noqa: F401
+    _merge_galaxy_node,  # noqa: F401
+    bhm_galaxy_atlas,  # noqa: F401
+    bhm_galaxy_classic_view,  # noqa: F401
+    bhm_galaxy_data,  # noqa: F401
+    bhm_galaxy_stats,  # noqa: F401
+    bhm_galaxy_view,  # noqa: F401
 )
+from .mcp_surfaces import CORE_TOOL_NAMES  # noqa: F401
+from .repository_intelligence import collect_repository_files  # noqa: F401
+from . import llm_routes
+from .llm_routes import (
+    _LLM_CACHE_STORE,  # noqa: F401
+    _LLM_JOB_QUEUE_CAPACITY,  # noqa: F401
+    _LLM_LONG_TASK_STORE,  # noqa: F401
+    _llm_public_job,  # noqa: F401
+    _repository_intelligence_scope,  # noqa: F401
+    bhm_llm_cache_preview,  # noqa: F401
+    bhm_llm_cache_status,  # noqa: F401
+    bhm_llm_cancel_job,  # noqa: F401
+    bhm_llm_candidate_plan,  # noqa: F401
+    bhm_llm_capabilities,  # noqa: F401
+    bhm_llm_code_fabric_plan,  # noqa: F401
+    bhm_llm_delegation_decide,  # noqa: F401
+    bhm_llm_documentation_factory_preview,  # noqa: F401
+    bhm_llm_job_result,  # noqa: F401
+    bhm_llm_job_status,  # noqa: F401
+    bhm_llm_learning_curate,  # noqa: F401
+    bhm_llm_learning_review,  # noqa: F401
+    bhm_llm_learning_status,  # noqa: F401
+    bhm_llm_memory_foundry_preview,  # noqa: F401
+    bhm_llm_model_router_decide,  # noqa: F401
+    bhm_llm_model_router_snapshot,  # noqa: F401
+    bhm_llm_night_shift_preview,  # noqa: F401
+    bhm_llm_qa_incident_preview,  # noqa: F401
+    bhm_llm_repository_intelligence_preview,  # noqa: F401
+    bhm_llm_retrieval_lab_preview,  # noqa: F401
+    bhm_llm_submit_job,  # noqa: F401
+)
+from .resource_limits import BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS  # noqa: F401
+from .resource_limits import BHM_CODE_GRAPH_SOFT_WAIT_SECONDS  # noqa: F401
+from .resource_limits import BHM_CODE_INDEX_HTTP_TIMEOUT_SECONDS  # noqa: F401
+from .resource_limits import BHM_CODE_STATUS_HTTP_TIMEOUT_SECONDS  # noqa: F401
+from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN  # noqa: F401
+from .caller_auth import authorize_project_root  # noqa: F401
+from .architecture_intelligence import build_architecture_explain_receipt  # noqa: F401
+from .architecture_intelligence import build_architecture_intelligence  # noqa: F401
+from .architecture_intelligence import build_architecture_memory  # noqa: F401
+from .architecture_intelligence import build_graph_analysis_quality_receipt  # noqa: F401
+from . import graph_build_jobs  # noqa: F401
+from .repository_index import index_repository  # noqa: F401
+from .repository_index import repository_index_status  # noqa: F401
+from . import code_tools_service
+from .code_tools_service import (
+    _PUBLIC_CODE_TOOL_OPERATIONS,  # noqa: F401
+    _get_or_start_graph_build_operation,  # noqa: F401
+    _graph_build_job_store,  # noqa: F401
+    _graph_build_operation_id,  # noqa: F401
+    _graph_build_result_from_snapshot,  # noqa: F401
+    _latest_graph_build_operation,  # noqa: F401
+    _public_code_contract_digest,  # noqa: F401
+    _public_code_embedding_contract,  # noqa: F401
+    _public_code_projects,  # noqa: F401
+    _public_code_request_context,  # noqa: F401
+    _public_code_root_matches_configured_root,  # noqa: F401
+    _public_graph_build_operation,  # noqa: F401
+    _resolve_bounded_repository_root,  # noqa: F401
+    _resolve_implicit_public_code_root,  # noqa: F401
+    _resolve_public_code_root,  # noqa: F401
+    _run_graph_build_operation,  # noqa: F401
+    _shutdown_graph_parse_executor,  # noqa: F401
+    bhm_public_code_tools,  # noqa: F401
+)
+from .memory_pulse_bus import MemoryPulseBus  # noqa: F401
+import urllib.request  # noqa: F401
+from . import app_runtime as rt
+from .app_runtime import (
+    ResponseTimeout,
+    _safe_exception_text,
+)  # noqa: F401
+from .api_models import (
+    FactCrystalDomain,  # noqa: F401
+    FactCrystalPriority,  # noqa: F401
+    FactCrystalSemanticType,  # noqa: F401
+    UiSessionExchangeRequest,  # noqa: F401
+    SearchRequest,  # noqa: F401
+    RememberRequest,  # noqa: F401
+    MemoryUpdateRequest,  # noqa: F401
+    MemoryArchiveRequest,  # noqa: F401
+    ForgetPreviewRequest,  # noqa: F401
+    ForgetApplyRequest,  # noqa: F401
+    MemoryAdvancedSearchRequest,  # noqa: F401
+    ContextCompileRequest,  # noqa: F401
+    AgentContextRequest,  # noqa: F401
+    ContextTierPromotionRollbackRequest,  # noqa: F401
+    RetrievalExplainRequest,  # noqa: F401
+    MemoryUsedRequest,  # noqa: F401
+    UtilityFeedbackEventRequest,  # noqa: F401
+    ConsolidationChangeSetPreviewRequest,  # noqa: F401
+    ConsolidationChangeSetReviewRequest,  # noqa: F401
+    GovernedConsolidationCreateRequest,  # noqa: F401
+    GovernedSemanticProposalRequest,  # noqa: F401
+    GovernedConsolidationDecisionRequest,  # noqa: F401
+    GovernedConsolidationProposalRequest,  # noqa: F401
+    GovernedConsolidationApplyRequest,  # noqa: F401
+    McpRepairRequest,  # noqa: F401
+    MemoryRecentActivityRequest,  # noqa: F401
+    GalaxyDataNode,  # noqa: F401
+    GalaxyDataLink,  # noqa: F401
+    GalaxyDataResponse,  # noqa: F401
+    GalaxyStatsResponse,  # noqa: F401
+    LauncherStatsResponse,  # noqa: F401
+    MemoryUpsertRequest,  # noqa: F401
+    BatchMemoryUpsertItem,  # noqa: F401
+    MemoryLinkRequest,  # noqa: F401
+    BatchMemoryLinkItem,  # noqa: F401
+    MemoryLinkDeleteRequest,  # noqa: F401
+    SharedMemoryPolicyPreflightRequest,  # noqa: F401
+    SharedMemoryReadRequest,  # noqa: F401
+    MemoryCrystallizeRequest,  # noqa: F401
+    FactSynthesisThreeZoneContext,  # noqa: F401
+    FactSynthesisRequest,  # noqa: F401
+    LLMJobSubmitRequest,  # noqa: F401
+    LLMCandidatePlanRequest,  # noqa: F401
+    LLMDelegationDecisionRequest,  # noqa: F401
+    MemoryFoundryPreviewRequest,  # noqa: F401
+    RetrievalLabPreviewRequest,  # noqa: F401
+    RepositoryIntelligencePreviewRequest,  # noqa: F401
+    CodeGraphQueryRequest,  # noqa: F401
+    PublicCodeToolRequest,  # noqa: F401
+    ConventionMemoryPreviewRequest,  # noqa: F401
+    ChangeImpactPreviewRequest,  # noqa: F401
+    UnifiedContextCompileRequest,  # noqa: F401
+    SessionCapturePreviewRequest,  # noqa: F401
+    MemoryGraphQueryRequest,  # noqa: F401
+    TaskGraphQueryRequest,  # noqa: F401
+    LLMCodeFabricPlanRequest,  # noqa: F401
+    FactoryIntegrationPreviewRequest,  # noqa: F401
+    UnifiedMcpContractPreviewRequest,  # noqa: F401
+    CapabilityRoutePreviewRequest,  # noqa: F401
+    HumanUiBridgePreviewRequest,  # noqa: F401
+    MigrationPreviewRequest,  # noqa: F401
+    SecurityTrustBoundaryPreviewRequest,  # noqa: F401
+    QAIncidentPreviewRequest,  # noqa: F401
+    DocumentationFactoryPreviewRequest,  # noqa: F401
+    NightShiftPreviewRequest,  # noqa: F401
+    ModelRouterDecisionRequest,  # noqa: F401
+    LLMCachePreviewRequest,  # noqa: F401
+    LLMLearningReviewRequest,  # noqa: F401
+    LLMLearningCurateRequest,  # noqa: F401
+    FactCrystal,  # noqa: F401
+    CheckpointCreateRequest,  # noqa: F401
+    ProjectMapUpsertRequest,  # noqa: F401
+    MemoryMergeRequest,  # noqa: F401
+    MemoryDetectRequest,  # noqa: F401
+    MemoryLintRequest,  # noqa: F401
+    MemoryDeleteRequest,  # noqa: F401
+    MemoryConfidenceRequest,  # noqa: F401
+    MemoryPinRequest,  # noqa: F401
+    MemoryVoteRequest,  # noqa: F401
+    MemorySourceRefsRequest,  # noqa: F401
+    AdrCreateRequest,  # noqa: F401
+    AdrSupersedeRequest,  # noqa: F401
+    HandoffCreateRequest,  # noqa: F401
+    SessionRecordCreateRequest,  # noqa: F401
+    TaskOpenRequest,  # noqa: F401
+    TaskCloseRequest,  # noqa: F401
+    TaskIngressControlRequest,  # noqa: F401
+    TaskContextUpdateRequest,  # noqa: F401
+    RiskRegisterUpdateRequest,  # noqa: F401
+    ValidationSnapshotSaveRequest,  # noqa: F401
+    MemoryTimelineRequest,  # noqa: F401
+    HardDeleteMemoryRequest,  # noqa: F401
+    BatchUpsertMemoriesRequest,  # noqa: F401
+    BatchLinkMemoriesRequest,  # noqa: F401
+    BatchAttachSourceRefsRequest,  # noqa: F401
+    SourceRefsReplaceRequest,  # noqa: F401
+    SourceRefsDetachRequest,  # noqa: F401
+    RestoreMemoryRequest,  # noqa: F401
+    BatchMemoryIdsRequest,  # noqa: F401
+    RepairLiveIndexesRequest,  # noqa: F401
+    RebuildProjectSummaryRequest,  # noqa: F401
+    ProjectSummaryListRequest,  # noqa: F401
+    EntityExtractRequest,  # noqa: F401
+    RelationSuggestRequest,  # noqa: F401
+    MemoryCompactRequest,  # noqa: F401
+    PolicyGuardRequest,  # noqa: F401
+    MemoryDiffRequest,  # noqa: F401
+    SearchByRefRequest,  # noqa: F401
+    SearchByUpsertKeyRequest,  # noqa: F401
+    BatchRestoreRequest,  # noqa: F401
+    ArtifactRestoreRequest,  # noqa: F401
+    OrphanArtifactRelinkRequest,  # noqa: F401
+    MemoryStalenessReportRequest,  # noqa: F401
+    MemoryReviewQueueRequest,  # noqa: F401
+    MemoryTriageQueueRequest,  # noqa: F401
+    ProjectSummaryRefreshAllRequest,  # noqa: F401
+    RelationApplySuggestionsRequest,  # noqa: F401
+    MemoryMergePreviewRequest,  # noqa: F401
+    SchemaUpgradeAllRequest,  # noqa: F401
+    MemoryRedactRequest,  # noqa: F401
+    SecretScanRequest,  # noqa: F401
+    RelationConfidenceRequest,  # noqa: F401
+    RelationVoteRequest,  # noqa: F401
+    MemoryAliasRequest,  # noqa: F401
+    AliasResolveRequest,  # noqa: F401
+    EntityCatalogRequest,  # noqa: F401
+    ProjectSummaryCompareRequest,  # noqa: F401
+    RecentFailuresFeedRequest,  # noqa: F401
+    ProjectOnlyRequest,  # noqa: F401
+    ScopedMaintenanceRequest,  # noqa: F401
+    ProjectRetirementRequest,  # noqa: F401
+    ProjectSummaryPinRequest,  # noqa: F401
+    MemorySchemaValidateRequest,  # noqa: F401
+    ArtifactDeleteRequest,  # noqa: F401
+    ArtifactListRequest,  # noqa: F401
+    MemoryGcCandidatesRequest,  # noqa: F401
+    MemoryCompactionReportRequest,  # noqa: F401
+    LinkCycleDetectRequest,  # noqa: F401
+    ProjectMapCompareRequest,  # noqa: F401
+    ValidationTrendReportRequest,  # noqa: F401
+    EntitySearchRequest,  # noqa: F401
+    EntityLinkMemoriesRequest,  # noqa: F401
+    RelationPruneLowQualityRequest,  # noqa: F401
+    ProjectSimilarityReportRequest,  # noqa: F401
+    MemoryChangelogRequest,  # noqa: F401
+    ReviewQueueApplyRequest,  # noqa: F401
+    TriageQueueApplyRequest,  # noqa: F401
+    HardDeleteRestorePreviewRequest,  # noqa: F401
+    ArtifactBatchDeleteRequest,  # noqa: F401
+    ArtifactBatchRelinkRequest,  # noqa: F401
+    ArtifactBatchRestoreRequest,  # noqa: F401
+    StrictSchemaValidateRequest,  # noqa: F401
+    IntegrityRepairStrictRequest,  # noqa: F401
+    AdminExportRequest,  # noqa: F401
+    AdminImportPreviewRequest,  # noqa: F401
+    AdminImportApplyRequest,  # noqa: F401
+    PolicyProfileSetRequest,  # noqa: F401
+    PolicyEnforceMemoryRequest,  # noqa: F401
+    OverlapReportRequest,  # noqa: F401
+    OverlapCleanupApplyRequest,  # noqa: F401
+    TypeMigrateRequest,  # noqa: F401
+    HybridSearchRequest,  # noqa: F401
+    BhmMatchSearchRequest,  # noqa: F401
+    ReflectRequest,  # noqa: F401
+    SlotRequest,  # noqa: F401
+    SlotAppendRequest,  # noqa: F401
+    SlotReplaceRequest,  # noqa: F401
+    SlotLabelRequest,  # noqa: F401
+    LessonRequest,  # noqa: F401
+    LessonStrengthenRequest,  # noqa: F401
+    MemoryVerifyRequest,  # noqa: F401
+    BhmHookRequest,  # noqa: F401
+    BhmHookCompactRequest,  # noqa: F401
+    BhmHookIdleRequest,  # noqa: F401
+)  # noqa: F401
+from .config import settings
+from .capability import ADMIN_CAPABILITY_HEADER
+from .capability import admin_route_requires_capability
+from .capability import is_admin_capability_valid
+from .caller_auth import authorize_projects
+from .caller_auth import caller_auth_configuration_error
+from .caller_auth import caller_route_policy
+from .caller_auth import caller_project_scope_requires_explicit
+from .caller_auth import CallerRoutePolicy
+from .caller_auth import configured_caller_principal
+from .caller_auth import extract_request_projects
+from .caller_auth import is_caller_token_valid
+from .caller_auth import MAX_PROJECT_INSPECTION_BYTES
+from .caller_auth import parse_bearer_token
+from .ui_session import UI_SESSION_COOKIE
+from .ui_session import ui_session_route_allowed
+from .storage_state import qdrant_required_for_core
+from .mem0_adapter import StorageNotReady
+from .mem0_adapter import ensure_memory_collections
+from .mem0_adapter import storage_runtime_state
+from .openapi_contract import build_openapi_schema
+from .runtime_endpoints import validate_loopback_listener_host
+from .runtime_storage import MemoryStoreMode
+from .runtime_storage import resolve_runtime_storage_config
+from .sqlite_retention import automatic_sqlite_retention_loop
+from .sqlite_retention import SQLiteRetentionPolicy
+from .observation_security import observation_body_limit
 from .usage_telemetry import monotonic_elapsed_ms
-from .utility_feedback_store import (
-    append_utility_event,  # noqa: F401
-    load_utility_events,  # noqa: F401
-)
+from .surface_report import build_surface_report
+
 
 if not rt._PROVIDER_WARMUP_REQUIRED:
     rt._PROVIDER_WARMUP_READY.set()

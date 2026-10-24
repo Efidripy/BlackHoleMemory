@@ -8,9 +8,8 @@ from typing import Any, Mapping
 
 from fastapi import HTTPException, Request
 
-from . import code_tools_service_base as _base
-from .api_models import PublicCodeToolRequest
 from .app_runtime import _run_bounded_read
+from .api_models import PublicCodeToolRequest
 from .architecture_intelligence import (
     bound_architecture_response,
     build_architecture_explain_receipt,
@@ -36,12 +35,11 @@ from .change_impact import (
 )
 from .change_impact_risk_receipt import build_change_impact_risk_receipt
 from .code_graph import (
+    CodeGraphError,
     LANGUAGE_INVENTORY_DIGEST,
     PARSER_REGISTRY_DIGEST,
-    CodeGraphError,
     SQLiteCodeGraphStore,
 )
-from .code_tools_service_base import _deps
 from .convention_memory import ConventionMemoryError, preview_convention_memory
 from .cross_repo_links import build_cross_repo_link_preview, project_scope_is_aggregate
 from .dependency_provenance_receipt import build_dependency_provenance_receipt
@@ -66,6 +64,9 @@ from .type_reference_resolution import (
     TYPE_REFERENCE_RESOLUTION_SCHEMA_VERSION,
     build_type_reference_resolution,
 )
+
+from . import code_tools_service_base as _base
+from .code_tools_service_base import _deps
 
 
 async def _op_projects(

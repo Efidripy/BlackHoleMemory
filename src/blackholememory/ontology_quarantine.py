@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from .domain import Artifact
 from .ontology_registry import OntologyRelationAdmissionReceipt
 
+
 ARTIFACT_TYPE = "ontology_quarantine"
 SCHEMA_VERSION = "bhm.ontology-quarantine.v1"
 

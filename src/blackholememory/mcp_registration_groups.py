@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import mcp_registration_admin, mcp_registration_core, mcp_registration_domain
+from . import mcp_registration_admin
+from . import mcp_registration_core
+from . import mcp_registration_domain
+
 
 GROUP_NAMES = (mcp_registration_core.GROUP_NAME, mcp_registration_domain.GROUP_NAME, mcp_registration_admin.GROUP_NAME)
 

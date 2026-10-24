@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .domain import Artifact
 
+
 SCHEMA_VERSION = "bhm.session-distillation-ledger.v1"
 ARTIFACT_TYPE = "session_distillation_ledger_event"
 AUTHORITY_RECEIPT_ARTIFACT_TYPE = "session_distillation_authority_apply_receipt"

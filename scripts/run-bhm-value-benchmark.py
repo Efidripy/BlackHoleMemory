@@ -3,12 +3,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from blackholememory.value_benchmark import (
-    DEFAULT_CASE_COUNT,
-    DEFAULT_REPEAT_COUNT,
-    run_value_benchmark,
-    write_value_benchmark_report,
-)
+from blackholememory.value_benchmark import DEFAULT_CASE_COUNT
+from blackholememory.value_benchmark import DEFAULT_REPEAT_COUNT
+from blackholememory.value_benchmark import run_value_benchmark
+from blackholememory.value_benchmark import write_value_benchmark_report
 
 
 def main() -> int:

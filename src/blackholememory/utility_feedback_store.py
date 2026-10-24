@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from .domain import Artifact
-from .utility_feedback import SCHEMA_VERSION, UtilityEvent
+from .utility_feedback import SCHEMA_VERSION
+from .utility_feedback import UtilityEvent
+
 
 ARTIFACT_TYPE = "utility_feedback_event"
 

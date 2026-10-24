@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+
 SCHEMA_VERSION = "bhm.semantic-assurance.v1"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-receipt.v1"
 PREDICTION_SCHEMA_VERSION = "bhm.semantic-assurance-predictions.v1"
@@ -702,10 +703,8 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
             "acceptance_scope": "proposal_only_fixture_measurement",
         }
     try:
-        from .semantic_assurance_label_admission import (
-            SemanticAssuranceLabelAdmissionError,
-            verify_semantic_assurance_label_admission,
-        )
+        from .semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
+        from .semantic_assurance_label_admission import verify_semantic_assurance_label_admission
 
         receipt = verify_semantic_assurance_label_admission(raw)
     except SemanticAssuranceLabelAdmissionError as exc:
@@ -821,9 +820,7 @@ def _validate_label_admission(raw: Mapping[str, Any] | None, dataset: Mapping[st
             )
             curator_result["sealed_readiness_strata_minimum_population"] = 80
         if is_v6_risk_matrix_bound:
-            from .semantic_assurance_label_admission import (
-                _v6_sealed_risk_label_matrix_binding,
-            )
+            from .semantic_assurance_label_admission import _v6_sealed_risk_label_matrix_binding
 
             expected_matrix = _v6_sealed_risk_label_matrix_binding(
                 dataset["cases"],

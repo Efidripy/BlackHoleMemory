@@ -9,8 +9,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from .filesystem_boundaries import FilesystemBoundaryError, assert_safe_path
+from .filesystem_boundaries import FilesystemBoundaryError
+from .filesystem_boundaries import assert_safe_path
 from .observation_security import PayloadSanitizer
+
 
 LLM_SAFETY_POLICY_VERSION = "bhm.llm.safety.v1"
 LLM_SAFETY_MAX_INPUT_BYTES = 256 * 1024

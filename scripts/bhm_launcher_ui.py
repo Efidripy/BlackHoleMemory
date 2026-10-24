@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from bhm_launcher_dashboard import DashboardScreen
-from bhm_launcher_host import launcher as _launcher
 from bhm_launcher_integrations import IntegrationsOnboardingScreen
-from bhm_launcher_theme import COLOR_CYAN, COLOR_GREEN, COLOR_RED, COLOR_YELLOW
+from bhm_launcher_theme import COLOR_CYAN
+from bhm_launcher_theme import COLOR_GREEN
+from bhm_launcher_theme import COLOR_RED
+from bhm_launcher_theme import COLOR_YELLOW
+
+from bhm_launcher_host import launcher as _launcher
 
 
 def make_bhm_icon(color: str = COLOR_CYAN, size: int = 64) -> _launcher.QIcon:
