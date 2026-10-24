@@ -18,11 +18,7 @@ import warnings
 from datetime import datetime
 from datetime import timezone
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from mem0 import Memory
-    from qdrant_client import QdrantClient
+from typing import Any
 
 os.environ.setdefault("MEM0_TELEMETRY", "False")
 logging.getLogger("posthog").setLevel(logging.CRITICAL + 1)
@@ -268,7 +264,7 @@ def _qdrant_connection_config() -> dict[str, Any]:
         return {"path": str(QDRANT_LOCAL_PATH)}
     raise StorageNotReady(state.reason)
 
-def _memory_collection_names(client: QdrantClient) -> list[str]:
+def _memory_collection_names(client: Any) -> list[str]:
     collections = client.get_collections().collections
     names: list[str] = []
     for collection in collections:
@@ -628,14 +624,14 @@ def get_project_mem0_memory(
     *,
     collection_name: str | None = None,
     ensure_collection: bool = True,
-) -> Memory:
+) -> Any:
     return get_mem0_memory(
         collection_name or local_collection_name(project_name),
         ensure_collection=ensure_collection,
     )
 
 
-def get_global_core_memory() -> Memory:
+def get_global_core_memory() -> Any:
     return get_mem0_memory(GLOBAL_COLLECTION_NAME)
 
 
