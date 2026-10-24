@@ -17,7 +17,7 @@ def test_repository_index_migration_backup_connections_are_bounded() -> None:
         Path(__file__).resolve().parents[2]
         / "src"
         / "blackholememory"
-        / "repository_index_store_base.py"
+        / "repository_index_store_schema.py"
     ).read_text(encoding="utf-8")
     assert "timeout=self.busy_timeout_ms / 1000" in source
     assert "PRAGMA busy_timeout={self.busy_timeout_ms}" in source
