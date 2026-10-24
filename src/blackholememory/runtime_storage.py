@@ -50,7 +50,9 @@ MEMORY_STORE_WRITER_OFFLINE_CONFIRMED_ENV = "BHM_MEMORY_STORE_WRITER_OFFLINE_CON
 # cache and single-flight the probe. Normal writes change the main database
 # signature, so readiness serves the last verified result while a daemon
 # refresh checks the new signature. Write and migration paths never use it.
-MEMORY_STORE_HEALTH_CACHE_TTL_SECONDS = 15.0
+# quick_check scans the whole database (~GBs), so it must not follow every write; 15 minutes keeps corruption detection
+# without a constant disk/CPU load.
+MEMORY_STORE_HEALTH_CACHE_TTL_SECONDS = 900.0
 _SCHEMA_CHECK_CACHE: dict[str, tuple[float, tuple[int, int], tuple[bool, str]]] = {}
 _SCHEMA_CHECK_LOCK = threading.Lock()
 _SCHEMA_CHECK_REFRESHING: set[str] = set()
@@ -270,13 +272,13 @@ def inspect_memory_store_schema(
     with _SCHEMA_CHECK_LOCK:
         cached = _SCHEMA_CHECK_CACHE.get(key)
         if cached is not None and ttl > 0 and cached[2][0] is True:
-            checked_at, cached_signature, cached_result = cached
-            refresh_required = cached_signature != signature or now - checked_at >= ttl
+            checked_at, _cached_signature, cached_result = cached
+            # Refresh on the TTL only: the database mtime/size change on every normal write, and re-running the
+            # full-database quick_check for each change kept the service reading ~1.5 GB every ~20 s.
+            refresh_required = now - checked_at >= ttl
             if refresh_required:
-                # Serve the last verified result while one daemon refresh runs.
-                # A SQLite commit changes mtime/size on every normal write; a
-                # synchronous quick_check here would make readiness block behind
-                # the write it is supposed to observe.
+                # Serve the last verified result while one daemon refresh runs, so readiness never blocks behind
+                # the scan it is supposed to schedule.
                 if key not in _SCHEMA_CHECK_REFRESHING:
                     _SCHEMA_CHECK_REFRESHING.add(key)
                     threading.Thread(
