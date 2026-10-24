@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from blackholememory import app as bhm_app
-from blackholememory import app_core_hook, app_runtime, llm_routes
+from blackholememory import app_core_hook, app_runtime, llm_routes, llm_routes_base
 from blackholememory.llm_job_queue import LLMJobQueue
 from blackholememory.llm_learning import LLMLearningStore
 from blackholememory.llm_resource_governor import (
@@ -27,6 +27,7 @@ def _healthy_governor() -> LLMResourceGovernor:
 
 def _client(monkeypatch, tmp_path) -> tuple[TestClient, LLMJobQueue]:
     queue = LLMJobQueue(tmp_path / "llm-jobs.sqlite3", capacity=8)
+    monkeypatch.setattr(llm_routes_base, "_LLM_JOB_QUEUE", queue)
     monkeypatch.setattr(llm_routes, "_LLM_JOB_QUEUE", queue)
     monkeypatch.setattr(app_core_hook, "_LLM_GOVERNOR", _healthy_governor())
     return TestClient(bhm_app.app), queue
@@ -433,7 +434,9 @@ def test_llm_cache_capability_and_status_are_read_only(monkeypatch, tmp_path):
 
 def test_reviewed_learning_loop_curates_acceptance_and_regression_without_training(monkeypatch, tmp_path):
     client, _queue = _client(monkeypatch, tmp_path)
-    monkeypatch.setattr(llm_routes, "_LLM_LEARNING_STORE", LLMLearningStore(tmp_path / "learning.sqlite3"))
+    store = LLMLearningStore(tmp_path / "learning.sqlite3")
+    monkeypatch.setattr(llm_routes_base, "_LLM_LEARNING_STORE", store)
+    monkeypatch.setattr(llm_routes, "_LLM_LEARNING_STORE", store)
 
     capabilities = client.get("/bhm/llm/capabilities")
     accepted = client.post(
@@ -490,7 +493,9 @@ def test_reviewed_learning_loop_curates_acceptance_and_regression_without_traini
 
 def test_reviewed_learning_rejects_unverified_acceptance_and_injection(monkeypatch, tmp_path):
     client, _queue = _client(monkeypatch, tmp_path)
-    monkeypatch.setattr(llm_routes, "_LLM_LEARNING_STORE", LLMLearningStore(tmp_path / "learning.sqlite3"))
+    store = LLMLearningStore(tmp_path / "learning.sqlite3")
+    monkeypatch.setattr(llm_routes_base, "_LLM_LEARNING_STORE", store)
+    monkeypatch.setattr(llm_routes, "_LLM_LEARNING_STORE", store)
 
     missing_validation = client.post(
         "/bhm/llm/learning/review",
