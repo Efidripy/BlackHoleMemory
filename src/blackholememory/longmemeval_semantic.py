@@ -11,514 +11,60 @@ runtime feature is changed.
 
 from __future__ import annotations
 
-import hashlib
 import math
-import re
-import sqlite3
 import tempfile
 import time
-from collections.abc import Iterable
-from dataclasses import dataclass
-from datetime import datetime
-from datetime import timezone
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from qdrant_client import QdrantClient
 from qdrant_client.http import models as qdrant_models
 
 from .config import settings
-from .domain import Lifecycle
-from .domain import Memory
-from .domain import MemoryRevision
-from .domain import Provenance
-from .domain import content_sha256
-from .embedding_cache import EmbeddingCache
-from .embedding_cache import embed_queries_with_cache
 from .external_evaluation_admission import ExternalEvaluationAdmissionError
 from .external_evaluation_admission import verify_external_evaluation_admission_report
-from .longmemeval_smoke import PROJECT
-from .longmemeval_smoke import _case_records
-from .longmemeval_smoke import _category
+from .longmemeval_semantic_base import GLOBAL_HYBRID_ROUTE
+from .longmemeval_semantic_base import GLOBAL_ROUTE
+from .longmemeval_semantic_base import LongMemEvalSemanticError
+from .longmemeval_semantic_base import PROJECT
+from .longmemeval_semantic_base import ROUTE
+from .longmemeval_semantic_base import _AuthorityRecord  # noqa: F401
+from .longmemeval_semantic_base import _BATCH_SIZE
+from .longmemeval_semantic_base import _COLLECTION_PREFIX  # noqa: F401
+from .longmemeval_semantic_base import _EVALUATION_TIMESTAMP  # noqa: F401
+from .longmemeval_semantic_base import _LONGMEMEVAL_TIMESTAMP_RE  # noqa: F401
+from .longmemeval_semantic_base import _MAX_RECORDS  # noqa: F401
+from .longmemeval_semantic_base import _authority_memory
+from .longmemeval_semantic_base import _build_authority_records
+from .longmemeval_semantic_base import _collection_name
+from .longmemeval_semantic_base import _embed_batches
+from .longmemeval_semantic_base import _finite_vector  # noqa: F401
+from .longmemeval_semantic_base import _parse_longmemeval_timestamp
+from .longmemeval_semantic_base import _point_id
+from .longmemeval_semantic_revalidation import _ABSTENTION_DIAGNOSTIC_THRESHOLDS  # noqa: F401
+from .longmemeval_semantic_revalidation import _FTS_STOPWORDS  # noqa: F401
+from .longmemeval_semantic_revalidation import _FTS_TOKEN_RE  # noqa: F401
+from .longmemeval_semantic_revalidation import _abstention_threshold_diagnostics
+from .longmemeval_semantic_revalidation import _build_disposable_lexical_index
+from .longmemeval_semantic_revalidation import _finite_score
+from .longmemeval_semantic_revalidation import _fts_candidate_memory_ids
+from .longmemeval_semantic_revalidation import _fts_match  # noqa: F401
+from .longmemeval_semantic_revalidation import _percentile
+from .longmemeval_semantic_revalidation import _query_points
+from .longmemeval_semantic_revalidation import _revalidate_hits
+from .longmemeval_semantic_revalidation import _revalidate_lexical_memory_ids
+from .longmemeval_semantic_revalidation import _rrf_fuse
 from .longmemeval_smoke import _digest
 from .longmemeval_smoke import _load_dataset
 from .longmemeval_smoke import _select_cases
 from .longmemeval_smoke import _text
-from .memory_evaluation import EvaluationCase
+from .memory_evaluation import EvaluationCase  # noqa: F401
 from .memory_evaluation import EvaluationManifest
-from .memory_evaluation import RetrievalReceipt
 from .memory_evaluation import MAX_SMOKE_CASES
+from .memory_evaluation import RetrievalReceipt
 from .memory_evaluation import evaluate_retrieval
 from .memory_repository import SQLiteMemoryRepository
 from .qdrant_runtime import QDRANT_DEFAULT_URL
-
-
-ROUTE = "bhm-qdrant-disposable-semantic.v1"
-GLOBAL_ROUTE = "bhm-qdrant-disposable-semantic-global.v1"
-GLOBAL_HYBRID_ROUTE = "bhm-qdrant-disposable-semantic-global-hybrid.v1"
-_COLLECTION_PREFIX = "bhm_eval_lme_"
-_MAX_RECORDS = 5_000
-_BATCH_SIZE = 16
-_EVALUATION_TIMESTAMP = "2026-01-01T00:00:00Z"
-_ABSTENTION_DIAGNOSTIC_THRESHOLDS = (0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85)
-_LONGMEMEVAL_TIMESTAMP_RE = re.compile(r"^(?P<year>\d{4})/(?P<month>\d{2})/(?P<day>\d{2}) \([^)]{1,16}\) (?P<hour>\d{2}):(?P<minute>\d{2})$")
-_FTS_TOKEN_RE = re.compile(r"[A-Za-z0-9_]{2,64}")
-_FTS_STOPWORDS = frozenset({"a", "an", "and", "for", "from", "in", "is", "of", "on", "or", "the", "to", "was", "what", "which", "with"})
-
-
-class LongMemEvalSemanticError(RuntimeError):
-    """Raised when the isolated semantic evaluation contract is not proven."""
-
-
-@dataclass(frozen=True)
-class _AuthorityRecord:
-    memory_id: str
-    source_id: str
-    case_id: str
-    content: str
-    content_digest: str
-    source_digest: str
-    observed_at: str
-    observed_at_minute: int
-
-
-def _collection_name() -> str:
-    return f"{_COLLECTION_PREFIX}{uuid4().hex}"
-
-
-def _point_id(memory_id: str) -> int:
-    # Qdrant accepts unsigned integer IDs. Keep the value well below 2^63 and
-    # reject a theoretical collision before writing a temporary collection.
-    return int(hashlib.sha256(memory_id.encode("utf-8")).hexdigest()[:15], 16)
-
-
-def _parse_longmemeval_timestamp(value: object, *, field: str) -> tuple[str, int]:
-    """Normalise the admitted date text without reading answer labels or IDs."""
-
-    raw = str(value or "").strip()
-    match = _LONGMEMEVAL_TIMESTAMP_RE.fullmatch(raw)
-    if match is None:
-        raise LongMemEvalSemanticError(f"LongMemEval {field} must be YYYY/MM/DD (Day) HH:MM")
-    try:
-        parsed = datetime(
-            int(match.group("year")),
-            int(match.group("month")),
-            int(match.group("day")),
-            int(match.group("hour")),
-            int(match.group("minute")),
-            tzinfo=timezone.utc,
-        )
-    except ValueError as exc:
-        raise LongMemEvalSemanticError(f"LongMemEval {field} is not a valid UTC timestamp") from exc
-    return parsed.strftime("%Y-%m-%dT%H:%M:%SZ"), int(parsed.timestamp() // 60)
-
-
-def _finite_vector(value: object, *, expected_dimensions: int) -> list[float]:
-    if not isinstance(value, (list, tuple)) or len(value) != expected_dimensions:
-        raise LongMemEvalSemanticError("local embedding dimensions do not match the configured Qdrant contract")
-    vector = [float(component) for component in value]
-    if any(not math.isfinite(component) for component in vector):
-        raise LongMemEvalSemanticError("local embedding contains a non-finite component")
-    return vector
-
-
-def _embed_batches(embedder: Any, texts: Iterable[str], *, memory_action: str) -> tuple[list[list[float]], int]:
-    """Embed bounded texts through the configured local-only embedding provider."""
-
-    ordered = tuple(str(text) for text in texts)
-    if not ordered:
-        return [], 0
-    cache = EmbeddingCache(max_entries=max(len(ordered), 1), ttl_seconds=60.0)
-    vectors: list[list[float]] = []
-    calls = 0
-    for offset in range(0, len(ordered), _BATCH_SIZE):
-        batch = ordered[offset : offset + _BATCH_SIZE]
-        try:
-            result = embed_queries_with_cache(
-                embedder,
-                batch,
-                model_key=f"{settings.mem0_embedding_model}:{settings.mem0_embedding_dims}",
-                cache=cache,
-            )
-        except Exception as exc:  # provider errors must never silently become lexical results
-            raise LongMemEvalSemanticError("local embedding provider is unavailable") from exc
-        # ``embed_queries_with_cache`` standardises provider batch calls as
-        # search embeddings. Retrieval parity requires exactly the same space
-        # for documents and questions, so the explicit action remains a receipt
-        # field rather than a provider-specific alternate operation.
-        _ = memory_action
-        calls += result.provider_calls
-        vectors.extend(
-            _finite_vector(vector, expected_dimensions=settings.mem0_embedding_dims)
-            for vector in result.vectors
-        )
-    if len(vectors) != len(ordered):
-        raise LongMemEvalSemanticError("local embedding provider returned an incomplete batch")
-    return vectors, calls
-
-
-def _authority_memory(record: _AuthorityRecord) -> Memory:
-    revision_id = f"rev_eval_{hashlib.sha256(record.memory_id.encode('utf-8')).hexdigest()[:24]}"
-    return Memory(
-        id=record.memory_id,
-        project=PROJECT,
-        memory_type="session",
-        current_revision=MemoryRevision(
-            revision_id=revision_id,
-            memory_id=record.memory_id,
-            content=record.content,
-            content_sha256=record.content_digest,
-            created_at=_EVALUATION_TIMESTAMP,
-            created_by="longmemeval-semantic-evaluation",
-            metadata={"evaluation_source_digest": record.source_digest},
-        ),
-        provenance=Provenance(
-            source_system="longmemeval-local-evaluation",
-            # The aggregate contract requires provenance.source_id to identify
-            # this authority row.  The original LongMemEval session identity is
-            # retained separately in disposable metadata and is what retrieval
-            # receipts expose after revalidation.
-            source_id=record.memory_id,
-            source_kind="disposable-evaluation",
-            session_refs=(record.case_id,),
-        ),
-        title="LongMemEval evaluation session",
-        summary="Disposable semantic evaluation authority record",
-        tags=("evaluation", "longmemeval", "disposable"),
-        session_refs=(record.case_id,),
-        observed_at=record.observed_at,
-        observed_at_source="longmemeval-haystack-date",
-        created_at=_EVALUATION_TIMESTAMP,
-        updated_at=_EVALUATION_TIMESTAMP,
-        metadata={
-            "evaluation_case_id": record.case_id,
-            "evaluation_source_id": record.source_id,
-            "evaluation_source_digest": record.source_digest,
-            "evaluation_observed_at_minute": record.observed_at_minute,
-            "disposable_evaluation": True,
-        },
-    )
-
-
-def _build_authority_records(
-    items: tuple[dict[str, Any], ...], *, max_cases: int, split_index: int = 0,
-) -> tuple[dict[str, tuple[_AuthorityRecord, ...]], tuple[EvaluationCase, ...]]:
-    records_by_case: dict[str, tuple[_AuthorityRecord, ...]] = {}
-    cases: list[EvaluationCase] = []
-    for item in _select_cases(items, max_cases=max_cases, split_index=split_index):
-        case_id = _text(item.get("question_id"), "question_id")
-        category = _category(item)
-        source_records, source_ids = _case_records(item)
-        raw_session_ids = item.get("haystack_session_ids")
-        raw_dates = item.get("haystack_dates")
-        if not isinstance(raw_session_ids, list) or not isinstance(raw_dates, list) or len(raw_session_ids) != len(raw_dates):
-            raise LongMemEvalSemanticError("LongMemEval haystack dates must align with haystack session IDs")
-        observed_by_session: dict[str, tuple[str, int]] = {}
-        for raw_session_id, raw_date in zip(raw_session_ids, raw_dates, strict=True):
-            session_id = _text(raw_session_id, "haystack_session_id")
-            observed = _parse_longmemeval_timestamp(raw_date, field="haystack_date")
-            prior = observed_by_session.get(session_id)
-            if prior is None or observed[1] < prior[1]:
-                # LongMemEval repeats an identical session in a few haystacks
-                # with different chronology positions.  Keep the earliest
-                # occurrence so an as-of query can never see a future copy.
-                observed_by_session[session_id] = observed
-        authority_records: list[_AuthorityRecord] = []
-        records_by_source_id: dict[str, _AuthorityRecord] = {}
-        for source in source_records:
-            source_id = str(source["source_id"])
-            content = str(source["memory"])
-            session_id = source_id.rsplit(":", 1)[-1]
-            observed_at, observed_at_minute = observed_by_session.get(session_id, ("", -1))
-            if not observed_at or observed_at_minute < 0:
-                raise LongMemEvalSemanticError("LongMemEval source record has no aligned observed date")
-            content_digest = content_sha256(content)
-            source_digest = _digest(
-                {
-                    "case_id": case_id,
-                    "source_id": source_id,
-                    "content_digest": content_digest,
-                    "project": PROJECT,
-                }
-            )
-            memory_id = f"mem_eval_{hashlib.sha256(source_id.encode('utf-8')).hexdigest()[:24]}"
-            candidate = _AuthorityRecord(
-                memory_id=memory_id,
-                source_id=source_id,
-                case_id=case_id,
-                content=content,
-                content_digest=content_digest,
-                source_digest=source_digest,
-                observed_at=observed_at,
-                observed_at_minute=observed_at_minute,
-            )
-            existing = records_by_source_id.get(source_id)
-            if existing is not None:
-                if existing != candidate:
-                    raise LongMemEvalSemanticError("LongMemEval duplicate session identity has conflicting content")
-                # Some admitted cases repeat an identical haystack session. It
-                # represents one source identity for both lexical metrics and
-                # the SQLite/Qdrant authority snapshot, never two points.
-                continue
-            records_by_source_id[source_id] = candidate
-            authority_records.append(candidate)
-        answer_ids = item.get("answer_session_ids")
-        if not isinstance(answer_ids, list):
-            raise LongMemEvalSemanticError("LongMemEval answer_session_ids must be an array")
-        expected_ids = tuple(
-            source_ids[session_id]
-            for raw_id in answer_ids
-            if (session_id := _text(raw_id, "answer_session_id")) in source_ids
-        )
-        if category != "abstention" and not expected_ids:
-            raise LongMemEvalSemanticError("LongMemEval non-abstention case has no answer session in haystack")
-        metric_expected_ids = () if category == "abstention" else expected_ids
-        source_digest = _digest(
-            {
-                "question_id": case_id,
-                "question_type": str(item.get("question_type") or ""),
-                "haystack_session_ids": tuple(sorted(source_ids)),
-                "answer_session_ids": tuple(sorted(metric_expected_ids)),
-            }
-        )
-        records_by_case[case_id] = tuple(authority_records)
-        cases.append(
-            EvaluationCase(
-                case_id=case_id,
-                suite="longmemeval",
-                category=category,
-                expected_ids=metric_expected_ids,
-                expected_abstention=category == "abstention",
-                project=PROJECT,
-                session_id=case_id,
-                source_digest=source_digest,
-            )
-        )
-    if sum(len(records) for records in records_by_case.values()) > _MAX_RECORDS:
-        raise LongMemEvalSemanticError(f"semantic evaluation exceeds {_MAX_RECORDS} temporary authority records")
-    return records_by_case, tuple(cases)
-
-
-def _query_points(response: Any) -> list[Any]:
-    points = getattr(response, "points", None)
-    if isinstance(points, list):
-        return points
-    if isinstance(response, list):
-        return response
-    raise LongMemEvalSemanticError("Qdrant semantic query returned an unsupported response")
-
-
-def _finite_score(hit: Any) -> float | None:
-    score = getattr(hit, "score", None)
-    if not isinstance(score, (int, float)) or not math.isfinite(float(score)):
-        return None
-    return float(score)
-
-
-def _revalidate_hits(
-    repository: SQLiteMemoryRepository,
-    hits: Iterable[Any],
-    *,
-    case_id: str | None,
-    minimum_score: float = 0.0,
-    require_score: bool = False,
-    as_of_minute: int | None = None,
-) -> tuple[tuple[str, ...], int, int, int]:
-    raw_hits = tuple(hits)
-    hit_payloads: list[tuple[Any, dict[str, Any]]] = []
-    for hit in raw_hits:
-        payload = getattr(hit, "payload", None)
-        if not isinstance(payload, dict):
-            continue
-        hit_payloads.append((hit, payload))
-    candidate_ids = tuple(dict.fromkeys(str(payload.get("memory_id") or "") for _, payload in hit_payloads if str(payload.get("memory_id") or "")))
-    authorities = {memory.id: memory for memory in repository.get_memories(candidate_ids, project=PROJECT)}
-    accepted: list[str] = []
-    rejected = 0
-    threshold_rejected = 0
-    for hit, payload in hit_payloads:
-        memory_id = str(payload.get("memory_id") or "")
-        memory = authorities.get(memory_id)
-        if memory is None or memory.lifecycle is not Lifecycle.ACTIVE:
-            rejected += 1
-            continue
-        metadata = dict(memory.metadata)
-        if (
-            str(payload.get("project") or "") != PROJECT
-            or str(payload.get("content_digest") or "") != memory.current_revision.content_sha256
-            or str(payload.get("source_digest") or "") != str(metadata.get("evaluation_source_digest") or "")
-        ):
-            rejected += 1
-            continue
-        if case_id is not None and (
-            str(payload.get("case_id") or "") != case_id
-            or str(metadata.get("evaluation_case_id") or "") != case_id
-        ):
-            rejected += 1
-            continue
-        if as_of_minute is not None:
-            observed_at_minute = metadata.get("evaluation_observed_at_minute")
-            if (
-                not isinstance(observed_at_minute, int)
-                or observed_at_minute > as_of_minute
-                or payload.get("observed_at_minute") != observed_at_minute
-            ):
-                rejected += 1
-                continue
-        score = _finite_score(hit)
-        if require_score:
-            if score is None:
-                rejected += 1
-                threshold_rejected += 1
-                continue
-            if score < minimum_score:
-                rejected += 1
-                threshold_rejected += 1
-                continue
-        source_id = str(metadata.get("evaluation_source_id") or "")
-        if not source_id or source_id in accepted:
-            rejected += 1
-            continue
-        accepted.append(source_id)
-    return tuple(accepted), len(candidate_ids), rejected, threshold_rejected
-
-
-def _percentile(values: Iterable[float], *, percentile: float) -> float:
-    ordered = sorted(float(value) for value in values)
-    if not ordered:
-        return 0.0
-    index = max(0, min(len(ordered) - 1, math.ceil(percentile * len(ordered)) - 1))
-    return round(ordered[index], 6)
-
-
-def _abstention_threshold_diagnostics(score_outcomes: Iterable[tuple[float | None, bool]]) -> list[dict[str, float | int | None]]:
-    """Report bounded threshold diagnostics without selecting a live policy."""
-
-    outcomes = tuple(score_outcomes)
-    rows: list[dict[str, float | int | None]] = []
-    for threshold in _ABSTENTION_DIAGNOSTIC_THRESHOLDS:
-        expected = predicted = correct = 0
-        for top_score, expected_abstention in outcomes:
-            expected += int(expected_abstention)
-            abstained = top_score is None or top_score < threshold
-            predicted += int(abstained)
-            correct += int(abstained and expected_abstention)
-        rows.append(
-            {
-                "minimum_score": threshold,
-                "expected_abstention_count": expected,
-                "predicted_abstention_count": predicted,
-                "correct_abstention_count": correct,
-                "precision": round(correct / predicted, 6) if predicted else None,
-                "recall": round(correct / expected, 6) if expected else None,
-            }
-        )
-    return rows
-
-
-def _rrf_fuse(*ranked_lists: Iterable[str], limit: int) -> tuple[str, ...]:
-    """Fuse bounded candidate lists without inspecting labels or case identity."""
-
-    scores: dict[str, float] = {}
-    for ranked in ranked_lists:
-        for rank, source_id in enumerate(ranked, start=1):
-            scores[source_id] = scores.get(source_id, 0.0) + 1.0 / (60.0 + rank)
-    return tuple(source_id for source_id, _score in sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit])
-
-
-def _fts_match(query: str) -> str:
-    """Create a bounded conservative FTS query without passing raw user text to SQL."""
-
-    tokens = tuple(
-        dict.fromkeys(
-            token.casefold()
-            for token in _FTS_TOKEN_RE.findall(query)
-            if token.casefold() not in _FTS_STOPWORDS
-        )
-    )
-    return " OR ".join(f'"{token}"' for token in tokens[:16])
-
-
-def _build_disposable_lexical_index(records: Iterable[_AuthorityRecord]) -> sqlite3.Connection:
-    """Create an isolated, project-scoped FTS5 candidate index for this run only."""
-
-    connection = sqlite3.connect(":memory:")
-    connection.row_factory = sqlite3.Row
-    try:
-        connection.execute(
-            "CREATE VIRTUAL TABLE disposable_longmemeval_fts USING fts5("
-            "memory_id UNINDEXED, project UNINDEXED, observed_at_minute UNINDEXED, content)"
-        )
-        connection.executemany(
-            "INSERT INTO disposable_longmemeval_fts(memory_id, project, observed_at_minute, content) VALUES(?, ?, ?, ?)",
-            [
-                (record.memory_id, PROJECT, record.observed_at_minute, record.content)
-                for record in records
-            ],
-        )
-    except sqlite3.Error as exc:
-        connection.close()
-        raise LongMemEvalSemanticError("SQLite FTS5 is required for hybrid LongMemEval candidate evaluation") from exc
-    return connection
-
-
-def _fts_candidate_memory_ids(
-    connection: sqlite3.Connection,
-    query: str,
-    *,
-    limit: int,
-    as_of_minute: int | None,
-) -> tuple[str, ...]:
-    """Return only bounded project-scoped lexical candidate identities."""
-
-    match = _fts_match(query)
-    if not match:
-        return ()
-    clauses = ["disposable_longmemeval_fts MATCH ?", "project = ?"]
-    parameters: list[object] = [match, PROJECT]
-    if as_of_minute is not None:
-        clauses.append("observed_at_minute <= ?")
-        parameters.append(as_of_minute)
-    parameters.append(limit)
-    rows = connection.execute(
-        "SELECT memory_id FROM disposable_longmemeval_fts WHERE "
-        + " AND ".join(clauses)
-        + " ORDER BY bm25(disposable_longmemeval_fts), memory_id LIMIT ?",
-        parameters,
-    ).fetchall()
-    return tuple(dict.fromkeys(str(row["memory_id"]) for row in rows if str(row["memory_id"] or "")))
-
-
-def _revalidate_lexical_memory_ids(
-    repository: SQLiteMemoryRepository,
-    memory_ids: Iterable[str],
-    *,
-    as_of_minute: int | None,
-) -> tuple[tuple[str, ...], int, int]:
-    """Rehydrate FTS candidates from temporary SQLite authority before fusion."""
-
-    requested_ids = tuple(dict.fromkeys(str(value) for value in memory_ids if str(value)))
-    authorities = {memory.id: memory for memory in repository.get_memories(requested_ids, project=PROJECT)}
-    accepted: list[str] = []
-    rejected = 0
-    for memory_id in requested_ids:
-        memory = authorities.get(memory_id)
-        if memory is None or memory.lifecycle is not Lifecycle.ACTIVE or memory.project != PROJECT:
-            rejected += 1
-            continue
-        metadata = dict(memory.metadata)
-        source_id = str(metadata.get("evaluation_source_id") or "")
-        observed_at_minute = metadata.get("evaluation_observed_at_minute")
-        if (
-            not source_id
-            or not isinstance(observed_at_minute, int)
-            or (as_of_minute is not None and observed_at_minute > as_of_minute)
-        ):
-            rejected += 1
-            continue
-        accepted.append(source_id)
-    return tuple(accepted), len(requested_ids), rejected
 
 
 def run_longmemeval_qdrant_semantic_smoke(
