@@ -12,8 +12,7 @@ from typing import Any
 
 from . import app_runtime as rt
 from . import memory_contracts as _memory_contracts
-from .mem0_adapter import get_qdrant_client
-from .mem0_adapter import normalize_access_count
+from .mem0_adapter import get_qdrant_client, normalize_access_count
 
 _LOGGER = logging.getLogger(__name__)
 

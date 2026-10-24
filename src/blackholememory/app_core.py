@@ -2,49 +2,91 @@
 
 from __future__ import annotations
 
-import time
 import asyncio
 import hashlib
 import json
+import time
 from typing import Any, Mapping
+
 from fastapi import HTTPException
+
 from . import app_core_fallback
 from . import app_runtime as rt
-from .app_runtime import ResponseTimeout, _env_float, _env_int, _run_bounded_read, _safe_exception_text
-from .api_models import RememberRequest
-from .capability import configured_admin_capability
-from .capability import extract_mcp_capability
-from .capability import MCP_OPERATOR_SESSION
-from .capability import is_admin_capability_valid
-from .mcp_protocol_contract import validate_bhm_remember_arguments
-from .ingress_admission import IngressKind
-from .ingress_admission import admit_ingress
-from .mcp_surfaces import filter_tools
-from .mcp_surfaces import is_tool_allowed
-from .mcp_surfaces import requires_admin_capability
-from .mcp_surfaces import resolve_mcp_surface
-from .mcp_protocol_contract import initialize_capabilities
-from .mcp_protocol_contract import negotiate_protocol_version
-from .mcp_protocol_contract import ProtocolContractError
-from .mcp_streamable_http import BhmStreamableHttpGateway
-from .semantic_readiness import SemanticReadinessCache
-from .semantic_readiness import build_readiness_key
-from .semantic_readiness import evaluate_semantic_readiness
-from .semantic_readiness import project_warmup_state
-from .memory_service import MemoryServiceNotReady
 from . import memory_contracts as _memory_contracts
-from .version_manifest import BROKER_VERSION
-from .observation_security import PayloadSanitizer
-from .observation_security import redact_secret_text
-from .usage_telemetry import UsageTelemetry
-from .usage_telemetry import monotonic_elapsed_ms
-from .usage_telemetry import normalize_operation
-from .code_graph import PARSER_REGISTRY_DIGEST
-from .error_taxonomy import classify_jsonrpc_error
-from .app_core_memory_base import _append_memory_changelog, _build_memory_title, _effective_event_role, _effective_memory_class, _find_live_memory_by_upsert_key, _is_archived_memory, _mem0_metadata_for_record, _memory_lifecycle, _metadata_matches_taxonomy_filters, _metadata_to_dict, _replace_live_memory, _resolve_live_memory_for_vector_item, _save_live_memories, _serialize_memory_record, _user_memory_metadata, _validate_procedure_contract_binding, _vector_id_list, _vector_metadata_for_record, _vector_targets_for_record
+from .api_models import RememberRequest
+from .app_core_memory_base import (
+    _append_memory_changelog,
+    _build_memory_title,
+    _effective_event_role,
+    _effective_memory_class,
+    _find_live_memory_by_upsert_key,
+    _is_archived_memory,
+    _mem0_metadata_for_record,
+    _memory_lifecycle,
+    _metadata_matches_taxonomy_filters,
+    _metadata_to_dict,
+    _replace_live_memory,
+    _resolve_live_memory_for_vector_item,
+    _save_live_memories,
+    _serialize_memory_record,
+    _user_memory_metadata,
+    _validate_procedure_contract_binding,
+    _vector_id_list,
+    _vector_metadata_for_record,
+    _vector_targets_for_record,
+)
 from .app_core_memory_projection import _sync_mem0_record, _update_mem0_record
 from .app_core_memory_query import _vector_item_matches_search_request
-from .app_core_memory_write import _apply_temporal_update, _crystallize_memories, _detect_duplicates, _merge_memory_records, _project_summary_get, _remember_live_memory, _temporal_request_fields, _update_live_memory, _upsert_live_memory
+from .app_core_memory_write import (
+    _apply_temporal_update,
+    _crystallize_memories,
+    _detect_duplicates,
+    _merge_memory_records,
+    _project_summary_get,
+    _remember_live_memory,
+    _temporal_request_fields,
+    _update_live_memory,
+    _upsert_live_memory,
+)
+from .app_runtime import (
+    ResponseTimeout,
+    _env_float,
+    _env_int,
+    _run_bounded_read,
+    _safe_exception_text,
+)
+from .capability import (
+    MCP_OPERATOR_SESSION,
+    configured_admin_capability,
+    extract_mcp_capability,
+    is_admin_capability_valid,
+)
+from .code_graph import PARSER_REGISTRY_DIGEST
+from .error_taxonomy import classify_jsonrpc_error
+from .ingress_admission import IngressKind, admit_ingress
+from .mcp_protocol_contract import (
+    ProtocolContractError,
+    initialize_capabilities,
+    negotiate_protocol_version,
+    validate_bhm_remember_arguments,
+)
+from .mcp_streamable_http import BhmStreamableHttpGateway
+from .mcp_surfaces import (
+    filter_tools,
+    is_tool_allowed,
+    requires_admin_capability,
+    resolve_mcp_surface,
+)
+from .memory_service import MemoryServiceNotReady
+from .observation_security import PayloadSanitizer, redact_secret_text
+from .semantic_readiness import (
+    SemanticReadinessCache,
+    build_readiness_key,
+    evaluate_semantic_readiness,
+    project_warmup_state,
+)
+from .usage_telemetry import UsageTelemetry, monotonic_elapsed_ms, normalize_operation
+from .version_manifest import BROKER_VERSION
 
 __all__ = (
     '_append_memory_changelog', '_build_memory_title', '_effective_event_role', '_effective_memory_class',

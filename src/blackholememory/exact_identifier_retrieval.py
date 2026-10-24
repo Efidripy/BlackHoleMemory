@@ -16,7 +16,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping, Sequence
 
-
 EXACT_IDENTIFIER_ENV = "BHM_EXACT_IDENTIFIER_RETRIEVAL"
 EXACT_IDENTIFIER_SCHEMA_VERSION = "bhm.exact-identifier-retrieval.v1"
 EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY = "exact_identifier_index_schema"

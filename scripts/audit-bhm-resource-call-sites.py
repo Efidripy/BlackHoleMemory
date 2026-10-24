@@ -18,7 +18,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_VERSION = "bhm.resource-callsite-inventory.v4"
 SCANNED_ROOTS = ("src", "scripts")

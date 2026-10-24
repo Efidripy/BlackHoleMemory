@@ -23,7 +23,6 @@ from .filesystem_boundaries import assert_safe_path
 from .memory_repository import SQLiteMemoryRepository
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 
-
 PROJECT_RETIREMENT_SCHEMA_VERSION = "bhm.project-retirement.v1"
 PROJECT_RETIREMENT_CAPABILITY_ENV = "BHM_PROJECT_RETIREMENT_CAPABILITY"
 PROJECT_RETIREMENT_ALLOWLIST_ENV = "BHM_PROJECT_RETIREMENT_ALLOWLIST"

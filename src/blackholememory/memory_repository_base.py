@@ -9,19 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable
-from collections.abc import Mapping
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from .domain import Artifact
-from .domain import Lifecycle
-from .domain import Memory
-from .domain import MemoryLink
-from .outbox import OutboxEvent
-from .outbox import OutboxStatus
-
+from .domain import Artifact, Lifecycle, Memory, MemoryLink
+from .outbox import OutboxEvent, OutboxStatus
 
 MEMORY_STORE_SCHEMA_VERSION = 1
 FRESHNESS_SCHEMA_VERSION = 2

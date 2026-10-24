@@ -16,16 +16,18 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.code_graph import SQLiteCodeGraphStore, build_code_graph
 from blackholememory.code_graph_query import explain_code_graph, query_code_graph
 from blackholememory.convention_memory import preview_convention_memory
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import RepositoryWatcher, index_repository, probe_repository_state
+from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    RepositoryWatcher,
+    index_repository,
+    probe_repository_state,
+)
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from blackholememory.unified_context import build_unified_context_from_graph
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS

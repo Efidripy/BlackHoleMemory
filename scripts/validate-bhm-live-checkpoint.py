@@ -27,11 +27,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
 from blackholememory.langgraph_checkpoint import SQLiteLangGraphCheckpointSaver
 from blackholememory.sqlite_retention import verify_sqlite_database
-
 
 LIVE_DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"
 SCHEMA_VERSION = "bhm.wl173.live-checkpoint-drill.v1"

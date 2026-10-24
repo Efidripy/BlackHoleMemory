@@ -12,10 +12,10 @@ from typing import Any, Mapping
 from ..filesystem_boundaries import assert_safe_path
 from ..repository_index import SQLiteRepositoryIndexStore
 from ._core import (
+    _CODE_GRAPH_TABLES,
     CODE_GRAPH_BUSY_TIMEOUT_MS,
     CODE_GRAPH_EXTRACTOR_VERSION,
     CODE_GRAPH_STORE_SCHEMA_VERSION,
-    _CODE_GRAPH_TABLES,
     CodeGraphError,
     CodeGraphInjectedFailure,
     _canonical_json,

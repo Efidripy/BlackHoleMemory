@@ -14,10 +14,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from .llm_safety import PROPOSAL_AUTHORITY
-from .llm_safety import build_proposal_envelope
-from .llm_safety import sanitize_llm_value
-
+from .llm_safety import PROPOSAL_AUTHORITY, build_proposal_envelope, sanitize_llm_value
 
 LLM_CANDIDATE_SCHEMA_VERSION = "bhm.llm.candidates.v1"
 LLM_CANDIDATE_JUDGE_VERSION = "bhm.llm.candidate-judge.v1"

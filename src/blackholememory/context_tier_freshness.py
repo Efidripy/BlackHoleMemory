@@ -17,7 +17,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from blackholememory.context_tiers import ContextTier
 
-
 SCHEMA_VERSION = "bhm.context-tier-freshness.v1"
 MAX_RECORDS = 512
 MAX_PROPOSALS = 128

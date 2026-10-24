@@ -15,10 +15,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from . import app
-from . import bhm_mcp
+from . import app, bhm_mcp
 from .openapi_contract import build_openapi_schema
-
 
 SCHEMA_VERSION = "bhm.rest-mcp.parity-inventory.v1"
 _HTTP_HELPERS = {"_get", "_post", "_delete"}

@@ -17,10 +17,13 @@ import httpx
 SCRIPT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from blackholememory.local_endpoint_policy import LocalEndpointError  # noqa: E402
-from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES  # noqa: E402
-from blackholememory.mcp_surfaces import CORE_TOOL_NAMES  # noqa: E402
 from bhm_runtime_endpoints import validate_loopback_endpoint  # noqa: E402
+
+from blackholememory.local_endpoint_policy import (
+    MAX_RESPONSE_BYTES,  # noqa: E402
+    LocalEndpointError,  # noqa: E402
+)
+from blackholememory.mcp_surfaces import CORE_TOOL_NAMES  # noqa: E402
 
 SCHEMA_VERSION = "bhm.mcp.streamable-http-validation.v1"
 PROTOCOL_VERSION = "2025-06-18"

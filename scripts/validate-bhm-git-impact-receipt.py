@@ -15,7 +15,6 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-
 SCHEMA_VERSION = "bhm.p28.wi114.git-impact-receipt.v1"
 IMPACT_SCHEMA_VERSION = "bhm.change-impact.git-symbols.v1"
 MAX_CHANGED_PATHS = 64

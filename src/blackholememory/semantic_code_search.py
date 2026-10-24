@@ -16,7 +16,6 @@ import time
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-
 SEMANTIC_CODE_SEARCH_SCHEMA_VERSION = "bhm.code-graph.semantic-query.v1"
 SEMANTIC_CODE_SEARCH_ALGORITHM = "hashing-metadata-v1"
 SEMANTIC_CODE_SEARCH_DIMENSIONS = 256

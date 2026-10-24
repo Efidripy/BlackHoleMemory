@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
-from typing import cast
+from typing import Literal, cast
 
 HistoryScope = Literal["current", "recent", "all"]
 DEFAULT_RECENT_HISTORY_DAYS = 30

@@ -18,11 +18,12 @@ from typing import Any, Mapping, Sequence
 
 from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
-from .task_dependencies import TaskDependencyDeclaration
-from .task_dependencies import TaskDependencyCompletenessAttestation
-from .task_dependencies import dependency_declarations_by_pair
-from .task_dependencies import validate_dependency_completeness_attestation
-
+from .task_dependencies import (
+    TaskDependencyCompletenessAttestation,
+    TaskDependencyDeclaration,
+    dependency_declarations_by_pair,
+    validate_dependency_completeness_attestation,
+)
 
 TASK_GRAPH_SCHEMA_VERSION = "bhm.task-graph.v1"
 TASK_GRAPH_BUILD_VERSION = "wi07-native-1"

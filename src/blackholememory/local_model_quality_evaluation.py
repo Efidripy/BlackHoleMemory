@@ -19,7 +19,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-
 SCHEMA_VERSION = "bhm.local-model-quality.v1"
 PROMPT_CONTRACT = "authoritative-facts-untrusted-quote-transitive.v1"
 DEFAULT_BASE_URL = "http://127.0.0.1:13666"

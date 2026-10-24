@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # ruff: noqa: E402
-
 import argparse
 import hashlib
 import json
@@ -16,7 +15,6 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAX_HTTP_RESPONSE_BYTES = 256 * 1024
@@ -31,16 +29,18 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.local_endpoint_policy import LocalEndpointError
-from blackholememory.local_endpoint_policy import is_local_host
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import read_bounded_response
-from blackholememory.local_endpoint_policy import validate_local_endpoint
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.resource_limits import LLM_INVENTORY_HTTP_TIMEOUT_SECONDS
-from blackholememory.resource_limits import PROCESS_EXECUTION_LLM_INVENTORY_HARDWARE_TIMEOUT_SECONDS
-
+from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
+from blackholememory.local_endpoint_policy import (
+    LocalEndpointError,
+    is_local_host,
+    open_local_url,
+    read_bounded_response,
+    validate_local_endpoint,
+)
+from blackholememory.resource_limits import (
+    LLM_INVENTORY_HTTP_TIMEOUT_SECONDS,
+    PROCESS_EXECUTION_LLM_INVENTORY_HARDWARE_TIMEOUT_SECONDS,
+)
 
 # Compatibility name retained; the registry-backed local inventory bound is canonical.
 DEFAULT_TIMEOUT = float(LLM_INVENTORY_HTTP_TIMEOUT_SECONDS)

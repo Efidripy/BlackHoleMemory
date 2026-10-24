@@ -15,24 +15,22 @@ import asyncio
 import json
 import sys
 from collections.abc import Iterable
-from dataclasses import asdict
-from dataclasses import dataclass
-from datetime import datetime
-from datetime import timezone
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.mem0_adapter import BHMGraphManager  # noqa: E402
-from blackholememory.mem0_adapter import GLOBAL_COLLECTION_NAME  # noqa: E402
-from blackholememory.mem0_adapter import LOCAL_COLLECTION_PREFIX  # noqa: E402
-from blackholememory.mem0_adapter import get_qdrant_client  # noqa: E402
-
+from blackholememory.mem0_adapter import (
+    GLOBAL_COLLECTION_NAME,  # noqa: E402
+    LOCAL_COLLECTION_PREFIX,  # noqa: E402
+    BHMGraphManager,  # noqa: E402
+    get_qdrant_client,  # noqa: E402
+)
 
 DEFAULT_TOP_K = 3
 DEFAULT_SCORE_THRESHOLD = 0.85

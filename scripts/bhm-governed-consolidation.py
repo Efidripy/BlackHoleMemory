@@ -12,15 +12,19 @@ import json
 from pathlib import Path
 from typing import Any
 
-from blackholememory.governed_consolidation import GovernedConsolidationRepository
-from blackholememory.governed_consolidation import analyze_records
-from blackholememory.governed_consolidation import apply_approved_proposal
-from blackholememory.governed_consolidation import build_proposal
-from blackholememory.governed_consolidation import dry_run_apply
-from blackholememory.governed_consolidation import runtime_status
-from blackholememory.governed_consolidation import validate_proposal_current
-from blackholememory.governed_consolidation_migration import apply_governed_consolidation_migration
-from blackholememory.governed_consolidation_migration import build_governed_consolidation_migration_plan
+from blackholememory.governed_consolidation import (
+    GovernedConsolidationRepository,
+    analyze_records,
+    apply_approved_proposal,
+    build_proposal,
+    dry_run_apply,
+    runtime_status,
+    validate_proposal_current,
+)
+from blackholememory.governed_consolidation_migration import (
+    apply_governed_consolidation_migration,
+    build_governed_consolidation_migration_plan,
+)
 from blackholememory.memory_repository import SQLiteMemoryRepository
 
 

@@ -12,9 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from blackholememory.task_graph import TASK_GRAPH_BUILD_VERSION
-from blackholememory.task_graph import _initialize_schema as initialize_task_graph_schema
-from blackholememory.task_graph import build_task_graph as build_authoritative_task_graph
-
+from blackholememory.task_graph import (
+    _initialize_schema as initialize_task_graph_schema,
+)
+from blackholememory.task_graph import (
+    build_task_graph as build_authoritative_task_graph,
+)
 
 SCHEMA_VERSION = "bhm.sidecar-parity-rehearsal.v1"
 ALLOWED_RELATIONS = frozenset({"depends_on"})

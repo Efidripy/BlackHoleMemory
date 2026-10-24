@@ -15,11 +15,14 @@ import tomllib
 import urllib.parse
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import FilesystemBoundaryError
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
-
+from blackholememory.filesystem_boundaries import (
+    FilesystemBoundaryError,
+    assert_safe_path,
+    replace_bytes_safely,
+)
+from blackholememory.resource_limits import (
+    PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS,
+)
 
 RELEASE_TRUST_GIT_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_TRUST_GIT_TIMEOUT_SECONDS
 

@@ -6,33 +6,36 @@ import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
+
 from qdrant_client.http import models as qdrant_models
+
+from . import app_core_fallback, app_core_graph
+from . import app_core_memory_base as app_core
 from . import app_runtime as rt
+from . import memory_contracts as _memory_contracts
 from .app_runtime import _env_float
 from .config import settings
 from .embedding_reuse import search_with_precomputed_embedding
-from .mem0_adapter import decay_lambda_for_payload
-from .mem0_adapter import ensure_decay_metadata
-from .mem0_adapter import get_global_core_memory
-from .mem0_adapter import get_project_mem0_memory
-from .mem0_adapter import get_qdrant_client
-from .mem0_adapter import global_collection_name
-from .mem0_adapter import lexical_score
-from .mem0_adapter import local_collection_name
-from .mem0_adapter import memory_decay_score
-from .retrieval_fusion import weighted_rank_fusion
-from .retrieval_diversity import mmr_select
-from .runtime_storage import resolve_runtime_storage_config
-from .projection_generation_binding import ProjectionRouteUnavailable
-from .projection_generation_binding import resolve_projection_route
-from . import memory_contracts as _memory_contracts
+from .mem0_adapter import (
+    decay_lambda_for_payload,
+    ensure_decay_metadata,
+    get_global_core_memory,
+    get_project_mem0_memory,
+    get_qdrant_client,
+    global_collection_name,
+    lexical_score,
+    local_collection_name,
+    memory_decay_score,
+)
+from .projection_generation_binding import (
+    ProjectionRouteUnavailable,
+    resolve_projection_route,
+)
 from .retention import parse_timestamp
-from .temporal_contract import TemporalValidationError
-from .temporal_contract import temporal_matches
-from . import app_core_memory_base as app_core
-from . import app_core_fallback
-from . import app_core_graph
-
+from .retrieval_diversity import mmr_select
+from .retrieval_fusion import weighted_rank_fusion
+from .runtime_storage import resolve_runtime_storage_config
+from .temporal_contract import TemporalValidationError, temporal_matches
 
 MemoryClass = _memory_contracts.MemoryClass
 

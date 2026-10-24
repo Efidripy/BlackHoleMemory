@@ -5,12 +5,10 @@ from __future__ import annotations
 
 # The script adds the repository's src directory before importing project modules.
 # ruff: noqa: E402
-
 import argparse
 import json
 import sys
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"

@@ -10,12 +10,14 @@ from pathlib import Path
 
 from blackholememory import bhm_mcp
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
-from blackholememory.mcp_surfaces import GOVERNANCE_PUBLIC_TOOL_NAMES
-from blackholememory.mcp_surfaces import McpSurface
-from blackholememory.mcp_surfaces import filter_tools
-from blackholememory.mcp_surfaces import partition_tool_names
-from blackholememory.mcp_surfaces import requires_admin_capability
+from blackholememory.mcp_surfaces import (
+    CORE_TOOL_NAMES,
+    GOVERNANCE_PUBLIC_TOOL_NAMES,
+    McpSurface,
+    filter_tools,
+    partition_tool_names,
+    requires_admin_capability,
+)
 
 
 def _sha256(value: object) -> str:

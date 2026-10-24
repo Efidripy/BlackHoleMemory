@@ -12,7 +12,6 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-
 SCHEMA_VERSION = "bhm.feedback-consolidation-preview.v1"
 UTILITY_REPORT_SCHEMA_VERSION = "bhm.utility-feedback.v1"
 MAX_REPORT_ROWS = 10_000

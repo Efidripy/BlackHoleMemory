@@ -6,8 +6,8 @@ from typing import Any, Mapping, Sequence
 
 from .context_compiler import compile_context, estimate_tokens
 from .llm_long_tasks_base import (
-    LLM_LONG_TASK_MAX_CHUNKS,
     LLM_LONG_TASK_MAX_CHUNK_CHARS,
+    LLM_LONG_TASK_MAX_CHUNKS,
     LLM_LONG_TASK_MAX_FANOUT,
     LLM_LONG_TASK_MAX_INPUT_BYTES,
     LLM_LONG_TASK_MAX_ITEMS,

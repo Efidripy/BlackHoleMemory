@@ -7,23 +7,28 @@ configured once by app.py), so monkeypatching the app names keeps working.
 from __future__ import annotations
 
 from typing import Any
-from fastapi import HTTPException
-from fastapi import Request
+
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from .code_tools_service import bhm_public_code_tools
+
 from . import app_runtime as rt
-from .api_models import UiSessionExchangeRequest, PublicCodeToolRequest, HumanUiBridgePreviewRequest
-from .config import settings
+from .api_models import (
+    HumanUiBridgePreviewRequest,
+    PublicCodeToolRequest,
+    UiSessionExchangeRequest,
+)
 from .caller_auth import configured_caller_principal
-from .ui_session import BOOTSTRAP_TTL_SECONDS
-from .ui_session import SESSION_TTL_SECONDS
-from .ui_session import UI_SESSION_COOKIE
-from .ui_session import UiSessionRegistry
-from .ui_origin_policy import browser_request_is_same_origin
-from .ui_origin_policy import request_is_loopback
+from .code_tools_service import bhm_public_code_tools
+from .config import settings
+from .human_ui_bridge import HumanUiBridgeError, build_human_ui_bridge_preview
 from .observation_security import redact_secret_text
-from .human_ui_bridge import HumanUiBridgeError
-from .human_ui_bridge import build_human_ui_bridge_preview
+from .ui_origin_policy import browser_request_is_same_origin, request_is_loopback
+from .ui_session import (
+    BOOTSTRAP_TTL_SECONDS,
+    SESSION_TTL_SECONDS,
+    UI_SESSION_COOKIE,
+    UiSessionRegistry,
+)
 
 
 class _Deps:

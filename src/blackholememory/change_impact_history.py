@@ -9,11 +9,11 @@ from typing import Any, Mapping, Sequence
 
 from .change_impact_base import (
     GIT_HISTORY_CORRELATION_SCHEMA_VERSION,
-    MAX_CROSS_REPOSITORIES,
     MAX_CROSS_REPO_LINKS,
-    MAX_HISTORY_RECEIPT_PATHS,
+    MAX_CROSS_REPOSITORIES,
     MAX_DIFF_HUNKS,
     MAX_GIT_HISTORY_COMMITS,
+    MAX_HISTORY_RECEIPT_PATHS,
     MAX_SYMBOL_CORRELATIONS,
     ChangeImpactError,
     _path,

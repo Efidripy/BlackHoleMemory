@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Mapping
 
-from ._common import CODE_GRAPH_EXTRACTOR_VERSION, CODE_GRAPH_REPORT_LIMIT, CodeGraphError, _source_ref, _stable_id
+from ._common import (
+    CODE_GRAPH_EXTRACTOR_VERSION,
+    CODE_GRAPH_REPORT_LIMIT,
+    CodeGraphError,
+    _source_ref,
+    _stable_id,
+)
+
 
 class _GraphDraft:
     def __init__(self, root_id: str, snapshot: Mapping[str, Any]) -> None:

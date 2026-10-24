@@ -6,10 +6,9 @@ import hashlib
 import json
 import subprocess
 from pathlib import Path
-
-from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from typing import Any, Iterable
 
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 
 ALLOWED_STATUSES = {"implemented", "equivalent", "partial", "deferred", "rejected", "not-applicable"}
 CLOSING_STATUSES = {"implemented", "equivalent", "rejected", "not-applicable"}

@@ -16,11 +16,13 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import RepositoryWatcher
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import probe_repository_state
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    RepositoryWatcher,
+    SQLiteRepositoryIndexStore,
+    probe_repository_state,
+)
 
 
 def _fixture(root: Path) -> None:

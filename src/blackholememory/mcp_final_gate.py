@@ -13,7 +13,6 @@ from typing import Any
 
 from .mcp_surfaces import CORE_TOOL_NAMES
 
-
 SCHEMA_VERSION = "bhm.mcp.final-gate.v1"
 ROUTINE_COLD_ATTACHES = 25
 ROUTINE_RECOVERY_CYCLES = 10

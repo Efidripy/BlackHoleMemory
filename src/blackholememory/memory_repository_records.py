@@ -10,28 +10,27 @@ import hashlib
 import json
 import sqlite3
 from collections.abc import Sequence
-from datetime import datetime
-from datetime import timedelta
-from datetime import timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
-from .domain import Artifact
-from .domain import Lifecycle
-from .domain import Memory
-from .domain import MemoryLink
-from .memory_repository_base import MemoryRepositoryIntegrityError
-from .memory_repository_base import _bounded_page
-from .memory_repository_base import _json_dumps
-from .memory_repository_base import _json_loads
-from .memory_repository_base import _memory_event_id
-from .memory_repository_base import _memory_event_type
-from .outbox import OutboxEvent
-from .outbox import OutboxLeaseLost
-from .outbox import OutboxStatus
-from .outbox import fenced_lease_generation
-from .outbox import utc_now_iso
-from .outbox import validate_lease_generation
+from .domain import Artifact, Lifecycle, Memory, MemoryLink
+from .memory_repository_base import (
+    MemoryRepositoryIntegrityError,
+    _bounded_page,
+    _json_dumps,
+    _json_loads,
+    _memory_event_id,
+    _memory_event_type,
+)
+from .outbox import (
+    OutboxEvent,
+    OutboxLeaseLost,
+    OutboxStatus,
+    fenced_lease_generation,
+    utc_now_iso,
+    validate_lease_generation,
+)
 
 
 class MemoryRepositoryRecordsMixin:

@@ -5,26 +5,35 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
+
 from fastapi import HTTPException
+
+from . import app_core, app_core_fallback, app_core_hit, app_core_hook
 from . import app_runtime as rt
+from .api_models import (
+    ContextCompileRequest,
+    ContextTierPromotionRollbackRequest,
+    MemoryAdvancedSearchRequest,
+    SearchRequest,
+    UtilityFeedbackEventRequest,
+)
 from .app_runtime import ResponseTimeout, _safe_exception_text
-from .api_models import SearchRequest, MemoryAdvancedSearchRequest, ContextCompileRequest, ContextTierPromotionRollbackRequest, UtilityFeedbackEventRequest
 from .caller_auth import authorize_projects
-from .context_tier_promotion import ContextTierPromotionDisabled
-from .context_tier_promotion import ContextTierPromotionError
-from .context_tier_promotion import ContextTierPromotionMigrationRequired
-from .context_tier_promotion import ContextTierPromotionStale
-from .context_tier_promotion import rollback_tier_promotion
+from .context_tier_promotion import (
+    ContextTierPromotionDisabled,
+    ContextTierPromotionError,
+    ContextTierPromotionMigrationRequired,
+    ContextTierPromotionStale,
+    rollback_tier_promotion,
+)
 from .context_tier_promotion import runtime_enabled as context_tier_promotion_enabled
-from .feedback_consolidation import FeedbackConsolidationError
-from .feedback_consolidation import build_feedback_consolidation_preview
+from .feedback_consolidation import (
+    FeedbackConsolidationError,
+    build_feedback_consolidation_preview,
+)
 from .memory_service import MemoryServiceNotReady
 from .utility_feedback import UtilityEvent
 from .utility_feedback_store import append_utility_event
-from . import app_core_fallback
-from . import app_core_hit
-from . import app_core_hook
-from . import app_core
 
 _LOGGER = logging.getLogger(__name__)
 

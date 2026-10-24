@@ -16,10 +16,11 @@ from typing import Any
 
 from .domain import Memory
 from .governed_consolidation import OPERATIONS
-from .governed_semantic_editor import GovernedSemanticEditorError
-from .governed_semantic_editor import SemanticCompletion
-from .governed_semantic_editor import build_semantic_proposal
-
+from .governed_semantic_editor import (
+    GovernedSemanticEditorError,
+    SemanticCompletion,
+    build_semantic_proposal,
+)
 
 GOVERNED_SEMANTIC_EVIDENCE_SCHEMA_VERSION = "bhm.governed-semantic-evidence.v1"
 _MODEL_CASE_KINDS = frozenset({"model"})

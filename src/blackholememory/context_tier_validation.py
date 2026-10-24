@@ -9,10 +9,7 @@ import time
 from typing import Any
 
 from .context_tier_lifecycle import build_context_tier_lifecycle_receipt
-from .context_tiers import TierBudget
-from .context_tiers import TieredContextItem
-from .context_tiers import compile_tiered_context
-
+from .context_tiers import TierBudget, TieredContextItem, compile_tiered_context
 
 SCHEMA_VERSION = "bhm.context-tier-validation.v1"
 

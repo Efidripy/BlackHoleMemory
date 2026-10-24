@@ -9,7 +9,6 @@ from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
-
 ENTRIES = [
     {"tool": "BHM runtime", "status": "used", "action": "runtime health and evidence/checkpoint path", "evidence": [".docs/ops/bhm-p21.0-r2-mcp-sdk-compatibility-2026-07-21.md"]},
     {"tool": "Native MCP attach", "status": "limited", "action": "active attach kept separate from configured inventory; no false attach claim", "evidence": [".docs/ops/bhm-p21.0-r1-connector-http-truth-2026-07-17.md"]},

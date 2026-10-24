@@ -16,7 +16,6 @@ from typing import Any, Mapping, Sequence
 
 from .llm_safety import sanitize_llm_value
 
-
 RETRIEVAL_LAB_SCHEMA_VERSION = "bhm.llm.retrieval-lab.v1"
 RETRIEVAL_LAB_MAX_CANDIDATES = 128
 RETRIEVAL_LAB_MAX_QUERIES = 8

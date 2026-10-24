@@ -6,17 +6,23 @@ Part of app_governed split (FIX-017). Lower layer containing shared base depende
 from __future__ import annotations
 
 from typing import Any
+
 from fastapi import HTTPException
+
 from . import app_runtime as rt
 from .app_runtime import _safe_exception_text
 from .caller_auth import authorize_projects
-from .governed_consolidation import GovernedConsolidationApprovalRequired
-from .governed_consolidation import GovernedConsolidationError
-from .governed_consolidation import GovernedConsolidationMigrationRequired
-from .governed_consolidation import GovernedConsolidationStale
+from .governed_consolidation import (
+    GovernedConsolidationApprovalRequired,
+    GovernedConsolidationError,
+    GovernedConsolidationMigrationRequired,
+    GovernedConsolidationStale,
+)
 from .governed_consolidation import runtime_enabled as governed_consolidation_enabled
-from .governed_semantic_editor import GovernedSemanticEditorError
-from .governed_semantic_editor import GovernedSemanticEditorUnavailable
+from .governed_semantic_editor import (
+    GovernedSemanticEditorError,
+    GovernedSemanticEditorUnavailable,
+)
 
 
 def _require_governed_consolidation_enabled() -> None:

@@ -9,9 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .runtime_endpoints import endpoint_host
-from .runtime_endpoints import endpoint_port
-from .runtime_endpoints import endpoint_url
+from .runtime_endpoints import endpoint_host, endpoint_port, endpoint_url
 
 QDRANT_IMAGE_REPOSITORY = "qdrant/qdrant"
 QDRANT_IMAGE_VERSION = "v1.18.2"

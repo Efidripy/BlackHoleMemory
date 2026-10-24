@@ -13,9 +13,11 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.semantic_assurance_readiness import SemanticAssuranceReadinessError
-from blackholememory.semantic_assurance_readiness import load_semantic_assurance_readiness
-from blackholememory.semantic_assurance_readiness import write_semantic_assurance_readiness_receipt
+from blackholememory.semantic_assurance_readiness import (
+    SemanticAssuranceReadinessError,
+    load_semantic_assurance_readiness,
+    write_semantic_assurance_readiness_receipt,
+)
 
 
 def main(argv: list[str] | None = None) -> int:

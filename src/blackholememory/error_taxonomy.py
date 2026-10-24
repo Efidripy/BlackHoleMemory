@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-
 ERROR_TAXONOMY_SCHEMA_VERSION = "bhm.error-taxonomy.v1"
 
 # JSON-RPC standard errors plus the two bounded BHM capability/timeout errors

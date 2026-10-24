@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import hashlib
 import json
@@ -13,11 +11,13 @@ import time
 from pathlib import Path
 
 from blackholememory.code_graph import build_code_graph
-from blackholememory.code_graph_query import explain_code_graph
-from blackholememory.code_graph_query import query_code_graph
-from blackholememory.repository_index import RepositorySourceProvenance
-from blackholememory.repository_index import index_repository
-from blackholememory.repository_index import probe_repository_state
+from blackholememory.code_graph_query import explain_code_graph, query_code_graph
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.repository_index import (
+    RepositorySourceProvenance,
+    index_repository,
+    probe_repository_state,
+)
 
 
 def _file_digest(path: Path) -> str | None:

@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.security_trust_boundary import build_security_trust_boundary_preview
+from blackholememory.security_trust_boundary import (
+    build_security_trust_boundary_preview,
+)
 
 
 def _write_report(path: Path | None, rendered: str) -> None:

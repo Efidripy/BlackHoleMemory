@@ -13,8 +13,6 @@ from typing import Any
 from fastapi import Request
 
 from . import app_runtime as rt
-from .app_runtime import _run_bounded_read
-from .config import settings
 from .api_models import (
     AliasResolveRequest,
     BatchAttachSourceRefsRequest,
@@ -28,8 +26,8 @@ from .api_models import (
     MemoryAliasRequest,
     MemoryArchiveRequest,
     MemoryChangelogRequest,
-    MemoryCompactRequest,
     MemoryCompactionReportRequest,
+    MemoryCompactRequest,
     MemoryConfidenceRequest,
     MemoryDetectRequest,
     MemoryDiffRequest,
@@ -58,19 +56,40 @@ from .api_models import (
     SourceRefsReplaceRequest,
     TypeMigrateRequest,
 )
+from .app_runtime import _run_bounded_read
+from .config import settings
 
 # Re-exports from memory_routes_base
 from .memory_routes_base import (
     MemoryClass,  # noqa: F401
     MemoryEventRole,  # noqa: F401
-    _Deps,  # noqa: F401
     _access_updates_for_hits,  # noqa: F401
+    _Deps,  # noqa: F401
     _deps,  # noqa: F401
     _schedule_vector_access_updates,  # noqa: F401
     _serialized_link_mutation,  # noqa: F401
     _update_vector_access_payloads,  # noqa: F401
     _update_vector_access_payloads_async,  # noqa: F401
     configure,  # noqa: F401
+)
+
+# Re-exports from memory_routes_read
+from .memory_routes_read import (
+    _list_archived_memories,  # noqa: F401
+    _list_live_memories,  # noqa: F401
+    _list_pinned_memories,  # noqa: F401
+    _memory_changelog,  # noqa: F401
+    _memory_compaction_report,  # noqa: F401
+    _memory_diff,  # noqa: F401
+    _memory_gc_candidates,  # noqa: F401
+    _memory_merge_preview,  # noqa: F401
+    _memory_restore_hard_deleted_preview,  # noqa: F401
+    _memory_schema_validate,  # noqa: F401
+    _memory_staleness_report,  # noqa: F401
+    _memory_timeline,  # noqa: F401
+    _memory_triage_queue,  # noqa: F401
+    _memory_usage_stats,  # noqa: F401
+    _secret_scan_existing_memories,  # noqa: F401
 )
 
 # Re-exports from memory_routes_write
@@ -100,25 +119,6 @@ from .memory_routes_write import (
     _serialize_duplicate_candidate,  # noqa: F401
     _set_memory_confidence,  # noqa: F401
     _vote_memory_quality,  # noqa: F401
-)
-
-# Re-exports from memory_routes_read
-from .memory_routes_read import (
-    _list_archived_memories,  # noqa: F401
-    _list_live_memories,  # noqa: F401
-    _list_pinned_memories,  # noqa: F401
-    _memory_changelog,  # noqa: F401
-    _memory_compaction_report,  # noqa: F401
-    _memory_diff,  # noqa: F401
-    _memory_gc_candidates,  # noqa: F401
-    _memory_merge_preview,  # noqa: F401
-    _memory_restore_hard_deleted_preview,  # noqa: F401
-    _memory_schema_validate,  # noqa: F401
-    _memory_staleness_report,  # noqa: F401
-    _memory_timeline,  # noqa: F401
-    _memory_triage_queue,  # noqa: F401
-    _memory_usage_stats,  # noqa: F401
-    _secret_scan_existing_memories,  # noqa: F401
 )
 
 _LOGGER = logging.getLogger(__name__)

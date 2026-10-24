@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-
 SCHEMA_VERSION = "bhm.change-impact.git-history-correlation.v1"
 MAX_PATHS = 64
 MAX_COMMITS = 64

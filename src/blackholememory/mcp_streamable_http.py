@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
-from collections.abc import Awaitable, Callable
-from collections import deque
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import hashlib
 import json
 import threading
 import time
+from collections import deque
+from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from mcp import types
@@ -20,15 +20,21 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import Receive, Scope, Send
 
-from .caller_auth import authorize_projects
-from .capability import ADMIN_CAPABILITY_HEADER, MCP_OPERATOR_HEADER_STATE, MCP_OPERATOR_SESSION, is_admin_capability_valid
-from .caller_auth import configured_caller_principal
-from .caller_auth import extract_request_projects
-from .caller_auth import is_caller_token_valid
-from .caller_auth import parse_bearer_token
+from .caller_auth import (
+    authorize_projects,
+    configured_caller_principal,
+    extract_request_projects,
+    is_caller_token_valid,
+    parse_bearer_token,
+)
+from .capability import (
+    ADMIN_CAPABILITY_HEADER,
+    MCP_OPERATOR_HEADER_STATE,
+    MCP_OPERATOR_SESSION,
+    is_admin_capability_valid,
+)
 from .mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
 from .resource_limits import MCP_SESSION_ADMISSION_TIMEOUT_SECONDS
-
 
 JsonRpcDispatcher = Callable[[dict[str, Any]], Awaitable[dict[str, Any] | None]]
 

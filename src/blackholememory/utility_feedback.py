@@ -13,7 +13,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 SCHEMA_VERSION = "bhm.utility-feedback.v1"
 
 

@@ -15,6 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from .semantic_assurance_label_admission_base import (
+    _LABEL_KEYS,  # noqa: F401
+    _MAX_MANIFEST_BYTES,
+    _REQUIRED_HUMAN_ISOLATION_KEYS,
+    _REQUIRED_RISK_CLASSES,  # noqa: F401
+    _SEALED_CRITICAL_RISK_CLASSES,  # noqa: F401
+    _V6_ADMISSION_PROFILE,  # noqa: F401
+    _V6_CURATOR_AUDITED_ADMISSION_PROFILE,  # noqa: F401
     RECEIPT_SCHEMA_VERSION,
     RECEIPT_SCHEMA_VERSION_V2,
     RECEIPT_SCHEMA_VERSION_V3,
@@ -28,13 +35,6 @@ from .semantic_assurance_label_admission_base import (
     SCHEMA_VERSION_V5,
     SCHEMA_VERSION_V6,
     SemanticAssuranceLabelAdmissionError,
-    _LABEL_KEYS,  # noqa: F401
-    _MAX_MANIFEST_BYTES,
-    _REQUIRED_HUMAN_ISOLATION_KEYS,
-    _REQUIRED_RISK_CLASSES,  # noqa: F401
-    _SEALED_CRITICAL_RISK_CLASSES,  # noqa: F401
-    _V6_ADMISSION_PROFILE,  # noqa: F401
-    _V6_CURATOR_AUDITED_ADMISSION_PROFILE,  # noqa: F401
     _curator_audit_binding,  # noqa: F401
     _dataset_binding,
     _digest,
@@ -59,12 +59,12 @@ from .semantic_assurance_label_admission_base import (
     _validate_reviewers,
 )
 from .semantic_assurance_label_admission_strata import (
-    V5_READINESS_STRATA_DIAGNOSTIC_SCHEMA_VERSION,
     _V6_SEALED_ALIGNED_CONFLICT_LABEL_MINIMUM,
     _V6_SEALED_ALIGNED_CONFLICT_LABELS,  # noqa: F401
     _V6_SEALED_EXACT_LABEL_STRATA,  # noqa: F401
     _V6_SEALED_EXACT_LABEL_STRATUM_MINIMUM,
     _V6_SEALED_RISK_LABEL_MINIMUM_RISK_CLASSES,
+    V5_READINESS_STRATA_DIAGNOSTIC_SCHEMA_VERSION,
     _v6_sealed_exact_label_strata_binding,
     _v6_sealed_exact_label_strata_binding_from_counts,  # noqa: F401
     _v6_sealed_exact_label_strata_counts,  # noqa: F401

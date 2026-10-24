@@ -10,7 +10,6 @@ from __future__ import annotations
 import ipaddress
 from urllib.parse import urlsplit
 
-
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 

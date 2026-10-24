@@ -13,7 +13,6 @@ import json
 import re
 from typing import Any
 
-
 BICEP_PARSER_ID = "bicep-regex"
 BICEP_PARSER_VERSION = "bhm.bicep-regex.v1"
 _IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]{0,127}"

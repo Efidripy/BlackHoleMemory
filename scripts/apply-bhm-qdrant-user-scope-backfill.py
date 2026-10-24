@@ -11,12 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from blackholememory.config import settings
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.mem0_adapter import get_qdrant_client
-from blackholememory.mem0_adapter import global_collection_name
-from blackholememory.mem0_adapter import local_collection_name
-
+from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
+from blackholememory.mem0_adapter import (
+    get_qdrant_client,
+    global_collection_name,
+    local_collection_name,
+)
 
 BACKUP_VERSION = 1
 PAGE_SIZE = 256

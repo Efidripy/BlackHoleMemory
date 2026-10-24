@@ -5,7 +5,6 @@ from __future__ import annotations
 
 # The script adds the repository's src directory before importing project modules.
 # ruff: noqa: E402
-
 import argparse
 import json
 import shutil
@@ -14,32 +13,30 @@ import sqlite3
 import sys
 import tempfile
 import time
-from datetime import datetime
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.mem0_adapter import get_project_mem0_memory
-from blackholememory.mem0_adapter import get_qdrant_client
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.projection_reconciliation import QdrantSurfaceAdapter
-from blackholememory.projection_reconciliation import apply_projection_generation_plan
-from blackholememory.projection_reconciliation import apply_projection_reconciliation
-from blackholememory.projection_reconciliation import build_projection_generation_plan
-from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
-from blackholememory.qdrant_projector import QdrantProjector
-from blackholememory.runtime_storage import inspect_memory_store_schema
 from blackholememory.config import settings
-from blackholememory.runtime_endpoints import endpoint_parts
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.mem0_adapter import get_project_mem0_memory, get_qdrant_client
+from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.projection_reconciliation import (
+    QdrantSurfaceAdapter,
+    apply_projection_generation_plan,
+    apply_projection_reconciliation,
+    build_projection_generation_plan,
+    build_projection_reconciliation_plan,
+)
+from blackholememory.qdrant_projector import QdrantProjector
 from blackholememory.resource_limits import LOCAL_SOCKET_PROBE_TIMEOUT_SECONDS
-
+from blackholememory.runtime_endpoints import endpoint_parts
+from blackholememory.runtime_storage import inspect_memory_store_schema
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")

@@ -7,7 +7,6 @@ import json
 from pathlib import PurePosixPath
 from typing import Any, Mapping, Sequence
 
-
 COMMIT_SYMBOL_TEST_HISTORY_SCHEMA_VERSION = "bhm.change-impact.commit-symbol-test-history-receipt.v1"
 MAX_CHANGED_PATHS = 64
 MAX_COMMITS = 64

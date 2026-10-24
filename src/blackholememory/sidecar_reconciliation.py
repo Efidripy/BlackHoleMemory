@@ -18,7 +18,6 @@ from typing import Any, Mapping
 
 from .task_graph import build_task_graph
 
-
 SCHEMA_VERSION = "bhm.sidecar-reconciliation.v1"
 PLAN_VERSION = "bhm.sidecar-reconciliation-plan.v1"
 SOURCE_NAMES = ("memory-links.json", "checkpoints.json", "session-records.json", "tasks.json")

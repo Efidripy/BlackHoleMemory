@@ -20,7 +20,6 @@ from .domain import Memory, content_sha256
 from .memory_contracts import MemoryClass, MemoryClassSource, MemoryEventRole
 from .memory_repository import MemoryRevisionConflict, SQLiteMemoryRepository
 
-
 SCHEMA_VERSION = "bhm.context-tier-promotion.v1"
 CAPABILITY_KEY = "context_tier_promotion_schema"
 CAPABILITY_VERSION = "1"

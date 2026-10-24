@@ -15,10 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from blackholememory.filesystem_boundaries import FilesystemBoundaryError
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
+from blackholememory.filesystem_boundaries import (
+    FilesystemBoundaryError,
+    assert_safe_path,
+    replace_bytes_safely,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"

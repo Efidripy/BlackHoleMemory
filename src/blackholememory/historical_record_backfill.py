@@ -17,10 +17,14 @@ from typing import Any, Mapping
 
 from .domain import Memory
 from .filesystem_boundaries import assert_safe_path
-from .memory_contracts import EVENT_ROLE_SCHEMA_VERSION, MemoryClass, MemoryClassSource, MemoryEventRole
+from .memory_contracts import (
+    EVENT_ROLE_SCHEMA_VERSION,
+    MemoryClass,
+    MemoryClassSource,
+    MemoryEventRole,
+)
 from .memory_repository import MemoryRevisionConflict, SQLiteMemoryRepository
 from .outbox import utc_now_iso
-
 
 SCHEMA_VERSION = "bhm.historical-record-backfill.v1"
 _TARGETS = (("checkpoint:", "checkpoint"), ("session-record:", "session-record"))

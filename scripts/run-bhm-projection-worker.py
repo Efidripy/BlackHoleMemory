@@ -14,12 +14,10 @@ import sqlite3
 import sys
 import threading
 from dataclasses import replace
-from datetime import datetime
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INFRASTRUCTURE_UNAVAILABLE_EXIT_CODE = 75
@@ -134,9 +132,8 @@ def _build_worker(config, *, openai_base_url: str | None = None):
     from qdrant_client.http import models as qdrant_models
 
     from blackholememory.config import settings
+    from blackholememory.mem0_adapter import get_project_mem0_memory, get_qdrant_client
     from blackholememory.memory_repository import SQLiteMemoryRepository
-    from blackholememory.mem0_adapter import get_project_mem0_memory
-    from blackholememory.mem0_adapter import get_qdrant_client
     from blackholememory.projection_worker import ProjectionWorker
     from blackholememory.qdrant_projector import QdrantProjector
 
@@ -247,10 +244,12 @@ def main() -> int:
         print("--max-cycles must be positive", file=sys.stderr)
         return 2
 
-    from blackholememory.runtime_storage import MemoryStoreMode
-    from blackholememory.runtime_storage import evaluate_runtime_storage_state
-    from blackholememory.runtime_storage import inspect_memory_store_schema
-    from blackholememory.runtime_storage import resolve_runtime_storage_config
+    from blackholememory.runtime_storage import (
+        MemoryStoreMode,
+        evaluate_runtime_storage_state,
+        inspect_memory_store_schema,
+        resolve_runtime_storage_config,
+    )
 
     config = resolve_runtime_storage_config(runtime_dir=args.runtime_dir)
     if args.database is not None:

@@ -5,7 +5,6 @@ from __future__ import annotations
 import ipaddress
 from urllib.parse import urlsplit
 
-
 _LOCAL_HOSTNAMES = frozenset({"localhost", "localhost.localdomain"})
 _LOCAL_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa")
 

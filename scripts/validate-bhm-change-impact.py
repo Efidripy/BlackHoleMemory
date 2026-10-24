@@ -8,7 +8,12 @@ import json
 import time
 from pathlib import Path
 
-from blackholememory.change_impact import ChangeImpactError, build_change_impact_preview, collect_git_change_paths, collect_git_history_stats
+from blackholememory.change_impact import (
+    ChangeImpactError,
+    build_change_impact_preview,
+    collect_git_change_paths,
+    collect_git_history_stats,
+)
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 

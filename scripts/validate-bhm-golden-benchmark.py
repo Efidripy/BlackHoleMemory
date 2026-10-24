@@ -14,12 +14,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from blackholememory.code_graph import PARSER_REGISTRY  # noqa: E402
-from blackholememory.local_endpoint_policy import open_local_url  # noqa: E402
-from blackholememory.local_endpoint_policy import read_bounded_response  # noqa: E402
-from blackholememory.product_value import build_product_value_benchmark  # noqa: E402
-from blackholememory.product_value import verify_product_value_digest  # noqa: E402
 from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
-from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS  # noqa: E402
+from blackholememory.local_endpoint_policy import (
+    open_local_url,  # noqa: E402
+    read_bounded_response,  # noqa: E402
+)
+from blackholememory.product_value import (
+    build_product_value_benchmark,  # noqa: E402
+    verify_product_value_digest,  # noqa: E402
+)
+from blackholememory.resource_limits import (
+    BHM_INTERNAL_HTTP_TIMEOUT_SECONDS,  # noqa: E402
+)
 
 
 def _digest(value: object) -> str:

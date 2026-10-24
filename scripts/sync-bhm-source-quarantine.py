@@ -9,7 +9,12 @@ import sys
 from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.source_registry import SourceRegistryError, load_registry, sync_source, verify_registry
+from blackholememory.source_registry import (
+    SourceRegistryError,
+    load_registry,
+    sync_source,
+    verify_registry,
+)
 
 
 def parse_args() -> argparse.Namespace:

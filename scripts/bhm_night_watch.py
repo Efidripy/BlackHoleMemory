@@ -12,11 +12,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from dataclasses import asdict
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -29,12 +27,14 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.runtime_endpoints import endpoint_url
-from blackholememory.local_endpoint_policy import LocalEndpointError
-from blackholememory.local_endpoint_policy import open_local_url
-from blackholememory.local_endpoint_policy import read_bounded_response
-from blackholememory.local_endpoint_policy import validate_local_endpoint
+from blackholememory.local_endpoint_policy import (
+    LocalEndpointError,
+    open_local_url,
+    read_bounded_response,
+    validate_local_endpoint,
+)
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+from blackholememory.runtime_endpoints import endpoint_url
 
 DEFAULT_BHM_BASE_URL = endpoint_url("bhm_api")
 DEFAULT_PROJECT = "BlackHoleMemory"
@@ -394,7 +394,10 @@ def build_agent_task(targets: list[NightWatchTarget], authorized_project: str) -
 def heal_infrastructure(*, allow_recovery: bool) -> str:
     if str(SRC_ROOT) not in sys.path:
         sys.path.insert(0, str(SRC_ROOT))
-    from blackholememory.tools.infra_healer import tool_check_and_heal_docker, tool_check_docker
+    from blackholememory.tools.infra_healer import (
+        tool_check_and_heal_docker,
+        tool_check_docker,
+    )
 
     status = tool_check_and_heal_docker() if allow_recovery else tool_check_docker()
     print(f"[night-watch] infra-heal: {status}")

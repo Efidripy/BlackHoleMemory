@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from enum import StrEnum
 import hashlib
 import hmac
 import json
 import os
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any, Iterable, Mapping
 
-from .project_registry import canonical_project_id
-from .project_registry import get_default_project_registry
-
+from .project_registry import canonical_project_id, get_default_project_registry
 
 CALLER_TOKEN_ENV = "BHM_CALLER_TOKEN"
 CALLER_ID_ENV = "BHM_CALLER_ID"

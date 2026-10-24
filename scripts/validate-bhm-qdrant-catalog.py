@@ -5,7 +5,6 @@ from __future__ import annotations
 
 # The script adds the repository's src directory before importing project modules.
 # ruff: noqa: E402
-
 import argparse
 import json
 import sys

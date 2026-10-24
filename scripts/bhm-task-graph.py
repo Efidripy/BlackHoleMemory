@@ -7,13 +7,15 @@ import json
 from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.task_graph import TASK_GRAPH_OPERATIONS
-from blackholememory.task_graph import TASK_GRAPH_SCHEMA_VERSION
-from blackholememory.task_graph import TaskGraphError
-from blackholememory.task_graph import build_task_graph
-from blackholememory.task_graph import explain_task_graph
-from blackholememory.task_graph import query_task_graph
-from blackholememory.task_graph import simulate_conflict_recovery_fixture
+from blackholememory.task_graph import (
+    TASK_GRAPH_OPERATIONS,
+    TASK_GRAPH_SCHEMA_VERSION,
+    TaskGraphError,
+    build_task_graph,
+    explain_task_graph,
+    query_task_graph,
+    simulate_conflict_recovery_fixture,
+)
 
 
 def _emit(value: object, report: str | None = None) -> None:

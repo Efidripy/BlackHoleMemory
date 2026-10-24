@@ -6,7 +6,6 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
-
 PRODUCT_VALUE_SCHEMA_VERSION = "bhm.product-value.v1"
 SCENARIOS = (
     "find_relevant_file",

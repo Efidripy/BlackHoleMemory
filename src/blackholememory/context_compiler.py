@@ -6,7 +6,6 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-
 DEFAULT_CONTEXT_TOKEN_BUDGET = 1200
 MAX_CONTEXT_TOKEN_BUDGET = 8000
 MAX_CONTEXT_ITEM_CHARS = 1600

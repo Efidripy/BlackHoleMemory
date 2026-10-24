@@ -15,12 +15,15 @@ from typing import Any, Mapping
 
 from .domain import Memory
 from .filesystem_boundaries import assert_safe_path
-from .historical_record_backfill import canonical_json
-from .historical_record_backfill import sha256_file
-from .memory_contracts import EVENT_ROLE_SCHEMA_VERSION, MemoryClass, MemoryClassSource, MemoryEventRole
+from .historical_record_backfill import canonical_json, sha256_file
+from .memory_contracts import (
+    EVENT_ROLE_SCHEMA_VERSION,
+    MemoryClass,
+    MemoryClassSource,
+    MemoryEventRole,
+)
 from .memory_repository import MemoryRevisionConflict, SQLiteMemoryRepository
 from .outbox import utc_now_iso
-
 
 SCHEMA_VERSION = "bhm.legacy-memory-typing.v1"
 

@@ -12,7 +12,12 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from blackholememory.freshness_candidates import decide_freshness_candidate, detect_freshness_candidates, list_freshness_candidates, upsert_freshness_candidates  # noqa: E402
+from blackholememory.freshness_candidates import (  # noqa: E402
+    decide_freshness_candidate,
+    detect_freshness_candidates,
+    list_freshness_candidates,
+    upsert_freshness_candidates,
+)
 
 
 def main() -> int:

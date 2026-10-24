@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 
-from blackholememory.local_llm_dualstack import DEFAULT_TIMEOUT_SECONDS
-from blackholememory.local_llm_dualstack import dualstack_report
+from blackholememory.local_llm_dualstack import (
+    DEFAULT_TIMEOUT_SECONDS,
+    dualstack_report,
+)
 from blackholememory.runtime_endpoints import endpoint_port
 
 

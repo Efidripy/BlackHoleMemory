@@ -17,8 +17,12 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .filesystem_boundaries import FilesystemBoundaryError, FilesystemReadLimitError, assert_safe_path, read_bytes_safely
-
+from .filesystem_boundaries import (
+    FilesystemBoundaryError,
+    FilesystemReadLimitError,
+    assert_safe_path,
+    read_bytes_safely,
+)
 
 SCHEMA_VERSION = "bhm.document-parser-quarantine.v1"
 DEFAULT_ALLOWED_EXTENSIONS = frozenset({".txt"})

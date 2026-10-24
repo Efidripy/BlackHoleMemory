@@ -7,8 +7,10 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.external_evaluation_admission import ExternalEvaluationAdmissionError
-from blackholememory.external_evaluation_admission import validate_external_evaluation_dataset_admission
+from blackholememory.external_evaluation_admission import (
+    ExternalEvaluationAdmissionError,
+    validate_external_evaluation_dataset_admission,
+)
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 

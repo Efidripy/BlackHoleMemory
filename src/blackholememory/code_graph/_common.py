@@ -13,7 +13,6 @@ from ..bicep_parser import BICEP_PARSER_VERSION
 from ..repository_index import _LANGUAGE_BY_SUFFIX, _SPECIAL_TEXT_NAMES
 
 
-
 def _structural_decl_kind(line: str, language: str) -> str:
     """Classify a declaration conservatively for package/type parity."""
 

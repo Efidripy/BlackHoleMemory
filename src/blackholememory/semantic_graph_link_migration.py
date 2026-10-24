@@ -17,17 +17,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
-from .filesystem_boundaries import assert_safe_path
-from .filesystem_boundaries import read_bytes_safely
-from .ontology_registry import ACTIVATION_ARTIFACT_TYPE
-from .ontology_registry import ARTIFACT_TYPE
-from .ontology_registry import OntologySchema
-from .ontology_registry import validate_relation
-from .semantic_graph_migration_plan import SemanticGraphMigrationPlanError
-from .semantic_graph_migration_plan import _read_legacy_edges
-from .semantic_graph_migration_plan import _read_sqlite_state
+from .filesystem_boundaries import assert_safe_path, read_bytes_safely
+from .ontology_registry import (
+    ACTIVATION_ARTIFACT_TYPE,
+    ARTIFACT_TYPE,
+    OntologySchema,
+    validate_relation,
+)
+from .semantic_graph_migration_plan import (
+    SemanticGraphMigrationPlanError,
+    _read_legacy_edges,
+    _read_sqlite_state,
+)
 from .sqlite_retention import sha256_file as _sqlite_sha256_file
-
 
 SCHEMA_VERSION = "bhm.semantic-graph-link-migration.v1"
 MIGRATION_SOURCE = "legacy_semantic_graph"

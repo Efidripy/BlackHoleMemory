@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import hashlib
 import json
 import subprocess
 from pathlib import Path
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / ".src" / "codebase-memory-mcp" / "source"

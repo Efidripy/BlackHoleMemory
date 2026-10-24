@@ -15,7 +15,6 @@ import re
 from collections import Counter
 from typing import Any, Iterable, Mapping
 
-
 TRACE_GRAPH_SCHEMA_VERSION = "bhm.trace-graph.v1"
 TRACE_GRAPH_EVIDENCE_CLASS = "untrusted-runtime-observation"
 TRACE_GRAPH_MAX_EVENTS = 256

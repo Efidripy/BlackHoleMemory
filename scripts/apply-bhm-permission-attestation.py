@@ -15,9 +15,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
+from blackholememory.filesystem_boundaries import assert_safe_path, replace_bytes_safely
 
 TASK_ID = "TASK-20260717-BHM-UPSTREAM-PERMISSIONS"
 PLAN_ID = "BHM-V5-POST-ACCEPTANCE-20260717"

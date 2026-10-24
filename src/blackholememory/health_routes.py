@@ -12,12 +12,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from .health_contract import bhm_health_payload
-from .health_contract import health_cutover_payload
-from .health_contract import health_live_payload
-from .health_contract import health_ready_payload
-from .health_contract import health_ready_public_payload
-from .health_contract import health_slo_payload
+from .health_contract import (
+    bhm_health_payload,
+    health_cutover_payload,
+    health_live_payload,
+    health_ready_payload,
+    health_ready_public_payload,
+    health_slo_payload,
+)
 
 
 def _projection_required_by_default() -> bool:

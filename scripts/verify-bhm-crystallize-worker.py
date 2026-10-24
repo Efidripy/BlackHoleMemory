@@ -18,10 +18,12 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.runtime_endpoints import endpoint_url
-from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES
-from blackholememory.local_endpoint_policy import validate_local_endpoint
+from blackholememory.local_endpoint_policy import (
+    MAX_RESPONSE_BYTES,
+    validate_local_endpoint,
+)
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
+from blackholememory.runtime_endpoints import endpoint_url
 
 
 def _read_process_or_user_env_value(key: str) -> str | None:

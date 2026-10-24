@@ -6,10 +6,12 @@ import argparse
 import json
 from pathlib import Path
 
+from blackholememory.factory_integration import (
+    FACTORY_INTEGRATION_SCHEMA_VERSION,
+    FactoryIntegrationError,
+    build_factory_integration_preview,
+)
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.factory_integration import FACTORY_INTEGRATION_SCHEMA_VERSION
-from blackholememory.factory_integration import FactoryIntegrationError
-from blackholememory.factory_integration import build_factory_integration_preview
 
 
 def _emit(value: object, report: str | None = None) -> None:

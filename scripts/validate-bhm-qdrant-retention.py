@@ -5,7 +5,6 @@ from __future__ import annotations
 
 # The script adds the repository's src directory before importing project modules.
 # ruff: noqa: E402
-
 import argparse
 import json
 import sys
@@ -19,13 +18,17 @@ if str(SRC_ROOT) not in sys.path:
 
 from blackholememory.config import settings
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import get_qdrant_client
+from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.qdrant_lifecycle import build_qdrant_lifecycle_report
-from blackholememory.qdrant_retention import build_qdrant_retention_preview
-from blackholememory.qdrant_retention import run_qdrant_restore_drill
-from blackholememory.qdrant_validation_bounds import ValidationScanBudget
-from blackholememory.qdrant_validation_bounds import ValidationBudgetExceeded
+from blackholememory.qdrant_retention import (
+    build_qdrant_retention_preview,
+    run_qdrant_restore_drill,
+)
+from blackholememory.qdrant_validation_bounds import (
+    ValidationBudgetExceeded,
+    ValidationScanBudget,
+)
 
 
 def parse_args() -> argparse.Namespace:

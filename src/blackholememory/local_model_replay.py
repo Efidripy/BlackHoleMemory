@@ -18,15 +18,15 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .llm_gateway import is_local_endpoint
-from .llm_gateway import normalize_json_content
 from .filesystem_boundaries import replace_bytes_safely
+from .llm_gateway import is_local_endpoint, normalize_json_content
 from .local_endpoint_policy import MAX_RESPONSE_BYTES
-from .value_benchmark import ValueBenchmarkCase
-from .value_benchmark import build_value_benchmark_cases
-from .value_benchmark import build_value_benchmark_context
-from .value_benchmark import value_benchmark_fixture_digest
-
+from .value_benchmark import (
+    ValueBenchmarkCase,
+    build_value_benchmark_cases,
+    build_value_benchmark_context,
+    value_benchmark_fixture_digest,
+)
 
 LOCAL_MODEL_REPLAY_SCHEMA_VERSION = "bhm.local-model-replay.v1"
 DEFAULT_BASE_URL = "http://127.0.0.1:13666/v1"

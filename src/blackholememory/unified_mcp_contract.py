@@ -13,12 +13,13 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .mcp_catalog_contract import build_catalog_contract
-from .mcp_registration import RegistrationContractError
-from .mcp_registration import load_contract
-from .mcp_registration import resolve_contract_path
-from .mcp_surfaces import CORE_TOOL_NAMES
 from .mcp_protocol_contract import SUPPORTED_PROTOCOL_VERSIONS
-
+from .mcp_registration import (
+    RegistrationContractError,
+    load_contract,
+    resolve_contract_path,
+)
+from .mcp_surfaces import CORE_TOOL_NAMES
 
 UNIFIED_MCP_CONTRACT_SCHEMA_VERSION = "bhm.mcp.unified-contract.v1"
 UNIFIED_MCP_MAX_CLIENTS = 8

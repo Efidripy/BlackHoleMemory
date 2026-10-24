@@ -12,20 +12,20 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from .data_hygiene_base import (
-    DATA_HYGIENE_ROLLBACK_SCHEMA_VERSION,
-    DataHygieneError,
-    DataHygienePolicy,
     _PROJECT_TABLE_DELETE_ORDER,
     _ROLLBACK_INSERT_ORDER,
     _ROLLBACK_TABLES,
+    DATA_HYGIENE_ROLLBACK_SCHEMA_VERSION,
+    DataHygieneError,
+    DataHygienePolicy,
     _build_plan,
     _canonical_json,
     _coerce_as_of,
     _connect,
     _placeholders,
     _require_offline,
-    _rows_for_projects,
     _row_dict,
+    _rows_for_projects,
     _table_names,
     _utc_iso,
     _verify_existing_backup,
@@ -34,6 +34,7 @@ from .domain import Lifecycle, Memory
 from .filesystem_boundaries import assert_safe_path, replace_bytes_safely
 from .memory_repository import SQLiteMemoryRepository, _json_dumps
 from .retention import sqlite_quick_check
+
 
 def _rows_for_rollback(
     connection: sqlite3.Connection, plan: Mapping[str, Any]

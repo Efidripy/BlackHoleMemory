@@ -8,70 +8,123 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from fastapi import HTTPException
-from fastapi import Request
-from fastapi import WebSocket
-from fastapi import WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-from fastapi.responses import FileResponse
-from .ui_routes import _UI_SESSIONS
+
+from fastapi import HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, HTMLResponse
+
+from . import (
+    app_core,
+    app_core_graph,
+    app_core_hook,
+    app_ops,
+    app_ops_admin,
+    app_ops_entity,
+    app_ops_task2,
+)
 from . import app_runtime as rt
-from .app_runtime import _safe_exception_text
-from .api_models import RememberRequest, MemoryRecentActivityRequest, MemoryUpsertRequest, ConventionMemoryPreviewRequest, FactoryIntegrationPreviewRequest, MigrationPreviewRequest, SecurityTrustBoundaryPreviewRequest, MemoryDeleteRequest, AdrCreateRequest, AdrSupersedeRequest, HandoffCreateRequest, SessionRecordCreateRequest, TaskOpenRequest, TaskCloseRequest, TaskIngressControlRequest, TaskContextUpdateRequest, RiskRegisterUpdateRequest, ValidationSnapshotSaveRequest, RepairLiveIndexesRequest, EntityExtractRequest, PolicyGuardRequest, ArtifactRestoreRequest, OrphanArtifactRelinkRequest, SchemaUpgradeAllRequest, RecentFailuresFeedRequest, ProjectOnlyRequest, ScopedMaintenanceRequest, ArtifactDeleteRequest, ArtifactListRequest, LinkCycleDetectRequest, ValidationTrendReportRequest, EntitySearchRequest, ArtifactBatchDeleteRequest, ArtifactBatchRelinkRequest, ArtifactBatchRestoreRequest, StrictSchemaValidateRequest, IntegrityRepairStrictRequest, AdminExportRequest, PolicyProfileSetRequest, OverlapReportRequest, OverlapCleanupApplyRequest, ReflectRequest, MemoryVerifyRequest
-from .config import settings
-from .capability import ADMIN_CAPABILITY_HEADER
-from .capability import is_admin_capability_valid
-from .caller_auth import authorize_projects
-from .caller_auth import configured_caller_principal
-from .caller_auth import extract_request_projects
-from .caller_auth import is_caller_token_valid
-from .caller_auth import parse_bearer_token
-from .ui_session import UI_SESSION_COOKIE
-from .ui_origin_policy import websocket_origin_is_allowed
-from .graph import build_graph
-from .ingress_admission import IngressKind
-from .runtime_storage import resolve_runtime_storage_config
-from .retention import build_retention_plan
-from .retention import load_retention_policy
-from .retention import parse_timestamp
-from .retention import RetentionPolicyError
-from .retention import summarize_retention_plan
-from .observation_security import redact_secret_text
-from .convention_memory import ConventionMemoryError
-from .convention_memory import preview_convention_memory
-from .factory_integration import FactoryIntegrationError
-from .factory_integration import build_factory_integration_preview
-from .migration_compatibility import MigrationCompatibilityError
-from .migration_compatibility import build_migration_preview
-from .security_trust_boundary import SecurityTrustBoundaryError
-from .security_trust_boundary import build_security_trust_boundary_preview
-from . import app_core_graph
-from . import app_core_hook
-from . import app_core
-from . import app_ops
-from . import app_ops_admin
-from . import app_ops_entity
-from . import app_ops_task2
+from .api_models import (
+    AdminExportRequest,
+    AdrCreateRequest,
+    AdrSupersedeRequest,
+    ArtifactBatchDeleteRequest,
+    ArtifactBatchRelinkRequest,
+    ArtifactBatchRestoreRequest,
+    ArtifactDeleteRequest,
+    ArtifactListRequest,
+    ArtifactRestoreRequest,
+    ConventionMemoryPreviewRequest,
+    EntityExtractRequest,
+    EntitySearchRequest,
+    FactoryIntegrationPreviewRequest,
+    HandoffCreateRequest,
+    IntegrityRepairStrictRequest,
+    LinkCycleDetectRequest,
+    MemoryDeleteRequest,
+    MemoryRecentActivityRequest,
+    MemoryUpsertRequest,
+    MemoryVerifyRequest,
+    MigrationPreviewRequest,
+    OrphanArtifactRelinkRequest,
+    OverlapCleanupApplyRequest,
+    OverlapReportRequest,
+    PolicyGuardRequest,
+    PolicyProfileSetRequest,
+    ProjectOnlyRequest,
+    RecentFailuresFeedRequest,
+    ReflectRequest,
+    RememberRequest,
+    RepairLiveIndexesRequest,
+    RiskRegisterUpdateRequest,
+    SchemaUpgradeAllRequest,
+    ScopedMaintenanceRequest,
+    SecurityTrustBoundaryPreviewRequest,
+    SessionRecordCreateRequest,
+    StrictSchemaValidateRequest,
+    TaskCloseRequest,
+    TaskContextUpdateRequest,
+    TaskIngressControlRequest,
+    TaskOpenRequest,
+    ValidationSnapshotSaveRequest,
+    ValidationTrendReportRequest,
+)
 from .app_ops_task_helpers import (
+    _alias_stats,
+    _build_reflection,
+    _entity_extract,
+    _get_task,
+    _link_cycle_detect,
+    _link_graph_stats,
     _list_ontology_quarantine,
+    _overlap_cleanup_apply,
+    _overlap_report,
+    _policy_guard,
+    _recent_activity_live_memories,
+    _reindex_memory_metadata,
+    _schema_upgrade_all,
     _serialize_adr_record,
     _serialize_handoff_record,
     _serialize_validation_snapshot_record,
-    _recent_activity_live_memories,
-    _get_task,
-    _build_reflection,
-    _verify_memory,
-    _entity_extract,
-    _policy_guard,
-    _link_graph_stats,
-    _reindex_memory_metadata,
-    _schema_upgrade_all,
-    _link_cycle_detect,
     _validation_trend_report,
-    _alias_stats,
-    _overlap_report,
-    _overlap_cleanup_apply,
+    _verify_memory,
 )
+from .app_runtime import _safe_exception_text
+from .caller_auth import (
+    authorize_projects,
+    configured_caller_principal,
+    extract_request_projects,
+    is_caller_token_valid,
+    parse_bearer_token,
+)
+from .capability import ADMIN_CAPABILITY_HEADER, is_admin_capability_valid
+from .config import settings
+from .convention_memory import ConventionMemoryError, preview_convention_memory
+from .factory_integration import (
+    FactoryIntegrationError,
+    build_factory_integration_preview,
+)
+from .graph import build_graph
+from .ingress_admission import IngressKind
+from .migration_compatibility import (
+    MigrationCompatibilityError,
+    build_migration_preview,
+)
+from .observation_security import redact_secret_text
+from .retention import (
+    RetentionPolicyError,
+    build_retention_plan,
+    load_retention_policy,
+    parse_timestamp,
+    summarize_retention_plan,
+)
+from .runtime_storage import resolve_runtime_storage_config
+from .security_trust_boundary import (
+    SecurityTrustBoundaryError,
+    build_security_trust_boundary_preview,
+)
+from .ui_origin_policy import websocket_origin_is_allowed
+from .ui_routes import _UI_SESSIONS
+from .ui_session import UI_SESSION_COOKIE
+
 
 def _retention_policy_path() -> Path:
     configured = os.getenv("BHM_RETENTION_POLICY_PATH", "").strip()

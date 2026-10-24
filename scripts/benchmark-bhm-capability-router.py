@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-
 import argparse
 import hashlib
 import json
@@ -12,6 +10,7 @@ import time
 from pathlib import Path
 
 from blackholememory.capability_router import build_capability_route_plan
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 
 def main() -> int:

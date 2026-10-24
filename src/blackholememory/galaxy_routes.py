@@ -6,33 +6,36 @@ configured once by app.py), so monkeypatching the app names keeps working.
 
 from __future__ import annotations
 
-import time
 import asyncio
-import logging
 import json
+import logging
 import re
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, Literal
-from fastapi import HTTPException
-from fastapi import Request
+
+from fastapi import HTTPException, Request
 from fastapi.responses import FileResponse
+
 from . import app_runtime as rt
-from .app_runtime import _env_float
+from . import memory_contracts as _memory_contracts
 from .api_models import GalaxyDataResponse, GalaxyStatsResponse
+from .app_runtime import _env_float
 from .config import settings
-from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .filesystem_boundaries import assert_safe_path
 from .galaxy_atlas import AtlasCache
-from .mem0_adapter import get_qdrant_client
-from .mem0_adapter import global_collection_name
-from .mem0_adapter import local_collection_name
-from .mem0_adapter import normalize_access_count
-from .mem0_adapter import normalize_importance_score
-from .runtime_storage import resolve_runtime_storage_config
+from .mem0_adapter import (
+    get_qdrant_client,
+    global_collection_name,
+    local_collection_name,
+    normalize_access_count,
+    normalize_importance_score,
+)
 from .projection_generation_binding import active_projection_generation_bindings
+from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .retrieval_scope import resolve_history_scope
-from . import memory_contracts as _memory_contracts
+from .runtime_storage import resolve_runtime_storage_config
 
 _LOGGER = logging.getLogger(__name__)
 

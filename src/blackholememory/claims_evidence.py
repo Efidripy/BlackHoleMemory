@@ -17,8 +17,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .domain import Artifact, Memory, content_sha256
-from .temporal_contract import normalize_temporal_timestamp, temporal_matches, validate_temporal_interval
-
+from .temporal_contract import (
+    normalize_temporal_timestamp,
+    temporal_matches,
+    validate_temporal_interval,
+)
 
 SCHEMA_VERSION = "bhm.claims-evidence-ledger.v1"
 ARTIFACT_TYPE = "claim_evidence_assertion"

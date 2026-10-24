@@ -10,10 +10,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from blackholememory.code_graph import PARSER_REGISTRY, PARSER_REGISTRY_DIGEST, extract_code_graph
+from blackholememory.code_graph import (
+    PARSER_REGISTRY,
+    PARSER_REGISTRY_DIGEST,
+    extract_code_graph,
+)
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.repository_index import _language_for_path
-
 
 FIXTURES = {
     "python": "from pathlib import Path\nclass Child:\n    pass\ndef route(value):\n    return helper(value)\n",

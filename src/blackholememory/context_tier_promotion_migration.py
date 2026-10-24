@@ -12,7 +12,6 @@ from .context_tier_promotion import CAPABILITY_KEY, CAPABILITY_VERSION
 from .filesystem_boundaries import assert_safe_path
 from .memory_class_migration import _database_fingerprint
 
-
 MIGRATION_SCHEMA_VERSION = "bhm.context-tier-promotion-migration.v1"
 TABLES = frozenset({"context_tier_promotion_candidates", "context_tier_promotion_receipts"})
 SQL_MANIFEST = (

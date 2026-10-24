@@ -7,17 +7,20 @@ import json
 import os
 from pathlib import Path
 
-from blackholememory.convention_memory import CONVENTION_SCHEMA_VERSION
-from blackholememory.convention_memory import ConventionMemoryError
-from blackholememory.convention_memory import SQLiteConventionMemoryStore
-from blackholememory.convention_memory import build_convention_memory
-from blackholememory.convention_memory import explain_convention_card
-from blackholememory.convention_memory import preview_convention_memory
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.repository_index import SQLiteRepositoryIndexStore
-from blackholememory.repository_index import probe_repository_state
 from blackholememory.code_graph import SQLiteCodeGraphStore
-
+from blackholememory.convention_memory import (
+    CONVENTION_SCHEMA_VERSION,
+    ConventionMemoryError,
+    SQLiteConventionMemoryStore,
+    build_convention_memory,
+    explain_convention_card,
+    preview_convention_memory,
+)
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+from blackholememory.repository_index import (
+    SQLiteRepositoryIndexStore,
+    probe_repository_state,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = REPO_ROOT / ".runtime" / "live-memory" / "memories.sqlite3"

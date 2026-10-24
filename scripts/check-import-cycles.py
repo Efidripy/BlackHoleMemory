@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import ast
 import json
-from pathlib import Path
 import sys
+from pathlib import Path
 
 
 def find_modules(package_dir: Path, source_root: Path) -> dict[str, tuple[Path, bool]]:

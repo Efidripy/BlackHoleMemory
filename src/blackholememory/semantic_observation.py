@@ -14,7 +14,6 @@ import json
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
-
 SEMANTIC_OBSERVATION_SCHEMA_VERSION = "bhm.semantic-observation.v1"
 SEMANTIC_FRESHNESS_RECEIPT_SCHEMA_VERSION = "bhm.semantic-freshness-receipt.v1"
 DEFAULT_MAX_SNAPSHOT_AGE_SECONDS = 86_400.0

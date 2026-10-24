@@ -8,7 +8,6 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
-
 NIGHT_SHIFT_SCHEMA_VERSION = "bhm.llm.night-shift.v1"
 NIGHT_SHIFT_MAX_JOBS = 64
 NIGHT_SHIFT_SAFE_JOB_TYPES = (

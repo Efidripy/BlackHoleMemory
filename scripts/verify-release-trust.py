@@ -12,10 +12,13 @@ import sys
 import zipfile
 from pathlib import Path, PurePosixPath
 
-from blackholememory.filesystem_boundaries import FilesystemBoundaryError
-from blackholememory.filesystem_boundaries import assert_safe_path
-from blackholememory.resource_limits import PROCESS_EXECUTION_RELEASE_SIGNATURE_TIMEOUT_SECONDS
-
+from blackholememory.filesystem_boundaries import (
+    FilesystemBoundaryError,
+    assert_safe_path,
+)
+from blackholememory.resource_limits import (
+    PROCESS_EXECUTION_RELEASE_SIGNATURE_TIMEOUT_SECONDS,
+)
 
 TRUST_ARTIFACTS = ("release-manifest.json", "sbom.spdx.json", "provenance.json", "build-inputs.json")
 SIGNATURE_VERIFY_TIMEOUT_SECONDS = PROCESS_EXECUTION_RELEASE_SIGNATURE_TIMEOUT_SECONDS

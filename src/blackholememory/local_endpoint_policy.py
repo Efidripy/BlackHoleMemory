@@ -9,7 +9,6 @@ import urllib.request
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-
 MAX_RESPONSE_BYTES = 256 * 1024
 _LOCAL_HOSTNAMES = frozenset({"localhost", "localhost.localdomain"})
 _ALLOWED_SCHEMES = frozenset({"http", "https"})

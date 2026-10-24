@@ -12,7 +12,6 @@ import json
 from collections import Counter, deque
 from typing import Any, Mapping, Sequence
 
-
 SERVICE_TRACE_RECEIPT_SCHEMA_VERSION = "bhm.cross-service-trace-receipt.v1"
 PROTOCOL_ATTRIBUTION_SCHEMA_VERSION = "bhm.cross-service-protocol-receipt.v1"
 PROTOCOL_FAMILIES = frozenset({"http", "grpc", "graphql", "trpc", "pubsub", "unknown"})

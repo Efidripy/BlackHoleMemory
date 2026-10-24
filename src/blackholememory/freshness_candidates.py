@@ -15,7 +15,13 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from .filesystem_boundaries import assert_safe_path
-from .freshness_migration import CANDIDATE_STATES, POLICY_VERSION, REASON_CODES, canonical_json, utc_now
+from .freshness_migration import (
+    CANDIDATE_STATES,
+    POLICY_VERSION,
+    REASON_CODES,
+    canonical_json,
+    utc_now,
+)
 
 
 class FreshnessCandidateError(RuntimeError):

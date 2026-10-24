@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from bhm_launcher_telemetry import LlmInventoryCache
-from blackholememory.resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS
-
 from bhm_launcher_host import launcher as _launcher
+from bhm_launcher_telemetry import LlmInventoryCache
+
+from blackholememory.resource_limits import PROCESS_EXECUTION_SHUTDOWN_TIMEOUT_SECONDS
 
 
 class InstallWorker(_launcher.QThread):

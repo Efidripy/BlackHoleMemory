@@ -9,7 +9,6 @@ from typing import Any
 
 from .context_compiler import compile_context
 
-
 DEFAULT_BENCHMARK_CASES = 120
 MIN_BENCHMARK_CASES = 100
 MAX_BENCHMARK_CASES = 200

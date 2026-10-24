@@ -16,17 +16,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-from .domain import Lifecycle
-from .domain import Memory
+from .domain import Lifecycle, Memory
 from .filesystem_boundaries import assert_safe_path
 from .galaxy import infer_domain
 from .memory_service import SQLiteMemoryService
-from .parser_activation import online_backup
-from .parser_activation import sha256_file
+from .parser_activation import online_backup, sha256_file
 from .project_registry import get_default_project_registry
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .runtime_storage import resolve_runtime_storage_config
-
 
 REFINERY_SCHEMA_VERSION = "bhm.memory-refinery.v1"
 TAXONOMY_VERSION = "1.0"
