@@ -26,7 +26,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_backup_destinations_use_explicit_sqlite_busy_timeouts() -> None:
-    observation_source = (REPO_ROOT / "src" / "blackholememory" / "observation_store.py").read_text(encoding="utf-8")
+    observation_source = (
+        (REPO_ROOT / "src" / "blackholememory" / "observation_store.py").read_text(encoding="utf-8")
+        + (REPO_ROOT / "src" / "blackholememory" / "observation_store_base.py").read_text(encoding="utf-8")
+    )
     retirement_source = (REPO_ROOT / "src" / "blackholememory" / "project_retirement.py").read_text(encoding="utf-8")
 
     assert "timeout=OBSERVATION_STORE_BUSY_TIMEOUT_MS / 1000" in observation_source
