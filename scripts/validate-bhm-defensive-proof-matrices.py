@@ -45,7 +45,7 @@ PROJECT_SINKS = (
     SinkExpectation("repository-index", "project", "repository_index_sqlite", "src/blackholememory/repository_index_store_base.py", "project_filtered", ("current.project = ? AND current.root_id = ?", "snapshot.get(\"project\")"), "tests/unit/test_project_scope.py"),
     SinkExpectation("code-graph", "project", "code_graph_sqlite", "src/blackholememory/code_graph/store.py", "project_filtered", ("WHERE current.project=? AND current.root_id=?", "snapshot.get(\"project\")"), "tests/unit/test_project_scope.py"),
     SinkExpectation("admin-export", "project", "export", "src/blackholememory/app.py", "project_required", ("explicit_project_scope", "caller_project_scope_requires_explicit"), "tests/unit/test_admin_snapshot_contract.py"),
-    SinkExpectation("llm-cache-status", "project", "llm_cache", "src/blackholememory/llm_routes.py", "auth_only_aggregate", ("def bhm_llm_cache_status", "without returning payloads"), "tests/integration/test_caller_auth_boundary.py"),
+    SinkExpectation("llm-cache-status", "project", "llm_cache", "src/blackholememory/llm_routes_preview.py", "auth_only_aggregate", ("def bhm_llm_cache_status", "without returning payloads"), "tests/integration/test_caller_auth_boundary.py"),
 )
 
 REDACTION_SINKS = (
@@ -53,7 +53,7 @@ REDACTION_SINKS = (
     SinkExpectation("hook-ingress", "redaction", "hook_queue_sqlite", "src/blackholememory/app_hooks.py", "sanitized_before_enqueue", ("_secure_observation_request_model", "_enqueue_hook_request"), "tests/integration/test_pure_core_features.py"),
     SinkExpectation("jsonrpc-result", "redaction", "mcp_response", "src/blackholememory/app_core.py", "recursive_sanitized", ("def _jsonrpc_success", "PayloadSanitizer(max_collection_items=2_000).sanitize(result)"), "tests/unit/test_mcp_streamable_http.py"),
     SinkExpectation("jsonrpc-error", "redaction", "mcp_error", "src/blackholememory/app_core.py", "text_redacted", ("def _jsonrpc_error", "redact_secret_text"), "tests/unit/test_mcp_streamable_http.py"),
-    SinkExpectation("llm-ingress", "redaction", "llm_job_sqlite", "src/blackholememory/llm_routes.py", "sanitized_before_write", ("sanitize_llm_value", "stored_payload"), "tests/unit/test_llm_safety.py"),
+    SinkExpectation("llm-ingress", "redaction", "llm_job_sqlite", "src/blackholememory/llm_routes_jobs.py", "sanitized_before_write", ("sanitize_llm_value", "stored_payload"), "tests/unit/test_llm_safety.py"),
     SinkExpectation("llm-proposal", "redaction", "llm_output", "src/blackholememory/llm_safety.py", "recursive_sanitized", ("def build_proposal_envelope", "sanitize_llm_value(output"), "tests/unit/test_llm_safety.py"),
     SinkExpectation("langgraph-checkpoint", "redaction", "checkpoint_sqlite", "src/blackholememory/langgraph_checkpoint.py", "sanitized_before_write", ("self._dump(_redact(values[channel]", "self._dump(_redact(value, key=channel_name))"), "tests/unit/test_langgraph_checkpoint.py"),
     SinkExpectation("source-registry", "redaction", "json_file", "src/blackholememory/source_registry.py", "sanitized_before_write", ("_redact_persisted_payload", "_redact_source_url"), "tests/unit/test_source_registry_web_transport.py"),
