@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from blackholememory.qdrant_runtime import QDRANT_IMAGE_REF, validate_qdrant_runtime
+from tests.launcher_source import launcher_source_text
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -27,7 +28,7 @@ services:
 def test_checked_in_qdrant_compose_and_launcher_stay_in_sync():
     report = validate_qdrant_runtime(
         (REPO_ROOT / "infra" / "qdrant" / "docker-compose.yml").read_text(encoding="utf-8"),
-        launcher_text=(REPO_ROOT / "scripts" / "bhm_launcher.py").read_text(encoding="utf-8"),
+        launcher_text=launcher_source_text(REPO_ROOT / "scripts"),
     )
 
     assert report["ok"] is True
