@@ -172,7 +172,6 @@ class MemoryRepository(Protocol):
         include_temporal_unknown: bool = False,
         include_archived: bool = False,
         include_tombstoned: bool = False,
-        exclude_event_role: str | None = None,
     ) -> int: ...
 
     def list_projects(self, *, include_archived: bool = False) -> list[str]: ...

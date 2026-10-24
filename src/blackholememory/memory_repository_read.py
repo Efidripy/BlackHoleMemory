@@ -408,7 +408,6 @@ class MemoryRepositoryReadMixin:
         include_temporal_unknown: bool = False,
         include_archived: bool = False,
         include_tombstoned: bool = False,
-        exclude_event_role: str | None = None,
     ) -> int:
         connection = self._read_connection()
         try:
