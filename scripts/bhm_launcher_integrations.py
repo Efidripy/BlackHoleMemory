@@ -14,12 +14,10 @@ from blackholememory.filesystem_boundaries import replace_bytes_safely
 import psutil
 
 from bhm_launcher_host import launcher as _launcher
+from bhm_launcher_base import CODEX_PLUGIN_ID  # noqa: F401
 
 
 MCP_SERVER_NAME = "bhm"
-
-
-CODEX_PLUGIN_ID = "bhm-codex-connector"
 
 
 def mcp_config_payload() -> dict:
