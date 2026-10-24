@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from blackholememory import app as bhm_app
-from blackholememory import app_core_fallback, app_core_hook, app_governed, app_runtime
+from blackholememory import app_core_fallback, app_core_hook, app_governed, app_governed_base, app_runtime
 from blackholememory.domain import Memory
 from tests.app_patch import patch_app_import
 
@@ -101,8 +101,8 @@ def test_semantic_surface_retrieves_projection_candidates_then_revalidates_sqlit
         return ([{"metadata": {"source_id": "mem_bhm_b"}}, {"metadata": {"source_id": "mem_bhm_a"}}], 2)
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
-    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_governed_base, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed_base, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
     monkeypatch.setattr(app_core_fallback, "federated_search", _search)
     patch_app_import(monkeypatch, "LocalGatewaySemanticCompletion", _Completion)
@@ -137,8 +137,8 @@ def test_semantic_surface_uses_sqlite_lexical_fallback_when_embedding_retrieval_
     records = [_record("mem_bhm_a", "Normal uninstall is project-scoped."), _record("mem_bhm_b", "Install-state safety log is required.")]
     governor = _Governor()
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
-    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_governed_base, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed_base, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(app_core_fallback, "federated_search", _timed_out)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
     patch_app_import(monkeypatch, "LocalGatewaySemanticCompletion", _Completion)
@@ -168,8 +168,8 @@ def test_semantic_surface_maps_embedding_timeout_without_lexical_evidence_to_ret
         raise app_core_fallback.EmbeddingPreparationTimeout("provider detail must not escape")
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
-    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_governed_base, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed_base, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(app_core_fallback, "federated_search", _timed_out)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService([]))
 
@@ -194,8 +194,8 @@ def test_semantic_surface_returns_explicit_deterministic_no_op_when_local_model_
         return ([{"metadata": {"source_id": "mem_bhm_a"}}, {"metadata": {"source_id": "mem_bhm_b"}}], 2)
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
-    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_governed_base, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed_base, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(app_core_fallback, "federated_search", _search)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
     patch_app_import(monkeypatch, "LocalGatewaySemanticCompletion", _UnavailableCompletion)
@@ -237,8 +237,8 @@ def test_stored_semantic_proposal_never_invokes_automatic_lifecycle_apply(monkey
 
     monkeypatch.setenv("BHM_GOVERNED_SEMANTIC_EDITOR_ENABLED", "1")
     monkeypatch.setenv("BHM_GOVERNED_AUTO_REVIEW_APPLY_ENABLED", "1")
-    monkeypatch.setattr(app_governed, "_require_governed_consolidation_enabled", lambda: None)
-    monkeypatch.setattr(app_governed, "_governed_consolidation_project", lambda _principal, project: project)
+    monkeypatch.setattr(app_governed_base, "_require_governed_consolidation_enabled", lambda: None)
+    monkeypatch.setattr(app_governed_base, "_governed_consolidation_project", lambda _principal, project: project)
     monkeypatch.setattr(app_core_fallback, "federated_search", _search)
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: _MemoryService(records))
     patch_app_import(monkeypatch, "LocalGatewaySemanticCompletion", _Completion)
