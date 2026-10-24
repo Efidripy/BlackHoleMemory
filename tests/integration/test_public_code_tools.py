@@ -14,14 +14,10 @@ from blackholememory import app as bhm_app
 from blackholememory import (
     app_core_fallback,
     code_tools_service,
-<<<<<<< HEAD
-    code_tools_service_graph_build,
-=======
     code_tools_service_analysis,
     code_tools_service_graph,
     code_tools_service_graph_build,
     code_tools_service_index,
->>>>>>> codex/f17-a40
     graph_build_jobs,
 )
 from blackholememory.code_graph import build_code_graph
