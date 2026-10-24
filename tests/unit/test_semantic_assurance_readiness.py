@@ -828,7 +828,9 @@ def _v5_evidence(
     assurance["sealed_readiness_strata_binding_digest"] = "5" * 64
     assurance["sealed_readiness_strata_minimum_population"] = 80
     admission["admission_digest"] = _digest({key: value for key, value in admission.items() if key != "admission_digest"})
+    import blackholememory.semantic_assurance_readiness_base as readiness_base
     monkeypatch.setattr(readiness, "verify_semantic_assurance_label_admission", lambda value: value)
+    monkeypatch.setattr(readiness_base, "verify_semantic_assurance_label_admission", lambda value: value)
     _v5_live(evidence)
 
     source = _source_identity()
