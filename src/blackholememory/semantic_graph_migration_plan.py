@@ -17,14 +17,14 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .filesystem_boundaries import assert_safe_path, read_bytes_safely
-from .ontology_registry import (
-    ACTIVATION_ARTIFACT_TYPE,
-    ARTIFACT_TYPE,
-    OntologyRegistryError,
-    OntologySchema,
-    resolve_active_schema,
-)
+from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import read_bytes_safely
+from .ontology_registry import ACTIVATION_ARTIFACT_TYPE
+from .ontology_registry import ARTIFACT_TYPE
+from .ontology_registry import OntologyRegistryError
+from .ontology_registry import OntologySchema
+from .ontology_registry import resolve_active_schema
+
 
 SCHEMA_VERSION = "bhm.semantic-graph-migration-plan.v1"
 _MAX_LEGACY_EDGES = 10_000

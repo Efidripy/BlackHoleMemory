@@ -5,13 +5,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from blackholememory.memory_refinery import (
-    apply_normalization_plan,
-    build_normalization_plan,
-    prepare_rehearsal_copies,
-    prove_rollback_restore,
-    verify_database,
-)
+from blackholememory.memory_refinery import apply_normalization_plan
+from blackholememory.memory_refinery import build_normalization_plan
+from blackholememory.memory_refinery import prepare_rehearsal_copies
+from blackholememory.memory_refinery import prove_rollback_restore
+from blackholememory.memory_refinery import verify_database
 from blackholememory.memory_service import SQLiteMemoryService
 
 

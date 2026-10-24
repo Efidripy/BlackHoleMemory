@@ -16,6 +16,7 @@ from typing import Any, Mapping, Sequence
 
 from .llm_safety import sanitize_llm_value
 
+
 SESSION_CAPTURE_SCHEMA_VERSION = "bhm.session-capture.v1"
 SESSION_CAPTURE_MAX_EVENTS = 128
 SESSION_CAPTURE_MAX_MEMORIES = 96

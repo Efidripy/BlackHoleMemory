@@ -15,11 +15,10 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .filesystem_boundaries import assert_safe_path
-from .memory_repository import (
-    FRESHNESS_SCHEMA_TABLES,
-    FRESHNESS_SCHEMA_VERSION,
-    MEMORY_STORE_SCHEMA_VERSION,
-)
+from .memory_repository import FRESHNESS_SCHEMA_TABLES
+from .memory_repository import FRESHNESS_SCHEMA_VERSION
+from .memory_repository import MEMORY_STORE_SCHEMA_VERSION
+
 
 MIGRATION_SCHEMA_VERSION = "bhm.freshness-migration.v1"
 POLICY_VERSION = "bhm.freshness-candidate-policy.v1"

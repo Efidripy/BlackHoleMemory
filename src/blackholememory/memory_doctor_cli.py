@@ -6,16 +6,17 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
+from typing import Sequence
 
 from .filesystem_boundaries import replace_bytes_safely
-from .mem0_adapter import get_qdrant_client, local_collection_name
-from .memory_doctor import (
-    MemoryDoctorSnapshotError,
-    run_authoritative_projection_memory_doctor,
-    run_authoritative_sqlite_memory_doctor,
-)
+from .mem0_adapter import get_qdrant_client
+from .mem0_adapter import local_collection_name
+from .memory_doctor import MemoryDoctorSnapshotError
+from .memory_doctor import run_authoritative_projection_memory_doctor
+from .memory_doctor import run_authoritative_sqlite_memory_doctor
 from .project_registry import canonical_project_id
+
 
 SCHEMA_VERSION = "bhm.memory-doctor.cli.v1"
 _REPO_ROOT = Path(__file__).resolve().parents[2]

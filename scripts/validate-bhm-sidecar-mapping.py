@@ -11,6 +11,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+
 SCHEMA_VERSION = "bhm.sidecar-mapping-plan.v2"
 NULL_FIELD_POLICY = {
     "schema_version": "bhm.sidecar-null-policy.v2",

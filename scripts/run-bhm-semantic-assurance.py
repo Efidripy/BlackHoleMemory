@@ -7,13 +7,12 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.semantic_assurance_evaluation import (
-    SemanticAssuranceEvaluationError,
-    evaluate_semantic_assurance,
-    load_semantic_assurance_dataset,
-    load_semantic_assurance_predictions,
-    write_semantic_assurance_receipt,
-)
+from blackholememory.semantic_assurance_evaluation import SemanticAssuranceEvaluationError
+from blackholememory.semantic_assurance_evaluation import evaluate_semantic_assurance
+from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_dataset
+from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_predictions
+from blackholememory.semantic_assurance_evaluation import write_semantic_assurance_receipt
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATASET = REPO_ROOT / "tests" / "fixtures" / "semantic-assurance-v1.json"

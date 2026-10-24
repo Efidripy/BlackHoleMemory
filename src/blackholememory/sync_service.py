@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone
 from typing import Callable
 
-from .domain import Lifecycle, Memory
-from .memory_repository import MemoryRepository, SaveMemoryResult
+from .domain import Lifecycle
+from .domain import Memory
+from .memory_repository import MemoryRepository
+from .memory_repository import SaveMemoryResult
 
 
 class MemorySynchronizationError(RuntimeError):

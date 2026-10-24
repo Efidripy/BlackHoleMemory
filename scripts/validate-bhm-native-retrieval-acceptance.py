@@ -6,19 +6,18 @@ import argparse
 import json
 import os
 import re
-from typing import Any
 from urllib.error import URLError
 from urllib.request import Request
+from typing import Any
 
 from blackholememory.config import settings
-from blackholememory.local_endpoint_policy import open_local_url, read_bounded_response
-from blackholememory.mem0_adapter import (
-    get_global_core_memory,
-    get_project_mem0_memory,
-    get_qdrant_client,
-    global_collection_name,
-    local_collection_name,
-)
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
+from blackholememory.mem0_adapter import get_project_mem0_memory
+from blackholememory.mem0_adapter import get_global_core_memory
+from blackholememory.mem0_adapter import get_qdrant_client
+from blackholememory.mem0_adapter import global_collection_name
+from blackholememory.mem0_adapter import local_collection_name
 from blackholememory.resource_limits import LLM_INVENTORY_HTTP_TIMEOUT_SECONDS
 from blackholememory.runtime_endpoints import endpoint_url
 

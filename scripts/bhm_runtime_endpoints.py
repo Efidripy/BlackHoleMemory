@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
+import ipaddress
 import os
 import sys
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
+
 
 _LOOPBACK_HOSTNAMES = frozenset({"localhost", "localhost.localdomain"})
 

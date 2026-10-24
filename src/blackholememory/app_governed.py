@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 from typing import Any
-
-from fastapi import HTTPException, Query, Request
-
-from . import app_core_hook
-from . import app_governed_base as _base
+from fastapi import HTTPException
+from fastapi import Query
+from fastapi import Request
 from . import app_runtime as rt
+from .app_runtime import _bounded_read, _bounded_write, _run_bounded_read, _safe_exception_text
 from .api_models import (
     ConsolidationChangeSetPreviewRequest,
     ConsolidationChangeSetReviewRequest,
@@ -20,11 +19,43 @@ from .api_models import (
     SharedMemoryPolicyPreflightRequest,
     SharedMemoryReadRequest,
 )
+from .config import settings
+from .caller_auth import authorize_projects
+from .consolidation_change_set import ConsolidationChangeSetError
+from .consolidation_change_set import build_consolidation_change_set_preview
+from .consolidation_review import ConsolidationReviewError
+from .consolidation_review import append_consolidation_review
+from .consolidation_review import build_consolidation_review
+from .governed_consolidation import GovernedConsolidationError
+from .governed_consolidation import GovernedConsolidationRepository
+from .governed_consolidation import analyze_records as analyze_governed_consolidation_records
+from .governed_consolidation import apply_approved_proposal
+from .governed_consolidation import build_proposal as build_governed_consolidation_proposal
+from .governed_consolidation import dry_run_apply as dry_run_governed_consolidation_apply
+from .governed_consolidation import runtime_status as governed_consolidation_status
+from .governed_consolidation import validate_proposal_current as validate_governed_consolidation_proposal
+from .governed_auto_review import policy_status as governed_auto_review_policy_status
+from .governed_auto_review import operator_consent_required as governed_operator_consent_required
+from .governed_semantic_editor import SemanticEditorConfig
+from .memory_doctor import MemoryDoctorSnapshotError
+from .memory_doctor import load_authoritative_sqlite_snapshot
+from .memory_doctor import run_authoritative_sqlite_memory_doctor
+from .runtime_storage import resolve_runtime_storage_config
+from .memory_service import MemoryServiceNotReady
+from . import app_core_hook
+from . import app_governed_base as _base
+
 from .app_governed_base import (  # noqa: F401
     _governed_consolidation_error,
     _governed_consolidation_project,
     _require_governed_consolidation_enabled,
     _semantic_graph_node_id,
+)
+from .app_governed_shared import (  # noqa: F401
+    _canonical_shared_memory_attributes,
+    _serialize_governed_shared_memory,
+    _shared_memory_policy_preflight,
+    _shared_memory_read,
 )
 from .app_governed_semantic import (  # noqa: F401
     GOVERNED_SEMANTIC_RETRY_MAX_ATTEMPTS,
@@ -39,59 +70,6 @@ from .app_governed_semantic import (  # noqa: F401
     _run_governed_semantic_with_retries,
     _semantic_proposal_candidate_digest,
 )
-from .app_governed_shared import (  # noqa: F401
-    _canonical_shared_memory_attributes,
-    _serialize_governed_shared_memory,
-    _shared_memory_policy_preflight,
-    _shared_memory_read,
-)
-from .app_runtime import (
-    _bounded_read,
-    _bounded_write,
-    _run_bounded_read,
-    _safe_exception_text,
-)
-from .caller_auth import authorize_projects
-from .config import settings
-from .consolidation_change_set import (
-    ConsolidationChangeSetError,
-    build_consolidation_change_set_preview,
-)
-from .consolidation_review import (
-    ConsolidationReviewError,
-    append_consolidation_review,
-    build_consolidation_review,
-)
-from .governed_auto_review import (
-    operator_consent_required as governed_operator_consent_required,
-)
-from .governed_auto_review import policy_status as governed_auto_review_policy_status
-from .governed_consolidation import (
-    GovernedConsolidationError,
-    GovernedConsolidationRepository,
-    apply_approved_proposal,
-)
-from .governed_consolidation import (
-    analyze_records as analyze_governed_consolidation_records,
-)
-from .governed_consolidation import (
-    build_proposal as build_governed_consolidation_proposal,
-)
-from .governed_consolidation import (
-    dry_run_apply as dry_run_governed_consolidation_apply,
-)
-from .governed_consolidation import runtime_status as governed_consolidation_status
-from .governed_consolidation import (
-    validate_proposal_current as validate_governed_consolidation_proposal,
-)
-from .governed_semantic_editor import SemanticEditorConfig
-from .memory_doctor import (
-    MemoryDoctorSnapshotError,
-    load_authoritative_sqlite_snapshot,
-    run_authoritative_sqlite_memory_doctor,
-)
-from .memory_service import MemoryServiceNotReady
-from .runtime_storage import resolve_runtime_storage_config
 
 
 def _utility_feedback_change_set_preview(

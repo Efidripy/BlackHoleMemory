@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 from .code_graph import SQLiteCodeGraphStore
 
+
 CROSS_REPO_SCHEMA_VERSION = "bhm.cross-repo-links.v1"
 CROSS_EDGE_KINDS = frozenset({
     "CROSS_HTTP_CALLS",

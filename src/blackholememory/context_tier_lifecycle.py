@@ -14,6 +14,7 @@ import json
 import os
 from typing import Iterable
 
+
 SCHEMA_VERSION = "bhm.context-tier-lifecycle.v1"
 PROMOTION_LOCK_PREVIEW_SCHEMA_VERSION = "bhm.context-tier-promotion-lock-preview.v1"
 ACTIVATION_PROPOSAL_SCHEMA_VERSION = "bhm.context-tier-activation-proposal.v1"

@@ -8,12 +8,10 @@ from datetime import datetime
 from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.session_capture import (
-    DISCLOSURE_LEVELS,
-    SESSION_CAPTURE_SCHEMA_VERSION,
-    SessionCaptureError,
-    build_session_capture_preview,
-)
+from blackholememory.session_capture import DISCLOSURE_LEVELS
+from blackholememory.session_capture import SESSION_CAPTURE_SCHEMA_VERSION
+from blackholememory.session_capture import SessionCaptureError
+from blackholememory.session_capture import build_session_capture_preview
 
 
 def _emit(value: object, report: str | None = None) -> None:

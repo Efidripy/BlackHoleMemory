@@ -7,6 +7,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+
 _SCORE_KEYS = (
     "raw_qdrant_score",
     "semantic_score",

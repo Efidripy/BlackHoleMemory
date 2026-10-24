@@ -12,10 +12,8 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.semantic_assurance_corpus_admission import (
-    SemanticAssuranceCorpusAdmissionError,
-    admit_semantic_assurance_corpus_for_human_review,
-)
+from blackholememory.semantic_assurance_corpus_admission import SemanticAssuranceCorpusAdmissionError
+from blackholememory.semantic_assurance_corpus_admission import admit_semantic_assurance_corpus_for_human_review
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+
 OBSERVATION_SECURITY_POLICY_VERSION = "1.0"
 OBSERVATION_MAX_INPUT_BYTES = 256 * 1024
 OBSERVATION_COMPACT_MAX_INPUT_BYTES = 512 * 1024

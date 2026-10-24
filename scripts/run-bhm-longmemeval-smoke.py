@@ -7,14 +7,10 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.external_evaluation_admission import (
-    load_external_evaluation_admission_report,
-)
+from blackholememory.external_evaluation_admission import load_external_evaluation_admission_report
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.longmemeval_smoke import (
-    LongMemEvalSmokeError,
-    run_longmemeval_lexical_smoke,
-)
+from blackholememory.longmemeval_smoke import LongMemEvalSmokeError
+from blackholememory.longmemeval_smoke import run_longmemeval_lexical_smoke
 
 
 def main() -> int:

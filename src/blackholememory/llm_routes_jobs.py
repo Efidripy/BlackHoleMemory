@@ -24,8 +24,8 @@ from .llm_resource_governor import AdmissionRequest, LLMResourceGovernorError
 from .llm_routes_base import _deps, _llm_public_job
 from .llm_safety import (
     LLM_SAFETY_POLICY_VERSION,
-    PROPOSAL_AUTHORITY,
     LLMSafetyViolation,
+    PROPOSAL_AUTHORITY,
     build_proposal_envelope,
     sanitize_llm_value,
     scan_prompt_injection,

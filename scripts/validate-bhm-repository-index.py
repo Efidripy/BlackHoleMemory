@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import sqlite3
@@ -11,18 +13,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.memory_repository import SQLiteMemoryRepository
-from blackholememory.repository_index import (
-    RepositoryIndexInjectedFailure,
-    RepositorySourceProvenance,
-    RepositoryWatcher,
-    SQLiteRepositoryIndexStore,
-    index_repository,
-    verify_repository_snapshot,
-)
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.repository_index import RepositoryIndexInjectedFailure
+from blackholememory.repository_index import RepositorySourceProvenance
+from blackholememory.repository_index import RepositoryWatcher
+from blackholememory.repository_index import SQLiteRepositoryIndexStore
+from blackholememory.repository_index import index_repository
+from blackholememory.repository_index import verify_repository_snapshot
 from blackholememory.source_registry import load_registry
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WI01_PROCESS_TIMEOUT_SECONDS = PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS

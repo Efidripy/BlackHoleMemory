@@ -6,6 +6,7 @@ from __future__ import annotations
 # intentionally bounded/read-only.  No memory, Qdrant or source mutation is
 # performed by this gate.
 # ruff: noqa: E402
+
 import argparse
 import importlib.util
 import json
@@ -25,10 +26,9 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.resource_limits import (
-    PROCESS_EXECUTION_P15_LATENCY_TIMEOUT_SECONDS,
-    PROCESS_EXECUTION_P15_STARTUP_TIMEOUT_SECONDS,
-)
+from blackholememory.resource_limits import PROCESS_EXECUTION_P15_LATENCY_TIMEOUT_SECONDS
+from blackholememory.resource_limits import PROCESS_EXECUTION_P15_STARTUP_TIMEOUT_SECONDS
+
 
 BASELINE_BUILDER = REPO_ROOT / "scripts" / "build-bhm-p15-dependency-baseline.py"
 LATENCY_SCRIPT = REPO_ROOT / "scripts" / "validate-bhm-mcp-latency.py"

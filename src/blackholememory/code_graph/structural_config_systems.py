@@ -15,7 +15,6 @@ from ._common import (
 )
 from .draft import _GraphDraft
 
-
 def _is_kconfig_path(path: str) -> bool:
     """Return true only for Kconfig special names, not generic config files."""
 

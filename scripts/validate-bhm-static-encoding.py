@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+
 TEXT_SUFFIXES = {".css", ".html", ".js", ".svg"}
 EXCLUDED_NAMES = {"redoc.standalone.js"}
 MOJIBAKE_MARKERS = ("Ð", "Ñ", "�", "Ã", "Â", "â€", "ðŸ")

@@ -6,40 +6,40 @@ Moved out of app.py (FIX-017 S2). Names tests patch, and mutable state, are reac
 
 from __future__ import annotations
 
+import time
 import asyncio
 import json
 import os
 import re
 import threading
-import time
 import urllib.request
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
-
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
-
 from .config import settings
-from .filesystem_boundaries import replace_bytes_safely
-from .local_endpoint_policy import open_local_url, read_bounded_response
-from .mem0_adapter import (
-    StorageNotReady,
-    get_global_core_memory,
-    get_project_mem0_memory,
-    get_qdrant_client,
-    global_collection_name,
-    local_collection_name,
-)
+from .local_endpoint_policy import open_local_url
+from .local_endpoint_policy import read_bounded_response
 from .memory_pulse_bus import MemoryPulseBus
-from .memory_service import MemoryServiceNotReady, SQLiteMemoryService
-from .observation_security import redact_secret_text
-from .project_registry import get_default_project_registry
-from .projection_generation_binding import resolve_projection_route
 from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
-from .runtime_storage import MemoryStoreMode, resolve_runtime_storage_config
+from .filesystem_boundaries import replace_bytes_safely
+from .mem0_adapter import StorageNotReady
+from .mem0_adapter import get_global_core_memory
+from .mem0_adapter import get_project_mem0_memory
+from .mem0_adapter import get_qdrant_client
+from .mem0_adapter import global_collection_name
+from .mem0_adapter import local_collection_name
+from .project_registry import get_default_project_registry
+from .runtime_storage import MemoryStoreMode
 from .runtime_storage import runtime_storage_state as memory_runtime_storage_state
+from .runtime_storage import resolve_runtime_storage_config
+from .projection_generation_binding import resolve_projection_route
+from .memory_service import MemoryServiceNotReady
+from .memory_service import SQLiteMemoryService
+from .observation_security import redact_secret_text
+
 
 # Exception text crosses several REST/MCP and operator-facing boundaries in
 # this module.  Keep the diagnostic value bounded while applying the same

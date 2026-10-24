@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from .domain import Artifact
 
+
 SCHEMA_VERSION = "bhm.task-dependency-ledger.v1"
 ARTIFACT_TYPE = "task_dependency_declaration"
 COMPLETENESS_SCHEMA_VERSION = "bhm.task-dependency-completeness.v1"

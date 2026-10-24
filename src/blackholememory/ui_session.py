@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import secrets
 import threading
 import time
-from dataclasses import dataclass
 
 from .caller_auth import CallerPrincipal
+
 
 UI_SESSION_COOKIE = "bhm_ui_session"
 BOOTSTRAP_TTL_SECONDS = 60.0

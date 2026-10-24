@@ -2,19 +2,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
 import json
 import os
 import shutil
 import tomllib
-from pathlib import Path
-from typing import Any
 
-import psutil
-from bhm_launcher_base import CODEX_PLUGIN_ID  # noqa: F401
-from bhm_launcher_host import launcher as _launcher
 from bhm_runtime_endpoints import validate_loopback_endpoint
-
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+import psutil
+
+from bhm_launcher_host import launcher as _launcher
+from bhm_launcher_base import CODEX_PLUGIN_ID  # noqa: F401
+
 
 MCP_SERVER_NAME = "bhm"
 

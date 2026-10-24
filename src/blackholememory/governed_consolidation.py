@@ -10,51 +10,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .domain import (
-    Lifecycle,
-    Memory,
-    MemoryLink,
-    MemoryRevision,
-    Provenance,
-    content_sha256,
-)
+from .domain import Lifecycle, Memory, MemoryLink, MemoryRevision, Provenance, content_sha256
 from .governed_consolidation_base import (
-    GOVERNED_CONSOLIDATION_ANALYZER,
-    GOVERNED_CONSOLIDATION_CAPABILITY_KEY,
-    GOVERNED_CONSOLIDATION_CAPABILITY_VERSION,
-    GOVERNED_CONSOLIDATION_SCHEMA_VERSION,  # noqa: F401
-    MAX_BASIS,
-    MAX_CONTENT_CHARS,
-    OPERATIONS,
-    SEMANTIC_EDITOR_ANALYZER_PREFIX,  # noqa: F401
-    SEMANTIC_OPERATOR_ATTESTATION_SCHEMA_VERSION,  # noqa: F401
-    GovernedConsolidationApprovalRequired,
-    GovernedConsolidationDisabled,
-    GovernedConsolidationError,
-    GovernedConsolidationMigrationRequired,
-    GovernedConsolidationStale,
-    _bounded_items,
-    _bounded_text,
-    _candidate_payload,
-    _canonical_json,
-    _confidence,
-    _elapsed_ms,
-    _record_basis,
-    _sha256,
-    _utc_now_iso,
-    _validate_identity_binding,
-    canonical_json_sha256,
-    runtime_enabled,
-    validate_proposal_identity,
+    GOVERNED_CONSOLIDATION_ANALYZER, GOVERNED_CONSOLIDATION_CAPABILITY_KEY, GOVERNED_CONSOLIDATION_CAPABILITY_VERSION,
+    GOVERNED_CONSOLIDATION_SCHEMA_VERSION, MAX_BASIS, MAX_CONTENT_CHARS, MAX_PROPOSALS, OPERATIONS,  # noqa: F401
+    SEMANTIC_EDITOR_ANALYZER_PREFIX, SEMANTIC_EVIDENCE_BINDING_SCHEMA_VERSION,  # noqa: F401
+    SEMANTIC_OPERATOR_ATTESTATION_SCHEMA_VERSION, SEMANTIC_REVIEW_SCHEMA_VERSION, STATUSES,  # noqa: F401
+    GovernedConsolidationApprovalRequired, GovernedConsolidationDisabled,
+    GovernedConsolidationError, GovernedConsolidationMigrationRequired, GovernedConsolidationStale,
+    _bounded_items, _bounded_text, _canonical_json, _candidate_payload, _confidence, _elapsed_ms,
+    _record_basis, _sha256, _utc_now_iso, _validate_identity_binding,
+    canonical_json_sha256, runtime_enabled, validate_proposal_identity,
 )  # noqa: F401
 from .governed_consolidation_repository import GovernedConsolidationRepository
 from .memory_contracts import MemoryClass, MemoryClassSource, MemoryEventRole
-from .memory_repository import (
-    MemoryRepositoryIntegrityError,
-    MemoryRevisionConflict,
-    SQLiteMemoryRepository,
-)
-
+from .memory_repository import MemoryRepositoryIntegrityError, MemoryRevisionConflict, SQLiteMemoryRepository
 
 def runtime_status(database_path: Path | str) -> dict[str, Any]:
     """Content-safe status suitable for health and operator diagnostics."""

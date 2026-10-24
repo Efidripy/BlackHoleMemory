@@ -5,37 +5,37 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 from typing import Any
-
 from fastapi import HTTPException
-
-from . import app_core_hook
 from . import app_runtime as rt
-from .api_models import (
-    ChangeImpactPreviewRequest,
-    CodeGraphQueryRequest,
-    MemoryGraphQueryRequest,
-    TaskGraphQueryRequest,
-)
-from .change_impact import (
-    ChangeImpactError,
-    build_change_impact_preview,
-    build_impact_binding_receipt,
-    collect_git_change_paths,
-    collect_git_history_stats,
-    correlate_diff_hunks_to_symbols,
-    correlate_git_history_to_symbols,
-)
-from .change_impact_risk_receipt import build_change_impact_risk_receipt
-from .code_graph import SQLiteCodeGraphStore
-from .code_graph_query import CodeGraphQueryError, explain_code_graph, query_code_graph
+from .api_models import CodeGraphQueryRequest, ChangeImpactPreviewRequest, MemoryGraphQueryRequest, TaskGraphQueryRequest
 from .config import settings
-from .convention_memory import ConventionMemoryError, preview_convention_memory
-from .galaxy import GalaxyOptions, build_galaxy_graph, camera_distance_for
-from .git_history_test_receipt import build_commit_symbol_test_history_receipt
-from .memory_graph import MemoryGraphError, explain_memory_graph, query_memory_graph
-from .observation_security import redact_secret_text
+from .galaxy import GalaxyOptions
+from .galaxy import build_galaxy_graph
+from .galaxy import camera_distance_for
 from .runtime_storage import resolve_runtime_storage_config
-from .task_graph import TaskGraphError, explain_task_graph, query_task_graph
+from .observation_security import redact_secret_text
+from .code_graph_query import CodeGraphQueryError
+from .code_graph_query import explain_code_graph
+from .code_graph_query import query_code_graph
+from .code_graph import SQLiteCodeGraphStore
+from .change_impact import ChangeImpactError
+from .change_impact import build_change_impact_preview
+from .change_impact import build_impact_binding_receipt
+from .change_impact_risk_receipt import build_change_impact_risk_receipt
+from .change_impact import collect_git_change_paths
+from .change_impact import collect_git_history_stats
+from .change_impact import correlate_diff_hunks_to_symbols
+from .change_impact import correlate_git_history_to_symbols
+from .git_history_test_receipt import build_commit_symbol_test_history_receipt
+from .convention_memory import ConventionMemoryError
+from .convention_memory import preview_convention_memory
+from .memory_graph import MemoryGraphError
+from .memory_graph import explain_memory_graph
+from .memory_graph import query_memory_graph
+from .task_graph import TaskGraphError
+from .task_graph import explain_task_graph
+from .task_graph import query_task_graph
+from . import app_core_hook
 
 
 def _code_graph_query_response(request: CodeGraphQueryRequest, *, explain: bool) -> dict[str, Any]:

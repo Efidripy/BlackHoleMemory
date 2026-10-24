@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+
 SCHEMA_VERSION = "bhm.governed-shared-memory.v1"
 
 

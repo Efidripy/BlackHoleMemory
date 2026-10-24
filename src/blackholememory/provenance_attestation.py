@@ -16,7 +16,9 @@ from typing import Any, Iterable
 
 from .filesystem_boundaries import assert_safe_path
 from .provenance_boundary import build_provenance_boundary_report
-from .source_registry import SourceRegistryError, validate_source_slug
+from .source_registry import SourceRegistryError
+from .source_registry import validate_source_slug
+
 
 PROVENANCE_ATTESTATION_SCHEMA = "bhm.p28.provenance-attestation.v1"
 HASH_RE = re.compile(r"^[0-9a-fA-F]{64}$")

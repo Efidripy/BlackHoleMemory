@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -12,15 +14,13 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from blackholememory import app as bhm_app
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-from blackholememory.session_capture import (
-    DISCLOSURE_LEVELS,
-    build_session_capture_preview,
-    verify_session_capture_digest,
-)
+from blackholememory import app as bhm_app
+from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
+from blackholememory.session_capture import DISCLOSURE_LEVELS
+from blackholememory.session_capture import build_session_capture_preview
+from blackholememory.session_capture import verify_session_capture_digest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-session-capture.py"

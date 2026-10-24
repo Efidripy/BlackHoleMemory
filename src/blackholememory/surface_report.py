@@ -7,8 +7,10 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
-from .mcp_surfaces import CORE_TOOL_NAMES, GOVERNANCE_PUBLIC_TOOL_NAMES
+from .mcp_surfaces import CORE_TOOL_NAMES
+from .mcp_surfaces import GOVERNANCE_PUBLIC_TOOL_NAMES
 from .usage_telemetry import normalize_operation
+
 
 SCHEMA_VERSION = 1
 MAX_DESCRIPTION_LENGTH = 180

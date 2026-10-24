@@ -11,10 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from .filesystem_boundaries import assert_safe_path, replace_bytes_safely
 from .hook_queue import HookJobQueue
+from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import replace_bytes_safely
 from .observation_store import ObservationStore
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
+
 
 RETENTION_POLICY_SCHEMA_VERSION = "1.0"
 RETENTION_BACKUP_SCHEMA_VERSION = "1.0"

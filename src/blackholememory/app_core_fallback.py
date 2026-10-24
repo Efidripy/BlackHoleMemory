@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 import asyncio
 import functools
 import json
@@ -9,48 +10,41 @@ import logging
 import os
 import sqlite3
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
-
 from fastapi import HTTPException
-
-from . import app_core_graph, app_core_hit
-from . import app_core_memory_base as app_core
 from . import app_runtime as rt
 from .app_runtime import ResponseTimeout, _env_float, _env_int
 from .config import settings
-from .embedding_cache import EmbeddingCache, embed_query_with_cache
-from .exact_identifier_retrieval import (
-    ExactIdentifierIndex,
-    build_exact_identifier_hits,
-    exact_identifier_enabled,
-    exact_identifier_tokens,
-)
-from .mem0_adapter import get_project_mem0_memory, storage_runtime_state
+from .resource_limits import BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS
+from .resource_limits import BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS
+from .embedding_cache import EmbeddingCache
+from .embedding_cache import embed_query_with_cache
+from .mem0_adapter import get_project_mem0_memory
+from .mem0_adapter import storage_runtime_state
 from .project_registry import normalize_project_key
-from .resource_limits import (
-    BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS,
-    BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS,
-)
 from .retrieval_filters import build_candidate_filters
-from .temporal_contract import (
-    TemporalContractUnavailable,
-    TemporalValidationError,
-    normalize_temporal_fields,
-    normalize_temporal_timestamp,
-    require_temporal_contract,
-    temporal_intent_requested,
-)
-from .typed_memory_contract import (
-    TypedMemoryContractUnavailable,
-    require_typed_memory_contract,
-    typed_memory_capability_available,
-    typed_memory_contract_enabled,
-)
+from .exact_identifier_retrieval import ExactIdentifierIndex
+from .exact_identifier_retrieval import build_exact_identifier_hits
+from .exact_identifier_retrieval import exact_identifier_enabled
+from .exact_identifier_retrieval import exact_identifier_tokens
+from .typed_memory_contract import TypedMemoryContractUnavailable
+from .typed_memory_contract import typed_memory_capability_available
+from .typed_memory_contract import require_typed_memory_contract
+from .typed_memory_contract import typed_memory_contract_enabled
+from .temporal_contract import TemporalContractUnavailable
+from .temporal_contract import TemporalValidationError
+from .temporal_contract import normalize_temporal_fields
+from .temporal_contract import normalize_temporal_timestamp
+from .temporal_contract import require_temporal_contract
+from .temporal_contract import temporal_intent_requested
+from . import app_core_memory_base as app_core
+from . import app_core_graph
+from . import app_core_hit
+
 
 _LOGGER = logging.getLogger(__name__)
 

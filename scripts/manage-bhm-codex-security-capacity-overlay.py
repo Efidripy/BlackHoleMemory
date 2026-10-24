@@ -11,15 +11,14 @@ import argparse
 import hashlib
 import json
 import os
-import tempfile
 from pathlib import Path
+import tempfile
 from typing import Any
 
-from blackholememory.filesystem_boundaries import (
-    assert_safe_path,
-    read_bytes_safely,
-    write_bytes_exclusive,
-)
+from blackholememory.filesystem_boundaries import assert_safe_path
+from blackholememory.filesystem_boundaries import read_bytes_safely
+from blackholememory.filesystem_boundaries import write_bytes_exclusive
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_POLICY_PATH = REPO_ROOT / ".docs" / "config" / "security-scan-capacity.json"

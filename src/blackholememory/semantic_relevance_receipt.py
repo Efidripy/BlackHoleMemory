@@ -13,6 +13,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+
 SEMANTIC_RELEVANCE_RECEIPT_SCHEMA_VERSION = "bhm.semantic-relevance-receipt.v1"
 MAX_RELEVANCE_ITEMS = 128
 

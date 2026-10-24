@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import os
@@ -11,14 +13,12 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from blackholememory import app as bhm_app
-from blackholememory.factory_integration import (
-    build_factory_integration_preview,
-    verify_factory_integration_digest,
-)
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+from blackholememory import app as bhm_app
+from blackholememory.factory_integration import build_factory_integration_preview
+from blackholememory.factory_integration import verify_factory_integration_digest
+from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI_PATH = ROOT / "scripts" / "bhm-factories.py"

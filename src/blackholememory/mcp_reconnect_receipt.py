@@ -8,10 +8,11 @@ attachment without a live native tool call.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import hashlib
 import json
-from datetime import datetime, timezone
 from typing import Any, Mapping
+
 
 MCP_RECONNECT_RECEIPT_SCHEMA_VERSION = "bhm.mcp.reconnect-receipt.v1"
 

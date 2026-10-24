@@ -16,8 +16,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 
 from .filesystem_boundaries import assert_safe_path
-from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 from .source_registry import verify_registry
+from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
+
 
 PROVENANCE_BOUNDARY_SCHEMA = "bhm.p28.provenance-boundary.v1"
 

@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+
 ATOMIC_LEDGER_SCHEMA_VERSION = "bhm.semantic-assurance-human-curation-ledger.v1"
 CONTROL_CELLS_SCHEMA_VERSION = "bhm.semantic-assurance-human-curation-controls.v1"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-curator-audit-receipt.v1"

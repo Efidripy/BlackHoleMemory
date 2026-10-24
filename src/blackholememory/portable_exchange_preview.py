@@ -24,6 +24,7 @@ from .portable_bundle import (
     validate_portable_bundle,
 )
 
+
 MANIFEST_SCHEMA_VERSION = "bhm.portable.exchange-manifest.v1"
 PREVIEW_SCHEMA_VERSION = "bhm.portable.exchange-quarantine-preview.v1"
 MAX_MANIFEST_BYTES = 16 * 1024

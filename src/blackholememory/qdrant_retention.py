@@ -11,6 +11,7 @@ from typing import Any
 from .projection_quarantine import json_sha256
 from .qdrant_validation_bounds import ValidationScanBudget
 
+
 RETENTION_SCHEMA_VERSION = "1.0"
 _MANIFEST_NAME = "quarantine-manifest.json"
 

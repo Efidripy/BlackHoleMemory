@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+
 CHANGE_IMPACT_RISK_RECEIPT_SCHEMA_VERSION = "bhm.change-impact.risk-receipt.v1"
 MAX_RISK_ITEMS = 512
 

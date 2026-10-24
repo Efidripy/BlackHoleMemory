@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from urllib.parse import urlparse
 
+
 LOCAL_SECURITY_GATE_SCHEMA_VERSION = "bhm.security.local-llm-gate.v1"
 LOCAL_SECURITY_GATE_MODE = "bulk_discovery_triage"
 _LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}

@@ -15,6 +15,7 @@ from typing import Any
 from .governed_consolidation import OPERATIONS
 from .governed_semantic_editor import GOVERNED_SEMANTIC_EDITOR_ANALYZER
 
+
 GOVERNED_SEMANTIC_GOLDEN_SCHEMA_VERSION = "bhm.governed-semantic-golden.v1"
 
 

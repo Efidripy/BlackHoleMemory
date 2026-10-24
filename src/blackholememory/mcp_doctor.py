@@ -20,108 +20,6 @@ from .local_endpoint_policy import (
     validate_local_endpoint,
 )
 from .mcp_catalog_contract import CatalogContractError, build_catalog_contract
-from .mcp_doctor_base import (
-    _ANONYMOUS_BHM_HEALTH_PATHS as _ANONYMOUS_BHM_HEALTH_PATHS,
-)
-from .mcp_doctor_base import (
-    _STREAM_READ_CHUNK_BYTES as _STREAM_READ_CHUNK_BYTES,
-)
-from .mcp_doctor_base import (
-    DEFAULT_BASE_URL as DEFAULT_BASE_URL,
-)
-from .mcp_doctor_base import (
-    MAX_CONNECTION_STATES as MAX_CONNECTION_STATES,
-)
-from .mcp_doctor_base import (
-    MAX_FINGERPRINTS as MAX_FINGERPRINTS,
-)
-from .mcp_doctor_base import (
-    MAX_HTTP_BYTES as MAX_HTTP_BYTES,
-)
-from .mcp_doctor_base import (
-    MAX_ISSUES as MAX_ISSUES,
-)
-from .mcp_doctor_base import (
-    MAX_SCRIPT_BYTES as MAX_SCRIPT_BYTES,
-)
-from .mcp_doctor_base import (
-    SCHEMA_VERSION as SCHEMA_VERSION,
-)
-from .mcp_doctor_base import (
-    VALIDATION_SCHEMA_VERSION as VALIDATION_SCHEMA_VERSION,
-)
-from .mcp_doctor_base import (
-    DoctorConfig as DoctorConfig,
-)
-from .mcp_doctor_base import (
-    _bhm_request_headers as _bhm_request_headers,
-)
-from .mcp_doctor_base import (
-    _bounded_float as _bounded_float,
-)
-from .mcp_doctor_base import (
-    _bounded_int as _bounded_int,
-)
-from .mcp_doctor_base import (
-    _close_process as _close_process,
-)
-from .mcp_doctor_base import (
-    _read_line as _read_line,
-)
-from .mcp_doctor_base import (
-    _read_process_or_user_env_value as _read_process_or_user_env_value,
-)
-from .mcp_doctor_base import (
-    _read_stream_bounded as _read_stream_bounded,
-)
-from .mcp_doctor_base import (
-    _readiness_from_stderr as _readiness_from_stderr,
-)
-from .mcp_doctor_base import (
-    _request as _request,
-)
-from .mcp_doctor_base import (
-    _required_bhm_caller_token as _required_bhm_caller_token,
-)
-from .mcp_doctor_base import (
-    _resolve_runtime_python as _resolve_runtime_python,
-)
-from .mcp_doctor_base import (
-    _run_json_script as _run_json_script,
-)
-from .mcp_doctor_base import (
-    _safe_issue_code as _safe_issue_code,
-)
-from .mcp_doctor_probes import (
-    _configured_sources as _configured_sources,
-)
-from .mcp_doctor_probes import (
-    _connection_snapshot as _connection_snapshot,
-)
-from .mcp_doctor_probes import (
-    _duplicate_fingerprints as _duplicate_fingerprints,
-)
-from .mcp_doctor_probes import (
-    _get_json as _get_json,
-)
-from .mcp_doctor_probes import (
-    _http_mcp_request as _http_mcp_request,
-)
-from .mcp_doctor_probes import (
-    _lease_snapshot as _lease_snapshot,
-)
-from .mcp_doctor_probes import (
-    _ownership_snapshot as _ownership_snapshot,
-)
-from .mcp_doctor_probes import (
-    _protocol_probe as _protocol_probe,
-)
-from .mcp_doctor_probes import (
-    _runtime_snapshot as _runtime_snapshot,
-)
-from .mcp_doctor_probes import (
-    _streamable_http_protocol_probe as _streamable_http_protocol_probe,
-)
 from .mcp_protocol_contract import CURRENT_PROTOCOL_VERSION
 from .mcp_surfaces import CORE_TOOL_NAMES
 from .resource_limits import (
@@ -130,6 +28,45 @@ from .resource_limits import (
 )
 from .runtime_endpoints import endpoint_url
 from .version_manifest import PACKAGE_VERSION
+
+from .mcp_doctor_base import (
+    DEFAULT_BASE_URL as DEFAULT_BASE_URL,
+    DoctorConfig as DoctorConfig,
+    MAX_CONNECTION_STATES as MAX_CONNECTION_STATES,
+    MAX_FINGERPRINTS as MAX_FINGERPRINTS,
+    MAX_HTTP_BYTES as MAX_HTTP_BYTES,
+    MAX_ISSUES as MAX_ISSUES,
+    MAX_SCRIPT_BYTES as MAX_SCRIPT_BYTES,
+    SCHEMA_VERSION as SCHEMA_VERSION,
+    VALIDATION_SCHEMA_VERSION as VALIDATION_SCHEMA_VERSION,
+    _ANONYMOUS_BHM_HEALTH_PATHS as _ANONYMOUS_BHM_HEALTH_PATHS,
+    _STREAM_READ_CHUNK_BYTES as _STREAM_READ_CHUNK_BYTES,
+    _bhm_request_headers as _bhm_request_headers,
+    _bounded_float as _bounded_float,
+    _bounded_int as _bounded_int,
+    _close_process as _close_process,
+    _read_line as _read_line,
+    _read_process_or_user_env_value as _read_process_or_user_env_value,
+    _read_stream_bounded as _read_stream_bounded,
+    _readiness_from_stderr as _readiness_from_stderr,
+    _request as _request,
+    _required_bhm_caller_token as _required_bhm_caller_token,
+    _resolve_runtime_python as _resolve_runtime_python,
+    _run_json_script as _run_json_script,
+    _safe_issue_code as _safe_issue_code,
+)
+from .mcp_doctor_probes import (
+    _connection_snapshot as _connection_snapshot,
+    _configured_sources as _configured_sources,
+    _duplicate_fingerprints as _duplicate_fingerprints,
+    _get_json as _get_json,
+    _http_mcp_request as _http_mcp_request,
+    _lease_snapshot as _lease_snapshot,
+    _ownership_snapshot as _ownership_snapshot,
+    _protocol_probe as _protocol_probe,
+    _runtime_snapshot as _runtime_snapshot,
+    _streamable_http_protocol_probe as _streamable_http_protocol_probe,
+)
 
 # Preserve module-attribute re-exports for backward compatibility
 assert_safe_path = assert_safe_path

@@ -23,6 +23,7 @@ from typing import Any
 from .retrieval_benchmark import filter_benchmark_hits
 from .retrieval_fusion import weighted_rank_fusion
 
+
 HYBRID_RETRIEVAL_EVALUATION_SCHEMA_VERSION = "bhm.hybrid-retrieval-evaluation.v1"
 MIN_CASE_COUNT = 100
 MAX_CASE_COUNT = 200

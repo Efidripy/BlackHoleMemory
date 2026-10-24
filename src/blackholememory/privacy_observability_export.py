@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+
 SCHEMA_VERSION = "bhm.privacy-observability-export.v1"
 MAX_INPUT_ROWS = 64
 MAX_RENDERED_SERIES = 128

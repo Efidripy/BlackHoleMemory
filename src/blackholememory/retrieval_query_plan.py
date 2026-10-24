@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Iterable, Mapping
 
+
 SCHEMA_VERSION = "bhm.retrieval-query-plan.v1"
 _ALLOWED_ORIGINS = frozenset({"LOCAL", "GLOBAL"})
 _ALLOWED_ROUTES = frozenset({"vector", "exact-identifier"})

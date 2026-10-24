@@ -16,10 +16,9 @@ import unicodedata
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from .semantic_assurance_curator_audit import (
-    SemanticAssuranceCuratorAuditError,
-    verify_v6_curator_audit_receipt,
-)
+from .semantic_assurance_curator_audit import SemanticAssuranceCuratorAuditError
+from .semantic_assurance_curator_audit import verify_v6_curator_audit_receipt
+
 
 SCHEMA_VERSION = "bhm.semantic-assurance-corpus-admission.v1"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-corpus-admission-receipt.v1"

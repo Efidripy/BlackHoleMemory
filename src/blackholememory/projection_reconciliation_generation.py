@@ -6,20 +6,19 @@ import hashlib
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
+from datetime import timezone
 from typing import Any
 
-from .domain import Lifecycle
-from .memory_repository import MemoryRepository
 from .projection_reconciliation_base import (
     QDRANT_GENERATION_COLLECTION_PREFIX,
     _digest_payload,
 )
-from .qdrant_projector import (
-    QdrantProjector,
-    build_generation_point_payload,
-    deterministic_point_id,
-)
+from .domain import Lifecycle
+from .memory_repository import MemoryRepository
+from .qdrant_projector import QdrantProjector
+from .qdrant_projector import build_generation_point_payload
+from .qdrant_projector import deterministic_point_id
 
 _TARGET_GENERATION_LABEL_RE = re.compile(r"[a-z][a-z0-9-]{2,31}")
 

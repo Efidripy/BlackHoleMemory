@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+
 SCHEMA_VERSION = "bhm.mcp.timeout-contract.v1"
 MIN_SECONDS = 0.1
 MAX_SECONDS = 120.0

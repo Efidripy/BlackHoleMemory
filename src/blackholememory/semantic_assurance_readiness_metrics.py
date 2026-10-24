@@ -9,16 +9,14 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any
 
-from .semantic_assurance_evaluation import (
-    recompute_semantic_assurance_results,
-    wilson_interval,
-)
+from .semantic_assurance_evaluation import recompute_semantic_assurance_results, wilson_interval
 from .semantic_assurance_live import (
     DEFAULT_BASE_URL,
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_VARIANT,
     PROMPT_CONTRACT,
 )
+
 
 LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V5 = "bhm.semantic-assurance-human-label-admission-receipt.v5"
 LABEL_ADMISSION_RECEIPT_SCHEMA_VERSION_V6 = "bhm.semantic-assurance-human-label-admission-receipt.v6"
@@ -374,9 +372,7 @@ def _risk_stratified_metrics(results: object) -> dict[str, dict[str, dict[str, d
                 if predicted_relevance.get(support_id) == label:
                     counts[risk]["support_relevance"]["irrelevant"]["correct_count"] += 1
     try:
-        from .semantic_assurance_label_admission import (
-            _v6_sealed_risk_label_matrix_binding,
-        )
+        from .semantic_assurance_label_admission import _v6_sealed_risk_label_matrix_binding
 
         matrix = _v6_sealed_risk_label_matrix_binding(case_rows, adjudications)
     except Exception as exc:  # broad: convert risk-label matrix failures into fail-closed readiness errors

@@ -14,12 +14,11 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from blackholememory.consolidation_change_set import MemoryReference
-from blackholememory.memory_contracts import (
-    ProcedureExecutionTraceReceipt,
-    ProcedureOutcomeReceipt,
-    ProcedureStepStatus,
-    ProcedureTraceStatus,
-)
+from blackholememory.memory_contracts import ProcedureExecutionTraceReceipt
+from blackholememory.memory_contracts import ProcedureOutcomeReceipt
+from blackholememory.memory_contracts import ProcedureStepStatus
+from blackholememory.memory_contracts import ProcedureTraceStatus
+
 
 PROCEDURAL_REVISION_REVIEW_SCHEMA_VERSION = "bhm.procedure-revision-review.v1"
 MIN_FAILURE_PATTERN = 2

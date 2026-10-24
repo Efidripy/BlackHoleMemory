@@ -9,9 +9,12 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from . import app_runtime as rt
-from .api_models import PublicCodeToolRequest
 from .app_runtime import _run_bounded_read
+from .api_models import PublicCodeToolRequest
 from .caller_auth import authorize_project_root, authorize_projects
+from .config import settings
+from .runtime_storage import resolve_runtime_storage_config
+
 from .code_tools_service_scope import (
     _PUBLIC_CODE_TOOL_OPERATIONS,  # noqa: F401
     _current_code_graph_snapshot,  # noqa: F401
@@ -28,8 +31,6 @@ from .code_tools_service_scope import (
     _resolve_public_code_root,  # noqa: F401
     _validate_explicit_public_code_root,  # noqa: F401
 )
-from .config import settings
-from .runtime_storage import resolve_runtime_storage_config
 
 _LOGGER = logging.getLogger("blackholememory.app")
 

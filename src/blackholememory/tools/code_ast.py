@@ -5,7 +5,9 @@ import re
 from pathlib import Path
 from typing import Iterable
 
-from .agent_boundary import read_agent_text, resolve_agent_path
+from .agent_boundary import read_agent_text
+from .agent_boundary import resolve_agent_path
+
 
 FOLDED_MARKER = "... [Code Folded]"
 PYTHON_EXTENSIONS = {".py", ".pyw"}

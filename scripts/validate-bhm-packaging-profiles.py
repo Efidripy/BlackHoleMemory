@@ -11,8 +11,9 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+from blackholememory.local_endpoint_policy import open_local_url
+from blackholememory.local_endpoint_policy import read_bounded_response
 from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.local_endpoint_policy import open_local_url, read_bounded_response
 from blackholememory.resource_limits import BHM_INTERNAL_HTTP_TIMEOUT_SECONDS
 
 ROOT = Path(__file__).resolve().parents[1]

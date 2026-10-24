@@ -15,9 +15,9 @@ from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
-
 from .filesystem_boundaries import assert_safe_path
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
+
 
 MEMORY_GRAPH_SCHEMA_VERSION = "bhm.memory-graph.v1"
 MEMORY_GRAPH_BUILD_VERSION = "wi06-native-1"

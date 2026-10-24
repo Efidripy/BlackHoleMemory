@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
-
 from pydantic import Field
 
 from . import bhm_mcp_base as _base
 from .bhm_mcp_base import (
     DEFAULT_PROJECT,
-    MemoryClass,
-    MemoryEventRole,
     _json_object,
     _parse_csv,
     mcp,
+    MemoryClass,
+    MemoryEventRole,
 )
 
 

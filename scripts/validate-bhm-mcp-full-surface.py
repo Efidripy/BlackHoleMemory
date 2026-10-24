@@ -29,6 +29,7 @@ from typing import Any, Callable
 
 import httpx
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 SCRIPT_ROOT = REPO_ROOT / "scripts"
@@ -39,12 +40,11 @@ for import_root in (SRC_ROOT, SCRIPT_ROOT):
 from blackholememory.caller_auth import configured_caller_token
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
-from blackholememory.project_retirement import (
-    PROJECT_RETIREMENT_ALLOWLIST_ENV,
-    PROJECT_RETIREMENT_CAPABILITY_ENV,
-)
+from blackholememory.project_retirement import PROJECT_RETIREMENT_ALLOWLIST_ENV
+from blackholememory.project_retirement import PROJECT_RETIREMENT_CAPABILITY_ENV
 from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 from blackholememory.runtime_endpoints import endpoint_url
+
 
 SCHEMA_VERSION = "bhm.mcp.full-surface-validation.v1"
 DEFAULT_TIMEOUT_SECONDS = 180.0
@@ -606,10 +606,9 @@ def _parse_args() -> argparse.Namespace:
 
 
 async def run_validation(args: argparse.Namespace) -> dict[str, Any]:
+    from blackholememory import bhm_mcp
     from bhm_mcp_full_surface_code import run_code_tools
     from bhm_mcp_full_surface_memory import run_memory_tools
-
-    from blackholememory import bhm_mcp
 
     token = configured_caller_token()
     if len(token) < 32:

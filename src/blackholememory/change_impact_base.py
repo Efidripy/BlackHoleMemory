@@ -11,6 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from .filesystem_boundaries import assert_safe_path
 
+
 CHANGE_IMPACT_SCHEMA_VERSION = "bhm.change-impact.v1"
 IMPACT_BINDING_SCHEMA_VERSION = "bhm.change-impact.binding.v1"
 IMPACT_PREVIEW_RESPONSE_BOUNDS_SCHEMA_VERSION = "bhm.change-impact.response-bounds.v1"

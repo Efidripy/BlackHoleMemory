@@ -10,24 +10,21 @@ import copy
 import hashlib
 import json
 import sqlite3
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .domain import (
-    Artifact,
-    Lifecycle,
-    Memory,
-    MemoryLink,
-    MemoryRevision,
-    content_sha256,
-)
+from .domain import Memory
+from .domain import MemoryLink
+from .domain import MemoryRevision
+from .domain import Lifecycle
+from .domain import Artifact
+from .domain import content_sha256
 from .filesystem_boundaries import assert_safe_path
-from .memory_repository import (
-    SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS,
-    MemoryRepositoryError,
-    SQLiteMemoryRepository,
-)
+from .memory_repository import MemoryRepositoryError
+from .memory_repository import SUPPORTED_MEMORY_STORE_SCHEMA_VERSIONS
+from .memory_repository import SQLiteMemoryRepository
 from .resource_limits import SQLITE_DEFAULT_BUSY_TIMEOUT_SECONDS
 from .sync_service import MemoryLifecycleService
 

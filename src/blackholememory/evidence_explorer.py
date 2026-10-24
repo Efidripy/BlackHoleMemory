@@ -14,6 +14,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+
 SCHEMA_VERSION = "bhm.evidence-explorer.v1"
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,219}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")

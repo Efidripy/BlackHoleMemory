@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+
 CONSOLIDATION_CHANGE_SET_SCHEMA_VERSION = "bhm.consolidation.change-set.v1"
 UTILITY_REPORT_SCHEMA_VERSION = "bhm.utility-feedback.v1"
 SQLITE_SNAPSHOT_SCHEMA_VERSION = "bhm.memory-doctor.sqlite-snapshot.v1"

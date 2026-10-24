@@ -12,17 +12,14 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from blackholememory.context_tier_promotion import (
-    apply_tier_promotion,
-    build_tier_promotion_plan,
-    rollback_tier_promotion,
-)
-from blackholememory.context_tier_promotion_migration import (
-    apply_context_tier_promotion_migration,
-    build_context_tier_promotion_migration_plan,
-)
+from blackholememory.context_tier_promotion import apply_tier_promotion
+from blackholememory.context_tier_promotion import build_tier_promotion_plan
+from blackholememory.context_tier_promotion import rollback_tier_promotion
+from blackholememory.context_tier_promotion_migration import apply_context_tier_promotion_migration
+from blackholememory.context_tier_promotion_migration import build_context_tier_promotion_migration_plan
 from blackholememory.domain import Memory
 from blackholememory.memory_repository import SQLiteMemoryRepository
+
 
 PROJECT = "tier-promotion-smoke"
 SESSION = "tier-promotion-smoke-session"

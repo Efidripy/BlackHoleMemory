@@ -8,15 +8,14 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from . import app_runtime as rt
-from . import code_tools_service_base as _base
-from .api_models import PublicCodeToolRequest
 from .app_runtime import _run_bounded_read
+from .api_models import PublicCodeToolRequest
 from .code_graph import (
     CODE_GRAPH_EXTRACTOR_VERSION,
     CODE_GRAPH_SCHEMA_VERSION,
+    CodeGraphError,
     LANGUAGE_INVENTORY_DIGEST,
     PARSER_REGISTRY_DIGEST,
-    CodeGraphError,
     SQLiteCodeGraphStore,
     parser_capability_matrix,
 )
@@ -30,8 +29,6 @@ from .code_graph_artifact import (
 from .code_graph_dsl import GraphDslError, query_graph_dsl
 from .code_graph_query import (
     ALLOWED_OPERATIONS as CODE_GRAPH_QUERY_OPERATIONS,
-)
-from .code_graph_query import (
     CodeGraphQueryError,
     query_code_graph,
 )
@@ -42,6 +39,8 @@ from .repository_index import (
     repository_index_status,
 )
 from .resource_limits import BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS
+
+from . import code_tools_service_base as _base
 
 
 async def _op_graph_query(

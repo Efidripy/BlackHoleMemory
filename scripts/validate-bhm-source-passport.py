@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -10,13 +12,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
-from blackholememory.source_registry import (
-    SourceRegistryError,
-    load_registry,
-    verify_registry,
-)
+from blackholememory.source_registry import SourceRegistryError, load_registry, verify_registry
+
 
 ROOT = Path(__file__).resolve().parents[1]
 GIT_PROBE_TIMEOUT_SECONDS = PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS

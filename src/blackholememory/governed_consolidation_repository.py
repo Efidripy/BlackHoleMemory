@@ -9,26 +9,13 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Mapping
 
-from .filesystem_boundaries import assert_safe_path
 from .governed_consolidation_base import (
-    GOVERNED_CONSOLIDATION_CAPABILITY_KEY,
-    GOVERNED_CONSOLIDATION_CAPABILITY_VERSION,
-    MAX_PROPOSALS,
-    STATUSES,
-    GovernedConsolidationApprovalRequired,
-    GovernedConsolidationError,
-    GovernedConsolidationMigrationRequired,
-    _bounded_items,
-    _bounded_text,
-    _canonical_json,
-    _is_semantic_proposal,
-    _semantic_attestation_error,
-    _sha256,
-    _utc_now_iso,
-    validate_proposal_identity,
-    validate_semantic_operator_attestation,
+    GOVERNED_CONSOLIDATION_CAPABILITY_KEY, GOVERNED_CONSOLIDATION_CAPABILITY_VERSION, MAX_PROPOSALS, STATUSES,
+    GovernedConsolidationApprovalRequired, GovernedConsolidationError, GovernedConsolidationMigrationRequired,
+    _bounded_items, _bounded_text, _canonical_json, _is_semantic_proposal,
+    _semantic_attestation_error, _sha256, _utc_now_iso, validate_proposal_identity, validate_semantic_operator_attestation,
 )
-
+from .filesystem_boundaries import assert_safe_path
 
 class GovernedConsolidationRepository:
     """SQLite authority adapter for proposal state, never canonical memories."""

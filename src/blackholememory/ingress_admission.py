@@ -18,6 +18,7 @@ from typing import Any, Mapping
 from .llm_safety import scan_prompt_injection
 from .observation_security import contains_secret_like
 
+
 INGRESS_ADMISSION_SCHEMA_VERSION = "bhm.ingress-admission.v1"
 
 

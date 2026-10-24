@@ -12,8 +12,12 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from . import app_core, app_core_fallback, app_core_hit, app_core_hook
+from . import app_core
+from . import app_core_fallback
+from . import app_core_hit
+from . import app_core_hook
 from . import app_runtime as rt
+from .app_runtime import _safe_exception_text
 from .api_models import (
     EntityExtractRequest,
     LinkCycleDetectRequest,
@@ -26,12 +30,10 @@ from .api_models import (
     SchemaUpgradeAllRequest,
     ValidationTrendReportRequest,
 )
-from .app_runtime import _safe_exception_text
 from .memory_service import MemoryServiceNotReady
 from .observation_security import contains_secret_like
 from .ontology_quarantine import ARTIFACT_TYPE as ONTOLOGY_QUARANTINE_ARTIFACT_TYPE
 from .ontology_quarantine import serialize_quarantine_record
-
 
 def _list_ontology_quarantine(project: str, limit: int = 100) -> dict[str, Any]:
     """Return a bounded project-local worklist; no resolution is applied here."""

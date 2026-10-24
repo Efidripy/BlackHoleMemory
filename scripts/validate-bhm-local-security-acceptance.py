@@ -21,20 +21,17 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
-from blackholememory.llm_gateway import (
-    LocalLLMGateway,  # noqa: E402
-    LocalOpenAICompatibleAdapter,  # noqa: E402
-    ModelDefinition,  # noqa: E402
-    ModelRegistry,  # noqa: E402
-    PromptDefinition,  # noqa: E402
-    PromptRegistry,  # noqa: E402
-)
+from blackholememory.llm_gateway import LocalLLMGateway  # noqa: E402
+from blackholememory.llm_gateway import LocalOpenAICompatibleAdapter  # noqa: E402
+from blackholememory.llm_gateway import ModelDefinition  # noqa: E402
+from blackholememory.llm_gateway import ModelRegistry  # noqa: E402
+from blackholememory.llm_gateway import PromptDefinition  # noqa: E402
+from blackholememory.llm_gateway import PromptRegistry  # noqa: E402
 from blackholememory.local_security_gate import load_json_object  # noqa: E402
-from blackholememory.local_security_worker import (
-    LocalSecurityWorker,  # noqa: E402
-    worker_contract_descriptor,  # noqa: E402
-)
+from blackholememory.local_security_worker import LocalSecurityWorker  # noqa: E402
+from blackholememory.local_security_worker import worker_contract_descriptor  # noqa: E402
+from blackholememory.filesystem_boundaries import replace_bytes_safely  # noqa: E402
+
 
 TARGET_DIGEST = "b" * 64
 CONTENT_DIGEST = "c" * 64

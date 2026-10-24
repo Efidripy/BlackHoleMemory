@@ -2,44 +2,47 @@
 
 from __future__ import annotations
 
+import time
 import base64
 import os
 import re
 import subprocess
 import threading
-import time
 from pathlib import Path
 from typing import Any
-
 from fastapi import HTTPException
-
-from . import app_core, app_core_fallback, app_core_hook
 from . import app_runtime as rt
-from .adaptive_profile import summarize_explicit_usefulness
-from .api_models import LauncherStatsResponse
 from .app_runtime import _write_json_atomic
+from .api_models import LauncherStatsResponse
 from .config import settings
-from .context_profiles import load_context_profiles
-from .feedback_tuning import build_feedback_tuning, summarize_quality_feedback
 from .filesystem_boundaries import assert_safe_path
 from .health import dependency_report
-from .health_routes import (
-    HealthRuntimeDependencies,
-    build_bhm_health,
-    build_cutover,
-    build_live,
-    build_ready,
-    build_ready_public,
-    build_slo,
-)
-from .llm_telemetry import get_llm_telemetry
-from .mcp_panel import build_mcp_panel_snapshot, load_configured_sources
-from .mem0_adapter import get_qdrant_client, mem0_runtime_plan, storage_runtime_state
-from .memory_service import MemoryServiceNotReady
-from .qdrant_catalog import build_qdrant_catalog
-from .runtime_storage import MemoryStoreMode
+from .health_routes import HealthRuntimeDependencies
+from .health_routes import build_bhm_health
+from .health_routes import build_cutover
+from .health_routes import build_live
+from .health_routes import build_ready
+from .health_routes import build_ready_public
+from .health_routes import build_slo
 from .storage_state import qdrant_required_for_core
+from .mem0_adapter import get_qdrant_client
+from .mem0_adapter import storage_runtime_state
+from .mem0_adapter import mem0_runtime_plan
+from .context_profiles import load_context_profiles
+from .adaptive_profile import summarize_explicit_usefulness
+from .feedback_tuning import build_feedback_tuning
+from .feedback_tuning import summarize_quality_feedback
+from .runtime_storage import MemoryStoreMode
+from .memory_service import MemoryServiceNotReady
 from .version_manifest import RUNTIME_VERSION
+from .llm_telemetry import get_llm_telemetry
+from .mcp_panel import build_mcp_panel_snapshot
+from .mcp_panel import load_configured_sources
+from .qdrant_catalog import build_qdrant_catalog
+from . import app_core_fallback
+from . import app_core_hook
+from . import app_core
+
 
 _SOURCE_REVISION_RE = re.compile(r"[0-9a-f]{40}")
 

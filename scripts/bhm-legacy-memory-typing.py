@@ -14,11 +14,10 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from blackholememory.legacy_memory_typing import (
-    LegacyMemoryTypingError,
-    apply_legacy_memory_typing,
-    build_legacy_memory_typing_plan,
-)
+from blackholememory.legacy_memory_typing import LegacyMemoryTypingError
+from blackholememory.legacy_memory_typing import apply_legacy_memory_typing
+from blackholememory.legacy_memory_typing import build_legacy_memory_typing_plan
+
 
 if hasattr(sys.stdout, "reconfigure"):
     # Legacy titles can contain Cyrillic text. Windows console defaults are

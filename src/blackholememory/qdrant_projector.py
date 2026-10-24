@@ -15,11 +15,14 @@ from typing import Any
 from qdrant_client.http import models as qdrant_models
 
 from .config import settings
-from .domain import Lifecycle, Memory
-from .mem0_adapter import global_collection_name, local_collection_name
+from .domain import Lifecycle
+from .domain import Memory
+from .mem0_adapter import global_collection_name
+from .mem0_adapter import local_collection_name
 from .outbox import OutboxEvent
-from .temporal_contract import temporal_contract_enabled, temporal_projection_fields
 from .vector_routing import route_vector_targets
+from .temporal_contract import temporal_contract_enabled
+from .temporal_contract import temporal_projection_fields
 
 _LOGGER = logging.getLogger(__name__)
 _VOLATILE_PROJECTION_KEYS = {

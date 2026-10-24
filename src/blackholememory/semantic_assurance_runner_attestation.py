@@ -16,12 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from .artifact_signature import ArtifactSignatureError, verify_detached_ed25519
-from .semantic_assurance_live import (
-    DEFAULT_BASE_URL,
-    DEFAULT_MODEL_ID,
-    DEFAULT_MODEL_VARIANT,
-    PROMPT_CONTRACT,
-)
+from .semantic_assurance_live import DEFAULT_BASE_URL, DEFAULT_MODEL_ID, DEFAULT_MODEL_VARIANT, PROMPT_CONTRACT
+
 
 SCHEMA_VERSION = "bhm.semantic-assurance-runner-attestation.v2"
 RECEIPT_SCHEMA_VERSION = "bhm.semantic-assurance-runner-attestation-receipt.v2"

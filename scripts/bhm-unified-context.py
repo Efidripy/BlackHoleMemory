@@ -8,12 +8,11 @@ from pathlib import Path
 
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.repository_index import probe_repository_state
-from blackholememory.unified_context import (
-    UNIFIED_CONTEXT_SCHEMA_VERSION,
-    UnifiedContextError,
-    build_unified_context_from_graph,
-    compile_unified_context,
-)
+from blackholememory.unified_context import UNIFIED_CONTEXT_SCHEMA_VERSION
+from blackholememory.unified_context import UnifiedContextError
+from blackholememory.unified_context import build_unified_context_from_graph
+from blackholememory.unified_context import compile_unified_context
+
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 
 from .llm_safety import sanitize_llm_value
 
+
 MEMORY_FOUNDRY_SCHEMA_VERSION = "bhm.llm.memory-foundry.v1"
 MEMORY_FOUNDRY_MAX_RECORDS = 128
 MEMORY_FOUNDRY_MAX_PROPOSALS = 96

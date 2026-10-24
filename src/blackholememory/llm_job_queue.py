@@ -21,6 +21,7 @@ from typing import Any, Literal
 
 from .filesystem_boundaries import assert_safe_path
 
+
 _LOGGER = logging.getLogger(__name__)
 
 

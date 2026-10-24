@@ -14,17 +14,18 @@ from contextlib import closing
 from pathlib import Path
 from typing import Any, Mapping
 
-from .exact_identifier_retrieval import (
-    EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY,
-    EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION,
-    EXACT_IDENTIFIER_INDEX_TABLE,
-    exact_identifier_record_text,
-    exact_identifier_tokens,
-)
+from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_CAPABILITY_KEY
+from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_CAPABILITY_VERSION
+from .exact_identifier_retrieval import EXACT_IDENTIFIER_INDEX_TABLE
+from .exact_identifier_retrieval import exact_identifier_record_text
+from .exact_identifier_retrieval import exact_identifier_tokens
 from .filesystem_boundaries import assert_safe_path
 from .freshness_migration import canonical_json
-from .memory_class_migration import _connection_logical_digests, _database_fingerprint
-from .memory_repository import FRESHNESS_SCHEMA_TABLES, FRESHNESS_SCHEMA_VERSION
+from .memory_class_migration import _connection_logical_digests
+from .memory_class_migration import _database_fingerprint
+from .memory_repository import FRESHNESS_SCHEMA_TABLES
+from .memory_repository import FRESHNESS_SCHEMA_VERSION
+
 
 MIGRATION_SCHEMA_VERSION = "bhm.exact-identifier-index-migration.v1"
 INDEX_NAME = "idx_memory_identifier_tokens_memory_id"

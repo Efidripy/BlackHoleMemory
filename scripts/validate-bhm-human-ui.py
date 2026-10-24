@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import os
@@ -10,13 +12,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-from blackholememory import app as bhm_app
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.human_ui_bridge import (
-    build_human_ui_bridge_preview,
-    verify_human_ui_bridge_digest,
-)
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
+from blackholememory import app as bhm_app
+from blackholememory.human_ui_bridge import build_human_ui_bridge_preview
+from blackholememory.human_ui_bridge import verify_human_ui_bridge_digest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-human-ui.py"

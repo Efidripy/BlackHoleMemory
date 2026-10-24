@@ -22,10 +22,9 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from .filesystem_boundaries import replace_bytes_safely
-from .resource_limits import (
-    PROCESS_EXECUTION_SOURCE_REGISTRY_GIT_TIMEOUT_SECONDS,
-    SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS,
-)
+from .resource_limits import PROCESS_EXECUTION_SOURCE_REGISTRY_GIT_TIMEOUT_SECONDS
+from .resource_limits import SOURCE_REGISTRY_WEB_TIMEOUT_SECONDS
+
 
 REGISTRY_SCHEMA_V1 = "bhm.source-registry.v1"
 REGISTRY_SCHEMA = "bhm.source-registry.v2"

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import statistics
 import time
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.llm_code_fabric import build_code_fabric_plan
 
 

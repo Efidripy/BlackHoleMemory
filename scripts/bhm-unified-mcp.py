@@ -10,6 +10,7 @@ from typing import Any
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.unified_mcp_contract import build_unified_mcp_contract
 
+
 ROOT = Path(__file__).resolve().parents[1]
 
 

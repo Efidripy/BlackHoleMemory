@@ -15,12 +15,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
-from .artifact_signature import ArtifactSignatureError, verify_detached_ed25519
-from .filesystem_boundaries import (
-    assert_safe_path,
-    replace_bytes_safely,
-    write_bytes_exclusive,
-)
+from .artifact_signature import ArtifactSignatureError
+from .artifact_signature import verify_detached_ed25519
+from .filesystem_boundaries import assert_safe_path
+from .filesystem_boundaries import replace_bytes_safely
+from .filesystem_boundaries import write_bytes_exclusive
+
 
 CODE_GRAPH_ARTIFACT_SCHEMA_VERSION = "bhm.code-graph.artifact.v1"
 GRAPH_ARTIFACT_ADOPTION_SCHEMA_VERSION = "bhm.code-graph.adoption-receipt.v1"

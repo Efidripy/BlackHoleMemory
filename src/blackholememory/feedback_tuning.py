@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+
 SCHEMA_VERSION = 1
 MIN_EXPLICIT_FEEDBACK = 5
 MIN_QUALITY_FEEDBACK = 3

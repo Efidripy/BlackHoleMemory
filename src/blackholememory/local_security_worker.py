@@ -19,11 +19,13 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlparse
 
-from .llm_gateway import GatewayRequest, GatewayResult
+from .llm_gateway import GatewayRequest
+from .llm_gateway import GatewayResult
 from .llm_job_queue import deterministic_llm_job_id
 from .llm_safety import build_proposal_envelope
 from .local_security_gate import evaluate_local_security_gate
 from .resource_limits import LLM_SECURITY_REVIEW_TIMEOUT_SECONDS
+
 
 LOCAL_SECURITY_WORKER_SCHEMA_VERSION = "bhm.security.local-llm-worker.v1"
 SECURITY_REVIEW_OUTPUT_SCHEMA_VERSION = "bhm.security.review-output.v1"

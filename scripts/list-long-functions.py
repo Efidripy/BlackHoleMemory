@@ -6,8 +6,9 @@ from __future__ import annotations
 import argparse
 import ast
 import json
-import sys
 from pathlib import Path
+import sys
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PATHS = ("src/blackholememory", "scripts")

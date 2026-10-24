@@ -3,28 +3,28 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 import hashlib
 import json
 import logging
 import multiprocessing
-import threading
-import uuid
-from concurrent.futures import ProcessPoolExecutor
-from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
+import threading
 from typing import Any, Mapping
+import uuid
 
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 
 from . import app_runtime as rt
-from . import graph_build_jobs
 from .app_runtime import _safe_exception_text
 from .code_graph import (
     CODE_GRAPH_SCHEMA_VERSION,
     PARSER_REGISTRY_DIGEST,
     publish_code_graph,
 )
+from . import graph_build_jobs
 from .graph_build_jobs import GraphBuildBusy, SQLiteGraphBuildJobStore
 
 _LOGGER = logging.getLogger("blackholememory.app")

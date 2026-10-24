@@ -14,14 +14,10 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.semantic_assurance_evaluation import (
-    SemanticAssuranceEvaluationError,
-    load_semantic_assurance_dataset,
-)
-from blackholememory.semantic_assurance_label_admission import (
-    SemanticAssuranceLabelAdmissionError,
-    assess_semantic_assurance_v5_readiness_strata,
-)
+from blackholememory.semantic_assurance_evaluation import SemanticAssuranceEvaluationError
+from blackholememory.semantic_assurance_evaluation import load_semantic_assurance_dataset
+from blackholememory.semantic_assurance_label_admission import SemanticAssuranceLabelAdmissionError
+from blackholememory.semantic_assurance_label_admission import assess_semantic_assurance_v5_readiness_strata
 
 
 def main(argv: list[str] | None = None) -> int:

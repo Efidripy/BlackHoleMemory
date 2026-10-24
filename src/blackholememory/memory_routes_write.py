@@ -15,6 +15,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from . import app_runtime as rt
+from .app_runtime import _safe_exception_text
 from .api_models import (
     AliasResolveRequest,
     BatchAttachSourceRefsRequest,
@@ -38,7 +39,6 @@ from .api_models import (
     SourceRefsReplaceRequest,
     TypeMigrateRequest,
 )
-from .app_runtime import _safe_exception_text
 from .mem0_adapter import initial_decay_metadata
 from .memory_routes_base import _deps, _serialized_link_mutation
 

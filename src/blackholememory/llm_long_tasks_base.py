@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
+
 LLM_LONG_TASK_SCHEMA_VERSION = 1
 LLM_LONG_TASK_PLAN_VERSION = "bhm.llm.long-task.v1"
 LLM_LONG_TASK_CACHE_VERSION = "bhm.llm.long-task-cache.v1"

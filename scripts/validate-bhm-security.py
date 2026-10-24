@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import json
 import os
@@ -10,14 +12,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from blackholememory import app as bhm_app
-from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.resource_limits import PROCESS_EXECUTION_VALIDATOR_TIMEOUT_SECONDS
-from blackholememory.security_trust_boundary import (
-    TRUST_LABELS,
-    build_security_trust_boundary_preview,
-    verify_security_digest,
-)
+from blackholememory import app as bhm_app
+from blackholememory.security_trust_boundary import TRUST_LABELS
+from blackholememory.security_trust_boundary import build_security_trust_boundary_preview
+from blackholememory.security_trust_boundary import verify_security_digest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = ROOT / "scripts" / "bhm-security-trust-boundary.py"

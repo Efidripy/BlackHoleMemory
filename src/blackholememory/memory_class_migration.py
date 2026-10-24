@@ -16,13 +16,14 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from .filesystem_boundaries import assert_safe_path
-from .freshness_migration import canonical_json, sha256_file
-from .memory_repository import FRESHNESS_SCHEMA_TABLES, FRESHNESS_SCHEMA_VERSION
-from .typed_memory_contract import (
-    CAPABILITY_KEY,
-    CAPABILITY_VERSION,
-    TYPED_MEMORY_INDEXES,
-)
+from .freshness_migration import canonical_json
+from .freshness_migration import sha256_file
+from .memory_repository import FRESHNESS_SCHEMA_TABLES
+from .memory_repository import FRESHNESS_SCHEMA_VERSION
+from .typed_memory_contract import CAPABILITY_KEY
+from .typed_memory_contract import CAPABILITY_VERSION
+from .typed_memory_contract import TYPED_MEMORY_INDEXES
+
 
 MIGRATION_SCHEMA_VERSION = "bhm.typed-memory-migration.v1"
 MEMORY_CLASS_COLUMNS = (

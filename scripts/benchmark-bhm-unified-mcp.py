@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 import argparse
 import hashlib
 import json
@@ -9,7 +11,6 @@ import statistics
 import time
 from pathlib import Path
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.unified_mcp_contract import build_unified_mcp_contract
 
 

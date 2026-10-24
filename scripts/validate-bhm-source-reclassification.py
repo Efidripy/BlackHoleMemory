@@ -12,10 +12,11 @@ import json
 import subprocess
 from datetime import date
 from pathlib import Path
+
+from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
+from blackholememory.filesystem_boundaries import replace_bytes_safely
 from typing import Any
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
-from blackholememory.resource_limits import PROCESS_EXECUTION_GIT_PROBE_TIMEOUT_SECONDS
 
 TARGET_IDS = ("CGM", "CBG", "BDS", "M0MCP")
 TODAY = date(2026, 7, 21).isoformat()

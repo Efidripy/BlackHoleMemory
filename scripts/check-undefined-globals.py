@@ -7,9 +7,9 @@ import ast
 import builtins
 import importlib
 import json
-import symtable
 import sys
-from dataclasses import asdict, dataclass
+import symtable
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from types import ModuleType
 from typing import Any

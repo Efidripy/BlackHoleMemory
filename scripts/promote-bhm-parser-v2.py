@@ -6,11 +6,10 @@ import argparse
 import json
 from pathlib import Path
 
-from blackholememory.parser_activation import (
-    ParserActivationError,
-    activate_parser_v2,
-    write_report,
-)
+from blackholememory.parser_activation import ParserActivationError
+from blackholememory.parser_activation import activate_parser_v2
+from blackholememory.parser_activation import write_report
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATABASE = ROOT / ".runtime" / "live-memory" / "memories.sqlite3"

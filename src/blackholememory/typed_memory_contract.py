@@ -9,13 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from .filesystem_boundaries import assert_safe_path
-from .memory_contracts import (
-    EVENT_ROLE_SCHEMA_VERSION,
-    MemoryClass,
-    MemoryClassSource,
-    MemoryEventRole,
-    ProcedureContract,
-)
+from .memory_contracts import EVENT_ROLE_SCHEMA_VERSION
+from .memory_contracts import MemoryClass
+from .memory_contracts import MemoryClassSource
+from .memory_contracts import MemoryEventRole
+from .memory_contracts import ProcedureContract
+
 
 FEATURE_FLAG = "BHM_TYPED_MEMORY_CONTRACT_ENABLED"
 CAPABILITY_KEY = "typed_memory_contract_version"

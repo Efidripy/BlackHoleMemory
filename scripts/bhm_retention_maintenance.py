@@ -9,25 +9,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from blackholememory.filesystem_boundaries import replace_bytes_safely
 from blackholememory.hook_queue import HookJobQueue
 from blackholememory.observation_store import ObservationStore
-from blackholememory.retention import (
-    RetentionPolicyError,
-    apply_retention_plan,
-    build_retention_plan,
-    create_retention_backup,
-    load_retention_policy,
-    parse_timestamp,
-    restore_retention_backup,
-    summarize_retention_plan,
-    utc_iso,
-)
+from blackholememory.retention import RetentionPolicyError
+from blackholememory.retention import apply_retention_plan
+from blackholememory.retention import build_retention_plan
+from blackholememory.retention import create_retention_backup
+from blackholememory.retention import load_retention_policy
+from blackholememory.retention import parse_timestamp
+from blackholememory.retention import restore_retention_backup
+from blackholememory.retention import summarize_retention_plan
+from blackholememory.retention import utc_iso
+from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 DEFAULT_RUNTIME_DIR = REPO_ROOT / ".runtime" / "live-memory"
 DEFAULT_POLICY_PATH = REPO_ROOT / "config" / "retention-policy.json"

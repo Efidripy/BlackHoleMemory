@@ -18,11 +18,10 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
-from ..filesystem_boundaries import (
-    append_bytes_safely,
-    read_bytes_safely,
-    replace_bytes_safely,
-)
+from ..filesystem_boundaries import append_bytes_safely
+from ..filesystem_boundaries import read_bytes_safely
+from ..filesystem_boundaries import replace_bytes_safely
+
 
 SCRATCHPAD_ENV_VAR = "BHM_SWARM_SCRATCHPAD_PATH"
 SCRATCHPAD_ERROR_PREFIX = "Scratchpad unavailable:"

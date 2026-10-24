@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+
 SCHEMA_VERSION = 1
 DEFAULT_UNDO_WINDOW_SECONDS = 900
 MAX_SUGGESTIONS = 64

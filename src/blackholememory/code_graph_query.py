@@ -6,16 +6,19 @@ import hashlib
 import json
 import re
 import time
-from collections import defaultdict, deque
 from fnmatch import fnmatchcase
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from .code_graph import CODE_GRAPH_SCHEMA_VERSION, SQLiteCodeGraphStore
+from .code_graph import CODE_GRAPH_SCHEMA_VERSION
+from .code_graph import SQLiteCodeGraphStore
+from .graph_query_quality_receipt import build_graph_query_quality_receipt
 from .graph_edge_taxonomy_receipt import build_graph_edge_taxonomy_receipt
 from .graph_path_explain_quality_receipt import build_graph_path_explain_quality_receipt
-from .graph_query_quality_receipt import build_graph_query_quality_receipt
-from .security_boundaries import SecurityBoundaryError, compile_bounded_regex
+from .security_boundaries import SecurityBoundaryError
+from .security_boundaries import compile_bounded_regex
+
 
 CODE_GRAPH_QUERY_SCHEMA_VERSION = "bhm.code-graph.query.v1"
 CODE_GRAPH_EXPLAIN_SCHEMA_VERSION = "bhm.code-graph.explain.v1"

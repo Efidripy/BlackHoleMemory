@@ -6,6 +6,7 @@ from typing import Any
 
 from .mcp_surfaces import EXTENDED_PUBLIC_TOOL_NAMES
 
+
 GROUP_NAME = "domain"
 
 

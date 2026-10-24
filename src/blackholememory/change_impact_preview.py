@@ -7,22 +7,22 @@ from typing import Any, Mapping, Sequence
 
 from .change_impact_base import (
     CHANGE_IMPACT_SCHEMA_VERSION,
-    IMPACT_EDGE_KINDS,
     IMPACT_PREVIEW_RESPONSE_BOUNDS_SCHEMA_VERSION,
     IMPACT_PREVIEW_RESPONSE_MAX_SERIALIZED_BYTES,
     MAX_CHANGED_PATHS,
     MAX_IMPACT_NODES,
     MAX_TEST_PATHS,
     MIN_CONFIDENCE,
+    IMPACT_EDGE_KINDS,
     ChangeImpactError,
     _architecture_map,
-    _bounded_text,
     _compact_impact_metadata,
     _node_key,
-    _path,
     _patterns,
-    _serialized_json_bytes,
     _sha256,
+    _serialized_json_bytes,
+    _bounded_text,
+    _path,
 )
 
 

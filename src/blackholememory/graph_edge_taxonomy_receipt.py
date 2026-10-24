@@ -8,6 +8,7 @@ from collections import Counter
 from collections.abc import Mapping
 from typing import Any
 
+
 GRAPH_EDGE_TAXONOMY_RECEIPT_SCHEMA_VERSION = "bhm.code-graph.edge-taxonomy-receipt.v1"
 KNOWN_EDGE_KINDS = frozenset(
     {

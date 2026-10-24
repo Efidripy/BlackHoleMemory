@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.request import Request
 
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -30,14 +31,12 @@ SCRIPT_ROOT = Path(__file__).resolve().parent
 if str(SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT))
 
+from blackholememory.code_search import fuse_code_search_matches  # noqa: E402
+from blackholememory.local_endpoint_policy import MAX_RESPONSE_BYTES  # noqa: E402
+from blackholememory.local_endpoint_policy import open_local_url  # noqa: E402
+from blackholememory.local_endpoint_policy import read_bounded_response  # noqa: E402
 from bhm_runtime_endpoints import validate_loopback_endpoint  # noqa: E402
 
-from blackholememory.code_search import fuse_code_search_matches  # noqa: E402
-from blackholememory.local_endpoint_policy import (
-    MAX_RESPONSE_BYTES,  # noqa: E402
-    open_local_url,  # noqa: E402
-    read_bounded_response,  # noqa: E402
-)
 
 SCHEMA_VERSION = "bhm.p28.wi82.semantic-quality.v1"
 MAX_BENCHMARK_CASES = 32

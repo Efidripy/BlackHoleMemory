@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from bhm_runtime_endpoints import endpoint_port
-
 from blackholememory.filesystem_boundaries import replace_bytes_safely
+
 
 _PROJECT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
 
