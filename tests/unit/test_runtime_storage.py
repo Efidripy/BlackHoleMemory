@@ -304,7 +304,9 @@ def test_expired_schema_cache_refreshes_in_background(tmp_path, monkeypatch):
     clear_memory_store_schema_cache()
 
 
-def test_changed_database_signature_refreshes_without_blocking_readiness(tmp_path, monkeypatch):
+def test_database_writes_do_not_refresh_the_schema_cache_but_ttl_expiry_does_without_blocking(tmp_path, monkeypatch):
+    """Writes change the DB signature constantly; only TTL expiry may trigger the (background) full quick_check."""
+
     config = resolve_runtime_storage_config(runtime_dir=tmp_path, environ={})
     config.database_path.parent.mkdir(parents=True)
     config.database_path.write_bytes(b"schema-placeholder")
@@ -322,20 +324,20 @@ def test_changed_database_signature_refreshes_without_blocking_readiness(tmp_pat
         return True, "sqlite_schema_valid"
 
     monkeypatch.setattr(runtime_storage, "_inspect_memory_store_schema_uncached", fake_uncached)
-    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=60) == (
-        True,
-        "sqlite_schema_valid",
-    )
+    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=60) == (True, "sqlite_schema_valid")
     config.database_path.write_bytes(b"schema-placeholder-after-write")
 
-    started = time.perf_counter()
-    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=60) == (
-        True,
-        "sqlite_schema_valid",
-    )
-    elapsed = time.perf_counter() - started
+    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=60) == (True, "sqlite_schema_valid")
+    assert not refreshed.wait(0.2)  # signature changed, TTL not expired: no rescan
+    assert calls == 1
 
-    assert elapsed < 0.1
+    clear_memory_store_schema_cache()
+    calls = 0
+    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=0.01) == (True, "sqlite_schema_valid")
+    time.sleep(0.03)
+    started = time.perf_counter()
+    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=0.01) == (True, "sqlite_schema_valid")
+    assert time.perf_counter() - started < 0.1  # served from cache while the refresh runs in the background
     assert refreshed.wait(1.0)
     clear_memory_store_schema_cache()
 
@@ -355,3 +357,32 @@ def test_worker_limits_are_bounded_and_invalid_values_fail_closed(tmp_path):
     assert config.projection_worker.batch_size == 10
     assert config.projection_worker.poll_seconds == 1.0
     assert config.projection_worker.max_attempts == 5
+
+
+def test_schema_cache_is_not_invalidated_by_database_writes(tmp_path, monkeypatch):
+    """A normal commit changes the database mtime/size; that must not re-run the full-database quick_check."""
+
+    config = resolve_runtime_storage_config(runtime_dir=tmp_path, environ={})
+    config.database_path.parent.mkdir(parents=True)
+    SQLiteMemoryRepository(config.database_path).initialize()
+    clear_memory_store_schema_cache()
+
+    import blackholememory.runtime_storage as runtime_storage
+
+    calls = 0
+    original = runtime_storage._inspect_memory_store_schema_uncached
+
+    def counting(path):
+        nonlocal calls
+        calls += 1
+        return original(path)
+
+    monkeypatch.setattr(runtime_storage, "_inspect_memory_store_schema_uncached", counting)
+    assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=60) == (True, "sqlite_schema_valid")
+    with config.database_path.open("ab") as handle:  # grows the file and bumps mtime like a commit does
+        handle.write(b"x" * 4096)
+    for _ in range(3):
+        assert runtime_storage.inspect_memory_store_schema(config.database_path, cache_ttl_seconds=60) == (True, "sqlite_schema_valid")
+    time.sleep(0.05)
+    assert calls == 1
+    clear_memory_store_schema_cache()
