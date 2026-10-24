@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 import threading
 import time
-from pathlib import Path
 
 import pytest
 
 import blackholememory.mcp_doctor as doctor
+import blackholememory.mcp_doctor_base as doctor_base
+import blackholememory.mcp_doctor_probes as doctor_probes
 from blackholememory.local_endpoint_policy import LocalEndpointError
 from blackholememory.mcp_doctor import choose_next_action
 from blackholememory.mcp_surfaces import CORE_TOOL_NAMES
@@ -133,6 +135,7 @@ def test_doctor_validator_runner_rejects_linked_script_before_process_start(
 
 
 def test_doctor_health_headers_match_runtime_auth_boundary(monkeypatch):
+    monkeypatch.setattr(doctor_base, "_required_bhm_caller_token", lambda: "t" * 43)
     monkeypatch.setattr(doctor, "_required_bhm_caller_token", lambda: "t" * 43)
 
     anonymous = doctor._bhm_request_headers("/health/ready", accept="application/json")
@@ -168,6 +171,7 @@ def test_doctor_get_json_uses_bounded_local_transport(monkeypatch):
         captured["timeout"] = timeout
         return _Response(b'{"ok":true}')
 
+    monkeypatch.setattr(doctor_probes, "open_local_url", fake_open)
     monkeypatch.setattr(doctor, "open_local_url", fake_open)
 
     payload, error = doctor._get_json(
@@ -186,6 +190,11 @@ def test_doctor_get_json_uses_bounded_local_transport(monkeypatch):
 
 def test_doctor_get_json_fails_closed_on_oversized_response(monkeypatch):
     monkeypatch.setattr(
+        doctor_probes,
+        "open_local_url",
+        lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)),
+    )
+    monkeypatch.setattr(
         doctor,
         "open_local_url",
         lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)),
@@ -202,6 +211,11 @@ def test_doctor_get_json_fails_closed_on_oversized_response(monkeypatch):
 
 
 def test_doctor_mcp_request_fails_closed_on_oversized_response(monkeypatch):
+    monkeypatch.setattr(
+        doctor_probes,
+        "open_local_url",
+        lambda *_args, **_kwargs: _Response(b"x" * (doctor.MAX_HTTP_BYTES + 1)),
+    )
     monkeypatch.setattr(
         doctor,
         "open_local_url",
@@ -241,10 +255,14 @@ def test_doctor_read_line_closes_blocked_stdout_after_deadline() -> None:
 
 
 def test_doctor_does_not_retain_retired_stdio_protocol_probe() -> None:
-    source = Path(doctor.__file__).read_text(encoding="utf-8")
-
-    assert "def _stdio_protocol_probe" not in source
-    assert "retired-stdio-wrapper" not in source
+    sources = [
+        Path(doctor.__file__).read_text(encoding="utf-8"),
+        Path(doctor_base.__file__).read_text(encoding="utf-8"),
+        Path(doctor_probes.__file__).read_text(encoding="utf-8"),
+    ]
+    for source in sources:
+        assert "def _stdio_protocol_probe" not in source
+        assert "retired-stdio-wrapper" not in source
 
 
 def test_doctor_exposes_process_ownership_snapshot(monkeypatch, tmp_path: Path) -> None:
