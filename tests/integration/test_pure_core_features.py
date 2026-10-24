@@ -36,6 +36,7 @@ from blackholememory import (
     app_core_hook,
     app_hooks,
     app_lifecycle,
+    app_lifecycle_hooks,
     app_ops,
     app_ops_admin,
     app_ops_task,
@@ -916,6 +917,7 @@ def test_hook_compact_triggers_crystallization(monkeypatch):
             },
         )
 
+    monkeypatch.setattr(app_lifecycle_hooks, "_append_hook_observation", fake_observation)
     monkeypatch.setattr(app_lifecycle, "_append_hook_observation", fake_observation)
     monkeypatch.setattr(app_core, "_crystallize_memories", fake_crystallize)
 
@@ -992,6 +994,7 @@ def test_hook_compact_empty_state_handling(monkeypatch):
     def fail_crystallize(_request):
         raise AssertionError("crystallize should not run for empty hook state")
 
+    monkeypatch.setattr(app_lifecycle_hooks, "_append_hook_observation", lambda request, endpoint: {"id": "obs_hook_75"})
     monkeypatch.setattr(app_lifecycle, "_append_hook_observation", lambda request, endpoint: {"id": "obs_hook_75"})
     monkeypatch.setattr(app_core, "_crystallize_memories", fail_crystallize)
 
@@ -1260,7 +1263,9 @@ def test_hook_queue_worker_processes_compact_job(monkeypatch, tmp_path):
         }
 
     monkeypatch.setattr(app_core_hook, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_lifecycle_hooks, "_handle_compact_hook", fake_handle)
     monkeypatch.setattr(app_lifecycle, "_handle_compact_hook", fake_handle)
+    monkeypatch.setattr(app_lifecycle_hooks, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(app_core_hook, "_HOOK_QUEUE_LEASE_SECONDS", 5.0)
 
@@ -1298,8 +1303,11 @@ def test_hook_queue_worker_logs_retryable_and_terminal_failure_context(monkeypat
         raise RuntimeError("synthetic processing failure")
 
     monkeypatch.setattr(app_core_hook, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_lifecycle_hooks, "_execute_hook_job", fail_execute)
     monkeypatch.setattr(app_lifecycle, "_execute_hook_job", fail_execute)
+    monkeypatch.setattr(app_lifecycle_hooks, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
+    monkeypatch.setattr(app_lifecycle_hooks, "_HOOK_QUEUE_RETRY_BASE_SECONDS", 0.0)
     monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_RETRY_BASE_SECONDS", 0.0)
     caplog.set_level("WARNING")
 
@@ -1352,7 +1360,9 @@ def test_hook_queue_worker_does_not_hide_failure_recording_error(monkeypatch, tm
 
     monkeypatch.setattr(queue, "fail", fail_once)
     monkeypatch.setattr(app_core_hook, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_lifecycle_hooks, "_execute_hook_job", fail_execute)
     monkeypatch.setattr(app_lifecycle, "_execute_hook_job", fail_execute)
+    monkeypatch.setattr(app_lifecycle_hooks, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     caplog.set_level("ERROR")
 
@@ -1397,6 +1407,7 @@ def test_hook_queue_worker_cancellation_is_recovered_not_terminal(monkeypatch, t
         return {"success": True}
 
     monkeypatch.setattr(app_core_hook, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_lifecycle_hooks, "_execute_hook_job", blocked_execute)
     monkeypatch.setattr(app_lifecycle, "_execute_hook_job", blocked_execute)
     caplog.set_level("INFO")
 
@@ -1442,9 +1453,11 @@ def test_hook_queue_manager_starts_and_drains_fixed_workers(monkeypatch, tmp_pat
         }
 
     monkeypatch.setattr(app_core_hook, "_hook_queue", lambda: queue)
+    monkeypatch.setattr(app_lifecycle_hooks, "_execute_hook_job", fake_execute)
     monkeypatch.setattr(app_lifecycle, "_execute_hook_job", fake_execute)
     monkeypatch.setattr(app_core_hook, "_HOOK_COMPACT_WORKERS", 1)
     monkeypatch.setattr(app_core_hook, "_HOOK_IDLE_WORKERS", 1)
+    monkeypatch.setattr(app_lifecycle_hooks, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(app_lifecycle, "_HOOK_QUEUE_POLL_SECONDS", 0.001)
     monkeypatch.setattr(app_core_hook, "_HOOK_QUEUE_DRAIN_SECONDS", 2.0)
     monkeypatch.setattr(app_hooks, "_HOOK_QUEUE_TASKS", [])
