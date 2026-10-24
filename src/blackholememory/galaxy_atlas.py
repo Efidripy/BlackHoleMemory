@@ -276,10 +276,18 @@ class AtlasCache:
         self._thread: threading.Thread | None = None
         self._last_attempt = 0.0
         self._error = ""
+        self._in_memory: dict[str, Any] | None = None
+        self._in_memory_mtime_ns: int = 0
 
     def _read(self) -> dict[str, Any] | None:
         try:
-            return json.loads(self.cache_path.read_text(encoding="utf-8"))
+            stat = self.cache_path.stat()
+            if self._in_memory is not None and self._in_memory_mtime_ns == stat.st_mtime_ns:
+                return dict(self._in_memory)
+            data = json.loads(self.cache_path.read_text(encoding="utf-8"))
+            self._in_memory = data
+            self._in_memory_mtime_ns = stat.st_mtime_ns
+            return dict(data)
         except (OSError, ValueError):
             return None
 
@@ -300,15 +308,21 @@ class AtlasCache:
         """Return the cached atlas (possibly stale) or a status stub; starts a rebuild when the store changed."""
 
         cached = self._read()
-        try:
-            digest = store_digest(self.database_path)
-        except (OSError, sqlite3.Error):
-            digest = ""
+        now = time.monotonic()
+        cooldown = MIN_BUILD_RETRY_SECONDS if cached is None else MIN_REBUILD_SECONDS
+        can_rebuild = (now - self._last_attempt) >= cooldown
+
+        digest = ""
+        if can_rebuild:
+            try:
+                digest = store_digest(self.database_path)
+            except (OSError, sqlite3.Error):
+                digest = ""
         stale = cached is None or (digest and cached.get("digest") != digest)
         with self._lock:
             running = self._thread is not None and self._thread.is_alive()
-            if stale and digest and not running and time.monotonic() - self._last_attempt >= (MIN_BUILD_RETRY_SECONDS if cached is None else MIN_REBUILD_SECONDS):
-                self._last_attempt = time.monotonic()
+            if stale and digest and not running and can_rebuild:
+                self._last_attempt = now
                 self._thread = threading.Thread(target=self._build_and_store, args=(digest,), name="bhm-atlas-build", daemon=True)
                 self._thread.start()
                 running = True

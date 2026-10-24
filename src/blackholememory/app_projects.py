@@ -493,7 +493,7 @@ def _count_profile_records(project: str) -> int:
 
 async def bhm_profile(project: str = "e-github-workspace") -> dict:
     memory_count, policy_snapshot, registry_snapshot = await asyncio.gather(
-        asyncio.to_thread(_count_profile_records, project=project),
+        asyncio.to_thread(app_core_hit._count_fallback_memory_records, project=project, include_logs=True),
         asyncio.to_thread(app_core_hook._load_policy_profile_snapshot),
         asyncio.to_thread(_load_mcp_registry_snapshot),
     )
