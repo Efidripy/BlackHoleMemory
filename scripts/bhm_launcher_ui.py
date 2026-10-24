@@ -240,6 +240,9 @@ class StatusBadge(_launcher.QWidget):
         self.set_status(_launcher.ServiceStatus("Checking", ""))
 
     def set_status(self, status: _launcher.ServiceStatus) -> None:
+        if getattr(self, "_current_state", None) == status.state:
+            return
+        self._current_state = status.state
         color = COLOR_YELLOW
         if status.state == "Running":
             color = COLOR_GREEN
@@ -285,8 +288,14 @@ class MetricCard(_launcher.QFrame):
             color = COLOR_YELLOW
         elif any(marker in upper for marker in ("READY", "HEALTHY", "ATTACHED")):
             color = COLOR_GREEN
-        self.value.setStyleSheet(f"color: {color};")
-        self.value.setText(text)
+        if getattr(self, "_last_rendered_value", None) == text and getattr(self, "_last_rendered_color", None) == color:
+            return
+        if getattr(self, "_last_rendered_color", None) != color:
+            self.value.setStyleSheet(f"color: {color};")
+            self._last_rendered_color = color
+        if getattr(self, "_last_rendered_value", None) != text:
+            self.value.setText(text)
+            self._last_rendered_value = text
 
 
 class ServiceCard(_launcher.QFrame):
@@ -442,7 +451,23 @@ class ServiceCard(_launcher.QFrame):
 
     def set_status(self, status: _launcher.ServiceStatus) -> None:
         self.badge.set_status(status)
-        self.detail.setText(status.detail)
+        if self.detail.text() != status.detail:
+            self.detail.setText(status.detail)
+
+
+def _read_log_tail(path: _launcher.Path, max_lines: int = 160, max_bytes: int = 65536) -> list[str]:
+    try:
+        size = path.stat().st_size
+        with path.open("rb") as f:
+            if size > max_bytes:
+                f.seek(size - max_bytes)
+            raw = f.read()
+        lines = raw.decode("utf-8", errors="replace").splitlines()
+        if size > max_bytes and lines:
+            lines = lines[1:]
+        return lines[-max_lines:]
+    except OSError:
+        return []
 
 
 class LogsWindow(_launcher.QFrame):
@@ -495,8 +520,15 @@ class LogsWindow(_launcher.QFrame):
             _launcher.find_project_root() / ".runtime" / "bootstrap",
             _launcher.find_project_root() / ".runtime" / "logs",
         ]
-        files: dict[str, _launcher.Path] = {}
+        unique_roots: list[_launcher.Path] = []
+        seen_roots: set[str] = set()
         for root in roots:
+            resolved = str(root).casefold()
+            if resolved not in seen_roots:
+                seen_roots.add(resolved)
+                unique_roots.append(root)
+        files: dict[str, _launcher.Path] = {}
+        for root in unique_roots:
             if not root.exists():
                 continue
             for path in root.rglob("*.log"):
@@ -523,15 +555,13 @@ class LogsWindow(_launcher.QFrame):
         for path in self.candidate_log_files():
             if not self.file_matches_filter(path, key):
                 continue
-            try:
-                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-160:]
-            except OSError:
-                continue
+            lines = _read_log_tail(path, max_lines=160)
             if lines:
                 chunks.append(f"===== {path} =====\n" + "\n".join(lines))
         content = "\n\n".join(chunks[-8:]) if chunks else f"No logs found for filter: {self.filter.currentText()}"
-        self.text.setPlainText(content)
-        self.text.moveCursor(_launcher.QTextCursor.MoveOperation.End)
+        if self.text.toPlainText() != content:
+            self.text.setPlainText(content)
+            self.text.moveCursor(_launcher.QTextCursor.MoveOperation.End)
 
 
 class OperatorResultWindow(_launcher.QFrame):
@@ -682,9 +712,13 @@ class MainWindow(_launcher.QMainWindow):
             color = COLOR_GREEN
         elif any(state in {"Stopped", "Error"} for state in states):
             color = COLOR_RED
-        self.tray.setIcon(_launcher.make_status_tray_icon(color))
-        tooltip = ", ".join(f"{key}: {status.state}" for key, status in self._last_statuses.items())
-        self.tray.setToolTip(tooltip or "BlackHoleMemory Control Deck")
+        tooltip = ", ".join(f"{key}: {status.state}" for key, status in self._last_statuses.items()) or "BlackHoleMemory Control Deck"
+        if getattr(self, "_last_tray_color", None) != color:
+            self.tray.setIcon(_launcher.make_status_tray_icon(color))
+            self._last_tray_color = color
+        if getattr(self, "_last_tray_tooltip", None) != tooltip:
+            self.tray.setToolTip(tooltip)
+            self._last_tray_tooltip = tooltip
 
     def show_integrations_onboarding(self) -> None:
         self.stack.setCurrentIndex(1)

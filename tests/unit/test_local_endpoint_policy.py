@@ -117,3 +117,10 @@ def test_no_redirect_handler_rejects_redirect_response() -> None:
     request = urllib.request.Request("http://127.0.0.1:13666/v1")
     with pytest.raises(LocalEndpointError, match="redirects are disabled"):
         handler.http_error_302(request, object(), 302, "Found", {})
+
+
+def test_open_local_url_caches_opener():
+    from blackholememory.local_endpoint_policy import _get_local_opener
+    op1 = _get_local_opener()
+    op2 = _get_local_opener()
+    assert op1 is op2

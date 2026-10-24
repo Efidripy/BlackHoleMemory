@@ -361,6 +361,7 @@ class SQLiteMemoryService:
         include_temporal_unknown: bool = False,
         include_archived: bool = False,
         include_tombstoned: bool = False,
+        exclude_event_role: str | None = None,
     ) -> int:
         self._ensure_ready(verify_integrity=False)
         return self.repository.count_memories(
@@ -373,6 +374,7 @@ class SQLiteMemoryService:
             include_temporal_unknown=include_temporal_unknown,
             include_archived=include_archived,
             include_tombstoned=include_tombstoned,
+            exclude_event_role=exclude_event_role,
         )
 
     def list_projects(self, *, include_archived: bool = False) -> list[str]:
