@@ -401,6 +401,7 @@ class MemoryRepositoryReadMixin:
         project: str | None = None,
         memory_class: str | None = None,
         event_role: str | None = None,
+        exclude_event_role: str | None = None,
         as_of: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
@@ -436,6 +437,14 @@ class MemoryRepositoryReadMixin:
                 )
                 clauses.append(f"{expression} = ?")
                 parameters.append(event_role)
+            if exclude_event_role is not None:
+                expression = (
+                    "event_role"
+                    if "event_role" in memory_columns
+                    else "COALESCE(json_extract(metadata_json, '$.event_role'), 'unclassified')"
+                )
+                clauses.append(f"({expression} IS NULL OR {expression} <> ?)")
+                parameters.append(exclude_event_role)
             temporal_requested = any(value is not None for value in (as_of, valid_from, valid_to))
             if temporal_requested:
                 observed_expression = "observed_at" if "observed_at" in memory_columns else "json_extract(metadata_json, '$.observed_at')"

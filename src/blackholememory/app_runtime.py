@@ -736,14 +736,30 @@ def _find_live_memory(memory_id: str, project: str | None = None) -> dict | None
     return None
 
 
+_TASK_STORE_CACHE: tuple[int, int, list[dict]] | None = None
+_TASK_STORE_LOCK = threading.Lock()
+
+
 def _load_tasks() -> list[dict]:
+    global _TASK_STORE_CACHE
     path = _task_store_path()
     if not path.exists():
         return []
-    raw = path.read_text(encoding="utf-8").strip()
-    if not raw:
+    try:
+        stat = path.stat()
+    except OSError:
         return []
-    return json.loads(raw)
+    with _TASK_STORE_LOCK:
+        if _TASK_STORE_CACHE is not None and _TASK_STORE_CACHE[0] == stat.st_mtime_ns and _TASK_STORE_CACHE[1] == stat.st_size:
+            return _TASK_STORE_CACHE[2]
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+        data = json.loads(raw) if raw else []
+    except (OSError, ValueError):
+        return []
+    with _TASK_STORE_LOCK:
+        _TASK_STORE_CACHE = (stat.st_mtime_ns, stat.st_size, data)
+    return data
 
 
 def _save_tasks(items: list[dict]) -> Path:

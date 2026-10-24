@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 import re
 import uuid
 from datetime import datetime, timezone
@@ -320,8 +322,18 @@ def _orphan_artifact_relink(request: OrphanArtifactRelinkRequest) -> dict:
     return {"artifact_type": request.artifact_type, "artifact": artifact, "memory": app_core._serialize_memory_record(target)}
 
 
+_AGENT_ACTIVITY_ROLLUP_CACHE: dict[str | None, tuple[float, dict]] = {}
+_AGENT_ACTIVITY_ROLLUP_LOCK = threading.Lock()
+_AGENT_ACTIVITY_ROLLUP_TTL = 10.0
+
+
 def _agent_activity_rollup(project: str | None = None) -> dict:
     project = rt._canonical_project(project) if project else None
+    now = time.monotonic()
+    with _AGENT_ACTIVITY_ROLLUP_LOCK:
+        cached = _AGENT_ACTIVITY_ROLLUP_CACHE.get(project)
+        if cached is not None and now < cached[0]:
+            return dict(cached[1])
     artifacts = {
         "checkpoints": [item for item in app_core_hook._load_checkpoints() if app_core_hook._project_matches(item.get("project"), project)],
         "handoffs": [item for item in app_ops_task2._load_handoffs() if app_core_hook._project_matches(item.get("project"), project)],
@@ -337,11 +349,14 @@ def _agent_activity_rollup(project: str | None = None) -> dict:
         for name, items in artifacts.items()
     }
     latest["observations"] = str(observation_rollup.get("latest") or "")
-    return {
+    result = {
         "project": project,
         "counts": counts,
         "latest": latest,
     }
+    with _AGENT_ACTIVITY_ROLLUP_LOCK:
+        _AGENT_ACTIVITY_ROLLUP_CACHE[project] = (now + _AGENT_ACTIVITY_ROLLUP_TTL, dict(result))
+    return result
 
 
 def _artifact_delete(request: ArtifactDeleteRequest) -> dict:

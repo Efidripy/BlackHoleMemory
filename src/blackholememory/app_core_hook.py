@@ -401,24 +401,38 @@ def _serialize_risk_register_record(record: dict) -> dict:
     }
 
 
-def _load_checkpoints() -> list[dict]:
-    path = _checkpoint_store_path()
+_JSON_STORE_CACHE: dict[str, tuple[int, int, list[dict]]] = {}
+_JSON_STORE_LOCK = threading.Lock()
+
+
+def _load_json_store(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    raw = path.read_text(encoding="utf-8").strip()
-    if not raw:
+    try:
+        stat = path.stat()
+    except OSError:
         return []
-    return json.loads(raw)
+    key = str(path.resolve())
+    with _JSON_STORE_LOCK:
+        cached = _JSON_STORE_CACHE.get(key)
+        if cached is not None and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+            return cached[2]
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+        data = json.loads(raw) if raw else []
+    except (OSError, ValueError):
+        return []
+    with _JSON_STORE_LOCK:
+        _JSON_STORE_CACHE[key] = (stat.st_mtime_ns, stat.st_size, data)
+    return data
+
+
+def _load_checkpoints() -> list[dict]:
+    return _load_json_store(_checkpoint_store_path())
 
 
 def _load_project_maps() -> list[dict]:
-    path = _project_map_store_path()
-    if not path.exists():
-        return []
-    raw = path.read_text(encoding="utf-8").strip()
-    if not raw:
-        return []
-    return json.loads(raw)
+    return _load_json_store(_project_map_store_path())
 
 
 def _save_project_maps(items: list[dict]) -> Path:
@@ -426,13 +440,7 @@ def _save_project_maps(items: list[dict]) -> Path:
 
 
 def _load_session_records() -> list[dict]:
-    path = _session_record_store_path()
-    if not path.exists():
-        return []
-    raw = path.read_text(encoding="utf-8").strip()
-    if not raw:
-        return []
-    return json.loads(raw)
+    return _load_json_store(_session_record_store_path())
 
 
 def _load_task_contexts() -> list[dict]:

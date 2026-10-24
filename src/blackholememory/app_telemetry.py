@@ -231,8 +231,18 @@ def _collect_global_launcher_counts_sync() -> dict[str, int]:
     }
 
 
+_LAUNCHER_STATS_CACHE: tuple[float, dict[str, Any]] | None = None
+_LAUNCHER_STATS_LOCK = threading.Lock()
+_LAUNCHER_STATS_TTL = 5.0
+
+
 def _get_global_launcher_stats() -> dict[str, Any]:
-    return {
+    global _LAUNCHER_STATS_CACHE
+    now = time.monotonic()
+    with _LAUNCHER_STATS_LOCK:
+        if _LAUNCHER_STATS_CACHE is not None and now < _LAUNCHER_STATS_CACHE[0]:
+            return dict(_LAUNCHER_STATS_CACHE[1])
+    result = {
         "schema_version": "bhm.launcher.stats.v1",
         "scope": "all-projects",
         **_collect_global_launcher_counts_sync(),
@@ -240,6 +250,9 @@ def _get_global_launcher_stats() -> dict[str, Any]:
         "session_authority": "runtime-artifact-store",
         "bounded": True,
     }
+    with _LAUNCHER_STATS_LOCK:
+        _LAUNCHER_STATS_CACHE = (now + _LAUNCHER_STATS_TTL, dict(result))
+    return dict(result)
 
 
 def health_live() -> dict:
