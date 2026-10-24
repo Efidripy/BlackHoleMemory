@@ -54,3 +54,39 @@ def test_agent_activity_rollup_uses_observation_store_aggregate(monkeypatch, tmp
 
     assert result["counts"]["observations"] == 1
     assert result["latest"]["observations"] == "2026-08-10T04:00:00Z"
+
+
+def test_activity_rollup_matches_the_joined_reference_with_and_without_purged_rows(tmp_path) -> None:
+    import sqlite3
+
+    store = ObservationStore(tmp_path / "observations.sqlite3")
+    for event_id, project, timestamp in (
+        ("obs-1", "alpha", "2026-08-10T01:00:00Z"),
+        ("obs-2", "alpha", "2026-08-10T02:00:00Z"),
+        ("obs-3", "alpha", "2026-08-10T03:00:00Z"),
+        ("obs-4", "beta", "2026-08-10T04:00:00Z"),
+    ):
+        store.append(_observation(event_id, project=project, timestamp=timestamp))
+    with sqlite3.connect(store.path) as connection:  # stored ids are project-scoped (alphaobs-2)
+        full_id = {name: connection.execute("SELECT event_id FROM observation_events WHERE event_id LIKE ?", (f"%{name}",)).fetchone()[0] for name in ("obs-2", "obs-3")}
+    store.archive([full_id["obs-2"]], archive_reason="test")
+
+    def reference(project: str | None) -> dict:
+        clause, params = ("AND e.project = ?", [project]) if project else ("", [])
+        with sqlite3.connect(store.path) as connection:
+            count, latest = connection.execute(
+                "SELECT COUNT(*), COALESCE(MAX(NULLIF(e.occurred_at, '')), '') FROM observation_events e "
+                "JOIN observation_state s ON s.event_id = e.event_id WHERE s.lifecycle <> 'purged' " + clause,
+                params,
+            ).fetchone()
+        return {"count": count, "latest": latest}
+
+    for project in ("alpha", "beta", None):  # archived rows still count; nothing purged yet (fast path)
+        assert store.activity_rollup(project=project) == reference(project)
+    assert store.activity_rollup(project="alpha")["count"] == 3
+
+    with sqlite3.connect(store.path) as connection:  # purged rows must drop out of count and latest (joined path)
+        connection.execute("UPDATE observation_state SET lifecycle = 'purged' WHERE event_id = ?", (full_id["obs-3"],))
+    for project in ("alpha", "beta", None):
+        assert store.activity_rollup(project=project) == reference(project)
+    assert store.activity_rollup(project="alpha") == {"count": 2, "latest": "2026-08-10T02:00:00Z"}
