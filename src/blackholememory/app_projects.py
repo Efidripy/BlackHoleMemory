@@ -476,8 +476,8 @@ def bhm_project_similarity_report(request: ProjectSimilarityReportRequest, http_
 
 
 async def bhm_profile(project: str = "e-github-workspace") -> dict:
-    memory_records, policy_snapshot, registry_snapshot = await asyncio.gather(
-        asyncio.to_thread(app_core_hit._fallback_memory_records, project=project, include_logs=True),
+    memory_count, policy_snapshot, registry_snapshot = await asyncio.gather(
+        asyncio.to_thread(app_core_hit._count_fallback_memory_records, project=project, include_logs=True),
         asyncio.to_thread(app_core_hook._load_policy_profile_snapshot),
         asyncio.to_thread(_load_mcp_registry_snapshot),
     )
@@ -526,8 +526,8 @@ async def bhm_profile(project: str = "e-github-workspace") -> dict:
         },
         "profile": {
             "project": project,
-            "sessionCount": len(memory_records),
-            "memoryCount": len(memory_records),
+            "sessionCount": memory_count,
+            "memoryCount": memory_count,
             "source": "live-memory-snapshot",
         },
     }

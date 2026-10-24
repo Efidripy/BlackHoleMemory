@@ -165,6 +165,7 @@ class MemoryRepository(Protocol):
         project: str | None = None,
         memory_class: str | None = None,
         event_role: str | None = None,
+        exclude_event_role: str | None = None,
         as_of: str | None = None,
         valid_from: str | None = None,
         valid_to: str | None = None,
