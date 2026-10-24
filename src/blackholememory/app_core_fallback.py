@@ -41,7 +41,7 @@ from .temporal_contract import normalize_temporal_fields
 from .temporal_contract import normalize_temporal_timestamp
 from .temporal_contract import require_temporal_contract
 from .temporal_contract import temporal_intent_requested
-from . import app_core
+from . import app_core_memory_base as app_core
 from . import app_core_graph
 from . import app_core_hit
 
