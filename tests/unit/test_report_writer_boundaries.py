@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory import mem0_adapter
+from blackholememory import mem0_adapter, mem0_adapter_decay
 from blackholememory.mem0_adapter import BHMGraphManager
 from blackholememory.parser_activation import write_report
 
@@ -43,6 +43,7 @@ def test_decay_archive_writer_rejects_hardlink_target(tmp_path: Path, monkeypatc
     target = tmp_path / "decayed-memory.jsonl"
     outside = tmp_path / "outside.jsonl"
     _make_hardlink(target, outside)
+    monkeypatch.setattr(mem0_adapter_decay, "DECAY_ARCHIVE_PATH", target)
     monkeypatch.setattr(mem0_adapter, "DECAY_ARCHIVE_PATH", target)
 
     with pytest.raises(OSError, match="hardlink"):
