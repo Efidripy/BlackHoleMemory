@@ -1,5 +1,5 @@
 param(
-    [string]$Project = "e-github-workspace",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [string]$Title = "live-memory-check",
     [string]$Done = "live session check executed",
     [string]$Next = "review live-memory-check artifacts",

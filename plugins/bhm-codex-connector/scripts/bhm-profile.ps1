@@ -1,7 +1,7 @@
 param(
     [ValidateSet("status", "low-context", "standard", "deep", "compare")]
     [string]$Action = "status",
-    [string]$EnvPath = "C:/Users/<USER>\.bhm\.env",
+    [string]$EnvPath = $(Join-Path $env:USERPROFILE ".bhm\.env"),
     [switch]$RestartWorker,
     [switch]$AsJson
 )

@@ -1,5 +1,5 @@
 param(
-    [string]$CodexConfigPath = "C:/Users/<USER>\.codex\config.toml",
+    [string]$CodexConfigPath = $(Join-Path $env:USERPROFILE ".codex\config.toml"),
     [switch]$AsJson
 )
 

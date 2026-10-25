@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const port = Number(process.env.BHM_WORKBENCH_PORT || 0);
@@ -35,7 +36,8 @@ const obsidianExportScript = join(scriptDir, "bhm-memory-obsidian-export.ps1");
 const doctorActivateScript = join(scriptDir, "bhm-doctor-activate.ps1");
 const portableDoctorScript = join(scriptDir, "bhm-portable-doctor.ps1");
 const runtimeConfigPath = join(pluginRoot, "config", "runtime-discovery.json");
-const defaultEnvPath = "C:/Users/<USER>/.bhm/.env";
+const defaultEnvPath = join(homedir(), ".bhm", ".env");
+const defaultProject = process.env.BHM_PROJECT || stableSlug(process.cwd().split(/[\\/]/).pop(), "project");
 const runtimeHints = {
   apiDefault: process.env.BHM_BASE_URL || "",
   viewerDefault: process.env.BHM_VIEWER_URL || process.env.BHM_BASE_URL || "",
@@ -632,14 +634,14 @@ const server = http.createServer(async (req, res) => {
     return json(
       res,
       200,
-      await runJsonPowerShell(liveCheckScript, ["-Project", "e-github-workspace", "-Title", "bhm-ui-check"])
+      await runJsonPowerShell(liveCheckScript, ["-Project", defaultProject, "-Title", "bhm-ui-check"])
     );
   }
 
   if (req.method === "POST" && url.pathname === "/api/doctor-activate") {
     const body = await readJsonBody(req);
     const args = [
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Title", body.title || "bhm-doctor-activate"
     ];
     if (body.lightweight !== false) {
@@ -655,7 +657,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/api/portable-doctor") {
     const body = await readJsonBody(req);
     const args = [
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Title", body.title || "bhm-portable-doctor"
     ];
     const result = await runJsonPowerShell(portableDoctorScript, args);
@@ -667,7 +669,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/start-task-ritual") {
     const body = await readJsonBody(req);
-    const project = body.project || "e-github-workspace";
+    const project = body.project || defaultProject;
     const status = await runJsonPowerShell(profileScript, ["-Action", "status"]);
     const discovery = await probeRuntimeDiscovery();
     const preflight = await runJsonPowerShell(preflightScript, ["-Project", project]);
@@ -683,7 +685,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/close-task-ritual") {
     const body = await readJsonBody(req);
-    const project = body.project || "e-github-workspace";
+    const project = body.project || defaultProject;
     const done = body.done || "";
     const next = body.next || "";
     const checks = body.checks || "";
@@ -723,14 +725,14 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && url.pathname === "/api/preflight") {
     const body = await readJsonBody(req);
-    const project = body.project || "e-github-workspace";
+    const project = body.project || defaultProject;
     return json(res, 200, await runJsonPowerShell(preflightScript, ["-Project", project]));
   }
 
   if (req.method === "POST" && url.pathname === "/api/checkpoint") {
     const body = await readJsonBody(req);
     const args = [
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Type", body.type || "workflow",
       "-Done", body.done || "",
       "-Next", body.next || "",
@@ -743,7 +745,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/api/session-record") {
     const body = await readJsonBody(req);
     const args = [
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Title", body.title || "workbench-session",
       "-Done", body.done || "",
       "-Next", body.next || "",
@@ -760,7 +762,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Action", "save",
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Content", body.content || "",
       "-Context", body.context || "",
       "-Tags", body.tags || ""
@@ -772,7 +774,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Action", "recall",
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Query", body.query || ""
     ];
     return json(res, 200, await runJsonPowerShell(lessonScript, args));
@@ -782,7 +784,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Action", "strengthen",
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-LessonId", body.lessonId || ""
     ];
     return json(res, 200, await runJsonPowerShell(lessonScript, args));
@@ -792,7 +794,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Action", "list",
-      "-Project", body.project || "e-github-workspace"
+      "-Project", body.project || defaultProject
     ];
     return json(res, 200, await runJsonPowerShell(slotScript, args));
   }
@@ -801,7 +803,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Action", "get",
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Label", body.label || ""
     ];
     return json(res, 200, await runJsonPowerShell(slotScript, args));
@@ -811,7 +813,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Action", "replace",
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Label", body.label || "",
       "-Content", body.content || ""
     ];
@@ -822,7 +824,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Id", body.id || "",
-      "-Project", body.project || "e-github-workspace"
+      "-Project", body.project || defaultProject
     ];
     return json(res, 200, await runJsonPowerShell(verifyScript, args));
   }
@@ -831,7 +833,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Anchor", body.anchor || "",
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Before", String(body.before ?? 5),
       "-After", String(body.after ?? 5)
     ];
@@ -841,7 +843,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/api/audit") {
     const body = await readJsonBody(req);
     const args = [
-      "-Project", body.project || "e-github-workspace",
+      "-Project", body.project || defaultProject,
       "-Limit", String(body.limit ?? 20)
     ];
     if (body.operation) {
@@ -854,7 +856,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-ActionIds", body.actionIds || "",
-      "-Project", body.project || "e-github-workspace"
+      "-Project", body.project || defaultProject
     ];
     if (body.sessionId) {
       args.push("-SessionId", body.sessionId);
@@ -866,7 +868,7 @@ const server = http.createServer(async (req, res) => {
     const body = await readJsonBody(req);
     const args = [
       "-Action", body.action || "insights",
-      "-Project", body.project || "e-github-workspace"
+      "-Project", body.project || defaultProject
     ];
     if (body.query) {
       args.push("-Query", body.query);
@@ -877,7 +879,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/api/profile-view") {
     const body = await readJsonBody(req);
     const args = [
-      "-Project", body.project || "e-github-workspace"
+      "-Project", body.project || defaultProject
     ];
     if (body.refresh) {
       args.push("-Refresh");
@@ -888,7 +890,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/api/obsidian-export") {
     const body = await readJsonBody(req);
     const args = [
-      "-Project", body.project || "e-github-workspace"
+      "-Project", body.project || defaultProject
     ];
     if (body.vaultDir) {
       args.push("-VaultDir", body.vaultDir);

@@ -5,7 +5,7 @@
   "description": "Windows-focused Codex connector for the workspace BHM ritual and canonical BHM MCP workflow",
   "repository": "https://github.com/Efidripy/BlackHoleMemory",
   "author": {
-    "name": "xman workspace",
+    "name": "BlackHoleMemory contributors",
     "url": "https://github.com/Efidripy"
   },
   "homepage": "https://github.com/Efidripy/BlackHoleMemory",
@@ -23,7 +23,7 @@
     "displayName": "BHM",
     "shortDescription": "Workspace BHM connector for Codex on Windows",
     "longDescription": "Bundles the BHM workspace ritual and skills; host clients own one canonical BHM MCP registration so non-trivial Codex sessions can start with memory preflight, stay runtime-aware, and close with checkpoint or session record on this Windows workstation.",
-    "developerName": "xman workspace",
+    "developerName": "BlackHoleMemory contributors",
     "category": "Productivity",
     "capabilities": [
       "Write",

@@ -1,5 +1,5 @@
 param(
-    [string]$ConfigPath = "C:/Users/<USER>\.codex\config.toml",
+    [string]$ConfigPath = $(Join-Path $env:USERPROFILE ".codex\config.toml"),
     [string]$MarketplaceName = "bhm-marketplace",
     [string]$MarketplaceRoot = ""
 )

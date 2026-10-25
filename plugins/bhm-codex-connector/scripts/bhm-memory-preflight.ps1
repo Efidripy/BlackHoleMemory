@@ -1,5 +1,5 @@
 param(
-    [string]$Project = "e-github-workspace",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [string[]]$Query,
     [int]$Limit = 5,
     [switch]$AsJson

@@ -1,7 +1,7 @@
 param(
     [ValidateSet("standard", "low-context", "deep")]
     [string]$Profile = "standard",
-    [string]$EnvPath = "C:/Users/<USER>\.bhm\.env",
+    [string]$EnvPath = $(Join-Path $env:USERPROFILE ".bhm\.env"),
     [switch]$RestartWorker,
     [switch]$AsJson
 )
@@ -86,7 +86,8 @@ $restart = $null
 if ($RestartWorker) {
     try {
         if (Test-Path -LiteralPath $doctorScript) {
-            $doctorJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $doctorScript -Project e-github-workspace -Title profile-recheck -Lightweight -AsJson 2>&1
+            $doctorProject = if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }
+            $doctorJson = & powershell -NoProfile -ExecutionPolicy Bypass -File $doctorScript -Project $doctorProject -Title profile-recheck -Lightweight -AsJson 2>&1
             $doctorText = ($doctorJson | Out-String).Trim()
             if (-not [string]::IsNullOrWhiteSpace($doctorText)) {
                 try {

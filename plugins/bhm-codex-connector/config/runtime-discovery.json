@@ -1,6 +1,5 @@
 {
   "envPaths": [
-    "C:/Users/<USER>/.bhm/.env",
     "%USERPROFILE%/.bhm/.env"
   ],
   "apiCandidates": [

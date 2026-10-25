@@ -1,5 +1,5 @@
 param(
-    [string]$Project = "blackholememory",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [string]$Title = "bhm-portable-doctor",
     [switch]$AsJson
 )

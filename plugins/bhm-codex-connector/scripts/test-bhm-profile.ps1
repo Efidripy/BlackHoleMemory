@@ -1,10 +1,10 @@
 param(
     [ValidateSet("standard", "low-context", "deep")]
     [string]$Profile = "low-context",
-    [string]$Project = "e-github-workspace",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [string]$Title = "bhm-profile-test",
-    [string]$WorkerLogPath = "C:/Users/<USER>\.codex\plugin-data\bhm\runtime\logs\bhm-worker-stderr.log",
-    [string]$ArtifactDir = "C:/Users/<USER>\.codex\plugin-data\bhm\runtime\logs\profile-tests",
+    [string]$WorkerLogPath = $(Join-Path $env:USERPROFILE ".codex\plugin-data\bhm\runtime\logs\bhm-worker-stderr.log"),
+    [string]$ArtifactDir = $(Join-Path $env:USERPROFILE ".codex\plugin-data\bhm\runtime\logs\profile-tests"),
     [ValidateRange(1, 20)]
     [int]$ContextRuns = 3,
     [ValidateRange(100, 60000)]

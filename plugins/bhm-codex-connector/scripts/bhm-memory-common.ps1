@@ -374,11 +374,12 @@ function New-ConnectorTransportTruth {
 
 function Get-ConnectorSessionDir {
     param([string]$Project)
-    if ($Project -ne "e-github-workspace" -and $Project -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') {
+    $defaultProject = if ($env:BHM_PROJECT) { [string]$env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }
+    if ($Project -ne $defaultProject -and $Project -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$') {
         throw "Project identifier is invalid for connector session storage"
     }
     $root = Join-Path (Get-PluginDataRoot) "runtime\logs"
-    if ($Project -eq "e-github-workspace") {
+    if ($Project -eq $defaultProject) {
         $path = Join-Path $root "_workspace\sessions"
     } else {
         $path = Join-Path $root "projects\$Project\sessions"

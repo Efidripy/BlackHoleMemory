@@ -1,5 +1,5 @@
 param(
-    [string]$Project = "e-github-workspace",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [string]$Title = "bhm-doctor-activate",
     [switch]$Lightweight,
     [switch]$AsJson
@@ -14,7 +14,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $pluginRoot = Split-Path -Parent $PSScriptRoot
 $runtimeConfigPath = Join-Path $pluginRoot "config\runtime-discovery.json"
-$defaultEnvPath = "C:/Users/<USER>\.bhm\.env"
+$defaultEnvPath = Join-Path $env:USERPROFILE ".bhm\.env"
 $apiBase = $null
 $viewerUrl = $null
 $workbenchUrl = [string]$env:BHM_WORKBENCH_URL

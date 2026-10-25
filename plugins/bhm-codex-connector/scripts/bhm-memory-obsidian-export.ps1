@@ -1,7 +1,7 @@
 param(
     [string]$VaultDir = "$env:USERPROFILE\.codex\plugin-data\bhm\runtime\exports\bhm-obsidian",
     [string]$Types = "memories,lessons,crystals,sessions",
-    [string]$Project = "e-github-workspace",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [switch]$AsJson
 )
 

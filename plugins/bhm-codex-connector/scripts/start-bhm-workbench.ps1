@@ -40,7 +40,8 @@ function Initialize-BhmWorkbenchCallerCredential {
         [Environment]::SetEnvironmentVariable('BHM_CALLER_TOKEN', $token, 'User')
         [Environment]::SetEnvironmentVariable('BHM_CALLER_ID', 'local-operator', 'User')
         [Environment]::SetEnvironmentVariable('BHM_CALLER_PROJECTS', '*', 'User')
-        [Environment]::SetEnvironmentVariable('BHM_CALLER_DEFAULT_PROJECT', 'blackholememory', 'User')
+        $defaultProject = if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }
+        [Environment]::SetEnvironmentVariable('BHM_CALLER_DEFAULT_PROJECT', $defaultProject, 'User')
     }
     $env:BHM_CALLER_TOKEN = $token
 }

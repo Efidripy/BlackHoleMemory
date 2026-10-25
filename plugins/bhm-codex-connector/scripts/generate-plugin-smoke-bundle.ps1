@@ -1,5 +1,5 @@
 param(
-    [string]$Project = "blackholememory",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [string]$Title = "bhm-smoke",
     [string]$Done = "ran plugin-path smoke bundle",
     [string]$Next = "review plugin smoke bundle with Codex",

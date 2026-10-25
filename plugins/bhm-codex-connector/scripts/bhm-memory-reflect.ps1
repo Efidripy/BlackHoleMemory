@@ -1,7 +1,7 @@
 param(
     [ValidateSet("reflect", "insights", "search")]
     [string]$Action = "insights",
-    [string]$Project = "e-github-workspace",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [int]$MaxClusters = 10,
     [double]$MinConfidence = 0,
     [int]$Limit = 20,

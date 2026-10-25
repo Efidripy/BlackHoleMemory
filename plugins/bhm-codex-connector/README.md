@@ -181,7 +181,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\plugins\bhm-codex-connecto
 
 Output:
 
-`C:/Users/<USER>\.codex\plugin-data\bhm\runtime\logs\plugin-smoke\bhm\latest.json`
+`<USERPROFILE>\.codex\plugin-data\bhm\runtime\logs\plugin-smoke\bhm\latest.json`
 
 ## Profile helpers
 

@@ -1,7 +1,7 @@
 param(
     [ValidateSet("save", "recall", "list", "strengthen")]
     [string]$Action = "recall",
-    [string]$Project = "e-github-workspace",
+    [string]$Project = $(if ($env:BHM_PROJECT) { $env:BHM_PROJECT } else { Split-Path -Leaf (Get-Location) }),
     [string]$Content,
     [string]$Context = "",
     [double]$Confidence = 0.5,
