@@ -1,7 +1,7 @@
 param(
     [switch]$Apply,
     [string]$BhmBaseUrl = '',
-    [string]$LogRoot = "<WORKSPACE_ROOT>\workspace\runtime\logs\projects\blackholememory\crystallizer",
+    [string]$LogRoot = '',
     [ValidateRange(1, 600)][int]$TimeoutSeconds = 180,
     [ValidateRange(1, 60)][int]$CleanupTimeoutSeconds = 5
 )
@@ -11,6 +11,10 @@ $ErrorActionPreference = "Stop"
 
 $scriptPath = $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent (Split-Path -Parent $scriptPath)
+$workspaceRoot = Split-Path -Parent (Split-Path -Parent $repoRoot)
+if ([string]::IsNullOrWhiteSpace($LogRoot)) {
+    $LogRoot = Join-Path $workspaceRoot 'workspace\runtime\logs\projects\blackholememory\crystallizer'
+}
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
 if ([string]::IsNullOrWhiteSpace($BhmBaseUrl)) { $BhmBaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot }
 $workerPath = Join-Path $repoRoot "scripts\bhm_crystallize_worker.py"

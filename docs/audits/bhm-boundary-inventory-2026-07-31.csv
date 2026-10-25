@@ -1216,8 +1216,8 @@ FILESYSTEM,tests/unit/test_p15_regression_gate.py,7,REPO_ROOT = Path(__file__).r
 FILESYSTEM,tests/unit/test_p16_benchmark_gate.py,7,REPO_ROOT = Path(__file__).resolve().parents[2]
 FILESYSTEM,tests/unit/test_p17_llm_inventory.py,7,REPO_ROOT = Path(__file__).resolve().parents[2]
 FILESYSTEM,tests/unit/test_p18_7_rest_degraded_contract.py,7,REPO_ROOT = Path(__file__).resolve().parents[2]
-FILESYSTEM,tests/unit/test_p18_7_rest_degraded_contract.py,37,"helper_path = str(Path(r""<WORKSPACE_ROOT>\workspace\control\scripts\shared\mcp-rest-degraded.ps1"")).replace(""'"", ""''"")"
-FILESYSTEM,tests/unit/test_p18_7_rest_degraded_contract.py,146,"helper = Path(r""<WORKSPACE_ROOT>\workspace\control\scripts\shared\mcp-rest-degraded.ps1"")"
+FILESYSTEM,tests/unit/test_p18_7_rest_degraded_contract.py,37,"helper_path = str(Path(r""<REPO_ROOT>\..\workspace\control\scripts\shared\mcp-rest-degraded.ps1"")).replace(""'"", ""''"")"
+FILESYSTEM,tests/unit/test_p18_7_rest_degraded_contract.py,146,"helper = Path(r""<REPO_ROOT>\..\workspace\control\scripts\shared\mcp-rest-degraded.ps1"")"
 FILESYSTEM,tests/unit/test_p18_7_rest_degraded_contract.py,147,"text = helper.read_text(encoding=""utf-8"")"
 FILESYSTEM,tests/unit/test_p28_acceptance.py,8,"_SCRIPT = Path(__file__).resolve().parents[2] / ""scripts"" / ""validate-bhm-p28-acceptance.py"""
 FILESYSTEM,tests/unit/test_p28_acceptance.py,18,repo = Path(__file__).resolve().parents[2]

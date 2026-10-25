@@ -2,7 +2,7 @@
 
 Дата: 2026-07-31
 Task ID: BHM-PDF-AUDIT-2026-07-31
-Репозиторий: <WORKSPACE_ROOT>\repos\BlackHoleMemory
+Репозиторий: <REPO_ROOT>
 Ветка: main
 Проверенная ревизия: 379390785054ca71376d8de1a567f533a887b24c
 Состояние относительно origin/main на старте: совпадает
