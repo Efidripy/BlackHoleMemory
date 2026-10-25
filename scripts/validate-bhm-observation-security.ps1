@@ -1,12 +1,14 @@
 param(
     [string]$BaseUrl = '',
-    [string]$WorkspaceRoot = "<WORKSPACE_ROOT>",
-    [string]$RepoPath = "<WORKSPACE_ROOT>\repos\BlackHoleMemory",
+    [string]$WorkspaceRoot = '',
+    [string]$RepoPath = '',
     [switch]$AsJson
 )
 
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($WorkspaceRoot)) { $WorkspaceRoot = Split-Path -Parent (Split-Path -Parent $repoRoot) }
+if ([string]::IsNullOrWhiteSpace($RepoPath)) { $RepoPath = $repoRoot }
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
 if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot }
 Add-Type -AssemblyName System.Net.Http

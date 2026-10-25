@@ -1,10 +1,13 @@
 param(
-    [string]$WorkspaceRoot = "<WORKSPACE_ROOT>",
-    [string]$RepoPath = "<WORKSPACE_ROOT>\repos\BlackHoleMemory",
+    [string]$WorkspaceRoot = '',
+    [string]$RepoPath = '',
     [switch]$AsJson
 )
 
 $ErrorActionPreference = "Stop"
+$repoRoot = Split-Path -Parent $PSScriptRoot
+if ([string]::IsNullOrWhiteSpace($WorkspaceRoot)) { $WorkspaceRoot = Split-Path -Parent (Split-Path -Parent $repoRoot) }
+if ([string]::IsNullOrWhiteSpace($RepoPath)) { $RepoPath = $repoRoot }
 
 $hookScript = Join-Path $WorkspaceRoot "workspace\control\scripts\shared\invoke-bhm-codex-hook.ps1"
 $bridgeScript = Join-Path $WorkspaceRoot "workspace\control\scripts\shared\invoke-workspace-bhm-bridge.ps1"
@@ -77,10 +80,10 @@ foreach ($file in ($requiredFiles | Where-Object { Test-Path -LiteralPath $_ }))
 
 $explicitFirst = Invoke-HookDryRun `
     -ScriptName "prompt-submit.mjs" `
-    -PayloadJson '{"session_id":"agent-session-001","correlation_id":"task-001","event_id":"event-001","parent_event_id":"parent-001","cwd":"<WORKSPACE_ROOT>\\repos\\BlackHoleMemory"}'
+    -PayloadJson (ConvertTo-Json -Compress @{ session_id = 'agent-session-001'; correlation_id = 'task-001'; event_id = 'event-001'; parent_event_id = 'parent-001'; cwd = $RepoPath })
 $explicitSecond = Invoke-HookDryRun `
     -ScriptName "post-tool-use.mjs" `
-    -PayloadJson '{"session_id":"agent-session-001","correlation_id":"task-001","cwd":"<WORKSPACE_ROOT>\\repos\\BlackHoleMemory"}'
+    -PayloadJson (ConvertTo-Json -Compress @{ session_id = 'agent-session-001'; correlation_id = 'task-001'; cwd = $RepoPath })
 
 Add-Check -Name "hook_preserves_session" -Passed ($explicitFirst.sessionId -eq "agent-session-001" -and $explicitSecond.sessionId -eq $explicitFirst.sessionId) -Detail "same external agent session across hook events"
 Add-Check -Name "hook_preserves_correlation" -Passed ($explicitFirst.correlationId -eq "task-001" -and $explicitSecond.correlationId -eq "task-001") -Detail "task correlation preserved"
@@ -95,8 +98,8 @@ foreach ($name in $identityEnvironmentNames) {
 }
 
 try {
-    $fallbackFirst = Invoke-HookDryRun -ScriptName "pre-tool-use.mjs" -PayloadJson '{"cwd":"<WORKSPACE_ROOT>\\repos\\BlackHoleMemory"}'
-    $fallbackSecond = Invoke-HookDryRun -ScriptName "post-tool-use.mjs" -PayloadJson '{"cwd":"<WORKSPACE_ROOT>\\repos\\BlackHoleMemory"}'
+    $fallbackFirst = Invoke-HookDryRun -ScriptName "pre-tool-use.mjs" -PayloadJson (ConvertTo-Json -Compress @{ cwd = $RepoPath })
+    $fallbackSecond = Invoke-HookDryRun -ScriptName "post-tool-use.mjs" -PayloadJson (ConvertTo-Json -Compress @{ cwd = $RepoPath })
 } finally {
     foreach ($name in $identityEnvironmentNames) {
         [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')

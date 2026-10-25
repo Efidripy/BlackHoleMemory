@@ -62,7 +62,6 @@ PROJECT_COLORS = {
     "blackholememory":              "#4bd1ff",
     "e-github-workspace":           "#a8d8a8",
     "lnv-push":                     "#ffd166",
-    "<PROJECT>":                    "#ff6b8a",
     "agent-memory-codex-connector": "#b1d4ff",
     "agent-ops":                    "#ffb347",
     "figma-design":                 "#ff9de2",

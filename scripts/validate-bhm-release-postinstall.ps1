@@ -1,6 +1,6 @@
 param(
     [ValidateSet("verify", "rollback-plan")][string]$Action = "verify",
-    [string]$ReleaseArchive = "<WORKSPACE_ROOT>\workspace\local\tmp\bhm-releases\BHM-Release-v1.7.0.zip",
+    [string]$ReleaseArchive = '',
     [string]$BaseUrl = '',
     [string]$ExpectedSha256 = "",
     [switch]$RequireRuntimeSource,
@@ -11,8 +11,11 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-. (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\runtime-endpoints.ps1')
-if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot (Split-Path -Parent $PSScriptRoot) }
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$workspaceRoot = Split-Path -Parent (Split-Path -Parent $repoRoot)
+if ([string]::IsNullOrWhiteSpace($ReleaseArchive)) { $ReleaseArchive = Join-Path $workspaceRoot 'workspace\local\tmp\bhm-releases\BHM-Release-v1.7.0.zip' }
+. (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
+if ([string]::IsNullOrWhiteSpace($BaseUrl)) { $BaseUrl = Get-BhmRuntimeEndpoint -Name 'bhm_api' -RepoRoot $repoRoot }
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 function Get-BhmCallerHeaders {

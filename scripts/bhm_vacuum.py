@@ -38,7 +38,6 @@ PROTECTED_COLLECTIONS = {
     "bhm_local_memory_e_github_workspace",
     "bhm_local_memory_lnv_push",
     "bhm_local_memory_multiserversubgen",
-    "bhm_local_memory_<PROJECT>",
     "blackholememory-mem0",
     "mem0migrations",
 }

@@ -100,10 +100,10 @@ conflict labels больше не может формально пройти V5,
 
 ```powershell
 uv run python scripts/validate-bhm-semantic-assurance-curator.py `
-  --atomic-facts E:\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\atomic-facts.json `
-  --control-cells E:\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\control-cells.json `
-  --canonical-root <WORKSPACE_ROOT>\repos\BlackHoleMemory `
-  --output E:\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\curator-audit-receipt.json
+  --atomic-facts <USERPROFILE>\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\atomic-facts.json `
+  --control-cells <USERPROFILE>\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\control-cells.json `
+  --canonical-root <REPO_ROOT> `
+  --output <USERPROFILE>\BHM-private-evidence\semantic-assurance-v2\full-v6-curation-20261018\curator-audit-receipt.json
 ```
 
 Он принимает только явно переданные local files, canonical Markdown из
@@ -129,8 +129,8 @@ working ledgers — он не выбирает fragments, не создаёт ro
 
 ```powershell
 uv run python scripts/prepare-bhm-semantic-assurance-curator-workpack.py `
-  --canonical-root <WORKSPACE_ROOT>\repos\BlackHoleMemory `
-  --output E:\BHM-private-evidence\semantic-assurance-v2\V6-CURATOR-RECOVERY-<date>
+  --canonical-root <REPO_ROOT> `
+  --output <USERPROFILE>\BHM-private-evidence\semantic-assurance-v2\V6-CURATOR-RECOVERY-<date>
 ```
 
 Builder требует clean Git checkout и записывает `git_head` плюс digest snapshot

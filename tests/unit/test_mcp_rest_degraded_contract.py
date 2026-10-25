@@ -11,7 +11,7 @@ PLUGIN_SCRIPTS = REPO_ROOT / "plugins" / "bhm-codex-connector" / "scripts"
 COMMON = (PLUGIN_SCRIPTS / "bhm-memory-common.ps1").read_text(encoding="utf-8")
 PLUGIN_GUARD = PLUGIN_SCRIPTS / "bhm-plugin-duplicate-guard.ps1"
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
-WORKSPACE_HELPER = Path(r"<WORKSPACE_ROOT>\workspace\control\scripts\shared\mcp-rest-degraded.ps1")
+WORKSPACE_HELPER = REPO_ROOT.parents[1] / "workspace" / "control" / "scripts" / "shared" / "mcp-rest-degraded.ps1"
 PLUGIN_SKILL = REPO_ROOT / "plugins" / "bhm-codex-connector" / "skills" / "bhm-codex-connector" / "SKILL.md"
 PLUGIN_MANIFEST = REPO_ROOT / "plugins" / "bhm-codex-connector" / ".codex-plugin" / "plugin.json"
 

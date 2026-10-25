@@ -17,7 +17,7 @@ def _procs(*items):
 
 def test_claude_desktop_running_detects_the_app_but_not_its_bundled_cli_or_others(monkeypatch):
     app = r"C:\Program Files\WindowsApps\Claude_1\app\Claude.exe"
-    cli = r"C:\Users\u\AppData\Roaming\Claude\claude-code\2.1.304\x\claude.exe"
+    cli = r"C:\Users\fixture-user\AppData\Roaming\Claude\claude-code\2.1.304\fixture-project\claude.exe"
     monkeypatch.setattr(psutil, "process_iter", _procs(("Claude.exe", app)))
     assert launcher.claude_desktop_running() is True
     monkeypatch.setattr(psutil, "process_iter", _procs(("claude.exe", cli), ("chrome.exe", None)))
