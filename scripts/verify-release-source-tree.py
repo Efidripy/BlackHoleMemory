@@ -87,7 +87,7 @@ def load_public_script_paths(root: Path) -> tuple[set[str], str | None]:
             or "\\" in path
             or PurePosixPath(path).is_absolute()
             or ".." in PurePosixPath(path).parts
-            or not path.endswith((".py", ".ps1"))
+            or not (path.endswith((".py", ".ps1")) or path.startswith("scripts/git-hooks/"))
             or not isinstance(role, str)
             or not role.strip()
             or not isinstance(release, bool)

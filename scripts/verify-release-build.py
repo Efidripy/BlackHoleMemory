@@ -104,7 +104,7 @@ def release_script_paths(files: dict[str, bytes]) -> tuple[set[str], list[str]]:
             not isinstance(path, str)
             or not safe_member(path)
             or not path.startswith("scripts/")
-            or not path.endswith((".py", ".ps1"))
+            or not (path.endswith((".py", ".ps1")) or path.startswith("scripts/git-hooks/"))
             or not isinstance(role, str)
             or not role.strip()
             or not isinstance(release, bool)
