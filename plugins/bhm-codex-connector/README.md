@@ -80,7 +80,7 @@ describe the same workflow. `bhm-memory-checkpoint.ps1` writes the first-class
 
 ## Connector identities and MCP ownership
 
-Codex may show two enabled identities for the same `2.0.3` connector bundle:
+Codex may show two enabled identities for the same `2.0.4` connector bundle:
 
 - `bhm-codex-connector@bhm-marketplace` is the Personal plugin identity. It
   may cause Codex to reload plugin/MCP discovery, so it must never be disabled

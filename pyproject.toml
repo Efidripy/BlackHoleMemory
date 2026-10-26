@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=80", "wheel"]
+requires = ["setuptools>=84.1.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "blackholememory"
-version = "2.0.3"
+version = "2.0.4"
 license = "0BSD"
 license-files = ["LICENSE"]
 description = "Local self-hosted memory contour built with LangGraph, Mem0, and Qdrant."
@@ -13,7 +13,8 @@ dependencies = [
   "cryptography==50.0.0",
   "docker==7.1.0",
   "fastapi==0.140.13",
-  "fastmcp==3.2.0",
+  "fastmcp==3.4.10",
+  "opentelemetry-api>=1.45.1",
   "h2==4.4.1",
   "httpx==0.28.1",
   "langgraph==1.2.4",
