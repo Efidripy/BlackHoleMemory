@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "v2.0.6",
+  [string]$Version = "v2.0.7",
   [string]$PythonPath = "",
   [string]$OutputRoot = "",
   [switch]$RefreshCanonicalLauncher,
@@ -78,7 +78,7 @@ function Get-ReleaseScriptPayload {
         if (
             -not $relative.StartsWith("scripts/", [System.StringComparison]::Ordinal) -or
             $relative.Contains("\") -or
-            (-not $relative.EndsWith(".py", [System.StringComparison]::OrdinalIgnoreCase) -and -not $relative.EndsWith(".ps1", [System.StringComparison]::OrdinalIgnoreCase)) -or
+            (-not $relative.EndsWith(".py", [System.StringComparison]::OrdinalIgnoreCase) -and -not $relative.EndsWith(".ps1", [System.StringComparison]::OrdinalIgnoreCase) -and -not $relative.StartsWith("scripts/git-hooks/", [System.StringComparison]::Ordinal)) -or
             $unsafeSegment
         ) {
             throw "Unsafe public script manifest path: $relative"

@@ -1,9 +1,9 @@
-# BlackHoleMemory v2.0.6 — "Patched, Really"
+# BlackHoleMemory v2.0.7 — "Patched, Really"
 
 ## Release identity
 
-- release version: `2.0.6`; channel: `PURE`; runtime: `bhm-v2.0.6-PURE`; broker: `ipc-broker-v2.0.6`;
-  UI: `Runtime v2.0.6-PURE`; plugin: `2.0.6`.
+- release version: `2.0.7`; channel: `PURE`; runtime: `bhm-v2.0.7-PURE`; broker: `ipc-broker-v2.0.7`;
+  UI: `Runtime v2.0.7-PURE`; plugin: `2.0.7`.
 
 ## Included changes
 
@@ -12,7 +12,7 @@
   `setuptools` 83.0.0 -> 84.x (Windows path escape in legacy handling). Only the target packages and their direct
   new dependencies changed in `uv.lock`.
 - The MCP catalog is unchanged: the same 207 tools with identical names, descriptions and schemas.
-- The release pipeline validators (`verify-release-source-tree`, `materialize-release-source`, `verify-release-build`, `validate-public-tree`) accept the extensionless git hook sources under `scripts/git-hooks/` (the privacy pre-commit hook). Tag v2.0.4 was published before this fix and has no release; use v2.0.6.
+- The release pipeline validators (`verify-release-source-tree`, `materialize-release-source`, `verify-release-build`, `validate-public-tree`) accept the extensionless git hook sources under `scripts/git-hooks/` (the privacy pre-commit hook). Tag v2.0.4 was published before this fix and has no release; use v2.0.7.
 - No API, data-contract or storage changes. SQLite stays authoritative.
 
 ## Validation
