@@ -594,6 +594,16 @@
       "release": true
     },
     {
+      "path": "scripts/git-hooks/pre-commit",
+      "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/install-git-hooks.ps1",
+      "role": "operator",
+      "release": true
+    },
+    {
       "path": "scripts/cutover-readiness.ps1",
       "role": "operator",
       "release": true
