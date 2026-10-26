@@ -77,7 +77,8 @@ def validate_public_script_manifest(repo: Path) -> dict[str, object]:
         ):
             failures.append(f"public script manifest has unsafe path: {path!r}")
             continue
-        if not path.endswith((".py", ".ps1")):
+        # git hook sources are installed under their extensionless names (see scripts/install-git-hooks.ps1)
+        if not path.endswith((".py", ".ps1")) and not path.startswith("scripts/git-hooks/"):
             failures.append(f"public script manifest has unsupported script type: {path}")
         if path in listed:
             failures.append(f"public script manifest has duplicate path: {path}")
