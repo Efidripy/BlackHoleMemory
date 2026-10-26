@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
   "product": "BlackHoleMemory",
-  "release_version": "2.0.2",
+  "release_version": "2.0.3",
   "channel": "PURE",
   "source_of_truth": "config/version-manifest.json",
   "components": {
-    "package": "2.0.2",
-    "runtime": "bhm-v2.0.2-PURE",
-    "broker": "ipc-broker-v2.0.2",
-    "ui": "Runtime v2.0.2-PURE",
-    "plugin": "2.0.2"
+    "package": "2.0.3",
+    "runtime": "bhm-v2.0.3-PURE",
+    "broker": "ipc-broker-v2.0.3",
+    "ui": "Runtime v2.0.3-PURE",
+    "plugin": "2.0.3"
   }
 }
