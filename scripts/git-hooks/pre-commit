@@ -1,0 +1,46 @@
+#!/bin/sh
+# Blocks personal data from entering history: non-noreply author email, user paths,
+# workspace paths, real email addresses, secrets. Install with scripts/install-git-hooks.ps1.
+# A line that is a deliberate fixture may carry the marker "pii-allow".
+set -u
+
+ident_email=$(git var GIT_AUTHOR_IDENT | sed 's/.*<\(.*\)>.*/\1/')
+case "$ident_email" in
+  *@users.noreply.github.com|noreply@*) ;;
+  *)
+    echo "pre-commit: author email is not a GitHub noreply address; set it with: git config user.email <id>+<login>@users.noreply.github.com" >&2
+    exit 1
+    ;;
+esac
+
+added=$(git diff --cached -U0 --no-color --diff-filter=ACM | grep -E '^\+' | grep -vE '^\+\+\+ ' | grep -v 'pii-allow' || true)
+[ -n "$added" ] || exit 0
+
+fail=0
+report() {
+  printf 'pre-commit: %s\n' "$1" >&2
+  printf '%s\n' "$2" | cut -c1-160 | head -n 5 >&2
+  fail=1
+}
+
+hits=$(printf '%s\n' "$added" | grep -E 'C:[\\/]+Users[\\/]+' | grep -viE 'Users[\\/]+(<USER>|<USERPROFILE>|fixture-user|Public|Default|%|\$|\{|\*|<)' || true)
+[ -z "$hits" ] || report "user profile path with a real user name" "$hits"
+
+hits=$(printf '%s\n' "$added" | grep -E '[A-Za-z]:[\\/]+GitHub([\\/]|$)' | grep -v 'github.com' || true)
+[ -z "$hits" ] || report "workspace path (use <WORKSPACE_ROOT> or compute it)" "$hits"
+
+hits=$(printf '%s\n' "$added" | grep -E -- '-----BEGIN ([A-Z]+ )?PRIVATE KEY-----|\b(ghp_|github_pat_|hf_|xox[baprs]-|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,})[A-Za-z0-9_-]{8,}' || true)
+[ -z "$hits" ] || report "possible secret or token" "$hits"
+
+# shortcut: only common TLDs, so decorators like @app.get are not flagged; extend the list if a new one leaks
+hits=$(printf '%s\n' "$added" | grep -oP '(?<![\\A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.(com|net|org|ru|io|dev|app|me|info|co|ua|by|kz|de|uk|us|fr|eu|xyz|tech|cloud|ai|invalid|test|example|local)\b' \
+  | grep -viE '@(users\.noreply\.github\.com|localhost|example\.[a-z]+|[a-z0-9.-]*\.(invalid|test|example|local))$|^noreply@|^git@github\.com$' || true)
+[ -z "$hits" ] || report "email address (use example.invalid or a noreply address)" "$hits"
+
+for f in $(git diff --cached --name-only --diff-filter=ACM); do
+  case "${f##*/}" in
+    .env|.env.*) [ "${f##*/}" = ".env.example" ] || { echo "pre-commit: environment file must not be committed: $f" >&2; fail=1; } ;;
+  esac
+done
+
+exit "$fail"
