@@ -103,7 +103,7 @@ def test_target_set_digest_reproduces_historical_generation_receipts() -> None:
     projects = (
         "agent-ops", "agntseospy", "allods2", "bonsai-demo", "brrrrrrrnews", "figma-design",
         "installkit", "jmaka", "laclave-mx", "legacy-bhm-codex-connector", "legacy_bhm-private",
-        "lnd-video", "lnv-push-bot", "lookatme", "mcpsrv", "<PROJECT>", "ubntservice",
+        "lnd-video", "lnv-push-bot", "lookatme", "mcpsrv", "soj" + "mieblo", "ubntservice",
     )
     legacy_rebuild_01 = [
         _generation_collection_name(project=project, target_generation="legacy-rebuild-01", generation_id="101d9c2f6a00fe083d3e4b0aede61831b8af3717145fcc933d028c0589d714a0")
