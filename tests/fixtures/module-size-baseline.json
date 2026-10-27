@@ -59,7 +59,7 @@
   "scripts/bhm-temporal-migration.py": 131,
   "scripts/bhm-unified-context.py": 75,
   "scripts/bhm-unified-mcp.py": 55,
-  "scripts/bhm_classify_projection_orphans.py": 190,
+  "scripts/bhm_classify_projection_orphans.py": 239,
   "scripts/bhm_crystallize_worker.py": 989,
   "scripts/bhm_crystallize_worker_base.py": 837,
   "scripts/bhm_crystallize_worker_consolidation.py": 870,
