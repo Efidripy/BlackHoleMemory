@@ -30,6 +30,7 @@ from blackholememory.projection_generation_binding import (
     resolve_bound_collection,
     rollback_projection_generation_binding,
 )
+from blackholememory.domain import Memory
 from blackholememory.projection_generation_binding_migration import (
     apply_projection_generation_binding_migration,
     build_projection_generation_binding_migration_plan,
@@ -206,4 +207,27 @@ def test_resolver_fails_closed_for_absent_or_changed_authority(tmp_path: Path, m
     assert (mismatch, mismatch_reason) == (None, "binding_vector_space_mismatch")
     monkeypatch.setattr(binding_module, "_generation_source_basis_digest", lambda _memories: _digest("drift"))
     drift, drift_reason = resolve_bound_collection(project="project-a", legacy_collection=legacy, database=database, embedding_model="fixture-model", vector_dimensions=768, distance="Cosine")
-    assert (drift, drift_reason) == (None, "binding_source_drift")
+    assert (drift, drift_reason) == ("bhm_projection_generation_project_a_exact", "binding_active_source_drift")
+
+
+def test_resolver_keeps_active_route_open_after_new_memory_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    database, backup = _v4_database(tmp_path)
+    plan = _binding_plan(database, backup)
+    apply_projection_generation_binding_plan(database, backup, plan, expected_plan_digest=plan["plan_digest"], confirm_operator=True, offline_verified=True)
+    source = str(_bindings()[0]["source_basis_digest"])
+    monkeypatch.setattr(binding_module, "_generation_source_basis_digest", lambda memories: source if not memories else _digest("drift"))
+    repository = SQLiteMemoryRepository(database)
+    repository.save_memory(Memory.from_record({"source_system": "fixture", "source_id": "new-memory", "project": "project-a", "memory_type": "note", "content": "new record", "created_at": "2026-10-12T02:00:00Z", "updated_at": "2026-10-12T02:00:00Z"}))
+    route, reason = resolve_bound_collection(project="project-a", legacy_collection="bhm_local_memory_project_a", database=database, embedding_model="fixture-model", vector_dimensions=768, distance="Cosine")
+    assert (route, reason) == ("bhm_projection_generation_project_a_exact", "binding_active_source_drift")
+
+
+def test_resolver_keeps_inconsistent_generation_fail_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    database, backup = _v4_database(tmp_path)
+    plan = _binding_plan(database, backup)
+    apply_projection_generation_binding_plan(database, backup, plan, expected_plan_digest=plan["plan_digest"], confirm_operator=True, offline_verified=True)
+    active = active_projection_generation_bindings(database)
+    inconsistent = active[1].__class__(**{key: value for key, value in active[1].to_dict().items() if key != "binding_digest"} | {"plan_digest": _digest("different-plan")})
+    monkeypatch.setattr(binding_module, "_binding_authority_snapshot", lambda _database: binding_module._BindingAuthoritySnapshot((active[0], inconsistent), frozenset(item.project for item in active), True, False))
+    route, reason = resolve_bound_collection(project="project-a", legacy_collection="legacy", database=database, embedding_model="fixture-model", vector_dimensions=768, distance="Cosine")
+    assert (route, reason) == (None, "binding_generation_inconsistent")

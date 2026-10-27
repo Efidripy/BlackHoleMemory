@@ -529,7 +529,7 @@ def resolve_projection_route(
     vector_dimensions: int,
     distance: str,
 ) -> ProjectionCollectionRoute:
-    """Resolve a local collection without reopening retired legacy fallback."""
+    """Resolve a local collection without reopening retired legacy fallback; source drift remains an operator-visible warning."""
 
     snapshot = _binding_authority_snapshot(database)
     if not snapshot.available:
@@ -562,7 +562,7 @@ def resolve_projection_route(
 
 
         if _generation_source_basis_digest(memories) != candidate.source_basis_digest:
-            return ProjectionCollectionRoute(None, "binding_source_drift", False)
+            return ProjectionCollectionRoute(candidate.target_collection, "binding_active_source_drift", False)
     except Exception:  # broad: return fail-closed route when source inspection is unavailable
         return ProjectionCollectionRoute(None, "binding_source_unavailable", False)
     return ProjectionCollectionRoute(candidate.target_collection, "binding_active", False)

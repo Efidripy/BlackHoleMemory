@@ -11,10 +11,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-from blackholememory.projection_generation_binding import active_projection_generation_bindings
-from blackholememory.projection_generation_binding import apply_projection_generation_binding_plan
-from blackholememory.projection_generation_binding import build_projection_generation_binding_plan
-from blackholememory.projection_generation_binding import rollback_projection_generation_binding
+from blackholememory.projection_generation_binding import (
+    active_projection_generation_bindings,
+    apply_projection_generation_binding_plan,
+    build_projection_generation_binding_plan,
+    resolve_projection_route,
+    rollback_projection_generation_binding,
+)
 from blackholememory.projection_generation_binding_migration import apply_projection_generation_binding_migration
 from blackholememory.projection_generation_binding_migration import build_projection_generation_binding_migration_plan
 from blackholememory.projection_generation_binding_migration import projection_generation_binding_migration_status
@@ -46,7 +49,12 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.action == "status":
-            _emit({"migration": projection_generation_binding_migration_status(args.database), "active_bindings": [item.to_dict() for item in active_projection_generation_bindings(args.database)]})
+            bindings = active_projection_generation_bindings(args.database)
+            source_drift = any(
+                resolve_projection_route(project=item.project, legacy_collection="", database=args.database, embedding_model=item.embedding_model, vector_dimensions=item.vector_dimensions, distance=item.distance).reason == "binding_active_source_drift"
+                for item in bindings
+            )
+            _emit({"migration": projection_generation_binding_migration_status(args.database), "active_bindings": [item.to_dict() for item in bindings], "source_drift": source_drift})
             return 0
         if args.action == "plan-migration":
             if not args.backup or not args.as_of:

@@ -202,6 +202,19 @@ function Get-LiveSlo {
     $health = Invoke-ProjectionOperatorJson -Uri "$($Url.TrimEnd('/'))/bhm/health" -Headers $headers
     $cutover = Invoke-ProjectionOperatorJson -Uri "$($Url.TrimEnd('/'))/health/cutover" -Headers $headers
     $slo = Invoke-ProjectionOperatorJson -Uri "$($Url.TrimEnd('/'))/bhm/health/slo" -Headers $headers
+    $sourceDrift = $false
+    $bindingDatabase = Join-Path $repoRoot ".runtime\live-memory\memories.sqlite3"
+    if (Test-Path -LiteralPath $bindingDatabase) {
+        $bindingOutput = @(python (Join-Path $repoRoot "scripts\bhm-projection-generation-binding.py") --action status --database $bindingDatabase 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            try {
+                $bindingStatus = (($bindingOutput -join [Environment]::NewLine) | ConvertFrom-Json)
+                $sourceDrift = [bool]$bindingStatus.source_drift
+            } catch {
+                $sourceDrift = $false
+            }
+        }
+    }
     [pscustomobject]@{
         health = $health.status
         version = $health.version
@@ -219,6 +232,7 @@ function Get-LiveSlo {
         outbox_completed = [int]$slo.observed.outbox.completed
         outbox_total = [int]$slo.observed.outbox.total
         outbox_dead_letter = [int]$slo.observed.outbox.dead_letter
+        source_drift = $sourceDrift
     }
 }
 

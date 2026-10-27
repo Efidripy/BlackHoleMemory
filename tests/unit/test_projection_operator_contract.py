@@ -26,6 +26,7 @@ def test_projection_operator_contract_is_bounded_and_fail_closed():
         "SemanticFusion",
         "projection_pending",
         "projection_failed",
+        "source_drift",
         "requires a ready sqlite-authoritative runtime",
         "dead_letter",
         "Get-LiveSloWithRetry",

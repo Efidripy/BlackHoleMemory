@@ -47,7 +47,7 @@
   "scripts/bhm-migration.py": 39,
   "scripts/bhm-portable-bundle.py": 80,
   "scripts/bhm-product-value.py": 38,
-  "scripts/bhm-projection-generation-binding.py": 90,
+  "scripts/bhm-projection-generation-binding.py": 98,
   "scripts/bhm-repository-index.py": 242,
   "scripts/bhm-restore-public-evidence.py": 134,
   "scripts/bhm-runtime-artifact-inventory.py": 186,
