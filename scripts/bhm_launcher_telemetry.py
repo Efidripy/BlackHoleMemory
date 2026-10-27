@@ -38,6 +38,7 @@ _LAST_TELEMETRY: dict[str, str] = {
     "projection_queue": "--",
     "consolidation_queue": "--",
     "slo_state": "--",
+    "slo_detail": "",
     "last_sys": "--",
 }
 
@@ -189,6 +190,8 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
         mcp_state = f"{mcp_state} · {attached_count}"
     projection_pending = int(observed.get("projection_pending") or 0)
     projection_failed = int(observed.get("projection_failed") or 0)
+    slo_checks = slo.get("checks") if results["slo"].ok and isinstance(slo, dict) and isinstance(slo.get("checks"), dict) else {}
+    slo_detail = ", ".join(str(name) for name, passed in slo_checks.items() if passed is False)
     current = {
         "memory_count": value_or_error("launcher", launcher.get("memory_count")),
         "link_count": value_or_error("graph", graph.get("link_count")),
@@ -202,6 +205,7 @@ def fetch_telemetry(project: str | None = None) -> dict[str, str]:
         "projection_queue": f"{projection_pending} / {projection_failed}" if results["slo"].ok else results["slo"].error or error_label,
         "consolidation_queue": value_or_error("governed", governed.get("count")),
         "slo_state": str(slo.get("status") or results["slo"].error or error_label).upper(),
+        "slo_detail": slo_detail,
         "last_sys": datetime.now().strftime("%H:%M:%S") if any(result.ok for result in results.values()) else error_label,
     }
     _LAST_TELEMETRY = current
