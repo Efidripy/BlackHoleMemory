@@ -178,7 +178,43 @@ def _build_worker(config, *, openai_base_url: str | None = None):
         expected_dimensions=settings.mem0_embedding_dims,
         ensure_collection=ensure_collection,
     )
-    return ProjectionWorker(repository, projector, config=config.projection_worker)
+    worker = ProjectionWorker(repository, projector, config=config.projection_worker)
+    # The sidecar's bounded recovery pass uses the same live client and is
+    # kept process-local; no client or credentials are persisted.
+    worker._qdrant_client = client
+    return worker
+
+
+def _auto_requeue_pass(worker, database: Path) -> None:
+    """Run one best-effort recovery pass and emit one safe line per event."""
+
+    from blackholememory.projection_auto_requeue import AutoRequeueController
+
+    records = AutoRequeueController(database).run_pass(worker._qdrant_client)
+    for record in records:
+        print(json.dumps({"classification": "projection_auto_requeue", **record}, sort_keys=True), flush=True)
+
+
+def _auto_requeue_loop(worker, database: Path, stop_event: threading.Event) -> None:
+    """Probe/recover immediately, then no more often than every five minutes."""
+
+    while not stop_event.is_set():
+        try:
+            _auto_requeue_pass(worker, database)
+        except Exception as exc:
+            # A recovery failure must never stop projection processing.  Keep
+            # the diagnostic bounded and free of payloads/secrets.
+            print(
+                json.dumps(
+                    {
+                        "classification": "projection_auto_requeue_failed",
+                        "error": f"{type(exc).__name__}: {str(exc)[:500]}",
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        stop_event.wait(300.0)
 
 
 def _worker_report(config, metrics) -> dict[str, Any]:
@@ -315,6 +351,8 @@ def main() -> int:
         print(f"projection worker failed: {exc}", file=sys.stderr)
         return 1
     stop_event: threading.Event | None = None
+    auto_requeue_stop: threading.Event | None = None
+    auto_requeue_thread: threading.Thread | None = None
     if args.stop_file is not None:
         stop_event = threading.Event()
         threading.Thread(
@@ -325,12 +363,21 @@ def main() -> int:
         ).start()
     try:
         if args.loop:
+            auto_requeue_stop = threading.Event()
+            auto_requeue_thread = threading.Thread(
+                target=_auto_requeue_loop,
+                args=(worker, config.database_path, auto_requeue_stop),
+                name="projection-auto-requeue",
+                daemon=True,
+            )
+            auto_requeue_thread.start()
             metrics = worker.run_forever(
                 stop_event=stop_event,
                 max_cycles=args.max_cycles,
                 force=args.force,
             )
         else:
+            _auto_requeue_pass(worker, config.database_path)
             worker.run_once(force=args.force)
             metrics = worker.snapshot()
     except KeyboardInterrupt:
@@ -340,6 +387,10 @@ def main() -> int:
         print(f"projection worker failed: {exc}", file=sys.stderr)
         return 1
     finally:
+        if auto_requeue_stop is not None:
+            auto_requeue_stop.set()
+        if auto_requeue_thread is not None:
+            auto_requeue_thread.join(timeout=1.0)
         if stop_event is not None:
             stop_event.set()
 
