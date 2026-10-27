@@ -134,7 +134,7 @@
   "scripts/run-bhm-longmemeval-semantic.py": 156,
   "scripts/run-bhm-longmemeval-smoke.py": 47,
   "scripts/run-bhm-memory-evaluation.py": 65,
-  "scripts/run-bhm-projection-worker.py": 353,
+  "scripts/run-bhm-projection-worker.py": 404,
   "scripts/run-bhm-semantic-assurance-live.py": 73,
   "scripts/run-bhm-semantic-assurance.py": 59,
   "scripts/run-bhm-value-benchmark.py": 39,

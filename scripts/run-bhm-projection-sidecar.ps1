@@ -38,6 +38,9 @@ $env:BHM_PROJECTION_WORKER_BATCH_SIZE = [string]$BatchSize
 $env:BHM_PROJECTION_WORKER_MAX_ATTEMPTS = [string]$MaxAttempts
 $env:BHM_PROJECTION_WORKER_POLL_SECONDS = [string]$PollSeconds
 $env:BHM_FALLBACK_MODE = 'explicit'
+if ([string]::IsNullOrWhiteSpace($env:BHM_PROJECTION_AUTO_REQUEUE)) {
+  $env:BHM_PROJECTION_AUTO_REQUEUE = '1'
+}
 
 Get-ChildItem -LiteralPath $bootstrapRoot -Filter 'bhm-restart-*.log' -File -ErrorAction SilentlyContinue |
   Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
