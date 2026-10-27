@@ -650,6 +650,7 @@ def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes
         "repair",
         "projection",
         "reconcile",
+        "requeue",
         "qdrant_recovery",
         "restore",
         "exchange",
@@ -660,12 +661,13 @@ def test_operator_drawer_exposes_safe_database_workflows_without_sidebar_changes
         "repair",
         "projection",
         "reconcile",
+        "requeue",
         "qdrant_recovery",
         "restore",
         "exchange",
     }
     assert [item.group for item in launcher.OPERATOR_ACTIONS].count("Diagnostics") == 6
-    assert [item.group for item in launcher.OPERATOR_ACTIONS].count("Maintenance") == 6
+    assert [item.group for item in launcher.OPERATOR_ACTIONS].count("Maintenance") == 7
     assert [item.group for item in launcher.OPERATOR_ACTIONS].count("Recovery & transfer") == 3
     assert [tag for tag, _label, _url in launcher.QUICK_LINKS[:2]] == ["BHM", "GALAXY"]
 

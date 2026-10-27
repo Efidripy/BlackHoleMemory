@@ -263,6 +263,8 @@ class DashboardScreen(_launcher.QWidget):
             return with_context(lambda: _launcher.operator_sqlite_backup(project))
         if key == "cleanup":
             return with_context(lambda: _launcher.operator_cleanup_preview(project))
+        if key == "requeue":
+            return with_context(lambda: _launcher.operator_requeue_preview(project))
         if key == "repair":
             return with_context(
                 lambda: {
@@ -411,6 +413,7 @@ class DashboardScreen(_launcher.QWidget):
         operations: dict[str, Callable[[], dict[str, Any]]] = {
             "consolidation": lambda: _launcher.operator_consolidation_apply(preview, project),
             "cleanup": lambda: _launcher.operator_cleanup_apply(preview, project),
+            "requeue": lambda: _launcher.operator_requeue_apply(preview, project),
             "repair": lambda: _launcher.operator_repair_indexes(project),
             "restore": lambda: _launcher.operator_restore_backup(path, project),
             "projection": lambda: _launcher.operator_projection_rebuild(project),

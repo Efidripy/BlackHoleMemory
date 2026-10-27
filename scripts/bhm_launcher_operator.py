@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from datetime import timezone
+import importlib.util
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 
 from bhm_launcher_readiness import MAX_HTTP_BYTES
@@ -134,6 +136,81 @@ def operator_cleanup_preview(project: str) -> dict[str, Any]:
     _launcher._assert_launchable_source(cli, _launcher.find_project_root())
     report = _launcher._run_operator_json([python, str(cli)], cwd=_launcher.find_project_root(), timeout=_launcher.PROCESS_CONTROL_TIMEOUT_SECONDS)
     return {"action": "cleanup", "project": project, "phase": "preview", **report}
+
+
+def _requeue_script_module() -> Any:
+    script = _launcher.find_project_root() / "scripts" / "requeue-bhm-dead-letters.py"
+    _launcher._assert_launchable_source(script, _launcher.find_project_root())
+    spec = importlib.util.spec_from_file_location("requeue_bhm_dead_letters", script)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load dead-letter requeue operator")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _requeue_last_error_counts(database: Path) -> list[dict[str, Any]]:
+    connection = sqlite3.connect(f"file:{database.as_posix()}?mode=ro", uri=True)
+    try:
+        rows = connection.execute(
+            """
+            SELECT COALESCE(last_error, ''), COUNT(*)
+            FROM memory_outbox
+            WHERE status = 'dead_letter'
+            GROUP BY COALESCE(last_error, '')
+            ORDER BY COALESCE(last_error, '')
+            """
+        ).fetchall()
+    finally:
+        connection.close()
+    return [{"last_error": str(error), "count": int(count)} for error, count in rows]
+
+
+def operator_requeue_preview(project: str) -> dict[str, Any]:
+    database = _launcher._operator_database_path().resolve()
+    module = _requeue_script_module()
+    event_ids, error = module._read_dead_letters(database)
+    if error:
+        raise RuntimeError(f"cannot preview dead-letter requeue: {error}")
+    return {
+        "action": "requeue",
+        "project": project,
+        "phase": "preview",
+        "mode": "ro",
+        "writes_live_state": False,
+        "dead_letter_count": len(event_ids),
+        "event_digest": module._event_digest(event_ids),
+        "last_errors": _requeue_last_error_counts(database),
+    }
+
+
+def operator_requeue_apply(preview: dict[str, Any], project: str) -> dict[str, Any]:
+    digest = str(preview.get("event_digest") or "")
+    if not digest:
+        raise RuntimeError("requeue preview did not provide an event digest")
+    root = _launcher.find_project_root()
+    database = _launcher._operator_database_path().resolve()
+    module = _requeue_script_module()
+    current_ids, error = module._read_dead_letters(database)
+    if error:
+        raise RuntimeError(f"cannot revalidate dead-letter preview: {error}")
+    current_digest = module._event_digest(current_ids)
+    if current_digest != digest:
+        raise RuntimeError("dead-letter preview is stale; re-run the read-only preview")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    backup_root = (_launcher._operator_runtime_root("backups") / "requeue" / stamp).resolve()
+    _launcher._assert_owned_path(backup_root, root / ".runtime", require_directory=False)
+    manifest = module._apply(database, backup_root, digest)
+    return {
+        "action": "requeue",
+        "project": project,
+        "phase": "apply",
+        "writes_live_state": True,
+        "event_digest": digest,
+        "dead_letter_count": len(current_ids),
+        "backup": manifest.get("backup"),
+        "manifest": manifest,
+    }
 
 
 def operator_sqlite_backup(_project: str) -> dict[str, Any]:
