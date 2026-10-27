@@ -134,7 +134,11 @@ def operator_cleanup_preview(project: str) -> dict[str, Any]:
     python = str(_launcher.venv_python(_launcher.find_project_root()) if _launcher.has_virtualenv(_launcher.find_project_root()) else _launcher.host_python_executable())
     cli = _launcher.find_project_root() / "scripts" / "bhm-sqlite-retention.py"
     _launcher._assert_launchable_source(cli, _launcher.find_project_root())
-    report = _launcher._run_operator_json([python, str(cli)], cwd=_launcher.find_project_root(), timeout=_launcher.PROCESS_CONTROL_TIMEOUT_SECONDS)
+    report = _launcher._run_operator_json(
+        [python, str(cli), "--database", str(_launcher._operator_database_path())],
+        cwd=_launcher.find_project_root(),
+        timeout=_launcher.PROCESS_CONTROL_TIMEOUT_SECONDS,
+    )
     return {"action": "cleanup", "project": project, "phase": "preview", **report}
 
 
@@ -222,8 +226,8 @@ def operator_sqlite_backup(_project: str) -> dict[str, Any]:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     target = (_launcher._operator_runtime_root("backups") / "sqlite-retention" / stamp / "memories.sqlite3").resolve()
     _launcher._assert_owned_path(target, _launcher.find_project_root() / ".runtime", require_directory=False)
-    backup = create_verified_sqlite_backup(database, target)
-    return {"action": "backup", "path": str(target), "verification": verify_sqlite_database(backup)}
+    verification = create_verified_sqlite_backup(database, target)
+    return {"action": "backup", "path": str(target), "verification": verification}
 
 
 def operator_restore_backup(path: str, _project: str) -> dict[str, Any]:

@@ -243,7 +243,11 @@ class DashboardScreen(_launcher.QWidget):
         context = {"project": project, "path": path}
 
         def with_context(operation: Callable[[], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
-            return lambda: {**operation(), "operator_context": context}
+            # The dashboard contract is keyed by the requested operator action.
+            # Individual scripts may expose their own action (for example
+            # ``status`` or ``dry-run``); keep that implementation detail from
+            # leaking through the launcher surface.
+            return lambda: {**operation(), "action": key, "operator_context": context}
 
         if key == "integrity":
             return with_context(lambda: _launcher.operator_integrity_audit(project))
@@ -318,6 +322,8 @@ class DashboardScreen(_launcher.QWidget):
             )
         if key == "reconcile":
             return with_context(lambda: _launcher.operator_reconcile_preview(project))
+        if key == "exchange":
+            return with_context(lambda: _launcher.operator_exchange_preview(path, project))
         raise ValueError(f"unsupported operator action: {key}")
 
     def _release_operator_thread(self, key: str, operation: _launcher.OperatorActionThread) -> None:
