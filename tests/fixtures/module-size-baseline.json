@@ -70,7 +70,7 @@
   "scripts/bhm_launcher.py": 873,
   "scripts/bhm_launcher_base.py": 36,
   "scripts/bhm_launcher_config.py": 150,
-  "scripts/bhm_launcher_dashboard.py": 802,
+  "scripts/bhm_launcher_dashboard.py": 805,
   "scripts/bhm_launcher_env.py": 17,
   "scripts/bhm_launcher_host.py": 33,
   "scripts/bhm_launcher_integrations.py": 592,
