@@ -546,6 +546,7 @@ class DashboardScreen(_launcher.QWidget):
         ]
         for index, (key, title, accent, tooltip) in enumerate(metrics):
             card = _launcher.MetricCard(title, accent, tooltip)
+            card._base_tooltip = tooltip
             self.metric_cards[key] = card
             grid.addWidget(card, index // 4, index % 4)
             grid.setColumnStretch(index % 4, 1)
@@ -623,6 +624,21 @@ class DashboardScreen(_launcher.QWidget):
             card = self.metric_cards.get(key)
             if card:
                 card.set_value(str(value))
+        if "slo_state" in telemetry or "slo_detail" in telemetry:
+            slo_card = self.metric_cards.get("slo_state")
+            if slo_card:
+                self._update_slo_tooltip(slo_card, telemetry.get("slo_detail", ""))
+
+    def _update_slo_tooltip(self, card: _launcher.MetricCard, slo_detail: str) -> None:
+        detail = str(slo_detail or "").strip()
+        if not detail:
+            card.setToolTip(card._base_tooltip)
+            return
+        parts = [card._base_tooltip, detail]
+        failed = {name.strip() for name in detail.split(",") if name.strip()}
+        if "projection_failed_within_budget" in failed:
+            parts.append("Fix: Tools -> Maintenance -> Requeue dead letters")
+        card.setToolTip("\n".join(parts))
 
     def start_service(
         self,

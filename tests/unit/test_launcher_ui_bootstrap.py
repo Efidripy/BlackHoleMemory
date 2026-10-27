@@ -1093,6 +1093,67 @@ def test_fetch_telemetry_keeps_idle_mcp_endpoint_independent_from_slo(monkeypatc
     assert telemetry["slo_state"] == "BREACHED"
 
 
+def test_fetch_telemetry_reports_breached_slo_detail(monkeypatch) -> None:
+    def fake_safe(url: str, *, method: str, payload: dict | None, project: str | None, timeout: float = 0):
+        if "/health/slo" in url:
+            data = {
+                "status": "breached",
+                "checks": {"projection_failed_within_budget": False, "runtime_ready": True},
+                "observed": {"projection_pending": 0, "projection_failed": 1},
+            }
+        elif "/profile" in url:
+            data = {"readiness": {"provider_warmup": {"ready": True, "phase": "ready"}}}
+        elif "/health/cutover" in url:
+            data = {"memory_store": {"ready": True}, "storage": {"ready": True}}
+        elif "mcp-panel" in url:
+            data = {
+                "connected": {"attached_count": 0},
+                "overall": {"state": "ready"},
+                "rest_degraded": {"transport_ready": True},
+            }
+        else:
+            data = {"counts": {"observations": 0}}
+        return launcher.JsonRequestResult(ok=True, data=data, status_code=200)
+
+    monkeypatch.setattr(launcher, "safe_json_request", fake_safe)
+
+    telemetry = launcher.fetch_telemetry("blackholememory")
+
+    assert telemetry["slo_state"] == "BREACHED"
+    assert telemetry["slo_detail"] == "projection_failed_within_budget"
+
+
+def test_dashboard_slo_card_tooltip_explains_breach_and_shows_projection_hint(monkeypatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    assert launcher.load_pyqt6()
+    application = launcher.QApplication.instance() or launcher.QApplication([])
+    view = launcher.DashboardScreen()
+    try:
+        slo_card = view.metric_cards["slo_state"]
+        base_tooltip = slo_card.toolTip()
+        assert "Current BHM service-level health signal." in base_tooltip
+
+        view.apply_telemetry({"slo_state": "HEALTHY", "slo_detail": ""})
+        assert slo_card.toolTip() == base_tooltip
+
+        view.apply_telemetry({"slo_state": "BREACHED", "slo_detail": "runtime_ready"})
+        assert slo_card.toolTip() == f"{base_tooltip}\nruntime_ready"
+        assert "Fix: Tools -> Maintenance -> Requeue dead letters" not in slo_card.toolTip()
+
+        view.apply_telemetry({"slo_state": "BREACHED", "slo_detail": "projection_failed_within_budget"})
+        expected = f"{base_tooltip}\nprojection_failed_within_budget\nFix: Tools -> Maintenance -> Requeue dead letters"
+        assert slo_card.toolTip() == expected
+
+        view.apply_telemetry({"slo_state": "BREACHED", "slo_detail": "projection_pending_within_budget"})
+        assert "Fix: Tools -> Maintenance -> Requeue dead letters" not in slo_card.toolTip()
+
+        view.apply_telemetry({"slo_state": "HEALTHY", "slo_detail": ""})
+        assert slo_card.toolTip() == base_tooltip
+    finally:
+        view.close()
+        application.processEvents()
+
+
 def test_launcher_hides_project_control_but_preserves_internal_scope() -> None:
     source = (SCRIPTS_ROOT / "bhm_launcher_dashboard.py").read_text(encoding="utf-8")
 
