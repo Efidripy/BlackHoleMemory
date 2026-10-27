@@ -1,41 +1,41 @@
-# Runbook: BHM SLO BREACHED (projection route unavailable: binding_source_drift)
+# Инструкция: Восстановление очереди проекции BHM
 
-## Symptom
-- Плитка дашборда **Projection P/F** отображает `0/N` (0 в очереди, N сбоев).
-- Статус системы переходит в **BHM SLO BREACHED**.
-- Проваливается SLO-проверка `projection_failed_within_budget` (допустимый бюджет: `0`), поскольку события `memory_outbox` переходят в терминальный статус `dead_letter` с ошибкой `projection route unavailable: binding_source_drift`.
+## 1. Что я вижу
+- Плашка **BHM SLO** краснеет и переходит в статус `BREACHED`.
+- Плитка **Projection P/F** показывает `0 / N` (ожидает / упало, например `0 / 11`).
+- При наведении мыши на **BHM SLO** подсказка (tooltip) выводит список упавших проверок (`projection_failed_within_budget`) и строку: `Fix: Tools -> Maintenance -> Requeue dead letters`.
 
-## Cause
-- Хеш источника поколения (`generation source digest`) изменяется (дрейфует), когда любой проект в группе поколения получает новые воспоминания.
-- Ранее этот дрейф приводил к закрытию маршрута проекции. После исправления маршрут остаётся открытым со статусом `binding_active_source_drift`, а факт дрейфа остаётся только предупреждением (warning).
+## 2. Что это значит простыми словами
+События синхронизации памяти не смогли записаться в векторный индекс Qdrant и перешли в статус сбоя (`dead_letter`).
+Временные сбои (Qdrant, сеть, таймаут, HTTP 5xx) sidecar проекции автоматически возвращает сам (до 2 раз на событие, не чаще раза в 5 минут при здоровом Qdrant; флаг `BHM_PROJECTION_AUTO_REQUEUE=0` отключает автовозврат). Постоянные ошибки остаются в `dead_letter` — это сигнал человеку.
+Дрейф источника поколения (`binding_source_drift`) больше не блокирует проекцию: маршрут остаётся открытым со статусом `binding_active_source_drift`, в статусе оператора `source_drift=true` (это предупреждение, а не авария).
 
-## Diagnosis
-- Выполните read-only запрос к SQLite базе (строго с `mode=ro`, например `file:.../memories.sqlite3?mode=ro`):
+## 3. Что делать по шагам (на дашборде)
+1. **Навести на плашку BHM SLO**: убедиться, что среди упавших проверок есть `projection_failed_within_budget`.
+2. **Открыть действие**: нажать **Tools** -> **Maintenance** -> **Requeue dead letters**.
+3. **Прочитать предпросмотр**: проверить число записей (`dead_letter_count`), `event_digest` и группировку по `last_error`.
+4. **Подтвердить**: если причин из раздела 5 нет, нажать кнопку подтверждения. Система автоматически создаст бэкап SQLite и вернёт записи в очередь (`pending`).
+
+## 4. Как понять, что починилось
+- Плитка **Projection P/F** показывает `0 / 0` (нет ожидающих и упавших).
+- Плашка **BHM SLO** снова зелёная со статусом **HEALTHY**.
+
+## 5. Когда НЕ нажимать Requeue и звать разработчика
+- Если в предпросмотре в `last_error` указаны `binding_*`, ошибки `vector`/размерности или неизвестные ошибки.
+- Если после возврата в очередь записи снова упали в сбой (плитка вернулась в `0 / N`).
+
+## 6. Для разработчика (CLI)
+Команды выполняются через `.venv` репозитория:
+- Read-only проверка базы SQLite (строго с параметром `mode=ro`):
   ```sql
   SELECT status, count(*) FROM memory_outbox GROUP BY 1;
   ```
-- Убедитесь, что записи со статусом `dead_letter` содержат ошибку дрейфа:
-  ```sql
-  SELECT event_id, last_error FROM memory_outbox WHERE status = 'dead_letter';
+- Предпросмотр (dry-run) и возврат событий:
+  ```bash
+  python scripts/requeue-bhm-dead-letters.py
+  python scripts/requeue-bhm-dead-letters.py --apply --backup-root .runtime/backups/requeue
   ```
-
-## Fix
-Сначала убедитесь, что запущена версия BHM с исправлением маршрута (`bhm_health` -> `source_identity.revision`): иначе возвращённые события снова упадут в `dead_letter`.
-
-1. Создайте резервную копию базы через SQLite Online Backup API.
-2. Запустите сухой прогон (dry-run) для предварительного просмотра и валидации дайджеста без записи:
-   ```bash
-   PYTHONPATH=src python scripts/requeue-bhm-dead-letters.py
-   ```
-3. Выполните фактический возврат событий в статус `pending`, передав каталог резервной копии:
-   ```bash
-   PYTHONPATH=src python scripts/requeue-bhm-dead-letters.py --apply --backup-root .runtime/backups/requeue
-   ```
-4. Проверьте статус восстановления и метрики SLO:
-   ```powershell
-   scripts/bhm-projection-operator.ps1 -Action status
-   ```
-
-## Never
-- **Никогда не удаляйте строки `memory_outbox` вручную** (`DELETE` нарушает строгую последовательность и аудит).
-- **Никаких секретов**: не выводите и не сохраняйте токены (`BHM_CALLER_TOKEN`) или API-ключи в терминале, тикетах и репозитории.
+- Проверка статуса проекции и SLO:
+  ```powershell
+  scripts/bhm-projection-operator.ps1 -Action status
+  ```
