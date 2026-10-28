@@ -49,7 +49,7 @@ def _repository(tmp_path: Path) -> Path:
     (root / ".env").write_text("TOKEN=synthetic\n", encoding="utf-8")
     (root / "src" / "bundle.min.js").write_text("const generated=true;\n", encoding="utf-8")
     (root / "assets" / "binary.txt").write_bytes(b"text\x00binary")
-    fake_token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    fake_token = "not-a-real-token-" + "X" * 20
     (root / "assets" / "credential.txt").write_text(f"token={fake_token}\n", encoding="utf-8")
     _git(root, "init")
     _git(root, "config", "user.email", "fixture@example.invalid")
