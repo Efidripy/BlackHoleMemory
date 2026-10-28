@@ -24,7 +24,7 @@ def _default_codex_config() -> Path:
 
 
 def _default_surfaces() -> list[Path]:
-    return [Path(os.environ.get("USERPROFILE", "")) / ".claude" / "settings.json"]
+    return [Path(os.environ.get("USERPROFILE", "")) / ".claude.json"]
 
 
 def run_self_test(contract_path: Path) -> dict[str, Any]:

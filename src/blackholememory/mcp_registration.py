@@ -303,6 +303,17 @@ def _http_auth_reference(
     server_id: str,
     named_bhm_surface: bool,
 ) -> tuple[str, str]:
+    bearer_helper_env = ""
+    for key, filename in (("headersHelper", "emit-bhm-claude-headers.ps1"), ("http_headers_helper", "emit-bhm-mcp-headers.ps1")):
+        if key in spec:
+            helper = spec[key]
+            parts = helper if isinstance(helper, list) else [helper]
+            pattern = rf"(?i)(?:^|[\\/\s\"']){re.escape(filename)}(?:$|[\s\"'])"
+            if not all(isinstance(part, str) for part in parts) or not any(re.search(pattern, part) for part in parts):
+                return "", ""
+            if str(spec.get("bearer_token_env_var") or "").strip() not in ("", "BHM_ADMIN_CAPABILITY"):
+                return "", ""
+            bearer_helper_env = "BHM_ADMIN_CAPABILITY"
     bearer_env = str(spec.get("bearer_token_env_var") or "").strip()
     headers = spec.get("headers") if isinstance(spec.get("headers"), dict) else {}
     authorization = str(headers.get("Authorization") or headers.get("authorization") or "").strip()
@@ -318,6 +329,9 @@ def _http_auth_reference(
         if bearer_env and bearer_env != header_env:
             raise RegistrationContractError(f"{source}: server {server_id!r} has conflicting bearer references")
         bearer_env = header_env
+    if bearer_helper_env and bearer_env and bearer_env != bearer_helper_env:
+        return "", ""
+    bearer_env = bearer_env or bearer_helper_env
     return ("bearer_env", bearer_env) if bearer_env else ("", "")
 
 

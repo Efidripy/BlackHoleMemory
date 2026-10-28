@@ -8,8 +8,14 @@
 
 - Endpoint: `http://127.0.0.1:8000/mcp`.
 - Transport: Streamable HTTP.
-- Header: `Authorization: Bearer <BHM_CALLER_TOKEN>`.
+- Каноническая операторская HTTP-регистрация: `Authorization: Bearer <BHM_ADMIN_CAPABILITY>`.
+- Для доступа вызывающего без операторской записи допустим `BHM_CALLER_TOKEN`.
 - Источник истины для регистрации: `config/mcp-registration.json`.
+- Claude Desktop использует описанный ниже stdio-мост; HTTP-контракт генератора
+  адаптеров не заменяет этот мост.
+- Claude Code: `~/.claude.json`, `mcpServers.bhm`; Codex: `~/.codex/config.toml`,
+  `mcp_servers.bhm`, с `required = false`. Утверждённые headers helper
+  отражают операторскую переменную; Claude helper допускает резервный caller token.
 
 Угловые скобки в примерах — placeholders. Их нельзя включать в фактический
 token.

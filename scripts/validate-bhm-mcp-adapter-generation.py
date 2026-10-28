@@ -56,7 +56,7 @@ def main() -> int:
 
     targets = [
         Path(__import__("os").environ.get("USERPROFILE", "")) / ".codex" / "config.toml",
-        Path(__import__("os").environ.get("USERPROFILE", "")) / ".claude" / "settings.json",
+        Path(__import__("os").environ.get("USERPROFILE", "")) / ".claude.json",
     ]
     before = {str(path): _hash(path) for path in targets}
     canary = _run("--manifest", str(args.manifest), "--canary")
