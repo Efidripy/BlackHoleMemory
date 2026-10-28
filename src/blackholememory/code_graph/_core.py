@@ -89,6 +89,25 @@ from .structural import (
     _structural_decl_kind,
 )
 
+_JS_DECL_PATTERNS = (
+    re.compile(r"^\s*(?:export\s+default\s+|export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+([A-Za-z_$][\w$.]*))?"),
+    re.compile(r"^\s*(?:export\s+)?(?:declare\s+)?interface\s+([A-Za-z_$][\w$]*)"),
+    re.compile(r"^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)"),
+    re.compile(r"^\s*(?:export\s+)?(?:type|namespace|module)\s+([A-Za-z_$][\w$]*)"),
+    re.compile(r"^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)"),
+    re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::\s*[^=]+)?=>"),
+)
+_JS_CALL_PATTERN = re.compile(r"\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(")
+_JS_OBJECT_ALIAS_PATTERN = re.compile(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+([A-Za-z_$][\w$]*)\s*\(")
+_JS_METHOD_PATTERN = re.compile(r"^\s*(?:(?:public|private|protected|static|abstract|override|get|set)\s+)*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{")
+_JS_ROUTE_PATTERN = re.compile(r"\b(?:app|router|server)\.(get|post|put|patch|delete|options|head)\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*([A-Za-z_$][\w$]*)")
+_JS_INLINE_ROUTE_PATTERN = re.compile(r"\b(?:app|router|server)\.(get|post|put|patch|delete|options|head)\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>")
+_JS_TEST_PATTERN = re.compile(r"\b(?:describe|it|test|specify|beforeEach|afterEach)\s*\(\s*['\"]([^'\"]+)")
+_POWERSHELL_FUNCTION_PATTERN = re.compile(r"^\s*function\s+([A-Za-z_][\w-]*)", re.IGNORECASE)
+_POWERSHELL_IMPORT_PATTERN = re.compile(r"^\s*Import-Module\s+['\"]?([^'\"\s]+)", re.IGNORECASE)
+_POWERSHELL_TEST_PATTERN = re.compile(r"\b(?:Describe|It)\s+['\"]([^'\"]+)", re.IGNORECASE)
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
+
 def parser_capability_matrix() -> dict[str, Any]:
     """Return the truthful parser-vs-inventory capability matrix."""
 
@@ -103,7 +122,6 @@ def parser_capability_matrix() -> dict[str, Any]:
     return matrix
 
 def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, file_hash: str, language: str) -> tuple[str, str | None]:
-    lines = content.splitlines()
     if language == "gomod":
         return _extract_gomod_metadata(draft, path, file_key, content, file_hash)
     if language in {"go", "rust", "java", "kotlin", "scala", "c", "cpp", "csharp", "ruby", "php", "perl", "dart", "lua", "r", "elixir", "fsharp", "shell", "sql", "graphql", "protobuf", "swift", "solidity"}:
@@ -145,15 +163,9 @@ def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, 
     if language in {"vue", "svelte"}:
         return _extract_component_structural(draft, path, file_key, content, file_hash, language)
     if language in {"javascript", "typescript"}:
+        lines = content.splitlines()
         _parse_js_imports(draft, path, content)
-        patterns = [
-            re.compile(r"^\s*(?:export\s+default\s+|export\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)(?:\s+extends\s+([A-Za-z_$][\w$.]*))?"),
-            re.compile(r"^\s*(?:export\s+)?(?:declare\s+)?interface\s+([A-Za-z_$][\w$]*)"),
-            re.compile(r"^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)"),
-            re.compile(r"^\s*(?:export\s+)?(?:type|namespace|module)\s+([A-Za-z_$][\w$]*)"),
-            re.compile(r"^\s*(?:export\s+(?:default\s+)?)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)"),
-            re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*(?::\s*[^=]+)?=>"),
-        ]
+        patterns = _JS_DECL_PATTERNS
         js_call_exclusions = _JS_KEYWORDS | _IGNORED_CALLS | {"describe", "it", "test", "specify", "beforeEach", "afterEach"}
         for index, line in enumerate(lines, start=1):
             match = next((pattern.match(line) for pattern in patterns if pattern.match(line)), None)
@@ -171,15 +183,15 @@ def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, 
             if kind == "class" and match.lastindex and match.lastindex >= 2 and match.group(2):
                 draft.inheritances.append({"source_key": key, "name": str(match.group(2)), "line": index})
             block = "\n".join(lines[index - 1 : _brace_end(lines, index)])
-            for call in re.finditer(r"\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(", block):
+            for call in _JS_CALL_PATTERN.finditer(block):
                 called = call.group(1)
                 if called.split(".")[-1] in js_call_exclusions or called.startswith(("app.", "router.", "server.")):
                     continue
                 call_line = index + block.count("\n", 0, call.start())
                 draft.references.append({"source_key": key, "name": called, "line": call_line, "path": path, "language": language, "aliases": dict(draft.import_aliases.get(path, {})), "imported_names": dict(draft.imported_names.get(path, {}))})
-        for match in re.finditer(r"\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*new\s+([A-Za-z_$][\w$]*)\s*\(", content):
+        for match in _JS_OBJECT_ALIAS_PATTERN.finditer(content):
             draft.object_aliases[path][match.group(1)] = match.group(2)
-        method_pattern = re.compile(r"^\s*(?:(?:public|private|protected|static|abstract|override|get|set)\s+)*(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*\{")
+        method_pattern = _JS_METHOD_PATTERN
         for class_node in [node for node in draft.nodes.values() if node.get("node_kind") == "class" and node.get("path") == path]:
             class_name = str(class_node.get("name") or "")
             start = int(class_node.get("start_line") or 1) + 1
@@ -193,7 +205,7 @@ def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, 
                 draft.add_node(_node(root_id=draft.root_id, stable_key=key, kind="method", path=path, name=name, qualified_name=f"{class_name}.{name}", language=language, start_line=index, end_line=_brace_end(lines, index), signature=lines[index - 1].strip(), content_sha256=file_hash, parser_version=PARSER_REGISTRY[language]["version"], attributes={"owner": class_name}))
                 draft.add_edge("contains", str(class_node["stable_key"]), key, line=index)
                 block = "\n".join(lines[index - 1 : _brace_end(lines, index)])
-                for call in re.finditer(r"\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(", block):
+                for call in _JS_CALL_PATTERN.finditer(block):
                     called = call.group(1)
                     if called.split(".")[-1] in js_call_exclusions or called.startswith(("app.", "router.", "server.")):
                         continue
@@ -208,11 +220,11 @@ def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, 
                         continue
                     call_line = index + block.count("\n", 0, call.start())
                     draft.references.append({"source_key": key, "name": called, "line": call_line, "path": path, "language": language, "aliases": dict(draft.import_aliases.get(path, {})), "imported_names": dict(draft.imported_names.get(path, {}))})
-        route_pattern = re.compile(r"\b(?:app|router|server)\.(get|post|put|patch|delete|options|head)\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*([A-Za-z_$][\w$]*)")
+        route_pattern = _JS_ROUTE_PATTERN
         for match in route_pattern.finditer(content):
             line = content.count("\n", 0, match.start()) + 1
             draft.routes.append({"method": match.group(1).upper(), "path": _clip(match.group(2), 500), "handler_name": match.group(3), "line": line})
-        inline_route_pattern = re.compile(r"\b(?:app|router|server)\.(get|post|put|patch|delete|options|head)\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>")
+        inline_route_pattern = _JS_INLINE_ROUTE_PATTERN
         for match in inline_route_pattern.finditer(content):
             line = content.count("\n", 0, match.start()) + 1
             name = f"route_handler_{match.group(1).lower()}_{line}"
@@ -221,7 +233,7 @@ def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, 
                 draft.add_node(_node(root_id=draft.root_id, stable_key=key, kind="function", path=path, name=name, qualified_name=name, language=language, start_line=line, end_line=_brace_end(lines, line), signature=content[match.start():match.end()].strip(), content_sha256=file_hash, parser_version=PARSER_REGISTRY[language]["version"], attributes={"inline_route_handler": True}))
                 draft.add_edge("contains", file_key, key, line=line)
             draft.routes.append({"method": match.group(1).upper(), "path": _clip(match.group(2), 500), "handler_key": key, "handler_name": name, "line": line})
-        test_pattern = re.compile(r"\b(?:describe|it|test|specify|beforeEach|afterEach)\s*\(\s*['\"]([^'\"]+)")
+        test_pattern = _JS_TEST_PATTERN
         for match in test_pattern.finditer(content):
             line = content.count("\n", 0, match.start()) + 1
             name = _clip(match.group(1), 240)
@@ -231,8 +243,9 @@ def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, 
             draft.test_symbols.add(key)
         return "parsed", None
     if language == "powershell":
+        lines = content.splitlines()
         for index, line in enumerate(lines, start=1):
-            match = re.match(r"^\s*function\s+([A-Za-z_][\w-]*)", line, re.IGNORECASE)
+            match = _POWERSHELL_FUNCTION_PATTERN.match(line)
             if match:
                 name = match.group(1)
                 kind = "test" if path.casefold().find("test") >= 0 or name.casefold().startswith("test") else "function"
@@ -241,10 +254,10 @@ def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, 
                 draft.add_edge("contains", file_key, key, line=index)
                 if kind == "test":
                     draft.test_symbols.add(key)
-            import_match = re.match(r"^\s*Import-Module\s+['\"]?([^'\"\s]+)", line, re.IGNORECASE)
+            import_match = _POWERSHELL_IMPORT_PATTERN.match(line)
             if import_match:
                 draft.imports[path].append({"module": import_match.group(1), "line": index, "alias": import_match.group(1)})
-            for test_match in re.finditer(r"\b(?:Describe|It)\s+['\"]([^'\"]+)", line, re.IGNORECASE):
+            for test_match in _POWERSHELL_TEST_PATTERN.finditer(line):
                 name = test_match.group(1)
                 key = _symbol_node_key(draft.root_id, path, name, "test")
                 draft.add_node(_node(root_id=draft.root_id, stable_key=key, kind="test", path=path, name=name, qualified_name=name, language=language, start_line=index, end_line=index, signature=line.strip(), content_sha256=file_hash, parser_version=PARSER_REGISTRY[language]["version"], attributes={"is_test": True}))
@@ -256,7 +269,7 @@ def _extract_script(draft: _GraphDraft, path: str, file_key: str, content: str, 
 
 def _extract_markdown(draft: _GraphDraft, path: str, file_key: str, content: str, file_hash: str) -> tuple[str, str | None]:
     for index, line in enumerate(content.splitlines(), start=1):
-        match = re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        match = _MARKDOWN_HEADING_PATTERN.match(line)
         if not match:
             continue
         name = _clip(match.group(2), 240)
@@ -479,11 +492,14 @@ def _finalize_draft(draft: _GraphDraft) -> None:
         if route_key not in draft.nodes:
             draft.add_node(_node(root_id=draft.root_id, stable_key=route_key, kind="route", name=f"{route.get('method')} {route.get('path')}", qualified_name=f"{route.get('method')} {route.get('path')}", language="http", signature=f"{route.get('method')} {route.get('path')}", parser_version=CODE_GRAPH_EXTRACTOR_VERSION, attributes={"method": route.get("method"), "path": route.get("path"), "methods": route.get("methods") or [route.get("method")], "handler": handler_key}))
         draft.add_edge("route_handles", route_key, str(handler_key), confidence=confidence, unresolved=unresolved, line=int(route.get("line") or 1), attributes={"method": route.get("method"), "path": route.get("path")})
+    file_stems = {path: Path(path).stem.casefold() for path in file_paths}
     for path in sorted(draft.test_files):
         file_key = _file_node_key(draft.root_id, path)
+        path_stem = file_stems[path]
         for target in sorted(draft.file_paths - {path}):
             target_key = _file_node_key(draft.root_id, target)
-            if Path(target).stem.casefold() in Path(path).stem.casefold() or Path(path).stem.casefold() in Path(target).stem.casefold():
+            target_stem = file_stems[target]
+            if target_stem in path_stem or path_stem in target_stem:
                 draft.add_edge("tests", file_key, target_key, confidence=0.4, unresolved=False, attributes={"reason": "test-name-match"})
 
 
@@ -557,12 +573,13 @@ def extract_code_graph(
         draft.file_paths.add(path)
         if kind == "test":
             draft.test_files.add(path)
-        draft.add_node(_node(root_id=root_id, stable_key=file_key, kind="file", path=path, name=PurePosixPath(path).name, qualified_name=path, language=language, start_line=1, end_line=len(content.splitlines()), signature="", content_sha256=expected_hash, parser_version=PARSER_REGISTRY.get(language, {}).get("version", CODE_GRAPH_EXTRACTOR_VERSION), attributes={"file_kind": kind, "origin": item.get("origin"), "size_bytes": len(payload), "line_count": len(content.splitlines())}))
+        line_count = len(content.splitlines())
+        draft.add_node(_node(root_id=root_id, stable_key=file_key, kind="file", path=path, name=PurePosixPath(path).name, qualified_name=path, language=language, start_line=1, end_line=line_count, signature="", content_sha256=expected_hash, parser_version=PARSER_REGISTRY.get(language, {}).get("version", CODE_GRAPH_EXTRACTOR_VERSION), attributes={"file_kind": kind, "origin": item.get("origin"), "size_bytes": len(payload), "line_count": line_count}))
         draft.add_edge("contains", snapshot_key, file_key)
         module_name, package_name = _module_metadata(path, language, content)
         module_key = _node_key(root_id, "module", path, module_name)
         if module_key not in draft.nodes:
-            draft.add_node(_node(root_id=root_id, stable_key=module_key, kind="module", path=path, name=module_name.rsplit(".", 1)[-1], qualified_name=module_name, language=language, start_line=1, end_line=len(content.splitlines()), signature=module_name, content_sha256=expected_hash, parser_version=PARSER_REGISTRY.get(language, {}).get("version", CODE_GRAPH_EXTRACTOR_VERSION), attributes={"metadata_only": True, "module_name": module_name, "package_name": package_name}))
+            draft.add_node(_node(root_id=root_id, stable_key=module_key, kind="module", path=path, name=module_name.rsplit(".", 1)[-1], qualified_name=module_name, language=language, start_line=1, end_line=line_count, signature=module_name, content_sha256=expected_hash, parser_version=PARSER_REGISTRY.get(language, {}).get("version", CODE_GRAPH_EXTRACTOR_VERSION), attributes={"metadata_only": True, "module_name": module_name, "package_name": package_name}))
             draft.add_edge("contains", module_key, file_key)
         if package_name:
             package_key = _node_key(root_id, "package", "", package_name)
@@ -606,9 +623,28 @@ def extract_code_graph(
     node_items = sorted(draft.nodes.values(), key=lambda item: str(item["stable_key"]))
     edge_items = sorted(draft.edges.values(), key=lambda item: str(item["stable_key"]))
     parse_items = sorted(draft.parse_results, key=lambda item: str(item["path"]))
+    node_counts = Counter(str(node.get("path") or "") for node in node_items)
+    parse_paths = {str(item["path"]) for item in parse_items}
+    edge_counts: Counter[str] = Counter()
+    for edge in edge_items:
+        matched_paths: set[str] = set()
+        for ref in (edge.get("evidence") or {}).get("source_refs", []):
+            ref_text = str(ref)
+            start = 0
+            while True:
+                marker = ref_text.find("#", start)
+                if marker < 0:
+                    break
+                candidate = ref_text[:marker]
+                if candidate in parse_paths:
+                    matched_paths.add(candidate)
+                start = marker + 1
+        for path in matched_paths:
+            edge_counts[path] += 1
     for item in parse_items:
-        item["node_count"] = sum(1 for node in node_items if node.get("path") == item["path"])
-        item["edge_count"] = sum(1 for edge in edge_items if any(str(ref).startswith(f"{item['path']}#") for ref in (edge.get("evidence") or {}).get("source_refs", [])))
+        path = str(item["path"])
+        item["node_count"] = node_counts.get(path, 0)
+        item["edge_count"] = edge_counts.get(path, 0)
     nodes_digest = _sha256(_canonical_json(node_items))
     edges_digest = _sha256(_canonical_json(edge_items))
     parse_digest = _sha256(_canonical_json(parse_items))

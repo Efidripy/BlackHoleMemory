@@ -48,35 +48,55 @@ __all__ = [
     "_terraform_source_kind",
 ]
 
+_ENDPOINT_PATTERN = re.compile(
+    r"\b(?:fetch|axios\.[A-Za-z]+|requests\.[A-Za-z]+|http\.(?:Get|Post|Do)|client\.(?:get|post|request)|HttpClient)\s*\([^\n]{0,180}?[\"'](https?://[^\"']+)[\"']",
+    re.IGNORECASE,
+)
+_RELATIVE_ENDPOINT_PATTERN = re.compile(
+    r"\b(?:fetch|axios\.[A-Za-z]+|requests\.[A-Za-z]+|client\.(?:get|post|request))\s*\([^\n]{0,180}?[\"'](?P<endpoint>(?:/|\./|\.\./)[^\"']{1,240})[\"']",
+    re.IGNORECASE,
+)
+_RPC_PATTERN = re.compile(
+    r"\b(?P<protocol_token>grpc\.(?:Dial|NewClient)|connect\.(?:Connect|createClient)|trpc\.(?:createClient|query|mutation)|graphql(?:Request|Client)?|ApolloClient)\s*\([^\n]{0,180}?[\"'](?P<endpoint>(?:https?://|[A-Za-z0-9_.-]+:)[^\"']{1,240})[\"']",
+    re.IGNORECASE,
+)
+_EVENT_PATTERNS = (
+    (re.compile(r"\.(?:emit|publish|dispatch)\s*\(\s*[\"']([^\"']+)[\"']"), "emits"),
+    (re.compile(r"\.(?:on|once|subscribe|consume)\s*\(\s*[\"']([^\"']+)[\"']"), "listens_on"),
+)
+_CONFIG_PATTERNS = (
+    (re.compile(r"^\s*FROM\s+([^\s]+)", re.IGNORECASE | re.MULTILINE), "service_image", "depends_on", "image"),
+    (re.compile(r"^\s*image:\s*([^\s#]+)", re.IGNORECASE | re.MULTILINE), "service_image", "depends_on", "image"),
+    (re.compile(r"^\s*(?:EXPOSE\s+|[-*]\s*)?(?:containerPort|targetPort|port):\s*([0-9]{1,5})\b", re.IGNORECASE | re.MULTILINE), "service_port", "exposes", "port"),
+    (re.compile(r"^\s*EXPOSE\s+([0-9]{1,5})\b", re.IGNORECASE | re.MULTILINE), "service_port", "exposes", "port"),
+)
+_TERRAFORM_RESOURCE_PATTERN = re.compile(r'^\s*resource\s+"(?P<kind>[A-Za-z0-9_-]{1,80})"\s+"(?P<name>[A-Za-z0-9_-]{1,80})"\s*\{', re.MULTILINE)
+_COMPOSE_SERVICES_PATTERN = re.compile(r"^services\s*:\s*$", re.IGNORECASE)
+_COMPOSE_SERVICE_PATTERN = re.compile(r"^([A-Za-z][A-Za-z0-9_.-]{0,80})\s*:\s*$")
+_COMPOSE_DEPENDS_PATTERN = re.compile(r"^depends_on\s*:\s*(?P<inline>.*)$", re.IGNORECASE)
+_COMPOSE_INLINE_DEPENDENCY_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,80}")
+_COMPOSE_DEPENDENCY_PATTERN = re.compile(r"^-?\s*([A-Za-z][A-Za-z0-9_.-]{0,80})(?:\s*:|\s*$)")
+_K8S_KIND_PATTERN = re.compile(r"^\s*kind:\s*(Service|Deployment|StatefulSet|Job)\s*$", re.IGNORECASE | re.MULTILINE)
+_K8S_NAME_PATTERN = re.compile(r"^\s*name:\s*([A-Za-z0-9_.-]{1,80})\s*$", re.IGNORECASE | re.MULTILINE)
+_K8S_NAMESPACE_PATTERN = re.compile(r"^\s*namespace:\s*[A-Za-z0-9_.-]{1,80}\s*$", re.IGNORECASE | re.MULTILINE)
+
 
 def _extract_service_edges(draft: _GraphDraft, path: str, file_key: str, content: str) -> None:
     """Add conservative, evidence-bound service/event edges from explicit literals."""
 
-    endpoint_pattern = re.compile(
-        r"\b(?:fetch|axios\.[A-Za-z]+|requests\.[A-Za-z]+|http\.(?:Get|Post|Do)|client\.(?:get|post|request)|HttpClient)\s*\([^\n]{0,180}?[\"'](https?://[^\"']+)[\"']",
-        re.IGNORECASE,
-    )
-    for match in endpoint_pattern.finditer(content):
+    for match in _ENDPOINT_PATTERN.finditer(content):
         endpoint = _clip(match.group(1), 300)
         target_key = _external_node_key(draft.root_id, "service_endpoint", endpoint)
         if target_key not in draft.nodes:
             draft.add_node(_node(root_id=draft.root_id, stable_key=target_key, kind="service_endpoint", name=endpoint, qualified_name=endpoint, attributes={"external": True, "authority": "inferred"}))
         draft.add_edge("http_calls", file_key, target_key, confidence=0.78, line=content.count("\n", 0, match.start()) + 1, attributes={"endpoint": endpoint, "protocol_family": "http", "evidence_class": "literal-call"})
-    relative_endpoint_pattern = re.compile(
-        r"\b(?:fetch|axios\.[A-Za-z]+|requests\.[A-Za-z]+|client\.(?:get|post|request))\s*\([^\n]{0,180}?[\"'](?P<endpoint>(?:/|\./|\.\./)[^\"']{1,240})[\"']",
-        re.IGNORECASE,
-    )
-    for match in relative_endpoint_pattern.finditer(content):
+    for match in _RELATIVE_ENDPOINT_PATTERN.finditer(content):
         endpoint = _clip(match.group("endpoint"), 240)
         target_key = _external_node_key(draft.root_id, "service_route", endpoint)
         if target_key not in draft.nodes:
             draft.add_node(_node(root_id=draft.root_id, stable_key=target_key, kind="service_route", name=endpoint, qualified_name=endpoint, attributes={"external": True, "authority": "inferred", "route_kind": "relative"}))
         draft.add_edge("http_calls", file_key, target_key, confidence=0.7, line=content.count("\n", 0, match.start()) + 1, attributes={"endpoint": endpoint, "endpoint_kind": "relative", "protocol_family": "http", "evidence_class": "literal-call"})
-    rpc_pattern = re.compile(
-        r"\b(?P<protocol_token>grpc\.(?:Dial|NewClient)|connect\.(?:Connect|createClient)|trpc\.(?:createClient|query|mutation)|graphql(?:Request|Client)?|ApolloClient)\s*\([^\n]{0,180}?[\"'](?P<endpoint>(?:https?://|[A-Za-z0-9_.-]+:)[^\"']{1,240})[\"']",
-        re.IGNORECASE,
-    )
-    for match in rpc_pattern.finditer(content):
+    for match in _RPC_PATTERN.finditer(content):
         endpoint = _clip(match.group("endpoint"), 240)
         protocol_token = str(match.group("protocol_token") or "").casefold()
         if protocol_token.startswith(("grpc.", "connect.")):
@@ -91,23 +111,14 @@ def _extract_service_edges(draft: _GraphDraft, path: str, file_key: str, content
         if target_key not in draft.nodes:
             draft.add_node(_node(root_id=draft.root_id, stable_key=target_key, kind="service_endpoint", name=endpoint, qualified_name=endpoint, attributes={"external": True, "authority": "inferred", "protocol": "rpc", "protocol_family": protocol_family}))
         draft.add_edge("depends_on", file_key, target_key, confidence=0.62, line=content.count("\n", 0, match.start()) + 1, attributes={"endpoint": endpoint, "protocol": "rpc", "protocol_family": protocol_family, "evidence_class": "literal-rpc"})
-    for pattern, edge_kind in (
-        (re.compile(r"\.(?:emit|publish|dispatch)\s*\(\s*[\"']([^\"']+)[\"']"), "emits"),
-        (re.compile(r"\.(?:on|once|subscribe|consume)\s*\(\s*[\"']([^\"']+)[\"']"), "listens_on"),
-    ):
+    for pattern, edge_kind in _EVENT_PATTERNS:
         for match in pattern.finditer(content):
             channel = _clip(match.group(1), 240)
             target_key = _external_node_key(draft.root_id, "event_channel", channel)
             if target_key not in draft.nodes:
                 draft.add_node(_node(root_id=draft.root_id, stable_key=target_key, kind="event_channel", name=channel, qualified_name=channel, attributes={"external": True, "authority": "inferred", "protocol_family": "pubsub"}))
             draft.add_edge(edge_kind, file_key, target_key, confidence=0.72, line=content.count("\n", 0, match.start()) + 1, attributes={"channel": channel, "protocol_family": "pubsub", "evidence_class": "literal-event"})
-    config_patterns = (
-        (re.compile(r"^\s*FROM\s+([^\s]+)", re.IGNORECASE | re.MULTILINE), "service_image", "depends_on", "image"),
-        (re.compile(r"^\s*image:\s*([^\s#]+)", re.IGNORECASE | re.MULTILINE), "service_image", "depends_on", "image"),
-        (re.compile(r"^\s*(?:EXPOSE\s+|[-*]\s*)?(?:containerPort|targetPort|port):\s*([0-9]{1,5})\b", re.IGNORECASE | re.MULTILINE), "service_port", "exposes", "port"),
-        (re.compile(r"^\s*EXPOSE\s+([0-9]{1,5})\b", re.IGNORECASE | re.MULTILINE), "service_port", "exposes", "port"),
-    )
-    for pattern, node_kind, edge_kind, attribute_name in config_patterns:
+    for pattern, node_kind, edge_kind, attribute_name in _CONFIG_PATTERNS:
         for match in pattern.finditer(content):
             value = _clip(match.group(1), 160)
             target_key = _external_node_key(draft.root_id, node_kind, value)
@@ -121,7 +132,7 @@ def _extract_service_edges(draft: _GraphDraft, path: str, file_key: str, content
     # through the Terraform parser, which remains scoped to .tf/.tfvars.
     terraform_path = PurePosixPath(path).suffix.casefold() in {".tf", ".tfvars"}
     if terraform_path:
-        for match in re.finditer(r"^\s*resource\s+\"(?P<kind>[A-Za-z0-9_-]{1,80})\"\s+\"(?P<name>[A-Za-z0-9_-]{1,80})\"\s*\{", content, re.MULTILINE):
+        for match in _TERRAFORM_RESOURCE_PATTERN.finditer(content):
             identity = f"{match.group('kind')}.{match.group('name')}"
             target_key = _external_node_key(draft.root_id, "infrastructure_resource", identity)
             if target_key not in draft.nodes:
@@ -141,7 +152,7 @@ def _extract_service_edges(draft: _GraphDraft, path: str, file_key: str, content
     depends_indent = 0
     for index, line in enumerate(lines, start=1):
         stripped = line.strip()
-        if re.match(r"^services\s*:\s*$", stripped, re.IGNORECASE):
+        if _COMPOSE_SERVICES_PATTERN.match(stripped):
             in_services = True
             service_indent = len(line) - len(line.lstrip()) + 2
             current_service = ""
@@ -154,7 +165,7 @@ def _extract_service_edges(draft: _GraphDraft, path: str, file_key: str, content
         if not in_services or not stripped or stripped.startswith("#"):
             continue
         indent = len(line) - len(line.lstrip())
-        service_match = re.match(r"^([A-Za-z][A-Za-z0-9_.-]{0,80})\s*:\s*$", stripped)
+        service_match = _COMPOSE_SERVICE_PATTERN.match(stripped)
         if indent == service_indent and service_match:
             name = service_match.group(1)
             current_service = name
@@ -167,19 +178,19 @@ def _extract_service_edges(draft: _GraphDraft, path: str, file_key: str, content
             continue
         if not current_service:
             continue
-        depends_match = re.match(r"^depends_on\s*:\s*(?P<inline>.*)$", stripped, re.IGNORECASE)
+        depends_match = _COMPOSE_DEPENDS_PATTERN.match(stripped)
         if depends_match:
             in_depends_on = True
             depends_indent = indent + 2
             inline = depends_match.group("inline").strip()
-            for dependency in re.findall(r"[A-Za-z][A-Za-z0-9_.-]{0,80}", inline):
+            for dependency in _COMPOSE_INLINE_DEPENDENCY_PATTERN.findall(inline):
                 compose_dependencies.append((current_service, dependency, index))
             continue
         if in_depends_on:
             if indent < depends_indent:
                 in_depends_on = False
                 continue
-            dependency_match = re.match(r"^-?\s*([A-Za-z][A-Za-z0-9_.-]{0,80})(?:\s*:|\s*$)", stripped)
+            dependency_match = _COMPOSE_DEPENDENCY_PATTERN.match(stripped)
             if dependency_match and indent >= depends_indent:
                 compose_dependencies.append((current_service, dependency_match.group(1), index))
 
@@ -209,9 +220,9 @@ def _extract_service_edges(draft: _GraphDraft, path: str, file_key: str, content
     # Kubernetes Service/Deployment identities become bounded anchors. Only
     # kind and metadata.name are retained; labels, selectors and values stay
     # out of the graph.
-    k8s_kind = re.search(r"^\s*kind:\s*(Service|Deployment|StatefulSet|Job)\s*$", content, re.IGNORECASE | re.MULTILINE)
-    k8s_name = re.search(r"^\s*name:\s*([A-Za-z0-9_.-]{1,80})\s*$", content, re.IGNORECASE | re.MULTILINE)
-    if k8s_kind and k8s_name and not re.search(r"^\s*namespace:\s*[A-Za-z0-9_.-]{1,80}\s*$", content, re.IGNORECASE | re.MULTILINE):
+    k8s_kind = _K8S_KIND_PATTERN.search(content)
+    k8s_name = _K8S_NAME_PATTERN.search(content)
+    if k8s_kind and k8s_name and not _K8S_NAMESPACE_PATTERN.search(content):
         identity = f"{k8s_kind.group(1).casefold()}:{k8s_name.group(1)}"
         target_key = _external_node_key(draft.root_id, "service_component", identity)
         if target_key not in draft.nodes:
