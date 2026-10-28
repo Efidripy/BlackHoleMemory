@@ -197,13 +197,6 @@ def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
-def _active_leases(attach: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    rows = attach.get("leases")
-    if not isinstance(rows, list):
-        return []
-    return [row for row in rows if isinstance(row, Mapping) and row.get("status") == "attached"][:MAX_SOURCES]
-
-
 def _active_http_sessions(http_sessions: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     rows = http_sessions.get("sessions")
     if not isinstance(rows, list):

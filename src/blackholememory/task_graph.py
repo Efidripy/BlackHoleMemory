@@ -488,10 +488,6 @@ def _normalize_time(value: Any) -> str | None:
     return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _active_time(value: str) -> str:
-    return value
-
-
 def _node_key(project: str, entity_type: str, entity_id: str) -> str:
     return f"{project}:{entity_type}:{entity_id}"
 

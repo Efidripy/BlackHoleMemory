@@ -784,36 +784,6 @@ async def create_links(args: _worker.argparse.Namespace, links: list[_worker.Jso
     }
 
 
-async def try_bulk_archive_by_filter(
-    args: _worker.argparse.Namespace,
-    batch: _worker.JsonDict,
-    crystal_id: str,
-    expected_count: int,
-) -> _worker.JsonDict | None:
-    if batch.get("tier") != _worker.TIER_BIG_BANG or expected_count <= _worker.BATCH_REST_CHUNK_SIZE:
-        return None
-    payload = {
-        "project": batch["project"],
-        "topic": batch["topic"],
-        "action": "bulk_archive",
-    }
-    try:
-        result = await _worker.async_rest_call(args.bhm_base_url, "POST", _worker.BULK_ARCHIVE_ENDPOINT, payload, args.timeout)
-    except _worker.SoftFail as exc:
-        if "HTTP 404" in str(exc) or "HTTP 405" in str(exc):
-            return None
-        raise
-    return {
-        "archived_count": int(result.get("count") or result.get("archived_count") or expected_count),
-        "method": "bulk_archive_filter",
-        "endpoint": _worker.BULK_ARCHIVE_ENDPOINT,
-        "chunk_size": 0,
-        "chunks": 1,
-        "expected_count": expected_count,
-        "crystal_id": crystal_id,
-    }
-
-
 async def archive_live_memory_sources(args: _worker.argparse.Namespace, batch: _worker.JsonDict, crystal_id: str) -> _worker.JsonDict:
     archive_records = batch.get("archive_records") or batch["records"]
     items = [

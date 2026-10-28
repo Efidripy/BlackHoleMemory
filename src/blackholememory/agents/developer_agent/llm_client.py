@@ -713,14 +713,4 @@ async def _call_local_llm_for_web_fact(
     return _normalize_extracted_web_fact(_extract_json_object(content)), tokens
 
 
-async def call_local_llm(system_prompt: str, *, context: str) -> dict[str, Any] | None:
-    llm = LocalLLMClient(
-        _read_bhm_env("OPENAI_BASE_URL", endpoint_url("llm_default")),
-        _read_bhm_env("OPENAI_MODEL", "qwen2.5-coder-7b-instruct"),
-        _read_bhm_env("OPENAI_API_KEY", ""),
-        LLM_HTTP_TIMEOUT_SECONDS,
-    )
-    fact, _tokens = await _call_local_llm_for_web_fact(system_prompt, context=context, llm=llm)
-    return fact
-
 __all__ = [name for name in globals() if not name.startswith("__")]

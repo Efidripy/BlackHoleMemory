@@ -357,31 +357,6 @@ def select_batch(records: list[JsonDict], args: argparse.Namespace) -> JsonDict 
 
 
 
-def prompt_records(batch: JsonDict, max_record_chars: int, max_prompt_chars: int) -> list[JsonDict]:
-    rows: list[JsonDict] = []
-    for index, record in enumerate(batch["records"], start=1):
-        rows.append(
-            {
-                "n": index,
-                "id": record["id"],
-                "source_kind": record["source_kind"],
-                "project": record["project"],
-                "semantic_type": record["semantic_type"],
-                "priority": record["priority"],
-                "domain": record["domain"],
-                "concepts": record.get("concepts") or [],
-                "content": trim_text(safe_str(record.get("content")), max_record_chars),
-            }
-        )
-    payload = json.dumps(rows, ensure_ascii=False)
-    if len(payload) <= max_prompt_chars:
-        return rows
-    smaller_limit = max(120, max_prompt_chars // max(len(rows), 1) - 250)
-    for row in rows:
-        row["content"] = trim_text(row["content"], smaller_limit)
-    return rows
-
-
 def record_time(record: JsonDict) -> str:
     return safe_str(record.get("sort_time") or record.get("updated_at") or record.get("created_at"))
 
@@ -935,7 +910,6 @@ from bhm_crystallize_worker_synthesis import (  # noqa: E402,F401
     synthesize_crystal,
     synthesize_with_map_reduce,
     synthesize_with_bhm,
-    tier_system_prompt,
     time_bounds,
 )
 from bhm_crystallize_worker_consolidation import (  # noqa: E402,F401
@@ -972,14 +946,12 @@ from bhm_crystallize_worker_consolidation import (  # noqa: E402,F401
     source_refs_from_metadata,
     synthesis_taxonomy_text,
     token_set,
-    try_bulk_archive_by_filter,
     unique_strings,
     upsert_crystal,
 )
 from bhm_crystallize_worker_execution import (  # noqa: E402,F401
     apply_crystal,
     build_report,
-    mark_archived_on_disk,
     mark_archived_on_disk_async,
     normalize_raw_item_for_file,
     raw_item_matches_batch_selector,
