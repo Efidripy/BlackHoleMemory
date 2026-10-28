@@ -25,6 +25,7 @@ if str(SRC_ROOT) not in sys.path:
 
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import get_qdrant_client
+from blackholememory.projection_generation_binding import active_projection_generation_bindings
 from blackholememory.projection_reconciliation import QdrantSurfaceAdapter
 from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
 from blackholememory.projection_reconciliation import classify_projection_review_entries
@@ -171,6 +172,10 @@ def main() -> int:
             surface,
             project=args.project,
             as_of=as_of,
+            project_collections={
+                binding.project: binding.target_collection
+                for binding in active_projection_generation_bindings(database)
+            },
         )
         classified = classify_projection_review_entries(
             plan,
@@ -182,6 +187,13 @@ def main() -> int:
         matrix_counts = Counter(
             f"{item['surface']}|{item['disposition']}" for item in entries
         )
+        memory_projects = {memory.id: memory.project for memory in memories}
+        per_project: dict[str, Counter[str]] = {}
+        for entry in plan.entries:
+            payload = entry.observed_payload or {}
+            project = (str(payload.get("project") or "") if entry.action.value == "review"
+                       else memory_projects.get(entry.memory_id or "", "")) or "<unknown>"
+            per_project.setdefault(project, Counter())[entry.action.value] += 1
         report: dict[str, Any] = {
             "success": True,
             "mode": "dry-run",
@@ -198,6 +210,7 @@ def main() -> int:
             "missingCollections": list(surface.missing_collections.values()),
             "reconciliation": {
                 "counts": plan.counts,
+                "perProjectCounts": {key: dict(sorted(value.items())) for key, value in sorted(per_project.items())},
                 "blockingIssues": len(plan.blocking_issues),
                 "planDigest": plan.digest,
             },

@@ -462,8 +462,11 @@ def build_projection_reconciliation_plan(
     route_database: str | None = None,
     route_vector_dimensions: int | None = None,
     route_embedding_model: str | None = None,
+    project_collections: Mapping[str, str] | None = None,
     validation_budget: ValidationScanBudget | None = None,
 ) -> ProjectionReconciliationPlan:
+    if route_database and project_collections is not None:
+        raise ValueError("explicit project collections cannot be combined with route validation")
     if validation_budget is not None:
         validation_budget.request("reconciliation.sqlite_memories")
     memories = repository.list_memories(
@@ -505,6 +508,8 @@ def build_projection_reconciliation_plan(
         if validation_budget is not None:
             validation_budget.target("reconciliation.memory")
         collection_names = QdrantProjector.collection_names(memory)
+        if project_collections and memory.project in project_collections:
+            collection_names = (project_collections[memory.project], *collection_names[1:])
         if route_database:
             # Import lazily: the binding module derives its source digest from
             # this module, while reconciliation merely consumes its read-only
