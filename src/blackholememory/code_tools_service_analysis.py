@@ -502,8 +502,6 @@ async def _op_impact_preview(
     except (ChangeImpactError, ConventionMemoryError, OSError, subprocess.CalledProcessError) as exc:
         raise HTTPException(status_code=422, detail={"error": "impact_preview_rejected", "detail": redact_secret_text(str(exc)).value[:500]}) from exc
 
-
-
 async def _op_architecture(
     request: PublicCodeToolRequest,
     http_request: Request = None,  # type: ignore[assignment]
@@ -603,6 +601,8 @@ async def _op_architecture(
     }
     response["detail"] = request.detail
     response = compact_response(response, offset=request.offset, limit=request.limit, full=request.detail == "full")
-    return bound_architecture_response(response, max_serialized_bytes=240 * 1024 if request.detail == "full" else 18_000)
+    if request.detail == "full":
+        return response
+    return bound_architecture_response(response, max_serialized_bytes=18_000)
 
 
