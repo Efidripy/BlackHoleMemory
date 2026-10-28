@@ -41,15 +41,15 @@ def test_manifest_exposes_explicit_client_constraints():
     assert adapters["codex"].transport == "streamable_http"
     assert adapters["codex"].extra == {
         "enabled": True,
-        "required": True,
+        "required": False,
         "startup_timeout_sec": 15.0,
         "tool_timeout_sec": 30.0,
-        "bearer_token_env_var": "BHM_CALLER_TOKEN",
+        "bearer_token_env_var": "BHM_ADMIN_CAPABILITY",
     }
     assert adapters["claude"].transport == "streamable_http"
     assert adapters["claude"].extra == {
         "type": "http",
-        "headers": {"Authorization": "Bearer ${BHM_CALLER_TOKEN}"},
+        "headers": {"Authorization": "Bearer ${BHM_ADMIN_CAPABILITY}"},
     }
 
 
@@ -71,7 +71,7 @@ def test_json_generation_preserves_unmanaged_server(tmp_path):
     assert payload["mcpServers"]["bhm"] == {
         "url": "http://127.0.0.1:8000/mcp",
         "type": "http",
-        "headers": {"Authorization": "Bearer ${BHM_CALLER_TOKEN}"},
+        "headers": {"Authorization": "Bearer ${BHM_ADMIN_CAPABILITY}"},
     }
 
 
@@ -104,10 +104,10 @@ def test_toml_generation_replaces_only_managed_block(tmp_path):
     assert payload["mcp_servers"]["bhm"] == {
         "url": "http://127.0.0.1:8000/mcp",
         "enabled": True,
-        "required": True,
+        "required": False,
         "startup_timeout_sec": 15.0,
         "tool_timeout_sec": 30.0,
-        "bearer_token_env_var": "BHM_CALLER_TOKEN",
+        "bearer_token_env_var": "BHM_ADMIN_CAPABILITY",
     }
 
 

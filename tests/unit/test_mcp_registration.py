@@ -25,13 +25,13 @@ def test_streamable_http_spelling_has_one_canonical_fingerprint(tmp_path):
         transport="streamable_http",
         url="HTTP://127.0.0.1:8000/mcp/",
         auth_kind="bearer_env",
-        auth_env="BHM_CALLER_TOKEN",
+        auth_env="BHM_ADMIN_CAPABILITY",
     )
     identity_b = registration_identity(
         transport="streamable_http",
         url="http://127.0.0.1:8000/mcp",
         auth_kind="bearer_env",
-        auth_env="BHM_CALLER_TOKEN",
+        auth_env="BHM_ADMIN_CAPABILITY",
     )
 
     assert identity_a["url"] == identity_b["url"]
@@ -45,7 +45,8 @@ def test_canonical_toml_registration_passes_contract(tmp_path):
         """
 [mcp_servers.bhm]
 url = 'HTTP://127.0.0.1:8000/mcp/'
-bearer_token_env_var = 'BHM_CALLER_TOKEN'
+bearer_token_env_var = 'BHM_ADMIN_CAPABILITY'
+http_headers_helper = 'powershell.exe -File emit-bhm-mcp-headers.ps1'
 required = true
 """.strip()
         + "\n",
@@ -57,6 +58,20 @@ required = true
 
     assert result["ok"] is True
     assert result["issues"] == []
+
+
+def test_caller_token_is_not_the_operator_registration(tmp_path):
+    contract = load_contract(CONTRACT_PATH, repo_root=REPO_ROOT)
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "[mcp_servers.bhm]\nurl = 'http://127.0.0.1:8000/mcp'\n"
+        "bearer_token_env_var = 'BHM_CALLER_TOKEN'\n",
+        encoding="utf-8",
+    )
+
+    result = evaluate_registrations(contract, load_toml_registrations(config, client="codex"))
+
+    assert [issue["code"] for issue in result["issues"]] == ["canonical_fingerprint_drift"]
 
 
 def test_registration_manifest_is_confined_to_repository_config(tmp_path):
@@ -84,7 +99,7 @@ def test_disabled_unknown_toml_entry_is_not_an_active_registration(tmp_path):
         """
 [mcp_servers.bhm]
 url = 'http://127.0.0.1:8000/mcp'
-bearer_token_env_var = 'BHM_CALLER_TOKEN'
+bearer_token_env_var = 'BHM_ADMIN_CAPABILITY'
 
 [mcp_servers.bhm-shadow]
 enabled = false
@@ -108,12 +123,12 @@ def test_unknown_and_duplicate_surfaces_fail_closed(tmp_path):
             "bhm": {
                 "type": "http",
                 "url": "http://127.0.0.1:8000/mcp",
-                "bearer_token_env_var": "BHM_CALLER_TOKEN",
+                "bearer_token_env_var": "BHM_ADMIN_CAPABILITY",
             },
             "bhm-shadow": {
                 "type": "http",
                 "url": "http://127.0.0.1:8000/mcp",
-                "bearer_token_env_var": "BHM_CALLER_TOKEN",
+                "bearer_token_env_var": "BHM_ADMIN_CAPABILITY",
             },
         }
     }
@@ -139,7 +154,7 @@ def test_wrong_mcp_url_is_fingerprint_drift(tmp_path):
                     "bhm": {
                         "type": "http",
                         "url": "http://127.0.0.1:9000/mcp",
-                        "bearer_token_env_var": "BHM_CALLER_TOKEN",
+                        "bearer_token_env_var": "BHM_ADMIN_CAPABILITY",
                     }
                 }
             }
@@ -196,3 +211,20 @@ def test_missing_bearer_reference_is_fingerprint_drift(tmp_path):
 def test_canonical_http_identity_rejects_non_loopback_or_wrong_endpoint(url):
     with pytest.raises(RegistrationContractError, match="canonical BHM MCP URL"):
         registration_identity(transport="streamable_http", url=url)
+
+
+@pytest.mark.parametrize("client,helper_key,filename", [
+    ("claude", "headersHelper", "emit-bhm-claude-headers.ps1"),
+    ("codex", "http_headers_helper", "emit-bhm-mcp-headers.ps1"),
+])
+@pytest.mark.parametrize("approved", [True, False])
+def test_http_helper_registration_identity(tmp_path, client, helper_key, filename, approved):
+    contract = load_contract(CONTRACT_PATH, repo_root=REPO_ROOT)
+    path = tmp_path / "surface.json"
+    script = filename if approved else "unapproved-headers.ps1"
+    spec = {"url": "http://127.0.0.1:8000/mcp", helper_key: f'powershell -File "C:/path with spaces/{script}"'}
+    path.write_text(json.dumps({"mcpServers": {"bhm": spec}}), encoding="utf-8")
+    result = evaluate_registrations(contract, load_json_registrations(path, client=client))
+    assert result["ok"] is approved
+    if not approved:
+        assert [issue["code"] for issue in result["issues"]] == ["canonical_fingerprint_drift"]

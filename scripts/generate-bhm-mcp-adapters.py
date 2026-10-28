@@ -25,6 +25,7 @@ from typing import Any, Iterable, Mapping
 from urllib.parse import urlsplit, urlunsplit
 
 from blackholememory.runtime_endpoints import endpoint_url
+from blackholememory.mcp_registration import _http_auth_reference, RegistrationContractError
 from blackholememory.filesystem_boundaries import assert_safe_path
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
@@ -129,17 +130,10 @@ def _normalize_identity(
     if url:
         if command is not None or "args" in spec or env:
             raise AdapterContractError("HTTP adapter entry must not mix url with command/args/env")
-        bearer_env = str(spec.get("bearer_token_env_var") or "").strip()
-        headers = spec.get("headers") if isinstance(spec.get("headers"), dict) else {}
-        authorization = str(headers.get("Authorization") or headers.get("authorization") or "").strip()
-        if authorization:
-            match = re.fullmatch(r"Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\}", authorization)
-            if not match:
-                raise AdapterContractError("HTTP adapter Authorization must reference a bearer environment variable")
-            header_env = match.group(1)
-            if bearer_env and bearer_env != header_env:
-                raise AdapterContractError("HTTP adapter bearer environment references disagree")
-            bearer_env = header_env
+        try:
+            _, bearer_env = _http_auth_reference(spec, source=Path("adapter"), server_id="bhm", named_bhm_surface=True)
+        except RegistrationContractError as exc:
+            raise AdapterContractError("HTTP adapter Authorization must reference a bearer environment variable") from exc
         if not bearer_env:
             raise AdapterContractError("HTTP adapter bearer environment reference is missing")
         return {
@@ -380,6 +374,8 @@ def _check_adapter(adapter: Adapter, *, repo_root: Path) -> dict[str, Any]:
         if actual_identity != expected_identity:
             issues.append("identity_drift")
         for key, value in adapter.extra.items():
+            if key in {"headers", "bearer_token_env_var"}:
+                continue  # Authentication is compared by normalized identity above.
             if actual.get(key) != value:
                 issues.append(f"extra_drift:{key}")
         record["actual_identity"] = actual_identity
@@ -456,7 +452,7 @@ def _assert_authorized_rollback_target(target: Path) -> None:
     target = assert_safe_path(target)
     allowed = {
         (_user_root() / ".codex" / "config.toml").resolve(),
-        (_user_root() / ".claude" / "settings.json").resolve(),
+        (_user_root() / ".claude.json").resolve(),
     }
     if target.resolve() not in allowed:
         raise AdapterContractError(f"rollback target is outside canonical client config scope: {target}")

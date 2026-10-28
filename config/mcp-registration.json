@@ -16,7 +16,7 @@
     "url_path": "/mcp",
     "auth": {
       "kind": "bearer_env",
-      "token_env": "BHM_CALLER_TOKEN"
+      "token_env": "BHM_ADMIN_CAPABILITY"
     }
   },
   "adapter_contract": {
@@ -29,7 +29,7 @@
       "url_path": "/mcp",
       "auth": {
         "kind": "bearer_env",
-        "token_env": "BHM_CALLER_TOKEN"
+        "token_env": "BHM_ADMIN_CAPABILITY"
       }
     },
     "clients": {
@@ -41,7 +41,7 @@
         "reload_action": "restart-codex-client",
         "extra": {
           "enabled": true,
-          "required": true,
+          "required": false,
           "startup_timeout_sec": 15.0,
           "tool_timeout_sec": 30.0
         }
@@ -49,7 +49,7 @@
       "claude": {
         "format": "json",
         "server_id": "bhm",
-        "target": "<user>/.claude/settings.json",
+        "target": "<user>/.claude.json",
         "managed_scope": "mcpServers.bhm",
         "reload_action": "restart-claude-client",
         "extra": {
