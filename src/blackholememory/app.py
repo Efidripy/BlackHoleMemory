@@ -576,8 +576,10 @@ async def _app_lifespan(_app: FastAPI):
                         keep_latest_completed_outbox_per_aggregate=(
                             settings.sqlite_retention_keep_latest_outbox_per_aggregate
                         ),
-                        graph_min_age_days=settings.sqlite_retention_graph_min_age_days,
-                        index_min_age_days=settings.sqlite_retention_index_min_age_days,
+                        graph_min_age_days=(settings.sqlite_retention_graph_min_age_days
+                            if "sqlite_retention_graph_min_age_days" in settings.model_fields_set else 0),
+                        index_min_age_days=(settings.sqlite_retention_index_min_age_days
+                            if "sqlite_retention_index_min_age_days" in settings.model_fields_set else 0),
                         completed_outbox_min_age_days=settings.sqlite_retention_outbox_min_age_days,
                         max_graph_snapshots_per_run=(
                             settings.sqlite_retention_max_graph_snapshots_per_cycle

@@ -40,12 +40,15 @@ class SQLiteRetentionPolicy:
     keep_index_history_per_scope: int = 2
     keep_completed_outbox: int = 1_000
     keep_latest_completed_outbox_per_aggregate: int = 1
-    graph_min_age_days: int = 7
-    index_min_age_days: int = 7
+    graph_min_age_days: int = 0
+    index_min_age_days: int = 0
     completed_outbox_min_age_days: int = 30
     max_graph_snapshots_per_run: int = 8
     max_index_snapshots_per_run: int = 8
     max_completed_outbox_per_run: int = 1_000
+    keep_convention_history_per_scope: int = 2
+    convention_min_age_days: int = 0
+    max_convention_snapshots_per_run: int = 8
 
     def __post_init__(self) -> None:
         for name, value in asdict(self).items():
@@ -85,6 +88,7 @@ def _grouped_history_candidates(
     rows: Iterable[sqlite3.Row],
     *,
     protected: set[str],
+    current: set[str],
     keep_history: int,
     id_field: str,
     eligible_before: str,
@@ -94,12 +98,14 @@ def _grouped_history_candidates(
     history_kept: dict[tuple[str, str], int] = {}
     for row in rows:
         row_id = str(row[id_field])
-        if row_id in protected:
+        if row_id in current:
             continue
         scope = (str(row["project"]), str(row["root_id"]))
         kept = history_kept.get(scope, 0)
         if kept < keep_history:
             history_kept[scope] = kept + 1
+            continue
+        if row_id in protected:
             continue
         if str(row[timestamp_field]) >= eligible_before:
             continue
@@ -203,6 +209,10 @@ def _source_fingerprint(
             "memory_outbox",
             "SELECT COUNT(*), COALESCE(MAX(updated_at),''), COALESCE(MAX(created_at),'') FROM memory_outbox",
         ),
+        "convention_current": (
+            "repository_convention_current",
+            "SELECT COUNT(*), COALESCE(MAX(updated_at),''), '' FROM repository_convention_current",
+        ),
         "conventions": (
             "repository_convention_snapshots",
             "SELECT COUNT(*), COALESCE(MAX(created_at),''), COALESCE(MAX(completed_at),'') "
@@ -265,18 +275,43 @@ def _build_plan(
         as_of - timedelta(days=policy.completed_outbox_min_age_days)
     )
 
+    convention_candidates: list[str] = []
+    all_convention_candidates: list[str] = []
+    convention_current: set[str] = set()
+    if {"repository_convention_snapshots", "repository_convention_current"} <= tables:
+        convention_current = {str(row[0]) for row in connection.execute(
+            "SELECT convention_snapshot_id FROM repository_convention_current"
+        )}
+        convention_rows = connection.execute(
+            "SELECT convention_snapshot_id, project, root_id, "
+            "COALESCE(completed_at, created_at) AS retention_timestamp "
+            "FROM repository_convention_snapshots WHERE status='completed' "
+            "ORDER BY project, root_id, COALESCE(completed_at, created_at) DESC, convention_snapshot_id DESC"
+        ).fetchall()
+        all_convention_candidates = _grouped_history_candidates(
+            convention_rows, protected=convention_current, current=convention_current,
+            keep_history=policy.keep_convention_history_per_scope,
+            id_field="convention_snapshot_id",
+            eligible_before=_utc_iso(as_of - timedelta(days=policy.convention_min_age_days)),
+            timestamp_field="retention_timestamp",
+        )
+        convention_candidates = all_convention_candidates[:policy.max_convention_snapshots_per_run]
+
     graph_protected = {
         str(row[0])
         for row in connection.execute(
             "SELECT graph_snapshot_id FROM repository_code_graph_current"
         ).fetchall()
     }
+    graph_current = graph_protected.copy()
     if "repository_convention_snapshots" in tables:
         graph_protected.update(
             str(row[0])
             for row in connection.execute(
                 "SELECT DISTINCT graph_snapshot_id FROM repository_convention_snapshots "
                 "WHERE graph_snapshot_id IS NOT NULL"
+                + (f" AND convention_snapshot_id NOT IN ({_placeholders(convention_candidates)})" if convention_candidates else ""),
+                convention_candidates,
             ).fetchall()
         )
     graph_rows = connection.execute(
@@ -289,6 +324,7 @@ def _build_plan(
     all_graph_candidates = _grouped_history_candidates(
         graph_rows,
         protected=graph_protected,
+        current=graph_current,
         keep_history=policy.keep_graph_history_per_scope,
         id_field="graph_snapshot_id",
         eligible_before=graph_cutoff,
@@ -309,6 +345,7 @@ def _build_plan(
             "SELECT snapshot_id FROM repository_index_current"
         ).fetchall()
     }
+    index_current = index_protected.copy()
     if retained_graph_ids:
         index_protected.update(
             str(row[0])
@@ -325,6 +362,8 @@ def _build_plan(
             for row in connection.execute(
                 "SELECT DISTINCT repository_snapshot_id FROM repository_convention_snapshots "
                 "WHERE repository_snapshot_id IS NOT NULL"
+                + (f" AND convention_snapshot_id NOT IN ({_placeholders(convention_candidates)})" if convention_candidates else ""),
+                convention_candidates,
             ).fetchall()
         )
     index_protected.update(
@@ -342,6 +381,7 @@ def _build_plan(
     all_index_candidates = _grouped_history_candidates(
         index_rows,
         protected=index_protected,
+        current=index_current,
         keep_history=policy.keep_index_history_per_scope,
         id_field="snapshot_id",
         eligible_before=index_cutoff,
@@ -424,6 +464,8 @@ def _build_plan(
         "policy": asdict(policy),
         "source_fingerprint": _source_fingerprint(connection, tables),
         "blockers": blockers,
+        "protected_convention_ids": sorted(convention_current),
+        "convention_snapshot_ids": convention_candidates,
         "protected_graph_ids": sorted(graph_protected),
         "protected_index_ids": sorted(index_protected),
         "graph_snapshot_ids": graph_candidates,
@@ -439,20 +481,24 @@ def _build_plan(
         "blocked": any(blockers.values()),
         "blockers": blockers,
         "protected": {
+            "convention_snapshots": len(convention_current),
             "graph_snapshots": len(graph_protected),
             "index_snapshots": len(index_protected),
         },
         "candidates": {
+            "convention_snapshot_ids": convention_candidates,
             "graph_snapshot_ids": graph_candidates,
             "index_snapshot_ids": index_candidates,
             "completed_outbox_event_ids": outbox_candidates,
         },
         "remaining_after_batch": {
+            "convention_snapshots": len(all_convention_candidates) - len(convention_candidates),
             "graph_snapshots": len(all_graph_candidates) - len(graph_candidates),
             "index_snapshots": len(all_index_candidates) - len(index_candidates),
             "completed_outbox": len(all_outbox_candidates) - len(outbox_candidates),
         },
         "estimated_deletes": {
+            "convention_snapshots": len(convention_candidates),
             "code_graph": graph_counts,
             "repository_index": index_counts,
             "completed_outbox": len(outbox_candidates),
@@ -531,11 +577,18 @@ def apply_sqlite_retention(
             }
 
         tables = _table_names(connection)
+        convention_ids = list(plan["candidates"]["convention_snapshot_ids"])
         graph_ids = list(plan["candidates"]["graph_snapshot_ids"])
         index_ids = list(plan["candidates"]["index_snapshot_ids"])
         outbox_ids = list(plan["candidates"]["completed_outbox_event_ids"])
 
         deleted: dict[str, int] = {}
+        if convention_ids:
+            deleted["convention_snapshots"] = _delete_in_chunks(
+                connection,
+                "DELETE FROM repository_convention_snapshots WHERE convention_snapshot_id IN",
+                convention_ids,
+            )
         if graph_ids:
             if "repository_code_graph_metadata_fts" in tables:
                 deleted["code_graph_fts"] = _delete_in_chunks(
@@ -687,6 +740,7 @@ def run_automatic_sqlite_retention_cycle(
             return {**plan, "applied": False, "reason": "active_build"}
         if not any(
             (
+                plan["candidates"]["convention_snapshot_ids"],
                 plan["candidates"]["graph_snapshot_ids"],
                 plan["candidates"]["index_snapshot_ids"],
                 plan["candidates"]["completed_outbox_event_ids"],
