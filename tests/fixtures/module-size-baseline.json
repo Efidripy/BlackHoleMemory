@@ -258,7 +258,7 @@
   "src/blackholememory/bhm_mcp_admin_governance.py": 286,
   "src/blackholememory/bhm_mcp_admin_ops.py": 545,
   "src/blackholememory/bhm_mcp_base.py": 288,
-  "src/blackholememory/bhm_mcp_code.py": 272,
+  "src/blackholememory/bhm_mcp_code.py": 274,
   "src/blackholememory/bhm_mcp_memory.py": 716,
   "src/blackholememory/bhm_mcp_memory_curation.py": 229,
   "src/blackholememory/bhm_mcp_memory_records.py": 368,

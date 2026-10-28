@@ -75,3 +75,14 @@ def test_architecture_full_preserves_large_nested_metadata(monkeypatch):
     response = asyncio.run(analysis._op_architecture(request))
     assert response["architecture"]["intelligence"]["items"] == large["items"]
     assert response["architecture"]["pagination"]["layers"]["limit"] == 10
+
+
+def test_mcp_wrappers_forward_detail_offset_and_limit(monkeypatch):
+    from blackholememory import bhm_mcp_code
+
+    sent = []
+    monkeypatch.setattr(bhm_mcp_code._base, "_post", lambda path, payload: sent.append(payload) or {})
+    bhm_mcp_code.bhm_check_index_coverage(project="demo", detail="full", offset=5, limit=7)
+    bhm_mcp_code.bhm_get_architecture(project="demo")
+    assert (sent[0]["operation"], sent[0]["detail"], sent[0]["offset"], sent[0]["limit"]) == ("coverage", "full", 5, 7)
+    assert (sent[1]["operation"], sent[1]["detail"]) == ("architecture", "compact")

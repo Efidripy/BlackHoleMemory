@@ -52,11 +52,13 @@ def _public_code_tool(
     rollback_anchor_digest: str | None = None,
     cycles: int = 1,
     interval_seconds: float = 0.0,
+    detail: str = "compact",
 ) -> dict[str, Any]:
     return _base._post(
         "/bhm/code-tools",
         {
             "operation": operation,
+            "detail": detail,
             "project": project,
             "root": root,
             "apply": apply,
