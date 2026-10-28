@@ -447,12 +447,14 @@ def _rollback_records(records: Iterable[Mapping[str, Any]]) -> list[dict[str, An
 
 
 def _assert_authorized_rollback_target(target: Path) -> None:
-    """Rollback may only touch the two canonical client configuration files."""
+    """Rollback may only touch the canonical client configuration files (current and legacy targets)."""
 
     target = assert_safe_path(target)
     allowed = {
         (_user_root() / ".codex" / "config.toml").resolve(),
         (_user_root() / ".claude.json").resolve(),
+        # Legacy Claude target: backups taken before the contract moved to .claude.json must stay restorable.
+        (_user_root() / ".claude" / "settings.json").resolve(),
     }
     if target.resolve() not in allowed:
         raise AdapterContractError(f"rollback target is outside canonical client config scope: {target}")

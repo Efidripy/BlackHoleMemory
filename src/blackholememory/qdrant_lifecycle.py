@@ -13,7 +13,7 @@ from typing import Any
 
 from .config import settings
 from .memory_repository import MemoryRepository
-from .projection_reconciliation import QdrantSurfaceAdapter
+from .qdrant_tolerant_surface import MissingCollectionTolerantSurface
 from .projection_reconciliation import ReconciliationAction
 from .projection_reconciliation import build_projection_reconciliation_plan
 from .qdrant_catalog import build_qdrant_catalog
@@ -163,7 +163,7 @@ def build_qdrant_lifecycle_report(
         with budget.stage("reconciliation"):
             reconciliation = build_projection_reconciliation_plan(
                 repository,
-                QdrantSurfaceAdapter(client, validation_budget=budget),
+                MissingCollectionTolerantSurface(client, validation_budget=budget),
                 route_database=str(getattr(repository, "path", "") or None) or None,
                 route_vector_dimensions=settings.mem0_embedding_dims,
                 route_embedding_model=settings.mem0_embedding_model,

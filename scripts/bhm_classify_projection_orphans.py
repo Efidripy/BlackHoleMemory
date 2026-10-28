@@ -16,8 +16,6 @@ from datetime import timezone
 from pathlib import Path
 from typing import Any
 
-from qdrant_client.http.exceptions import UnexpectedResponse
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -26,7 +24,7 @@ if str(SRC_ROOT) not in sys.path:
 from blackholememory.memory_repository import SQLiteMemoryRepository
 from blackholememory.mem0_adapter import get_qdrant_client
 from blackholememory.projection_generation_binding import active_projection_generation_bindings
-from blackholememory.projection_reconciliation import QdrantSurfaceAdapter
+from blackholememory.qdrant_tolerant_surface import MissingCollectionTolerantSurface
 from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
 from blackholememory.projection_reconciliation import classify_projection_review_entries
 from blackholememory.projection_reconciliation import projection_review_classification_digest
@@ -50,49 +48,7 @@ class ProjectionClassificationError(RuntimeError):
     """Raised when the read-only classification cannot be built safely."""
 
 
-class ClassificationSurface(QdrantSurfaceAdapter):
-    """Treat only a confirmed missing collection as an empty surface."""
-
-    def __init__(self, client: Any) -> None:
-        super().__init__(client)
-        self.missing_collections: dict[str, dict[str, Any]] = {}
-
-    def _missing(self, collection_name: str, exc: UnexpectedResponse) -> bool:
-        try:
-            detail = exc.structured()["status"]["error"]
-        except (ValueError, KeyError, TypeError):
-            return False
-        expected = f"Not found: Collection `{collection_name}` doesn't exist"
-        if exc.status_code != 404 or detail not in (expected, expected + "!"):
-            return False
-        self.missing_collections[collection_name] = {
-            "collection": collection_name, "reason": detail, "pointCount": 0
-        }
-        return True
-
-    def get_points(self, collection_name: str, point_ids: Any) -> dict[str, dict[str, Any]]:
-        try:
-            return super().get_points(collection_name, point_ids)
-        except UnexpectedResponse as exc:
-            if not self._missing(collection_name, exc):
-                raise
-            return {}
-
-    def list_points(self, collection_name: str) -> list[dict[str, Any]]:
-        try:
-            return super().list_points(collection_name)
-        except UnexpectedResponse as exc:
-            if not self._missing(collection_name, exc):
-                raise
-            return []
-
-    def collection_vector_dimensions(self, collection_name: str) -> int | None:
-        try:
-            return super().collection_vector_dimensions(collection_name)
-        except UnexpectedResponse as exc:
-            if not self._missing(collection_name, exc):
-                raise
-            return None
+ClassificationSurface = MissingCollectionTolerantSurface
 
 
 DEFAULT_BHM_HOST, DEFAULT_BHM_PORT = endpoint_parts("bhm_api")
