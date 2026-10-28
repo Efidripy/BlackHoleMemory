@@ -218,7 +218,7 @@ def operator_requeue_apply(preview: dict[str, Any], project: str) -> dict[str, A
 
 
 def operator_sqlite_backup(_project: str) -> dict[str, Any]:
-    from blackholememory.sqlite_retention import create_verified_sqlite_backup, verify_sqlite_database
+    from blackholememory.sqlite_retention import create_verified_sqlite_backup
 
     database = _launcher._operator_database_path().resolve()
     if not database.is_file():
