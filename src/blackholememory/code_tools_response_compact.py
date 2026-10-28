@@ -12,7 +12,14 @@ def _digest(value: Any) -> str:
 
 
 def _summary(value: Any) -> dict[str, Any]:
-    return {"count": len(value), "digest": _digest(value), "detail": "full"}
+    summary: dict[str, Any] = {"count": len(value), "digest": _digest(value), "detail": "full"}
+    if isinstance(value, dict):
+        # The authority/provenance markers are the proposal-only and zero-write
+        # evidence; they stay visible when the bulky body is replaced by a digest.
+        for key in ("execution", "provenance", "binding", "schema_version", "status"):
+            if isinstance(value.get(key), (dict, str, bool, int)):
+                summary[key] = value[key]
+    return summary
 
 
 def compact_response(value: Any, *, offset: int, limit: int, full: bool = False) -> Any:

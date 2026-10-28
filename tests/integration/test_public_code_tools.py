@@ -121,7 +121,7 @@ def test_public_architecture_response_is_transport_bounded(monkeypatch, tmp_path
 
     response = TestClient(bhm_app.app).post(
         "/bhm/code-tools",
-        json={"operation": "architecture", "project": "demo", "root": str(root)},
+        json={"operation": "architecture", "project": "demo", "root": str(root), "detail": "full"},
     )
 
     assert response.status_code == 200

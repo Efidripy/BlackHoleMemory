@@ -62,7 +62,8 @@ def test_architecture_full_preserves_large_nested_metadata(monkeypatch):
         def snapshot(self, *args, **kwargs):
             pass
 
-    large = {"items": [{"text": "x" * 1000} for _ in range(300)]}
+    # 150 KiB: full keeps nested data while it fits the 240 KiB transport cap; larger payloads are bounded (integration test).
+    large = {"items": [{"text": "x" * 1000} for _ in range(150)]}
     monkeypatch.setattr(analysis._base, "_resolve_code_tool_scope", scope)
     monkeypatch.setattr(analysis, "_run_bounded_read", read)
     monkeypatch.setattr(analysis, "SQLiteCodeGraphStore", Store)

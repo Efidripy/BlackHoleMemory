@@ -601,8 +601,6 @@ async def _op_architecture(
     }
     response["detail"] = request.detail
     response = compact_response(response, offset=request.offset, limit=request.limit, full=request.detail == "full")
-    if request.detail == "full":
-        return response
-    return bound_architecture_response(response, max_serialized_bytes=18_000)
+    return bound_architecture_response(response, max_serialized_bytes=240 * 1024 if request.detail == "full" else 18_000)
 
 
