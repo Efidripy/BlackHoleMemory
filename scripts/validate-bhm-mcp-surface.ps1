@@ -224,7 +224,7 @@ function Remove-SurfaceSmokeProject {
     $encodedProject = [System.Uri]::EscapeDataString($ProjectName)
     $memoryResponse = Invoke-BhmJson `
         -Method Get `
-        -Url "$($BaseUrl.TrimEnd('/'))/bhm/memories?project=$encodedProject&limit=200&offset=0"
+        -Url "$($BaseUrl.TrimEnd('/'))/bhm/memories?project=$encodedProject&include_historical=true&limit=200&offset=0"
     $memories = @($memoryResponse.memories)
     $globalPointIds = New-Object 'System.Collections.Generic.HashSet[string]'
     foreach ($memory in $memories) {
@@ -261,7 +261,7 @@ function Remove-SurfaceSmokeProject {
 
     $remaining = Invoke-BhmJson `
         -Method Get `
-        -Url "$($BaseUrl.TrimEnd('/'))/bhm/memories?project=$encodedProject&limit=10&offset=0"
+        -Url "$($BaseUrl.TrimEnd('/'))/bhm/memories?project=$encodedProject&include_historical=true&limit=10&offset=0"
     if ([int]$remaining.total -ne 0) {
         throw "Surface smoke cleanup left $($remaining.total) live memories for $ProjectName."
     }
