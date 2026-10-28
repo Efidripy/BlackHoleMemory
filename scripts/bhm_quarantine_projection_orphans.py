@@ -35,7 +35,8 @@ from blackholememory.projection_quarantine import ensure_quarantine_collection
 from blackholememory.projection_quarantine import upsert_quarantine_points
 from blackholememory.projection_quarantine import verify_original_points_absent
 from blackholememory.projection_quarantine import verify_quarantine_points
-from blackholememory.projection_reconciliation import QdrantSurfaceAdapter
+from blackholememory.projection_generation_binding import active_projection_generation_bindings
+from blackholememory.qdrant_tolerant_surface import MissingCollectionTolerantSurface
 from blackholememory.projection_reconciliation import build_projection_reconciliation_plan
 from blackholememory.projection_reconciliation import classify_projection_review_entries
 from blackholememory.projection_reconciliation import projection_review_classification_digest
@@ -155,9 +156,13 @@ def _state(
     )
     plan = build_projection_reconciliation_plan(
         repository,
-        QdrantSurfaceAdapter(client),
+        MissingCollectionTolerantSurface(client),
         project=project,
         as_of=as_of,
+        project_collections={
+            binding.project: binding.target_collection
+            for binding in active_projection_generation_bindings(database)
+        },
     )
     classified = classify_projection_review_entries(
         plan,
