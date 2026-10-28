@@ -357,7 +357,8 @@ def query_code_graph(
     store = SQLiteCodeGraphStore(database_path)
     current = store.current_snapshot(project, root_id, include_material=False)
     selected_snapshot_id = snapshot_id or (str(current.get("graph_snapshot_id")) if current else None)
-    snapshot = store.snapshot(selected_snapshot_id, include_material=True, read_only=True) if selected_snapshot_id else None
+    selective = operation in {"callers", "callees", "imports", "importers", "tests", "impact", "neighborhood"} and normalized_min_degree is None and normalized_max_degree is None
+    snapshot = store.snapshot(selected_snapshot_id, include_material=not selective, read_only=True) if selected_snapshot_id else None
     if snapshot is None:
         raise CodeGraphQueryError("graph snapshot unavailable; build WI-02 graph first")
     # Keep an explicit snapshot selector bound to the caller's authorized
@@ -366,7 +367,17 @@ def query_code_graph(
     if str(snapshot.get("project") or "") != str(project) or str(snapshot.get("root_id") or "") != str(root_id):
         raise CodeGraphQueryError("graph snapshot is outside the requested project/root scope")
     stale = bool(current and current.get("graph_snapshot_id") != snapshot.get("graph_snapshot_id"))
-    nodes = list(snapshot.get("nodes") or [])
+    if selective:
+        connection = store._connect(read_only=True)
+        try:
+            nodes = [dict(row) for row in connection.execute(
+                "SELECT node_id, stable_key, node_kind, path, name, qualified_name, signature, start_line FROM repository_code_graph_nodes WHERE graph_snapshot_id=?",
+                (selected_snapshot_id,),
+            )]
+        finally:
+            connection.close()
+    else:
+        nodes = list(snapshot.get("nodes") or [])
     edges = list(snapshot.get("edges") or [])
     nodes_by_id = {str(node.get("node_id")): node for node in nodes}
     edges_by_source: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
@@ -414,28 +425,43 @@ def query_code_graph(
     active_edge_kinds = operation_edge_kinds if requested_edge_kinds is None else operation_edge_kinds & requested_edge_kinds
     if operation not in {"symbol", "resolve", "degree"}:
         queue: deque[tuple[str, int]] = deque((node_id, 0) for node_id in sorted(seed_ids))
-        while queue and len(result_ids) < int(limit):
-            if (time.perf_counter() - started) * 1_000 > float(time_budget_ms):
-                break
-            current_id, current_depth = queue.popleft()
-            if current_depth >= int(depth):
-                continue
-            candidate_edges = edges_by_target.get(current_id, []) if reverse else edges_by_source.get(current_id, [])
-            if operation == "neighborhood":
-                candidate_edges = edges_by_source.get(current_id, []) + edges_by_target.get(current_id, [])
-            for edge in sorted(candidate_edges, key=lambda item: str(item.get("stable_key") or "")):
-                if requested_edge_kinds is not None and str(edge.get("edge_kind")) not in active_edge_kinds:
+        connection = store._connect(read_only=True) if selective else None
+        try:
+            while queue and len(result_ids) < int(limit):
+                if (time.perf_counter() - started) * 1_000 > float(time_budget_ms):
+                    break
+                current_id, current_depth = queue.popleft()
+                if current_depth >= int(depth):
                     continue
-                next_id = str(edge.get("source_node_id")) if reverse and operation != "neighborhood" else str(edge.get("target_node_id"))
+                candidate_edges = edges_by_target.get(current_id, []) if reverse else edges_by_source.get(current_id, [])
                 if operation == "neighborhood":
-                    next_id = str(edge.get("target_node_id")) if str(edge.get("source_node_id")) == current_id else str(edge.get("source_node_id"))
-                traversed.append(edge)
-                if next_id not in result_ids:
-                    result_ids.add(next_id)
-                    parent[next_id] = (current_id, edge)
-                    queue.append((next_id, current_depth + 1))
-                    if len(result_ids) >= int(limit):
-                        break
+                    candidate_edges = edges_by_source.get(current_id, []) + edges_by_target.get(current_id, [])
+                if connection is not None:
+                    columns = ("source_node_id", "target_node_id") if operation == "neighborhood" else (("target_node_id",) if reverse else ("source_node_id",))
+                    candidate_edges = []
+                    for column in columns:
+                        for row in connection.execute(f"SELECT * FROM repository_code_graph_edges WHERE graph_snapshot_id=? AND {column}=? ORDER BY stable_key", (selected_snapshot_id, current_id)):
+                            edge = dict(row)
+                            edge["unresolved"] = bool(edge["unresolved"])
+                            edge["evidence"] = json.loads(edge.pop("evidence_json"))
+                            edge["attributes"] = json.loads(edge.pop("attributes_json"))
+                            candidate_edges.append(edge)
+                for edge in sorted(candidate_edges, key=lambda item: str(item.get("stable_key") or "")):
+                    if requested_edge_kinds is not None and str(edge.get("edge_kind")) not in active_edge_kinds:
+                        continue
+                    next_id = str(edge.get("source_node_id")) if reverse and operation != "neighborhood" else str(edge.get("target_node_id"))
+                    if operation == "neighborhood":
+                        next_id = str(edge.get("target_node_id")) if str(edge.get("source_node_id")) == current_id else str(edge.get("source_node_id"))
+                    traversed.append(edge)
+                    if next_id not in result_ids:
+                        result_ids.add(next_id)
+                        parent[next_id] = (current_id, edge)
+                        queue.append((next_id, current_depth + 1))
+                        if len(result_ids) >= int(limit):
+                            break
+        finally:
+            if connection is not None:
+                connection.close()
     else:
         traversed = []
     if operation == "routes" and query:
@@ -445,6 +471,18 @@ def query_code_graph(
             if str(edge.get("edge_kind")) == "route_handles" and (str(edge.get("source_node_id")) in seed_ids or str(edge.get("target_node_id")) in seed_ids):
                 traversed.append(edge)
                 result_ids.update({str(edge.get("source_node_id")), str(edge.get("target_node_id"))})
+    if selective and result_ids:
+        connection = store._connect(read_only=True)
+        try:
+            for node_id in result_ids:
+                row = connection.execute("SELECT * FROM repository_code_graph_nodes WHERE graph_snapshot_id=? AND node_id=?", (selected_snapshot_id, node_id)).fetchone()
+                if row is not None:
+                    node = dict(row)
+                    node["provenance"] = json.loads(node.pop("provenance_json"))
+                    node["attributes"] = json.loads(node.pop("attributes_json"))
+                    nodes_by_id[node_id] = node
+        finally:
+            connection.close()
     result_nodes = sorted([_node_view(nodes_by_id[node_id]) for node_id in result_ids if node_id in nodes_by_id], key=lambda item: (str(item.get("path") or ""), int((item.get("span") or {}).get("start_line") or 0), str(item.get("stable_key") or "")))[: int(limit)]
     if operation == "degree":
         # Emit only deterministic graph metadata; never source, SQL or

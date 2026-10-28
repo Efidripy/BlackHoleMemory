@@ -161,6 +161,10 @@ class SQLiteCodeGraphStore:
                     );
                     CREATE INDEX IF NOT EXISTS idx_code_graph_edges_kind
                         ON repository_code_graph_edges(graph_snapshot_id, edge_kind, source_node_id, target_node_id);
+                    CREATE INDEX IF NOT EXISTS idx_code_graph_edges_source
+                        ON repository_code_graph_edges(graph_snapshot_id, source_node_id, stable_key);
+                    CREATE INDEX IF NOT EXISTS idx_code_graph_edges_target
+                        ON repository_code_graph_edges(graph_snapshot_id, target_node_id, stable_key);
                     CREATE TABLE IF NOT EXISTS repository_code_graph_parse_results (
                         graph_snapshot_id TEXT NOT NULL,
                         path TEXT NOT NULL,
