@@ -13,6 +13,7 @@ from .api_models import PublicCodeToolRequest
 from .code_graph import (
     CODE_GRAPH_EXTRACTOR_VERSION,
     CODE_GRAPH_SCHEMA_VERSION,
+    COVERAGE_POLICY_SKIP_REASONS,
     CodeGraphError,
     LANGUAGE_INVENTORY_DIGEST,
     PARSER_REGISTRY_DIGEST,
@@ -363,15 +364,35 @@ async def _op_coverage(
     file_count = int(summary.get("file_count") or 0)
     parsed = int(parse_status.get("parsed") or 0)
     metadata_only = int(parse_status.get("metadata-only") or 0)
-    errors = int(parse_status.get("error") or 0)
+    errors = int(parse_status.get("error") or summary.get("parser_error_count") or 0)
     repository_file_count = int(summary.get("repository_file_count") or file_count)
     relevant_skipped_count = int(summary.get("relevant_skipped_count") or 0)
+    relevant_skip_reasons = dict(summary.get("relevant_skip_reasons") or {})
+    policy_skip_reasons = dict(
+        summary.get("policy_skip_reasons")
+        or {str(k): int(v) for k, v in relevant_skip_reasons.items() if str(k) in COVERAGE_POLICY_SKIP_REASONS}
+    )
+    policy_skipped_count = int(
+        summary.get("policy_skipped_count")
+        if summary.get("policy_skipped_count") is not None
+        else sum(policy_skip_reasons.values())
+    )
+    unexpected_skipped_count = max(0, relevant_skipped_count - policy_skipped_count)
     index_coverage_ratio = float(
         summary.get("index_coverage_ratio")
         if summary.get("index_coverage_ratio") is not None
         else file_count / max(repository_file_count, 1)
     )
-    index_coverage_complete = bool(summary.get("index_coverage_complete", True))
+    if "index_coverage_complete" in summary and "policy_skipped_count" in summary:
+        index_coverage_complete = bool(summary.get("index_coverage_complete"))
+    else:
+        index_coverage_complete = unexpected_skipped_count == 0 and errors == 0
+    summary = {
+        **summary,
+        "policy_skipped_count": policy_skipped_count,
+        "policy_skip_reasons": dict(sorted(policy_skip_reasons.items())),
+        "index_coverage_complete": index_coverage_complete,
+    }
     freshness_status = "fresh"
     retryable = False
     try:
@@ -415,6 +436,8 @@ async def _op_coverage(
             "file_count": file_count,
             "repository_file_count": repository_file_count,
             "relevant_skipped_count": relevant_skipped_count,
+            "policy_skipped_count": policy_skipped_count,
+            "policy_skip_reasons": dict(sorted(policy_skip_reasons.items())),
             "index_coverage_ratio": round(index_coverage_ratio, 6),
             "parsed": parsed,
             "metadata_only": metadata_only,

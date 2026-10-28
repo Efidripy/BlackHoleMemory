@@ -198,3 +198,36 @@ def test_live_client_wraps_oversized_response_as_runtime_error(monkeypatch):
     monkeypatch.setattr(MODULE, "open_local_url", lambda *_args, **_kwargs: Oversized())
     with pytest.raises(RuntimeError, match="bounded limit"):
         MODULE._LocalRuntimeClient("http://127.0.0.1:8000", "t" * 32).get("/bhm/health")
+
+
+def test_freshness_evidence_accepts_policy_skips_and_exposes_counter():
+    completed = (datetime.now(timezone.utc) - timedelta(seconds=2)).isoformat()
+    status, coverage, schema = _status_fixture(completed_at=completed)
+    coverage["coverage"]["policy_skipped_count"] = 126
+    coverage["coverage"]["policy_skip_reasons"] = {"secret-content": 120, "unsupported-type": 6}
+    result = MODULE._freshness_evidence(
+        status,
+        coverage,
+        schema,
+        max_age_seconds=60,
+    )
+
+    assert result["ok"] is True
+    assert result["coverage_complete"] is True
+    assert result["policy_skipped_count"] == 126
+    assert result["policy_skip_reasons"] == {"secret-content": 120, "unsupported-type": 6}
+
+
+def test_freshness_evidence_fails_when_coverage_incomplete():
+    completed = (datetime.now(timezone.utc) - timedelta(seconds=2)).isoformat()
+    status, coverage, schema = _status_fixture(completed_at=completed)
+    coverage["coverage"]["complete"] = False
+    result = MODULE._freshness_evidence(
+        status,
+        coverage,
+        schema,
+        max_age_seconds=60,
+    )
+
+    assert result["ok"] is False
+    assert result["coverage_complete"] is False

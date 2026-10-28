@@ -57,6 +57,9 @@ CODE_GRAPH_SCHEMA_VERSION = "bhm.code-graph.v1"
 PARSER_CAPABILITY_SCHEMA_VERSION = "bhm.code-graph.capabilities.v1"
 CODE_GRAPH_STORE_SCHEMA_VERSION = 1
 CODE_GRAPH_EXTRACTOR_VERSION = "bhm.code-graph.extractor.v37"
+COVERAGE_POLICY_SKIP_REASONS: frozenset[str] = frozenset(
+    {"secret-content", "unsupported-type", "generated"}
+)
 CODE_GRAPH_BUSY_TIMEOUT_MS = 5_000
 CODE_GRAPH_MAX_FILE_BYTES = 2 * 1024 * 1024
 CODE_GRAPH_MAX_PARSER_LINE_CHARS = 16 * 1024

@@ -22,6 +22,7 @@ from blackholememory.code_graph import (
 from blackholememory.code_graph_capabilities import build_parser_capability_matrix
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 from blackholememory.repository_index import (
+    RepositoryIndexLimits,
     RepositorySourceProvenance,
     index_repository,
     probe_repository_state,
@@ -1912,3 +1913,43 @@ def test_metadata_fts_search_is_durable_and_source_free(tmp_path: Path) -> None:
     assert matches
     assert any(item["name"] == "Service" for item in matches)
     assert all("content" not in item and "raw_source" not in item for item in matches)
+
+
+def test_code_graph_coverage_policy_skips_versus_unexpected_skips(tmp_path: Path) -> None:
+    # (a) Only policy skips (secret-content, unsupported-type)
+    root_policy = tmp_path / "repo_policy"
+    root_policy.mkdir()
+    (root_policy / "module.py").write_text("def keep(): return 1\n", encoding="utf-8")
+    (root_policy / "token.py").write_text('TOKEN = "' + "ghp" + "_" + "123456789012345678901234567890123456" + '"' + chr(10), encoding="utf-8")
+    (root_policy / "future.xaml").write_text("<Application />\n", encoding="utf-8")
+    db_policy = tmp_path / "policy.sqlite3"
+    source = RepositorySourceProvenance(owner="test", source_url="local://test", license="MIT", evidence_class="E0")
+    indexed_policy = index_repository(root_policy, db_policy, project="demo", source=source)
+    state_policy = probe_repository_state(root_policy, project="demo")
+    result_policy = build_code_graph(db_policy, project="demo", root_id=state_policy.root_id, repository_snapshot_id=indexed_policy["snapshot_id"])
+    summary_policy = result_policy["summary"]
+    assert summary_policy["index_coverage_complete"] is True
+    assert summary_policy["policy_skipped_count"] == 2
+    assert summary_policy["policy_skip_reasons"] == {"secret-content": 1, "unsupported-type": 1}
+    assert summary_policy["relevant_skipped_count"] == 2
+
+    # (b) Unexpected skip (oversized file)
+    root_unexpected = tmp_path / "repo_unexpected"
+    root_unexpected.mkdir()
+    (root_unexpected / "module.py").write_text("def keep(): return 1\n", encoding="utf-8")
+    (root_unexpected / "big.py").write_text("x = " + "1" * 2000 + "\n", encoding="utf-8")
+    db_unexpected = tmp_path / "unexpected.sqlite3"
+    indexed_unexpected = index_repository(
+        root_unexpected,
+        db_unexpected,
+        project="demo",
+        source=source,
+        limits=RepositoryIndexLimits(max_file_bytes=1024),
+    )
+    state_unexpected = probe_repository_state(root_unexpected, project="demo")
+    result_unexpected = build_code_graph(db_unexpected, project="demo", root_id=state_unexpected.root_id, repository_snapshot_id=indexed_unexpected["snapshot_id"])
+    summary_unexpected = result_unexpected["summary"]
+    assert summary_unexpected["index_coverage_complete"] is False
+    assert summary_unexpected["policy_skipped_count"] == 0
+    assert summary_unexpected["relevant_skipped_count"] == 1
+    assert summary_unexpected["relevant_skip_reasons"] == {"oversized": 1}

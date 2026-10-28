@@ -20,6 +20,7 @@ from ._common import (
     CODE_GRAPH_MAX_EDGES,
     CODE_GRAPH_MAX_NODES,
     CODE_GRAPH_SCHEMA_VERSION,
+    COVERAGE_POLICY_SKIP_REASONS,
     CODE_GRAPH_STORE_SCHEMA_VERSION,  # noqa: F401
     LANGUAGE_INVENTORY_DIGEST,
     PARSER_CAPABILITY_SCHEMA_VERSION,
@@ -585,14 +586,26 @@ def extract_code_graph(
     repository_summary = dict(snapshot.get("summary") or {})
     relevant_skipped_count = int(repository_summary.get("relevant_skipped_count") or 0)
     repository_file_count = int(repository_summary.get("repository_file_count") or len(files))
+    relevant_skip_reasons = dict(repository_summary.get("relevant_skip_reasons") or {})
+    policy_skip_reasons = {
+        str(k): int(v)
+        for k, v in relevant_skip_reasons.items()
+        if str(k) in COVERAGE_POLICY_SKIP_REASONS
+    }
+    policy_skipped_count = sum(policy_skip_reasons.values())
+    unexpected_skipped_count = max(0, relevant_skipped_count - policy_skipped_count)
+    parser_error_count = int(status_counts.get("error", 0))
+    index_coverage_complete = unexpected_skipped_count == 0 and parser_error_count == 0
     summary = {
         "file_count": len(files),
         "repository_file_count": repository_file_count,
         "indexed_relevant_file_count": int(repository_summary.get("indexed_relevant_file_count") or len(files)),
         "relevant_skipped_count": relevant_skipped_count,
+        "policy_skipped_count": policy_skipped_count,
+        "policy_skip_reasons": dict(sorted(policy_skip_reasons.items())),
         "index_coverage_ratio": round(len(files) / max(repository_file_count, 1), 6),
-        "index_coverage_complete": relevant_skipped_count == 0,
-        "relevant_skip_reasons": dict(repository_summary.get("relevant_skip_reasons") or {}),
+        "index_coverage_complete": index_coverage_complete,
+        "relevant_skip_reasons": relevant_skip_reasons,
         "node_count": len(node_items),
         "edge_count": len(edge_items),
         "node_kinds": dict(sorted(Counter(str(item["node_kind"]) for item in node_items).items())),
