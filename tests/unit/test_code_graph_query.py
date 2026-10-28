@@ -7,6 +7,7 @@ import pytest
 from blackholememory.code_graph import build_code_graph
 from blackholememory.code_graph_query import (
     CodeGraphQueryError,
+    _bounded_material,
     explain_code_graph,
     query_code_graph,
 )
@@ -35,6 +36,24 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, str, str, str]:
     state = probe_repository_state(root, project="demo")
     graph = build_code_graph(database, project="demo", root_id=state.root_id, repository_snapshot_id=indexed["snapshot_id"])
     return root, database, str(state.root_id), str(indexed["snapshot_id"]), str(graph["graph_snapshot_id"])
+
+
+def test_default_traversals_keep_edges(tmp_path: Path) -> None:
+    _root, database, root_id, _, _ = _fixture(tmp_path)
+    for operation, query in (("callers", "helper"), ("impact", "service.py")):
+        result = query_code_graph(database, project="demo", root_id=root_id, operation=operation, query=query)
+        assert result["edges"]
+        node_ids = {node["node_id"] for node in result["nodes"]}
+        assert all(edge["source_node_id"] in node_ids and edge["target_node_id"] in node_ids for edge in result["edges"])
+
+
+def test_bounded_material_reserves_space_for_a_complete_edge() -> None:
+    nodes = [{"node_id": str(i), "payload": "x" * 400} for i in range(20)]
+    edge = {"source_node_id": "18", "target_node_id": "19"}
+    selected_nodes, selected_edges, truncated = _bounded_material(nodes, [edge], max_tokens=400)
+    assert selected_edges == [edge]
+    assert {"18", "19"} <= {node["node_id"] for node in selected_nodes}
+    assert truncated
 
 
 def test_allowlisted_operations_return_bounded_evidence_and_explain(tmp_path: Path) -> None:

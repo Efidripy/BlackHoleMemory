@@ -17,6 +17,8 @@
 
 ## English
 
+Graph coverage and architecture calls default to `detail="compact"`. Use `detail="full"` for detailed reference data; `offset` and `limit` page layers, dependencies, hotspots, index delta lists and full parser languages. Each list has pagination metadata with `total` and `next_offset`.
+
 ### What it is
 
 BlackHoleMemory (BHM) is a local-first, self-hosted memory contour for AI coding agents. It connects facts, decisions, tasks, errors, files, and dependencies into bounded, provenance-bearing context that can be searched and checked after a session ends. BHM exposes the same core through a FastAPI REST surface and a local Streamable HTTP MCP endpoint.

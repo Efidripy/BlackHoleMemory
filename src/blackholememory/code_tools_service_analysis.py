@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request
 
 from .app_runtime import _run_bounded_read
 from .api_models import PublicCodeToolRequest
+from .code_tools_response_compact import compact_response
 from .architecture_intelligence import (
     bound_architecture_response,
     build_architecture_explain_receipt,
@@ -549,7 +550,7 @@ async def _op_architecture(
         source_id = str(source.get("node_id") or "")
         outgoing_counts[source_id] = outgoing_counts.get(source_id, 0) + 1
     hotspots = []
-    for node_id, edge_count in sorted(outgoing_counts.items(), key=lambda item: (-item[1], item[0]))[:32]:
+    for node_id, edge_count in sorted(outgoing_counts.items(), key=lambda item: (-item[1], item[0])):
         node = nodes_by_id.get(node_id) or {}
         hotspots.append({"node_id": node_id, "path": node.get("path") or "", "name": node.get("name") or "", "edge_count": edge_count, "source_ref": (node.get("provenance") or {}).get("source_ref") or ""})
     intelligence = build_architecture_intelligence(
@@ -580,7 +581,7 @@ async def _op_architecture(
         repository_snapshot_id=str(current.get("repository_snapshot_id") or ""),
         max_items=32,
     )
-    return bound_architecture_response({
+    response = {
         "schema_version": "bhm.public-code-tools.v1",
         "contract_digest": _base._public_code_contract_digest(),
         "operation": operation,
@@ -589,8 +590,8 @@ async def _op_architecture(
         "graph_snapshot_id": current.get("graph_snapshot_id"),
         "architecture": {
             "summary": current.get("summary") or {},
-            "layers": [{"name": key, "node_count": value} for key, value in sorted(layer_counts.items())[:64]],
-            "dependencies": [{"path": key, "edge_count": value} for key, value in sorted(dependency_counts.items(), key=lambda item: (-item[1], item[0]))[:64]],
+            "layers": [{"name": key, "node_count": value} for key, value in sorted(layer_counts.items())],
+            "dependencies": [{"path": key, "edge_count": value} for key, value in sorted(dependency_counts.items(), key=lambda item: (-item[1], item[0]))],
             "hotspots": hotspots,
             "intelligence": intelligence,
             "explain_receipt": explain_receipt,
@@ -599,6 +600,9 @@ async def _op_architecture(
         },
         "provenance": {"source": "code-graph-summary", "raw_source_returned": False},
         "execution": {"writes_sqlite_state": False, "raw_source_returned": False},
-    })
+    }
+    response["detail"] = request.detail
+    response = compact_response(response, offset=request.offset, limit=request.limit, full=request.detail == "full")
+    return bound_architecture_response(response, max_serialized_bytes=240 * 1024 if request.detail == "full" else 18_000)
 
 

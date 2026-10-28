@@ -51,6 +51,7 @@ def _public_code_contract_digest() -> str:
         "parser_registry_digest": PARSER_REGISTRY_DIGEST,
         "language_inventory_digest": LANGUAGE_INVENTORY_DIGEST,
         "operations": sorted(_PUBLIC_CODE_TOOL_OPERATIONS),
+        "analysis_detail": {"default": "compact", "full": True, "pagination": ["offset", "limit"]},
         "watcher": {
             "schema_version": "bhm.repository-watch-backpressure.v1",
             "default_max_inflight_jobs": DEFAULT_WATCH_MAX_INFLIGHT_JOBS,
