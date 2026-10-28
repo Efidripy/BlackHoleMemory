@@ -105,7 +105,9 @@ def test_jmaka_project_files_are_indexed_and_unknown_source_stays_in_coverage(tm
     assert snapshot["summary"]["coverage_complete"] is False
     assert snapshot["summary"]["repository_file_count"] == 6
     assert graph["summary"]["relevant_skipped_count"] == 1
-    assert graph["summary"]["index_coverage_complete"] is False
+    assert graph["summary"]["policy_skipped_count"] == 1
+    assert graph["summary"]["policy_skip_reasons"] == {"unsupported-type": 1}
+    assert graph["summary"]["index_coverage_complete"] is True
     assert graph["summary"]["repository_file_count"] == 6
 
 

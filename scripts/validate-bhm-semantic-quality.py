@@ -293,6 +293,8 @@ def _freshness_evidence(
         "ok": ok,
         "index_fresh": index_fresh,
         "coverage_complete": complete,
+        "policy_skipped_count": int(summary.get("policy_skipped_count") or graph_summary.get("policy_skipped_count") or 0),
+        "policy_skip_reasons": dict(summary.get("policy_skip_reasons") or graph_summary.get("policy_skip_reasons") or {}),
         "graph_complete": graph_complete,
         "parser_errors": parser_errors,
         "snapshot_age_seconds": None if age is None else round(age, 3),

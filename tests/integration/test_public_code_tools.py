@@ -433,9 +433,11 @@ def test_public_coverage_fails_closed_for_relevant_unsupported_files(monkeypatch
     assert response.status_code == 200
     coverage = response.json()["coverage"]
     assert coverage["relevant_skipped_count"] == 1
+    assert coverage["policy_skipped_count"] == 1
+    assert coverage["policy_skip_reasons"] == {"unsupported-type": 1}
     assert coverage["repository_file_count"] == 2
     assert coverage["index_coverage_ratio"] == 0.5
-    assert coverage["complete"] is False
+    assert coverage["complete"] is True
 
 
 def test_public_type_references_returns_bounded_proposal_metadata(monkeypatch, tmp_path: Path) -> None:
