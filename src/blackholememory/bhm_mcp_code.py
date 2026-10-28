@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from . import bhm_mcp_base as _base
 from .resource_limits import BHM_INDEX_MAX_FILES_PER_RUN
@@ -216,13 +216,13 @@ def bhm_get_graph_schema(project: str = DEFAULT_PROJECT, root: str | None = None
 
 
 @mcp.tool(name="bhm_check_index_coverage", description="Report repository-index freshness and parser coverage with fail-closed completeness status.")
-def bhm_check_index_coverage(project: str = DEFAULT_PROJECT, root: str | None = None) -> dict[str, Any]:
-    return _public_code_tool("coverage", project=project, root=root)
+def bhm_check_index_coverage(project: str = DEFAULT_PROJECT, root: str | None = None, detail: Literal["compact", "full"] = "compact", offset: int = 0, limit: int = 32) -> dict[str, Any]:
+    return _public_code_tool("coverage", project=project, root=root, detail=detail, offset=offset, limit=limit)
 
 
 @mcp.tool(name="bhm_get_architecture", description="Return bounded architecture summary derived from the authoritative code graph; no raw source is returned.")
-def bhm_get_architecture(project: str = DEFAULT_PROJECT, root: str | None = None) -> dict[str, Any]:
-    return _public_code_tool("architecture", project=project, root=root)
+def bhm_get_architecture(project: str = DEFAULT_PROJECT, root: str | None = None, detail: Literal["compact", "full"] = "compact", offset: int = 0, limit: int = 32) -> dict[str, Any]:
+    return _public_code_tool("architecture", project=project, root=root, detail=detail, offset=offset, limit=limit)
 
 
 @mcp.tool(name="bhm_resolve_packages", description="Resolve bounded package/module identities from allowlisted manifests; versions, URLs, secrets and raw manifest text never leave BHM.")

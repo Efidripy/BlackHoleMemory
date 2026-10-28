@@ -162,6 +162,7 @@ class PublicCodeToolRequest(BaseModel):
     expected_job_id: StrictStr | None = Field(default=None, min_length=1, max_length=120)
     expected_state_digest: StrictStr | None = Field(default=None, min_length=1, max_length=128)
     query: StrictStr = Field(default="", max_length=480)
+    detail: Literal["compact", "full"] = "compact"
     graph_operation: Literal[tuple(sorted(CODE_GRAPH_QUERY_OPERATIONS))] = "symbol"
     edge_kinds: list[StrictStr] = Field(default_factory=list, max_length=16)
     name_pattern: StrictStr | None = Field(default=None, max_length=120)

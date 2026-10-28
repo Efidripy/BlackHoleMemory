@@ -301,7 +301,25 @@ def _bounded_material(
     selected_edges: list[dict[str, Any]] = []
     used = 0
     truncated = False
+    # Keep one complete relationship when it fits, including both endpoints.
+    # Otherwise a long node list can consume the entire traversal budget.
+    by_id = {str(node.get("node_id")): node for node in nodes}
+    for edge in edges:
+        endpoint_ids = list(dict.fromkeys((str(edge.get("source_node_id")), str(edge.get("target_node_id")))))
+        if any(node_id not in by_id for node_id in endpoint_ids):
+            continue
+        endpoints = [by_id[node_id] for node_id in endpoint_ids]
+        cost = sum(max(1, len(_canonical_json(node)) // 4) for node in endpoints)
+        cost += max(1, len(_canonical_json(edge)) // 4)
+        if cost <= max_tokens:
+            selected_nodes.extend(endpoints)
+            selected_edges.append(edge)
+            used = cost
+            break
+    selected_ids = {str(node.get("node_id")) for node in selected_nodes}
     for node in nodes:
+        if str(node.get("node_id")) in selected_ids:
+            continue
         cost = max(1, len(_canonical_json(node)) // 4)
         if used + cost > max_tokens:
             truncated = True
@@ -310,6 +328,8 @@ def _bounded_material(
         used += cost
     allowed = {str(node.get("node_id")) for node in selected_nodes}
     for edge in edges:
+        if selected_edges and edge is selected_edges[0]:
+            continue
         if str(edge.get("source_node_id")) not in allowed or str(edge.get("target_node_id")) not in allowed:
             continue
         cost = max(1, len(_canonical_json(edge)) // 4)

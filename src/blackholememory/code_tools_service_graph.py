@@ -40,6 +40,7 @@ from .repository_index import (
 )
 from .resource_limits import BHM_CODE_COVERAGE_PROBE_TIMEOUT_SECONDS
 
+from .code_tools_response_compact import compact_response
 from . import code_tools_service_base as _base
 
 
@@ -400,7 +401,7 @@ async def _op_coverage(
         index_fresh = None
         freshness_status = "sqlite_busy"
         retryable = True
-    return {
+    response = {
         "schema_version": "bhm.public-code-tools.v1",
         "contract_digest": _base._public_code_contract_digest(),
         "operation": operation,
@@ -432,5 +433,7 @@ async def _op_coverage(
         "index": index_status,
         "execution": {"writes_sqlite_state": False, "raw_source_returned": False},
     }
+    response["detail"] = request.detail
+    return compact_response(response, offset=request.offset, limit=request.limit, full=request.detail == "full")
 
 
