@@ -110,15 +110,6 @@ async def mark_archived_on_disk_async(
     return result
 
 
-def mark_archived_on_disk(
-    runtime_dir: _worker.Path,
-    batch: _worker.JsonDict,
-    crystal_id: str,
-    args: _worker.argparse.Namespace,
-) -> _worker.JsonDict:
-    return _worker.run_coroutine_sync(_worker.mark_archived_on_disk_async(runtime_dir, batch, crystal_id, args))
-
-
 async def apply_crystal(
     args: _worker.argparse.Namespace,
     batch: _worker.JsonDict,

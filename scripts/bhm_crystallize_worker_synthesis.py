@@ -93,32 +93,6 @@ def build_big_bang_passport(batch: _worker.JsonDict) -> _worker.JsonDict:
             f"topic={batch['topic']} hash={topic_hash}. Generate one Critical service warning."
         ),
     }
-def tier_system_prompt(batch: _worker.JsonDict) -> str:
-    tier = _worker.safe_str(batch.get("tier") or _worker.TIER_MICRO)
-    total = int(batch.get("total_pool_count") or len(batch.get("records") or []))
-    if tier == _worker.TIER_BIG_BANG:
-        return (
-            "Scale tier: BIG BANG / BLACK HOLE. Do not analyze raw logs. "
-            f"A systemic storm of {total} logs was detected. Produce one Critical service warning "
-            "from the catastrophe passport only.\n\n"
-            f"{_worker.THREE_ZONE_CONTEXT_PROMPT}"
-        )
-    if tier == _worker.TIER_MACRO:
-        return (
-            f"{_worker.FACT_CRYSTAL_SYSTEM_PROMPT}\n\n"
-            f"Scale tier: MACRO. You are compressing a macro-cluster of {total} logs. "
-            "Identify the shared systemic anomaly, not individual incidents.\n\n"
-            f"{_worker.THREE_ZONE_CONTEXT_PROMPT}"
-        )
-    if tier == _worker.TIER_SINGULARITY:
-        return (
-            f"{_worker.FACT_CRYSTAL_SYSTEM_PROMPT}\n\n"
-            f"Scale tier: SINGULARITY FLOOD. You are analyzing an emergency flood of {total} logs. "
-            "Use the provided Frequency Map as the source of truth. Do not infer from absent raw logs. "
-            "Name the dominant failure signature, timeframe, blast radius, and emergency mitigation pattern.\n\n"
-            f"{_worker.THREE_ZONE_CONTEXT_PROMPT}"
-        )
-    return f"{_worker.FACT_CRYSTAL_SYSTEM_PROMPT}\n\n{_worker.THREE_ZONE_CONTEXT_PROMPT}"
 async def build_synthesis_payload(batch: _worker.JsonDict, args: _worker.argparse.Namespace) -> _worker.JsonDict:
     records = await _worker.build_three_zone_context(batch, args)
     active_zone = records.get("active_zone") if isinstance(records.get("active_zone"), dict) else {}

@@ -795,9 +795,3 @@ def memory_from_record(record: Mapping[str, Any]) -> Memory:
     """Functional alias used by importers and future repository adapters."""
 
     return Memory.from_record(record)
-
-
-def memory_to_record(memory: Memory) -> dict[str, Any]:
-    """Functional alias used by projection code and migration tests."""
-
-    return memory.to_record()

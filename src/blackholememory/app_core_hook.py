@@ -22,7 +22,6 @@ from .api_models import BhmHookRequest, BhmHookCompactRequest
 from .config import settings
 from .resource_limits import PROCESS_EXECUTION_DEFAULT_TIMEOUT_SECONDS
 from .caller_auth import authorize_projects
-from .ui_origin_policy import request_host_parts
 from .runtime_storage import resolve_runtime_storage_config
 from .memory_service import MemoryServiceNotReady
 from .utility_feedback import utility_report
@@ -151,10 +150,6 @@ def _ensure_hook_request_identity(request: BaseModel) -> BaseModel:
     if not getattr(request, "correlationId", None):
         updates["correlationId"] = str(getattr(request, "sessionId", "") or updates.get("eventId") or "")
     return request.model_copy(update=updates) if updates else request
-
-
-def _request_host_parts(host_header: str | None) -> tuple[str, str] | None:
-    return request_host_parts(host_header, canonical_port=settings.port)
 
 
 _OBSERVATION_STORE_LOCK = threading.RLock()
@@ -516,16 +511,6 @@ def _load_observations() -> list[dict]:
         return _observation_store().load()
 
 
-def _append_observations(items: list[dict]) -> Path:
-    """Append observations to the authoritative SQLite journal."""
-
-    with _OBSERVATION_STORE_LOCK:
-        store = _observation_store()
-        store.initialize()
-        store.append_many(items)
-        return store.path
-
-
 def _append_observation(item: dict) -> None:
     with _OBSERVATION_STORE_LOCK:
         try:
@@ -632,10 +617,6 @@ def _query_intent_weight(query: str, item: dict) -> float:
     return score
 
 
-def _mem0_user_ids_for_search(user_id: str) -> list[str]:
-    return [user_id]
-
-
 def _lexical_signal(query: str, item: dict) -> float:
     metadata = item.get("metadata") or {}
     text = (item.get("memory") or "").lower()
@@ -658,32 +639,6 @@ def _lexical_signal(query: str, item: dict) -> float:
             score += 0.25
 
     return score
-
-
-def _collapse_duplicates(results: list[dict]) -> list[dict]:
-    grouped: dict[str, dict] = {}
-    for item in results:
-        key = item.get("hash") or item.get("memory") or item.get("id")
-        current = grouped.get(key)
-        if current is None:
-            grouped[key] = item
-            continue
-
-        current_project = (current.get("metadata") or {}).get("project")
-        item_project = (item.get("metadata") or {}).get("project")
-        current_created = _safe_datetime(current.get("created_at"))
-        item_created = _safe_datetime(item.get("created_at"))
-
-        replace = False
-        if not current_project and item_project:
-            replace = True
-        elif current_project == item_project and item_created < current_created:
-            replace = True
-
-        if replace:
-            grouped[key] = item
-
-    return list(grouped.values())
 
 
 _HOOK_TRANSIT_SOURCE_LIMIT = 12
@@ -834,19 +789,6 @@ def _get_validation_snapshot(project: str) -> dict:
         if item.get("project") == project:
             return item
     raise HTTPException(status_code=404, detail="validation snapshot not found")
-
-
-def _rerank_vector_results(query: str, results: list[dict]) -> list[dict]:
-    reranked: list[tuple[float, dict]] = []
-    for item in results:
-        total = float(item.get("score") or 0.0)
-        total += _lexical_signal(query, item)
-        total += _memory_type_weight(item)
-        total += _query_intent_weight(query, item)
-        reranked.append((total, item))
-
-    reranked.sort(key=lambda pair: pair[0], reverse=True)
-    return [item for _, item in reranked]
 
 
 def _llm_governor() -> LLMResourceGovernor:

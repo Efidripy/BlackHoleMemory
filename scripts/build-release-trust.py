@@ -268,18 +268,6 @@ def _wheel_matches_runtime(url: str) -> bool:
     return ("manylinux" in filename or "musllinux" in filename) and platform_tag in filename
 
 
-def _locked_artifact(item: dict[str, object]) -> tuple[str, str] | None:
-    wheels = item.get("wheels") if isinstance(item.get("wheels"), list) else []
-    for wheel in wheels:
-        artifact = _artifact_hash(wheel)
-        if artifact is not None and _wheel_matches_runtime(artifact[0]):
-            return artifact
-    sdist = _artifact_hash(item.get("sdist"))
-    if sdist is not None:
-        return sdist
-    return None
-
-
 def load_build_inputs(root: Path) -> dict[str, dict[str, object]]:
     path = _safe_input_file(root / BUILD_INPUTS_FILE, "build-inputs.json")
     payload = json.loads(path.read_text(encoding="utf-8"))

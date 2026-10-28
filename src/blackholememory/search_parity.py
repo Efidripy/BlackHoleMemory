@@ -36,21 +36,6 @@ SEARCH_SURFACES: tuple[dict[str, Any], ...] = (
 )
 
 
-def _schema_has_project(schema: dict[str, Any], path: str) -> bool:
-    operation = schema.get("paths", {}).get(path, {})
-    for method in operation.values():
-        if not isinstance(method, dict):
-            continue
-        for parameter in method.get("parameters", []):
-            if parameter.get("name") == "project":
-                return True
-        body = method.get("requestBody", {}).get("content", {}).get("application/json", {})
-        properties = body.get("schema", {}).get("properties", {})
-        if "project" in properties:
-            return True
-    return False
-
-
 def _implementation_source(surface: dict[str, Any]) -> str:
     name = str(surface["evidence"])
     chunks: list[str] = []

@@ -29,10 +29,6 @@ class NotImported:
     reason: str
 
 
-def _scope_kind(table: symtable.SymbolTable) -> str:
-    return table.get_type()
-
-
 def _scope_nodes(node: ast.AST, table: symtable.SymbolTable) -> dict[int, ast.AST]:
     """Associate symtable children with their corresponding AST scope nodes."""
     result: dict[int, ast.AST] = {id(table): node}

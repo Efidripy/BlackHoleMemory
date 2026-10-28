@@ -157,38 +157,6 @@ def _replace_root(value: str, root: Path | None, token: str) -> str:
     return value
 
 
-def normalize_argument(
-    value: str,
-    *,
-    repo_root: Path | None = None,
-    workspace_root: Path | None = None,
-    user_root: Path | None = None,
-) -> str:
-    """Normalize an argument while preserving command semantics.
-
-    Absolute Windows paths are made portable for fingerprints.  The same
-    replacement is also applied inside PowerShell ``-Command`` payloads so a
-    generated wrapper cannot evade drift detection merely by changing a root
-    spelling.
-    """
-
-    result = str(value).strip()
-    result = _replace_root(result, repo_root, "<repo>")
-    result = _replace_root(result, workspace_root, "<workspace>")
-    result = _replace_root(result, user_root, "<user>")
-    result = result.replace("\\", "/")
-    result = re.sub(r"[ \t]+", " ", result)
-    return result
-
-
-def normalize_command(value: str) -> str:
-    command = str(value).strip().replace("\\", "/")
-    name = command.rsplit("/", 1)[-1].lower()
-    if name.endswith(".exe"):
-        name = name[:-4]
-    return name
-
-
 def registration_identity(
     *,
     command: str = "",

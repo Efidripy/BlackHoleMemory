@@ -3,7 +3,6 @@ from __future__ import annotations
 # Third-party imports intentionally follow local telemetry/logging setup.
 # ruff: noqa: E402
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -468,9 +467,6 @@ def _evict_stale_memories_sync(threshold: float = 0.2) -> dict[str, Any]:
         "errors": errors,
     }
 
-async def evict_stale_memories(threshold: float = 0.2) -> dict[str, Any]:
-    return await asyncio.to_thread(_evict_stale_memories_sync, threshold)
-
 def _project_slug(project_name: str | None = None) -> str:
     raw = canonical_project_id(project_name or settings.qdrant_collection or settings.app_name or "blackholememory")
     slug = re.sub(r"[^a-z0-9]+", "_", raw).strip("_")
@@ -633,17 +629,3 @@ def get_project_mem0_memory(
 
 def get_global_core_memory() -> Any:
     return get_mem0_memory(GLOBAL_COLLECTION_NAME)
-
-
-def reset_mem0_collection() -> dict[str, Any]:
-    client = get_qdrant_client()
-    collection_name = local_collection_name(settings.qdrant_collection)
-    existed = client.collection_exists(collection_name)
-    if existed:
-        client.delete_collection(collection_name)
-    get_mem0_memory.cache_clear()
-    return {
-        "collection_name": collection_name,
-        "existed": existed,
-        "deleted": existed,
-    }

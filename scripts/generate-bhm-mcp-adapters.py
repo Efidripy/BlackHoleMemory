@@ -115,23 +115,6 @@ def _resolve_token(value: str, *, repo_root: Path, user_root: Path, workspace_ro
     return TOKEN_RE.sub(replace, str(value))
 
 
-def _normalize_path_text(value: str, *, repo_root: Path, user_root: Path, workspace_root: Path) -> str:
-    result = str(value).replace("/", "\\")
-    for root, token in ((repo_root, "<repo>"), (user_root, "<user>"), (workspace_root, "<workspace>")):
-        root_text = str(root).replace("/", "\\").rstrip("\\")
-        if result.casefold() == root_text.casefold():
-            result = token
-        elif result.casefold().startswith((root_text + "\\").casefold()):
-            result = token + "\\" + result[len(root_text) + 1 :]
-    result = result.replace("\\", "/")
-    return re.sub(r"[ \t]+", " ", result).strip()
-
-
-def _normalize_command(value: Any) -> str:
-    name = str(value).strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
-    return name[:-4] if name.endswith(".exe") else name
-
-
 def _normalize_identity(
     spec: Mapping[str, Any],
     *,
