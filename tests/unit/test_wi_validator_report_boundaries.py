@@ -10,22 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 REPORT_WRITER_SCRIPTS = (
     "validate-bhm-source-passport.py",
-    "validate-bhm-repository-index.py",
-    "validate-bhm-code-graph.py",
-    "validate-bhm-code-graph-query.py",
-    "validate-bhm-conventions.py",
-    "validate-bhm-session-capture.py",
-    "validate-bhm-memory-graph.py",
-    "validate-bhm-task-graph.py",
-    "validate-bhm-unified-context.py",
-    "validate-bhm-llm-code-fabric.py",
-    "validate-bhm-factories.py",
-    "validate-bhm-unified-mcp.py",
-    "validate-bhm-human-ui.py",
-    "validate-bhm-capability-router.py",
     "validate-bhm-migration.py",
-    "validate-bhm-security.py",
-    "validate-bhm-final-acceptance.py",
 )
 
 

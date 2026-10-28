@@ -1,6 +1,6 @@
 {
   "schema_version": "bhm.public-script-manifest.v1",
-  "purpose": "Явный fail-closed реестр public source scripts и суженный launcher payload.",
+  "purpose": "\u042f\u0432\u043d\u044b\u0439 fail-closed \u0440\u0435\u0435\u0441\u0442\u0440 public source scripts \u0438 \u0441\u0443\u0436\u0435\u043d\u043d\u044b\u0439 launcher payload.",
   "release_roles": [
     "runtime",
     "runtime-support",
@@ -36,56 +36,6 @@
     {
       "path": "scripts/audit-bhm-resource-call-sites.py",
       "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-repository-index.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-code-graph.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-code-graph-query.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-conventions.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-session-capture.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-memory-graph.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-task-graph.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-unified-context.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-llm-code-fabric.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-factories.py",
-      "role": "benchmark",
       "release": true
     },
     {
@@ -154,32 +104,7 @@
       "release": true
     },
     {
-      "path": "scripts/benchmark-bhm-unified-mcp.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-human-ui.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-capability-router.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
       "path": "scripts/benchmark-bhm-migration.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-security.py",
-      "role": "benchmark",
-      "release": true
-    },
-    {
-      "path": "scripts/benchmark-bhm-product-value.py",
       "role": "benchmark",
       "release": true
     },
@@ -199,22 +124,7 @@
       "release": true
     },
     {
-      "path": "scripts/bhm-capability-router.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-code-graph-query.py",
-      "role": "operator",
-      "release": true
-    },
-    {
       "path": "scripts/bhm-code-graph.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-conventions.py",
       "role": "operator",
       "release": true
     },
@@ -225,11 +135,6 @@
     },
     {
       "path": "scripts/bhm-data-hygiene.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-factories.py",
       "role": "operator",
       "release": true
     },
@@ -249,11 +154,6 @@
       "release": true
     },
     {
-      "path": "scripts/bhm-human-ui.py",
-      "role": "operator",
-      "release": true
-    },
-    {
       "path": "scripts/bhm-historical-record-backfill.py",
       "role": "operator-maintenance",
       "release": true
@@ -261,11 +161,6 @@
     {
       "path": "scripts/bhm-governed-consolidation.py",
       "role": "operator-maintenance",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-llm-code-fabric.py",
-      "role": "operator",
       "release": true
     },
     {
@@ -299,22 +194,12 @@
       "release": true
     },
     {
-      "path": "scripts/bhm-memory-graph.py",
-      "role": "operator",
-      "release": true
-    },
-    {
       "path": "scripts/bhm-migration.py",
       "role": "operator",
       "release": true
     },
     {
       "path": "scripts/bhm-portable-bundle.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-product-value.py",
       "role": "operator",
       "release": true
     },
@@ -349,16 +234,6 @@
       "release": true
     },
     {
-      "path": "scripts/bhm-security-trust-boundary.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-session-capture.py",
-      "role": "operator",
-      "release": true
-    },
-    {
       "path": "scripts/bhm-sqlite-retention.py",
       "role": "operator",
       "release": true
@@ -369,22 +244,7 @@
       "release": true
     },
     {
-      "path": "scripts/bhm-task-graph.py",
-      "role": "operator",
-      "release": true
-    },
-    {
       "path": "scripts/bhm-temporal-migration.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-unified-context.py",
-      "role": "operator",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm-unified-mcp.py",
       "role": "operator",
       "release": true
     },
@@ -1254,82 +1114,7 @@
       "release": true
     },
     {
-      "path": "scripts/validate-bhm-repository-index.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-code-graph.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-code-graph-query.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-conventions.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-session-capture.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-memory-graph.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-task-graph.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-unified-context.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-llm-code-fabric.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-factories.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-unified-mcp.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-human-ui.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-capability-router.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
       "path": "scripts/validate-bhm-migration.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-security.py",
-      "role": "quality-gate",
-      "release": true
-    },
-    {
-      "path": "scripts/validate-bhm-final-acceptance.py",
       "role": "quality-gate",
       "release": true
     },

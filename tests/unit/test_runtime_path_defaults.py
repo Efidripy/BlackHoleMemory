@@ -7,8 +7,6 @@ from blackholememory import galaxy
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LEGACY_LIVE_MEMORY_DEFAULTS = (
     REPO_ROOT / "scripts" / "bhm-code-graph.py",
-    REPO_ROOT / "scripts" / "bhm-code-graph-query.py",
-    REPO_ROOT / "scripts" / "bhm-conventions.py",
     REPO_ROOT / "scripts" / "bhm-repository-index.py",
     REPO_ROOT / "scripts" / "bhm_classify_projection_orphans.py",
     REPO_ROOT / "scripts" / "bhm_quarantine_projection_orphans.py",
@@ -17,7 +15,6 @@ LEGACY_LIVE_MEMORY_DEFAULTS = (
     REPO_ROOT / "scripts" / "promote-bhm-parser-v2.py",
     REPO_ROOT / "scripts" / "requeue-bhm-dead-letters.py",
     REPO_ROOT / "scripts" / "validate-bhm-graph-activation.py",
-    REPO_ROOT / "scripts" / "validate-bhm-repository-index.py",
 )
 
 

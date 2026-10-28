@@ -16,10 +16,7 @@ REPORT_SCRIPTS = (
     "validate-bhm-watch-backpressure.py",
     "validate-bhm-semantic-relevance.py",
     "validate-bhm-cross-repository-history.py",
-    "bhm-capability-router.py",
-    "bhm-code-graph-query.py",
     "bhm-code-graph.py",
-    "bhm-conventions.py",
 )
 
 
