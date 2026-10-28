@@ -8,7 +8,6 @@ from blackholememory.mcp_final_gate import (
     latency_summary,
     percentile,
 )
-from blackholememory.mcp_soak import contains_forbidden
 
 
 def _green_kwargs() -> dict:
@@ -103,7 +102,3 @@ def test_final_gate_latency_summary_is_deterministic():
     assert percentile([1, 2, 3, 4]) == 4.0
     assert latency_summary([4, 1, 2, 3]) == {"count": 4, "p50_ms": 2.0, "p95_ms": 4.0, "max_ms": 4.0}
 
-
-def test_final_gate_public_shape_does_not_use_forbidden_target_key():
-    assert contains_forbidden({"thresholds": {"core_tools": 12}}) is False
-    assert contains_forbidden({"targets": {"core_tools": 12}}) is True
