@@ -266,7 +266,24 @@ def _extract_markdown(draft: _GraphDraft, path: str, file_key: str, content: str
     return "parsed", None
 
 
-def _resolve_import_file(path: str, module: str, language: str, file_paths: set[str]) -> str | None:
+def _import_file_index(file_paths: set[str]) -> tuple[dict[str, str], dict[str, str]]:
+    paths = sorted(file_paths)
+    modules = {}
+    suffixes = {path: path for path in paths}
+    for path in paths:
+        for name in (*_module_candidates(path, ""), PurePosixPath(path).stem):
+            modules.setdefault(name, path)
+        for index, char in enumerate(path):
+            if char == "/": suffixes.setdefault(path[index + 1 :], path)
+    return modules, suffixes
+
+
+def _index_match(candidates: set[str], index: tuple[dict[str, str], dict[str, str]] | None) -> str | None:
+    if index is None: return None
+    matches = [index[1][item] for item in candidates if item in index[1]]
+    return min(matches) if matches else None
+
+def _resolve_import_file(path: str, module: str, language: str, file_paths: set[str], index: tuple[dict[str, str], dict[str, str]] | None = None) -> str | None:
     raw = str(module or "").strip().replace("\\", "/")
     if language in {"javascript", "typescript"} and raw.startswith("."):
         base = PurePosixPath(path).parent / raw
@@ -297,31 +314,45 @@ def _resolve_import_file(path: str, module: str, language: str, file_paths: set[
             normalized = raw.lstrip("./")
             candidates = [normalized, f"{normalized}.h", f"{normalized}.hpp", f"{normalized}.c", f"{normalized}.cpp", f"{normalized}.cs"]
         normalized_candidates = {str(PurePosixPath(candidate)) for candidate in candidates}
-        for candidate in sorted(file_paths):
-            if candidate in normalized_candidates or any(candidate.endswith(f"/{item}") for item in normalized_candidates):
-                return candidate
+        indexed = _index_match(normalized_candidates, index)
+        if indexed:
+            return indexed
+        if index is None:
+            for candidate in sorted(file_paths):
+                if candidate in normalized_candidates or any(candidate.endswith(f"/{item}") for item in normalized_candidates):
+                    return candidate
     if language in {"llvm", "tablegen"}:
         suffix = ".ll" if language == "llvm" else ".td"
         candidates = {raw, f"{raw}{suffix}"}
-        for candidate in sorted(file_paths):
-            if candidate in candidates or any(candidate.endswith(f"/{item}") for item in candidates):
-                return candidate
+        indexed = _index_match(candidates, index)
+        if indexed:
+            return indexed
+        if index is None:
+            for candidate in sorted(file_paths):
+                if candidate in candidates or any(candidate.endswith(f"/{item}") for item in candidates):
+                    return candidate
     if language in {"nim", "julia", "clojure", "groovy"}:
         normalized = raw.replace("::", ".").replace("/", ".").strip(".")
         suffix = {"nim": ".nim", "julia": ".jl", "clojure": ".clj", "groovy": ".groovy"}[language]
         module_path = normalized.replace(".", "/")
         candidates = {f"{module_path}{suffix}", f"{module_path}/index{suffix}"}
-        for candidate in sorted(file_paths):
-            if candidate in candidates or any(candidate.endswith(f"/{item}") for item in candidates):
-                return candidate
+        indexed = _index_match(candidates, index)
+        if indexed:
+            return indexed
+        if index is None:
+            for candidate in sorted(file_paths):
+                if candidate in candidates or any(candidate.endswith(f"/{item}") for item in candidates):
+                    return candidate
     normalized = raw.lstrip(".")
+    if index is not None:
+        return index[0].get(normalized)
     for candidate in sorted(file_paths):
         if normalized in _module_candidates(candidate, language) or normalized == PurePosixPath(candidate).stem:
             return candidate
     return None
 
 
-def _resolve_symbol(draft: _GraphDraft, ref: Mapping[str, Any]) -> tuple[str | None, bool, float]:
+def _resolve_symbol(draft: _GraphDraft, ref: Mapping[str, Any], index: tuple[dict[str, str], dict[str, str]] | None = None) -> tuple[str | None, bool, float]:
     name = str(ref.get("name") or "").strip()
     if not name:
         return None, True, 0.0
@@ -341,12 +372,12 @@ def _resolve_symbol(draft: _GraphDraft, ref: Mapping[str, Any]) -> tuple[str | N
         candidates.extend(draft.symbols_by_path_name.get((path, f"{owner}.{method}"), []))
     if "." in name and name.split(".", 1)[0] in aliases:
         module = str(aliases[name.split(".", 1)[0]])
-        target_path = _resolve_import_file(path, module, str(ref.get("language") or ""), draft.file_paths)
+        target_path = _resolve_import_file(path, module, str(ref.get("language") or ""), draft.file_paths, index)
         if target_path:
             remote_name = str(imported_names.get(name.split(".", 1)[0]) or "*")
             alias_candidates.extend(draft.symbols_by_path_name.get((target_path, remote_name if remote_name != "*" else simple), []))
     if name in aliases:
-        target_path = _resolve_import_file(path, str(aliases[name]), str(ref.get("language") or ""), draft.file_paths)
+        target_path = _resolve_import_file(path, str(aliases[name]), str(ref.get("language") or ""), draft.file_paths, index)
         if target_path:
             remote_name = str(imported_names.get(name) or name)
             if remote_name != "*":
@@ -389,11 +420,12 @@ def _resolve_inheritance(draft: _GraphDraft, item: Mapping[str, Any]) -> tuple[s
 
 def _finalize_draft(draft: _GraphDraft) -> None:
     file_paths = set(draft.file_paths)
+    index = _import_file_index(file_paths)
     for path, imports in sorted(draft.imports.items()):
         source_key = _file_node_key(draft.root_id, path)
         language = str(draft.nodes[source_key].get("language") or "")
         for item in imports:
-            target_path = _resolve_import_file(path, str(item.get("module") or ""), language, file_paths)
+            target_path = _resolve_import_file(path, str(item.get("module") or ""), language, file_paths, index)
             if target_path:
                 target_key = _file_node_key(draft.root_id, target_path)
                 draft.add_edge("imports", source_key, target_key, confidence=0.9, line=int(item.get("line") or 1), attributes={"module": _clip(item.get("module"), 300), "imported": _clip(item.get("imported"), 300), "alias": _clip(item.get("alias"), 300)})
@@ -409,7 +441,7 @@ def _finalize_draft(draft: _GraphDraft) -> None:
                     draft.add_node(_node(root_id=draft.root_id, stable_key=target_key, kind="external_module", name=name, qualified_name=name, language=language if language == "bitbake" else "", attributes=external_attributes))
                 draft.add_edge("imports", source_key, target_key, confidence=0.75, line=int(item.get("line") or 1), attributes={"module": name, "imported": _clip(item.get("imported"), 300), "alias": _clip(item.get("alias"), 300)})
     for ref in draft.references:
-        target_key, unresolved, confidence = _resolve_symbol(draft, ref)
+        target_key, unresolved, confidence = _resolve_symbol(draft, ref, index)
         if target_key is None:
             name = _clip(ref.get("name"), 300)
             target_key = _external_node_key(draft.root_id, "unresolved_symbol", name)

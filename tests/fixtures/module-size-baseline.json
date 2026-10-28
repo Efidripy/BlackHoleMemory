@@ -275,7 +275,7 @@
   "src/blackholememory/change_impact_risk_receipt.py": 94,
   "src/blackholememory/code_graph/__init__.py": 33,
   "src/blackholememory/code_graph/_common.py": 496,
-  "src/blackholememory/code_graph/_core.py": 673,
+  "src/blackholememory/code_graph/_core.py": 704,
   "src/blackholememory/code_graph/draft.py": 91,
   "src/blackholememory/code_graph/python_extractor.py": 197,
   "src/blackholememory/code_graph/service_edges.py": 222,
