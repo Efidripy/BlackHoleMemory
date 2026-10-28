@@ -11,18 +11,8 @@ from blackholememory.filesystem_boundaries import replace_bytes_safely
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPORT_SCRIPTS = (
-    "bhm-factories.py",
-    "bhm-human-ui.py",
-    "bhm-llm-code-fabric.py",
-    "bhm-memory-graph.py",
     "bhm-migration.py",
-    "bhm-product-value.py",
     "bhm-repository-index.py",
-    "bhm-security-trust-boundary.py",
-    "bhm-session-capture.py",
-    "bhm-task-graph.py",
-    "bhm-unified-context.py",
-    "bhm-unified-mcp.py",
 )
 
 

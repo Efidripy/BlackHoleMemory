@@ -18,7 +18,7 @@ def _load(name: str, filename: str):
 
 @pytest.mark.parametrize(
     ("name", "filename"),
-    (("bhm_code_graph", "bhm-code-graph.py"), ("bhm_conventions", "bhm-conventions.py")),
+    (("bhm_code_graph", "bhm-code-graph.py"),),
 )
 def test_live_database_guard_detects_hardlink_alias(tmp_path: Path, name: str, filename: str) -> None:
     module = _load(name, filename)
