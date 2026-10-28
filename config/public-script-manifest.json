@@ -1,6 +1,6 @@
 {
   "schema_version": "bhm.public-script-manifest.v1",
-  "purpose": "\u042f\u0432\u043d\u044b\u0439 fail-closed \u0440\u0435\u0435\u0441\u0442\u0440 public source scripts \u0438 \u0441\u0443\u0436\u0435\u043d\u043d\u044b\u0439 launcher payload.",
+  "purpose": "Явный fail-closed реестр public source scripts и суженный launcher payload.",
   "release_roles": [
     "runtime",
     "runtime-support",
@@ -370,11 +370,6 @@
     },
     {
       "path": "scripts/bhm_mcp_full_surface_code.py",
-      "role": "runtime-support",
-      "release": true
-    },
-    {
-      "path": "scripts/bhm_night_watch.py",
       "role": "runtime-support",
       "release": true
     },

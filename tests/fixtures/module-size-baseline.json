@@ -56,7 +56,6 @@
   "scripts/bhm_launcher_ui.py": 752,
   "scripts/bhm_launcher_workers.py": 251,
   "scripts/bhm_mcp_full_surface_code.py": 559,
-  "scripts/bhm_night_watch.py": 466,
   "scripts/bhm_quarantine_projection_orphans.py": 458,
   "scripts/bhm_reconcile_projection.py": 430,
   "scripts/bhm_reflection_daemon.py": 747,
