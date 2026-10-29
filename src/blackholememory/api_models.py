@@ -134,6 +134,7 @@ class ForgetApplyRequest(ForgetPreviewRequest):
     preview_digest: str = Field(min_length=64, max_length=64)
     confirm: bool = False
 
+
 class MemoryAdvancedSearchRequest(BaseModel):
     query: str = ""
     project: str | None = None
@@ -157,6 +158,9 @@ class MemoryAdvancedSearchRequest(BaseModel):
     priority: str | None = None
     limit: int = 10
     offset: int = 0
+    abstain: bool = False
+    detail: Literal["full", "compact"] | None = None
+
 
 class ContextCompileRequest(BaseModel):
     """Bounded, project-scoped context assembly request."""

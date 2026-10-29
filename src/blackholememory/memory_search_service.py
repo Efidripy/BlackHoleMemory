@@ -14,6 +14,8 @@ from typing import Any, Awaitable, Callable
 
 from .retrieval_query_plan import build_retrieval_query_plan
 from .retrieval_scope import resolve_history_scope
+from .retrieval_confidence import assess_answerability
+from .memory_search_compact import apply_abstain, finalize_search_response
 
 
 def read_only_side_effects() -> dict[str, Any]:
@@ -67,7 +69,7 @@ class MemorySearchService:
         if not request.query.strip():
             response = await self._dependencies.advanced_search(request)
             response.setdefault("side_effects", read_only_side_effects())
-            return response
+            return finalize_search_response(response, request)
 
         # Typed/temporal filters are correctness-first queries.  Until the
         # typed Qdrant payload parity gate is enabled, answer them directly
@@ -93,7 +95,7 @@ class MemorySearchService:
                 }
             )
             response.setdefault("side_effects", read_only_side_effects())
-            return response
+            return finalize_search_response(response, request)
 
         project_name = self._dependencies.effective_search_project(request.project)
         try:
@@ -145,17 +147,19 @@ class MemorySearchService:
                 contour_trace=getattr(federated_result, "contour_trace", None),
             )
             memories = [self._dependencies.serialize_vector_hit(item) for item in hits]
+            answerability = assess_answerability(request.query, memories)
             self._dependencies.emit_memory_pulses(memories)
             if total == 0:
                 response = await self._dependencies.advanced_search(request)
                 response.setdefault("side_effects", read_only_side_effects())
+                response["answerability"] = answerability
                 response["retrieval"] = {
                     "mode": "federated-empty-live-fallback",
                     "local_collection": self._dependencies.local_collection_name(project_name),
                     "global_collection": self._dependencies.global_collection_name(),
                 }
-                return response
-            return {
+                return finalize_search_response(apply_abstain(response, request), request)
+            response = {
                 "memories": memories,
                 "total": total,
                 "limit": max(min(request.limit, 200), 1),
@@ -197,7 +201,9 @@ class MemorySearchService:
                     "query_plan": query_plan,
                 },
                 "side_effects": read_only_side_effects(),
+                "answerability": answerability,
             }
+            return finalize_search_response(apply_abstain(response, request), request)
         except Exception as exc:
             if not self._dependencies.is_fallback_grace_error(exc):
                 raise
@@ -232,4 +238,5 @@ class MemorySearchService:
                 "global_collection": self._dependencies.global_collection_name(),
             }
             response.setdefault("side_effects", read_only_side_effects())
-            return response
+            response.setdefault("answerability", assess_answerability(request.query, response.get("memories") or []))
+            return finalize_search_response(apply_abstain(response, request), request)
