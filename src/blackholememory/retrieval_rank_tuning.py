@@ -49,12 +49,13 @@ def hit_title(hit: dict[str, Any]) -> str:
         return ""
     metadata = hit.get("metadata")
     if isinstance(metadata, dict):
-        raw_title = metadata.get("raw_title")
-        if raw_title is not None and str(raw_title).strip():
-            return str(raw_title).strip()
-        display_title = metadata.get("display_title")
-        if display_title is not None and str(display_title).strip():
-            return str(display_title).strip()
+        # Qdrant hits keep the stored record metadata one level down, next to the projection fields.
+        nested = metadata.get("metadata")
+        for source in (metadata, nested if isinstance(nested, dict) else {}):
+            for key in ("raw_title", "display_title"):
+                value = source.get(key)
+                if value is not None and str(value).strip():
+                    return str(value).strip()
     title = hit.get("title")
     if title is not None and str(title).strip():
         return str(title).strip()

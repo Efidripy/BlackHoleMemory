@@ -296,3 +296,8 @@ def test_ranking_title_boost_promotes_title_match(monkeypatch: pytest.MonkeyPatc
     assert [hit["id"] for hit in ranked_on] == ["cand-b", "cand-a", "cand-c"]
     assert ranked_on[0]["metadata"]["title_bonus"] > 0.0
     assert ranked_on[1]["metadata"]["title_bonus"] == 0.0
+
+
+def test_hit_title_reads_the_nested_stored_metadata_of_vector_hits():
+    hit = {"title": "content prefix", "metadata": {"metadata": {"raw_title": "Explicit stored title"}}}
+    assert hit_title(hit) == "Explicit stored title"
