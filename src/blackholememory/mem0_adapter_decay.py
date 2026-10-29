@@ -90,6 +90,12 @@ def decay_lambda_for_payload(payload: dict[str, Any]) -> float:
     except (TypeError, ValueError):
         pass
 
+    from .retrieval_rank_tuning import kind_decay_lambda
+
+    kind_lambda = kind_decay_lambda(payload)
+    if kind_lambda is not None:
+        return kind_lambda
+
     semantic_type = str(payload.get("semantic_type") or metadata.get("semantic_type") or "").strip().casefold()
     if semantic_type in DECAY_LAMBDA_BY_SEMANTIC_TYPE:
         return DECAY_LAMBDA_BY_SEMANTIC_TYPE[semantic_type]
