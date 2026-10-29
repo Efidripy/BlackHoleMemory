@@ -43,6 +43,19 @@ KNOWN_MEMORY_TYPES = frozenset(
         "pitfall",
         "state",
         "receipt",
+        "lesson",
+        "milestone",
+        "runbook",
+        "release",
+        "audit",
+        "reference",
+        "decision-log",
+        "knowledge-crystal",
+        "transient-context",
+        "todo",
+        "task",
+        "validation",
+        "diagnostic",
     }
 )
 
