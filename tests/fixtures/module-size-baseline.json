@@ -569,5 +569,6 @@
   "src/blackholememory/utility_feedback_store.py": 65,
   "src/blackholememory/value_benchmark.py": 566,
   "src/blackholememory/vector_routing.py": 298,
-  "src/blackholememory/version_manifest.py": 105
+  "src/blackholememory/version_manifest.py": 105,
+  "src/blackholememory/memory_search_compact.py": 121
 }
