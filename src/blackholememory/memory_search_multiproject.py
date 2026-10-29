@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import time
 from collections.abc import Awaitable, Callable, Iterable
 from typing import Any
@@ -13,6 +14,8 @@ from fastapi import HTTPException
 from .caller_auth import authorize_projects, configured_caller_principal
 from .memory_search_compact import apply_abstain, finalize_search_response
 from .retrieval_confidence import assess_answerability
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def read_only_side_effects() -> dict[str, Any]:
@@ -141,7 +144,8 @@ async def multiproject_search(
             return project, records, None
         except asyncio.TimeoutError:
             return project, None, "timeout"
-        except Exception:
+        except Exception as exc:  # broad: one failing project must not fail the whole fan-out
+            _LOGGER.warning("multiproject search failed for %s (%s: %s)", project, type(exc).__name__, str(exc)[:160])
             return project, None, "error"
 
     tasks = [asyncio.create_task(run_one(project)) for project in projects]
