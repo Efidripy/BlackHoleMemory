@@ -22,6 +22,7 @@ from .mem0_adapter import local_collection_name
 from .mem0_adapter import memory_decay_score
 from .retrieval_fusion import weighted_rank_fusion
 from .retrieval_diversity import mmr_select
+from .retrieval_rank_tuning import title_boost_enabled, title_lexical_bonus
 from .runtime_storage import resolve_runtime_storage_config
 from .projection_generation_binding import ProjectionRouteUnavailable
 from .projection_generation_binding import resolve_projection_route
@@ -372,7 +373,16 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
     )
     semantic_ranks = {key: rank for rank, (_, key, _) in enumerate(semantic_order, start=1)}
 
-    lexical_scores = {key: lexical_score(query, _hybrid_hit_text(hit)) for _, key, hit in indexed_hits}
+    boost_active = title_boost_enabled()
+    if boost_active:
+        hit_bonuses = {key: title_lexical_bonus(query, hit) for _, key, hit in indexed_hits}
+        lexical_scores = {
+            key: lexical_score(query, _hybrid_hit_text(hit)) + hit_bonuses[key]
+            for _, key, hit in indexed_hits
+        }
+    else:
+        hit_bonuses = {}
+        lexical_scores = {key: lexical_score(query, _hybrid_hit_text(hit)) for _, key, hit in indexed_hits}
     lexical_order = sorted(
         indexed_hits,
         key=lambda entry: (
@@ -441,6 +451,8 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
         metadata["mmr_rank"] = mmr_rank
         metadata["mmr_score"] = selection.mmr_score
         metadata["diversity_penalty"] = selection.redundancy
+        if boost_active:
+            metadata["title_bonus"] = hit_bonuses.get(key, 0.0)
         hit["metadata"] = metadata
         diversified.append(hit)
 
