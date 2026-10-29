@@ -22,7 +22,7 @@ from .mem0_adapter import local_collection_name
 from .mem0_adapter import memory_decay_score
 from .retrieval_fusion import weighted_rank_fusion
 from .retrieval_diversity import mmr_select
-from .retrieval_rank_tuning import title_boost_enabled, title_lexical_bonus
+from .retrieval_rank_tuning import memory_intent, title_boost_enabled, title_lexical_bonus, type_prior_bonus, type_prior_enabled
 from .runtime_storage import resolve_runtime_storage_config
 from .projection_generation_binding import ProjectionRouteUnavailable
 from .projection_generation_binding import resolve_projection_route
@@ -417,6 +417,15 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
         weights={"graph": _GRAPH_FUSION_WEIGHT},
     )
 
+    type_prior_active = type_prior_enabled()
+    if type_prior_active:
+        intent = memory_intent(query)
+        type_bonuses = {key: type_prior_bonus(intent, hit) for _, key, hit in indexed_hits}
+        for key, bonus in type_bonuses.items():
+            fused_scores[key] += bonus
+    else:
+        type_bonuses = {}
+
     ranked = sorted(
         indexed_hits,
         key=lambda entry: (
@@ -453,6 +462,8 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
         metadata["diversity_penalty"] = selection.redundancy
         if boost_active:
             metadata["title_bonus"] = hit_bonuses.get(key, 0.0)
+        if type_prior_active:
+            metadata["type_prior_bonus"] = type_bonuses.get(key, 0.0)
         hit["metadata"] = metadata
         diversified.append(hit)
 
