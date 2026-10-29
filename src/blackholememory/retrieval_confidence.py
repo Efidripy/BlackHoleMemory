@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 
+_MIN_POOL_FOR_INFORMATIVE = 5
+_COMMON_TOKEN_SHARE = 0.5
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{2,}")
 _STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "is", "it",
@@ -30,8 +32,9 @@ class AnswerabilityThresholds:
     confident_score: float = 0.6
     confident_overlap: float = 0.45
     none_overlap: float = 0.25
-    # Cross-language hits (Russian query, English record) have low term overlap but a high vector score.
-    none_score_ceiling: float = 0.70
+    # Optional cap on the vector score of a "none" answer; off by default because off-topic queries
+    # still reach high vector scores against generic records and would leak into the prompt context.
+    none_score_ceiling: float = 10.0
 
     @classmethod
     def from_env(cls) -> "AnswerabilityThresholds":
@@ -45,6 +48,15 @@ class AnswerabilityThresholds:
 
 def _tokens(value: Any) -> set[str]:
     return {token.casefold() for token in _TOKEN_RE.findall(str(value or "")) if token.casefold() not in _STOP_WORDS}
+
+
+def _informative_tokens(query_tokens: set[str], item_tokens: list[set[str]]) -> set[str]:
+    """Drop query words that most candidates contain: they carry no signal about the answer."""
+
+    if len(item_tokens) < _MIN_POOL_FOR_INFORMATIVE:
+        return query_tokens
+    kept = {token for token in query_tokens if sum(token in tokens for tokens in item_tokens) / len(item_tokens) <= _COMMON_TOKEN_SHARE}
+    return kept or query_tokens
 
 
 def _number(item: Mapping[str, Any], key: str) -> float | None:
@@ -79,10 +91,12 @@ def assess_answerability(
     others = scores[1:]
     score_gap = top_score - (sum(others) / len(others) if others else 0.0)
     query_tokens = _tokens(query)
+    item_tokens = [_tokens(item.get("title")) | _tokens(item.get("content", item.get("memory"))) for item in memories]
+    informative = _informative_tokens(query_tokens, item_tokens)
     matched: set[str] = set()
-    for item in memories[:3]:
-        matched |= query_tokens & (_tokens(item.get("title")) | _tokens(item.get("content", item.get("memory"))))
-    lexical_overlap = len(matched) / len(query_tokens) if query_tokens else 0.0
+    for tokens in item_tokens[:3]:
+        matched |= informative & tokens
+    lexical_overlap = len(matched) / len(informative) if informative else 0.0
     lexical_rank = _number(memories[0], "lexical_rank")
     semantic_rank = _number(memories[0], "semantic_rank")
     channels = _channel_set(memories[0])

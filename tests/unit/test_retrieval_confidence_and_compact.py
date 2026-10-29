@@ -92,8 +92,21 @@ def test_compact_snippet_centres_on_the_densest_query_window():
     assert "BHM_ADMIN_CAPABILITY" in snippet
 
 
-def test_cross_language_hit_with_high_score_is_not_declared_empty():
+def test_none_score_ceiling_keeps_high_score_hits_out_of_none():
     hit = _hit(0.75, "Signer trust registry policy")
     hit["title"] = "Registry"
-    result = assess_answerability("где задаётся пустой реестр подписантов", [hit])
-    assert result["status"] == "weak"
+    query = "где задаётся пустой реестр подписантов"
+    assert assess_answerability(query, [hit])["status"] == "none"
+    capped = assess_answerability(query, [hit], thresholds=AnswerabilityThresholds(none_score_ceiling=0.70))
+    assert capped["status"] == "weak"
+
+
+def test_common_query_words_do_not_count_as_coverage():
+    def hit(index, text):
+        return {"id": f"m{index}", "title": f"Rule {index}", "content": text, "score": 0.75, "metadata": {}}
+
+    generic = "правильно сервер работает всегда"
+    memories = [hit(i, generic) for i in range(6)]
+    result = assess_answerability("как правильно деплоить сервер на ubuntu", memories)
+    assert result["signals"]["lexical_overlap"] <= 0.25
+    assert result["status"] == "none"
