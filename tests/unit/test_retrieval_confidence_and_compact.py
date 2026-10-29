@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+import json
+
+from blackholememory.memory_search_compact import compact_search_response
+from blackholememory.retrieval_confidence import AnswerabilityThresholds, assess_answerability
+from blackholememory import bhm_mcp_memory
+
+
+def _hit(score: float, content: str, *, channels=None, lexical_rank=None):
+    metadata = {"raw_qdrant_score": score, "fusion_channels": channels or [], "lexical_rank": lexical_rank}
+    return {"id": f"m-{score}", "title": "Deploy Ubuntu", "content": content, "score": score, "metadata": metadata}
+
+
+def test_answerability_reports_confident_weak_none_and_empty():
+    confident = assess_answerability("deploy Ubuntu", [_hit(0.95, "Deploy Ubuntu with systemd", channels=["lexical", "semantic"], lexical_rank=1)])
+    weak = assess_answerability("deploy Ubuntu", [_hit(0.4, "Release signing")])
+    none_hit = _hit(0.01, "PII audit")
+    none_hit["title"] = "Audit"
+    none = assess_answerability("deploy Ubuntu", [none_hit])
+    empty = assess_answerability("deploy Ubuntu", [])
+    assert confident["status"] == "confident"
+    assert weak["status"] == "weak"
+    assert none["status"] == "none"
+    assert empty["reason"] == "no_candidates"
+
+
+def test_compact_response_bounds_fields_and_size():
+    content = "слово " * 600
+    response = {
+        "total": 1,
+        "limit": 5,
+        "offset": 0,
+        "query": "слово",
+        "memories": [{
+            "id": "m1", "title": "Заметка", "project": "demo", "type": "workflow", "memory_class": "general",
+            "updated_at": "2026-01-01", "score": 0.9, "fusion_channels": ["lexical"], "content": content,
+            "files": ["a.py", "b.py", "c.py", "d.py"], "upsert_key": "u1", "lifecycle": "active",
+            "metadata": {"huge": "x" * 10000},
+        }],
+        "retrieval": {"mode": "federated", "local_collection": "l", "global_collection": "g", "query_plan": {"huge": True}},
+        "side_effects": {"read_only": True},
+    }
+    compact = compact_search_response(response, snippet_chars=80)
+    assert compact["detail"] == "compact"
+    assert len(compact["memories"][0]["snippet"]) <= 80
+    assert compact["memories"][0]["has_more"] is True
+    assert compact["memories"][0]["files"] == ["a.py", "b.py", "c.py"]
+    assert "metadata" not in compact["memories"][0]
+    assert len(json.dumps(compact, ensure_ascii=False)) < 4096
+
+
+def test_thresholds_read_environment(monkeypatch):
+    monkeypatch.setenv("BHM_ANSWERABILITY_CONFIDENT_SCORE", "0.99")
+    result = assess_answerability("x", [_hit(0.9, "x")])
+    assert result["status"] != "confident"
+
+
+def test_threshold_dataclass_changes_status():
+    memories = [_hit(0.9, "Deploy Ubuntu")]
+    strict = assess_answerability(
+        "deploy Ubuntu",
+        memories,
+        thresholds=AnswerabilityThresholds(confident_score=0.95),
+    )
+    relaxed = assess_answerability(
+        "deploy Ubuntu",
+        memories,
+        thresholds=AnswerabilityThresholds(confident_score=0.5),
+    )
+    assert strict["status"] != relaxed["status"]
+    assert relaxed["status"] == "confident"
+
+
+def test_mcp_optional_fields_are_only_sent_when_set(monkeypatch):
+    seen = []
+    monkeypatch.setattr(bhm_mcp_memory._base, "_post", lambda path, body: seen.append(body) or body)
+    bhm_mcp_memory.bhm_search(query="x")
+    assert "abstain" not in seen[-1] and "detail" not in seen[-1]
+    bhm_mcp_memory.bhm_search(query="x", abstain=True, detail="compact")
+    assert seen[-1]["abstain"] is True and seen[-1]["detail"] == "compact"

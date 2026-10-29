@@ -49,6 +49,11 @@ from . import app_core_hit
 _LOGGER = logging.getLogger(__name__)
 
 
+def _search_candidate_pool() -> int:
+    value = _env_int("BHM_SEARCH_CANDIDATE_POOL", 20)
+    return value if 10 <= value <= 200 else 20
+
+
 # Provider SDK calls are synchronous and may outlive the response deadline.
 # Never put those calls on asyncio's shared default executor: a few cold or
 # wedged embedding/Qdrant requests there can starve health, telemetry and
@@ -728,7 +733,7 @@ async def federated_search(
     # SQLite-authoritative and therefore cannot silently lose rare classes.
     candidate_count = max(
         page_limit + page_offset,
-        20 if (pushdown_ready or not typed_filter_requested) and not temporal_filter_requested else 200,
+        _search_candidate_pool() if (pushdown_ready or not typed_filter_requested) and not temporal_filter_requested else 200,
     )
     candidate_filters = build_candidate_filters(
         user_id=settings.mem0_user_id,

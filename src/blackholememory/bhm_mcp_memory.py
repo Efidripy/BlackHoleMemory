@@ -134,7 +134,7 @@ def bhm_preflight(project: str = DEFAULT_PROJECT, query: str | None = None, limi
     }
 
 
-@mcp.tool(name="bhm_search", description="Native BHM search. Use history_scope=current|recent|all for an explicit history view; recent defaults to 30 days and can be narrowed with freshness_days.")
+@mcp.tool(name="bhm_search", description="Native BHM search. Use history_scope=current|recent|all for an explicit history view; recent defaults to 30 days and can be narrowed with freshness_days. Optionally request abstention or compact details.")
 def bhm_search(
     query: str = "",
     project: str | None = None,
@@ -157,6 +157,8 @@ def bhm_search(
     include_historical: bool = False,
     freshness_days: Annotated[int | None, Field(ge=1, le=3650)] = None,
     history_scope: Literal["current", "recent", "all"] | None = None,
+    abstain: bool = False,
+    detail: Literal["full", "compact"] | None = None,
 ) -> dict[str, Any]:
     body = {
         "query": query,
@@ -166,6 +168,8 @@ def bhm_search(
         "include_logs": include_logs,
         **({"freshness_days": freshness_days} if freshness_days is not None else {}),
         **({"history_scope": history_scope} if history_scope is not None else {}),
+        **({"abstain": True} if abstain else {}),
+        **({"detail": detail} if detail is not None else {}),
         **({"include_temporal_unknown": True} if include_temporal_unknown else {}),
     }
     if include_historical:
