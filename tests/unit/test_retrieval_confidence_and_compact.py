@@ -79,3 +79,14 @@ def test_mcp_optional_fields_are_only_sent_when_set(monkeypatch):
     assert "abstain" not in seen[-1] and "detail" not in seen[-1]
     bhm_mcp_memory.bhm_search(query="x", abstain=True, detail="compact")
     assert seen[-1]["abstain"] is True and seen[-1]["detail"] == "compact"
+
+
+def test_compact_snippet_centres_on_the_densest_query_window():
+    filler = "вводный текст без сути " * 40
+    content = filler + "Запись оператор использует BHM_ADMIN_CAPABILITY через MCP. " + filler
+    response = {
+        "total": 1, "limit": 5, "offset": 0, "query": "Как bhm_remember пишет память оператор MCP?",
+        "memories": [{"id": "m1", "title": "T", "content": content, "score": 0.9}],
+    }
+    snippet = compact_search_response(response, snippet_chars=200)["memories"][0]["snippet"]
+    assert "BHM_ADMIN_CAPABILITY" in snippet

@@ -10,18 +10,35 @@ from typing import Any, Mapping
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{2,}")
 
 
+_MAX_TOKEN_OCCURRENCES = 40
+
+
+def _best_window_start(lowered: str, tokens: list[str], limit: int) -> int:
+    """Start of the window that covers the most distinct query tokens."""
+
+    best_start, best_hits = 0, 0
+    for token in tokens:
+        position = lowered.find(token)
+        for _ in range(_MAX_TOKEN_OCCURRENCES):
+            if position < 0:
+                break
+            start = max(0, position - limit // 4)
+            window = lowered[start : start + limit]
+            hits = sum(1 for other in tokens if other in window)
+            if hits > best_hits:
+                best_start, best_hits = start, hits
+            position = lowered.find(token, position + len(token))
+    return best_start
+
+
 def _snippet(content: str, query: str, limit: int) -> tuple[str, bool]:
     text = str(content or "").strip()
     if len(text) <= limit:
         return text, False
-    query_tokens = [token.casefold() for token in _TOKEN_RE.findall(query or "")]
-    start = 0
+    # Short words ("как", "что") match everywhere and would pin the window to noise.
+    query_tokens = sorted({token.casefold() for token in _TOKEN_RE.findall(query or "") if len(token) >= 4})
     lowered = text.casefold()
-    for token in query_tokens:
-        position = lowered.find(token)
-        if position >= 0:
-            start = max(0, position - limit // 3)
-            break
+    start = _best_window_start(lowered, query_tokens, limit)
     budget = max(limit - 1, 1)
     excerpt = text[start : start + budget]
     if start > 0:

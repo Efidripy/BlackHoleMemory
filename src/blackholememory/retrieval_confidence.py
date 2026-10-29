@@ -25,21 +25,17 @@ def _env_float(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class AnswerabilityThresholds:
-    confident_score: float = 0.72
-    confident_gap: float = 0.12
+    # Calibrated 2026-10-29 on the golden questions: query-term coverage in the
+    # top hits separates real answers from near misses; vector score does not.
+    confident_score: float = 0.6
     confident_overlap: float = 0.45
-    weak_score: float = 0.28
-    none_score: float = 0.12
-    none_overlap: float = 0.08
+    none_overlap: float = 0.25
 
     @classmethod
     def from_env(cls) -> "AnswerabilityThresholds":
         return cls(
             confident_score=_env_float("BHM_ANSWERABILITY_CONFIDENT_SCORE", cls.confident_score),
-            confident_gap=_env_float("BHM_ANSWERABILITY_CONFIDENT_GAP", cls.confident_gap),
             confident_overlap=_env_float("BHM_ANSWERABILITY_CONFIDENT_OVERLAP", cls.confident_overlap),
-            weak_score=_env_float("BHM_ANSWERABILITY_WEAK_SCORE", cls.weak_score),
-            none_score=_env_float("BHM_ANSWERABILITY_NONE_SCORE", cls.none_score),
             none_overlap=_env_float("BHM_ANSWERABILITY_NONE_OVERLAP", cls.none_overlap),
         )
 
@@ -99,10 +95,8 @@ def assess_answerability(
         "top_lexical_rank": int(lexical_rank) if lexical_rank is not None and lexical_rank.is_integer() else (round(lexical_rank, 4) if lexical_rank is not None else None),
         "channels_agree": channels_agree,
     }
-    if top_score >= configured.confident_score and (score_gap >= configured.confident_gap or lexical_overlap >= configured.confident_overlap or channels_agree):
+    if lexical_overlap <= configured.none_overlap:
+        return {"status": "none", "reason": "low_query_coverage", "signals": signals}
+    if top_score >= configured.confident_score and lexical_overlap >= configured.confident_overlap:
         return {"status": "confident", "reason": "strong_top_match", "signals": signals}
-    if top_score < configured.none_score and lexical_overlap < configured.none_overlap and not channels_agree:
-        return {"status": "none", "reason": "low_signal", "signals": signals}
-    if top_score < configured.weak_score and lexical_overlap < configured.confident_overlap:
-        return {"status": "weak", "reason": "weak_match", "signals": signals}
-    return {"status": "weak", "reason": "insufficient_separation", "signals": signals}
+    return {"status": "weak", "reason": "partial_query_coverage", "signals": signals}
