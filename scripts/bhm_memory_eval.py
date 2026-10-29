@@ -47,6 +47,7 @@ def make_search_request(
     *,
     abstain: bool = False,
     detail: str | None = None,
+    projects: list[str] | None = None,
     timeout: float = 10.0,
 ) -> tuple[dict[str, Any] | None, int, float, str | None]:
     """Execute search request and return (response_data, response_bytes, latency_ms, error)."""
@@ -60,6 +61,8 @@ def make_search_request(
         payload["abstain"] = True
     if detail:
         payload["detail"] = detail
+    if projects:
+        payload["projects"] = projects
 
     body_bytes = json.dumps(payload).encode("utf-8")
     headers = {
@@ -395,6 +398,7 @@ def run_evaluation(
             limit=limit,
             abstain=abstain,
             detail=detail,
+            projects=item.get("projects"),
             timeout=timeout,
         )
         scored = evaluate_item(
