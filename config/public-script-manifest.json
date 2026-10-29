@@ -374,6 +374,11 @@
       "release": true
     },
     {
+      "path": "scripts/bhm_memory_inventory.py",
+      "role": "quality-gate",
+      "release": true
+    },
+    {
       "path": "scripts/bhm_mcp_full_surface_code.py",
       "role": "runtime-support",
       "release": true
