@@ -6,6 +6,8 @@ import re
 import os
 from typing import Any, Mapping
 
+from .retrieval_routing import classify_query
+
 
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{2,}")
 
@@ -52,7 +54,7 @@ def compact_search_response(response: dict, *, snippet_chars: int = 280) -> dict
     """Remove large metadata while retaining useful search context."""
 
     compact: dict[str, Any] = {
-        key: response[key] for key in ("total", "limit", "offset", "query", "answerability", "weak_matches", "hint") if key in response
+        key: response[key] for key in ("total", "limit", "offset", "query", "answerability", "weak_matches", "hint", "suggested_source", "routing") if key in response
     }
     memories = []
     query = str(response.get("query") or "")
@@ -99,5 +101,21 @@ def apply_abstain(response: dict, request: Any) -> dict:
 
 
 def finalize_search_response(response: dict, request: Any) -> dict:
+    if "suggested_source" not in response:
+        query = getattr(request, "query", None)
+        if query is None and isinstance(request, Mapping):
+            query = request.get("query")
+        if query is None:
+            query = response.get("query")
+        route = classify_query(str(query or ""))
+        response["suggested_source"] = route["suggested_source"]
+        if route["suggested_source"] != "memory" and "routing" not in response:
+            response["routing"] = {
+                "intent": route["intent"],
+                "confidence": route["confidence"],
+                "reason": route["reason"],
+                "tools": list(route.get("tools") or []),
+                "hint": route.get("hint", ""),
+            }
     detail = getattr(request, "detail", None) or os.getenv("BHM_SEARCH_DETAIL_DEFAULT", "full").strip().lower()
     return compact_search_response(response) if detail == "compact" else response
