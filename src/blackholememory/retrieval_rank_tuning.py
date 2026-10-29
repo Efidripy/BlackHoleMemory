@@ -26,6 +26,7 @@ KIND_DECAY_LAMBDA: dict[str, float] = {
 }
 
 _ENABLED_TRUTHY_VALUES = frozenset({"1", "true", "on"})
+_DISABLED_VALUES = frozenset({"0", "false", "off", "no"})
 
 
 def title_boost_enabled() -> bool:
@@ -181,7 +182,8 @@ _RE_HOWTO = re.compile(
 
 
 def type_prior_enabled() -> bool:
-    return os.environ.get("BHM_RANK_TYPE_PRIOR", "").strip().casefold() in _ENABLED_TRUTHY_VALUES
+    # On by default since the 2026-10-29 evaluation (top-3 26 -> 31 of 40); "0", "false", "off" or "no" disable it.
+    return os.environ.get("BHM_RANK_TYPE_PRIOR", "").strip().casefold() not in _DISABLED_VALUES
 
 
 def type_prior_weight() -> float:

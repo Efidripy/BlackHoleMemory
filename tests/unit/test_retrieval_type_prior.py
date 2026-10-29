@@ -105,13 +105,13 @@ def test_type_prior_by_intent_mapping() -> None:
 
 def test_type_prior_flags_and_weights(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("BHM_RANK_TYPE_PRIOR", raising=False)
-    assert not type_prior_enabled()
+    assert type_prior_enabled()
 
-    for truthy in ("1", "true", "TRUE", "True", "on", "ON", "  on  "):
+    for truthy in ("1", "true", "TRUE", "True", "on", "ON", "  on  ", "", "anything_else"):
         monkeypatch.setenv("BHM_RANK_TYPE_PRIOR", truthy)
         assert type_prior_enabled()
 
-    for falsy in ("0", "false", "off", "", "anything_else"):
+    for falsy in ("0", "false", "FALSE", "off", "  off  ", "no"):
         monkeypatch.setenv("BHM_RANK_TYPE_PRIOR", falsy)
         assert not type_prior_enabled()
 
@@ -236,7 +236,7 @@ def test_type_prior_bonus_by_intent() -> None:
 def test_ranking_disabled_preserves_order_and_scores_without_type_prior(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("BHM_RANK_TYPE_PRIOR", raising=False)
+    monkeypatch.setenv("BHM_RANK_TYPE_PRIOR", "0")
     monkeypatch.delenv("BHM_RANK_TITLE_BOOST", raising=False)
 
     query = "Как перезапустить API?"
@@ -277,8 +277,8 @@ def test_ranking_type_prior_promotes_playbook_over_rule_for_howto(
         "metadata": {"memory_type": "playbook"},
     }
 
-    # 1. Without flag: cand-rule stays first (initial tie-breaker)
-    monkeypatch.delenv("BHM_RANK_TYPE_PRIOR", raising=False)
+    # 1. Switched off: cand-rule stays first (initial tie-breaker)
+    monkeypatch.setenv("BHM_RANK_TYPE_PRIOR", "0")
     ranked_off = _rank_hybrid_vector_hits(query, [cand_rule, cand_playbook])
     assert [hit["id"] for hit in ranked_off] == ["cand-rule", "cand-playbook"]
     for hit in ranked_off:
