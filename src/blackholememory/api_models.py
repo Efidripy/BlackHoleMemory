@@ -139,6 +139,7 @@ class ForgetApplyRequest(ForgetPreviewRequest):
 class MemoryAdvancedSearchRequest(BaseModel):
     query: str = ""
     project: str | None = None
+    projects: list[str] | None = Field(default=None, max_length=40)
     memory_type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
