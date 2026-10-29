@@ -90,3 +90,10 @@ def test_compact_snippet_centres_on_the_densest_query_window():
     }
     snippet = compact_search_response(response, snippet_chars=200)["memories"][0]["snippet"]
     assert "BHM_ADMIN_CAPABILITY" in snippet
+
+
+def test_cross_language_hit_with_high_score_is_not_declared_empty():
+    hit = _hit(0.75, "Signer trust registry policy")
+    hit["title"] = "Registry"
+    result = assess_answerability("где задаётся пустой реестр подписантов", [hit])
+    assert result["status"] == "weak"

@@ -30,6 +30,8 @@ class AnswerabilityThresholds:
     confident_score: float = 0.6
     confident_overlap: float = 0.45
     none_overlap: float = 0.25
+    # Cross-language hits (Russian query, English record) have low term overlap but a high vector score.
+    none_score_ceiling: float = 0.70
 
     @classmethod
     def from_env(cls) -> "AnswerabilityThresholds":
@@ -37,6 +39,7 @@ class AnswerabilityThresholds:
             confident_score=_env_float("BHM_ANSWERABILITY_CONFIDENT_SCORE", cls.confident_score),
             confident_overlap=_env_float("BHM_ANSWERABILITY_CONFIDENT_OVERLAP", cls.confident_overlap),
             none_overlap=_env_float("BHM_ANSWERABILITY_NONE_OVERLAP", cls.none_overlap),
+            none_score_ceiling=_env_float("BHM_ANSWERABILITY_NONE_SCORE_CEILING", cls.none_score_ceiling),
         )
 
 
@@ -95,7 +98,7 @@ def assess_answerability(
         "top_lexical_rank": int(lexical_rank) if lexical_rank is not None and lexical_rank.is_integer() else (round(lexical_rank, 4) if lexical_rank is not None else None),
         "channels_agree": channels_agree,
     }
-    if lexical_overlap <= configured.none_overlap:
+    if lexical_overlap <= configured.none_overlap and top_score < configured.none_score_ceiling:
         return {"status": "none", "reason": "low_query_coverage", "signals": signals}
     if top_score >= configured.confident_score and lexical_overlap >= configured.confident_overlap:
         return {"status": "confident", "reason": "strong_top_match", "signals": signals}
