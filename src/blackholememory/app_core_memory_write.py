@@ -85,7 +85,7 @@ def _remember_live_memory(request: RememberRequest) -> dict:
     _base._validate_procedure_contract_binding(memory_class.value, user_metadata)
     metadata = initial_decay_metadata(
         {
-            "raw_title": _base._build_memory_title(request.content),
+            "raw_title": (request.title or "").strip() or _base._build_memory_title(request.content),
             "confidence": None,
             "files": request.files or [],
             "upsert_key": request.upsert_key,

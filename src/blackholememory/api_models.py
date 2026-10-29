@@ -92,6 +92,7 @@ class RememberRequest(BaseModel):
     source_uri: str | None = None
     source_digest: str | None = None
     content: str
+    title: str | None = Field(default=None, min_length=1, max_length=160)
     concepts: list[str] | None = None
     files: list[str] | None = None
     upsert_key: str | None = None

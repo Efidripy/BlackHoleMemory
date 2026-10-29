@@ -152,6 +152,8 @@ def bhm_remember(
     concepts: list[str] | None = None,
     files: list[str] | None = None,
     metadata: MemoryMetadata | None = None,
+    title: str | None = None,
+    upsert_key: str | None = None,
 ) -> dict[str, Any]:
     body: dict[str, Any] = {
         "content": content,
@@ -163,6 +165,8 @@ def bhm_remember(
         "files": files or [],
     }
     for key, value in {
+        "title": title,
+        "upsert_key": upsert_key,
         "observed_at": observed_at,
         "valid_from": valid_from,
         "valid_to": valid_to,
