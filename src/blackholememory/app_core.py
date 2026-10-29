@@ -45,6 +45,7 @@ from .app_core_memory_base import _append_memory_changelog, _build_memory_title,
 from .app_core_memory_projection import _sync_mem0_record, _update_mem0_record
 from .app_core_memory_query import _vector_item_matches_search_request
 from .app_core_memory_write import _apply_temporal_update, _crystallize_memories, _detect_duplicates, _merge_memory_records, _project_summary_get, _remember_live_memory, _temporal_request_fields, _update_live_memory, _upsert_live_memory
+from .memory_write_gate import attach_gate, run_write_gate
 
 __all__ = (
     '_append_memory_changelog', '_build_memory_title', '_effective_event_role', '_effective_memory_class',
@@ -419,8 +420,11 @@ async def _remember_authoritative(request: RememberRequest, *, actor: str) -> di
         payload=request.model_dump(mode="json"),
         requires_authority=True,
     )
+    gate = run_write_gate(request, lambda: rt._memory_service().repository.path)
+    if gate.reject_detail is not None:
+        raise HTTPException(status_code=422, detail=gate.reject_detail)
     record = await rt._run_bounded_write("bhm.remember", _remember_live_memory, request)
-    return _remember_response(record)
+    return attach_gate(_remember_response(record), gate)
 
 
 def _remember_request_from_mcp_arguments(arguments: dict[str, Any]) -> RememberRequest:
