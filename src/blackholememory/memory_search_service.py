@@ -16,6 +16,7 @@ from .retrieval_query_plan import build_retrieval_query_plan
 from .retrieval_scope import resolve_history_scope
 from .retrieval_confidence import assess_answerability
 from .memory_search_compact import apply_abstain, finalize_search_response
+from .memory_search_multiproject import execute_multiproject_search
 
 
 def read_only_side_effects() -> dict[str, Any]:
@@ -49,6 +50,8 @@ class MemorySearchDependencies:
     fallback_grace_memories_response: Callable[..., dict[str, Any]]
     local_collection_name: Callable[[str], str]
     global_collection_name: Callable[[], str]
+    resolve_projects: Callable[[list[str] | None], Any] | None = None
+    authorize_projects: Callable[[Any], Any] | None = None
 
 
 class MemorySearchService:
@@ -96,6 +99,9 @@ class MemorySearchService:
             )
             response.setdefault("side_effects", read_only_side_effects())
             return finalize_search_response(response, request)
+
+        if getattr(request, "projects", None):
+            return await execute_multiproject_search(request, history, self._dependencies)
 
         project_name = self._dependencies.effective_search_project(request.project)
         try:

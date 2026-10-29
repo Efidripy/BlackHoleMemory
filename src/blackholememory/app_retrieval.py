@@ -16,7 +16,7 @@ from . import app_runtime as rt
 from .app_runtime import ResponseTimeout, _ensure_provider_warmup_ready_sync, _run_bounded_read, _safe_exception_text  # noqa: F401
 from .api_models import SearchRequest, MemoryAdvancedSearchRequest, ContextCompileRequest, AgentContextRequest, ContextTierPromotionRollbackRequest, RetrievalExplainRequest, UtilityFeedbackEventRequest, UnifiedContextCompileRequest, SearchByRefRequest, SearchByUpsertKeyRequest, HybridSearchRequest
 from .config import settings
-from .caller_auth import authorize_projects  # noqa: F401
+from .memory_search_multiproject import authorize_search_projects, resolve_retrieval_projects
 from .mem0_adapter import global_collection_name
 from .mem0_adapter import local_collection_name
 from .context_compiler import MAX_CONTEXT_ITEM_CHARS
@@ -423,6 +423,10 @@ async def bhm_search_advanced(request: MemoryAdvancedSearchRequest) -> dict:
         raise
 
 
+def _resolve_search_projects(requested: list[str] | None) -> list[str]:
+    return resolve_retrieval_projects(requested, rt._memory_service)
+
+
 async def bhm_search(request: MemoryAdvancedSearchRequest) -> dict:
     service = MemorySearchService(
         MemorySearchDependencies(
@@ -436,6 +440,8 @@ async def bhm_search(request: MemoryAdvancedSearchRequest) -> dict:
             fallback_grace_memories_response=_fallback_grace_memories_response,
             local_collection_name=local_collection_name,
             global_collection_name=global_collection_name,
+            resolve_projects=_resolve_search_projects,
+            authorize_projects=authorize_search_projects,
         )
     )
     return await service.execute(request)

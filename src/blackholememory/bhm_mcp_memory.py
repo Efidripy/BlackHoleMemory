@@ -147,6 +147,7 @@ def bhm_search(
     include_temporal_unknown: bool = False,
     concepts_csv: str | None = None,
     files_csv: str | None = None,
+    projects_csv: str | None = None,
     limit: int = 10,
     offset: int = 0,
     domain: str | None = None,
@@ -192,6 +193,8 @@ def bhm_search(
         body["concepts"] = _parse_csv(concepts_csv) or []
     if files_csv is not None:
         body["files"] = _parse_csv(files_csv) or []
+    if projects_csv is not None:
+        body["projects"] = _parse_csv(projects_csv) or []
     if domain:
         body["domain"] = domain
     if semantic_type:
