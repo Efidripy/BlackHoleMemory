@@ -25,6 +25,10 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_types(name: str) -> tuple[str, ...]:
+    return tuple(part.strip().casefold() for part in os.getenv(name, "").split(",") if part.strip())
+
+
 @dataclass(frozen=True)
 class AnswerabilityThresholds:
     # Calibrated 2026-10-29 on the golden questions: query-term coverage in the
@@ -39,6 +43,7 @@ class AnswerabilityThresholds:
     semantic_rescue_score: float = 0.0
     semantic_rescue_rank: float = 0.0
     semantic_rescue_overlap: float = 0.05
+    semantic_rescue_memory_types: tuple[str, ...] = ()
 
     @classmethod
     def from_env(cls) -> "AnswerabilityThresholds":
@@ -50,6 +55,7 @@ class AnswerabilityThresholds:
             semantic_rescue_score=_env_float("BHM_ANSWERABILITY_SEMANTIC_RESCUE_SCORE", cls.semantic_rescue_score),
             semantic_rescue_rank=_env_float("BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK", cls.semantic_rescue_rank),
             semantic_rescue_overlap=_env_float("BHM_ANSWERABILITY_SEMANTIC_RESCUE_OVERLAP", cls.semantic_rescue_overlap),
+            semantic_rescue_memory_types=_env_types("BHM_ANSWERABILITY_SEMANTIC_RESCUE_MEMORY_TYPES"),
         )
 
 
@@ -79,6 +85,11 @@ def _channel_set(item: Mapping[str, Any]) -> set[str]:
     metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
     channels = item.get("fusion_channels", metadata.get("fusion_channels")) or []
     return {str(channel).casefold() for channel in channels}
+
+
+def _memory_type(item: Mapping[str, Any]) -> str:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+    return str(item.get("memory_type", metadata.get("memory_type")) or "").casefold()
 
 
 def assess_answerability(
@@ -122,6 +133,7 @@ def assess_answerability(
                 and score >= configured.semantic_rescue_score
                 and semantic_rank is not None
                 and semantic_rank <= configured.semantic_rescue_rank
+                and (not configured.semantic_rescue_memory_types or _memory_type(item) in configured.semantic_rescue_memory_types)
             ):
                 rescue_rank = semantic_rank
                 rescue_score = score

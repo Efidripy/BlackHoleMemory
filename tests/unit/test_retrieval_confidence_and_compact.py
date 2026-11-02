@@ -134,3 +134,14 @@ def test_semantic_rescue_keeps_unranked_no_answer_as_none(monkeypatch):
     monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_SCORE", "0.75")
     monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK", "3")
     assert assess_answerability(query, [hit])["status"] == "none"
+
+
+def test_semantic_rescue_memory_type_gate_is_opt_in(monkeypatch):
+    hit = _hit(0.81, "Плановое обновления", channels=["semantic"])
+    hit["metadata"].update({"semantic_score": 0.81, "semantic_rank": 1, "memory_type": "reference"})
+    query = "как подтянуть свежие обновления пакетов"
+    monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_SCORE", "0.75")
+    monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK", "3")
+    assert assess_answerability(query, [hit])["status"] == "weak"
+    monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_MEMORY_TYPES", "fact,pattern")
+    assert assess_answerability(query, [hit])["status"] == "none"
