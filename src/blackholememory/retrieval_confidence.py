@@ -44,6 +44,8 @@ class AnswerabilityThresholds:
     semantic_rescue_rank: float = 0.0
     semantic_rescue_overlap: float = 0.05
     semantic_rescue_memory_types: tuple[str, ...] = ()
+    # Optional rescue by the LLM rerank grade (0-10) of the best of the top hits; disabled at 0.
+    rerank_rescue_score: float = 0.0
 
     @classmethod
     def from_env(cls) -> "AnswerabilityThresholds":
@@ -56,6 +58,7 @@ class AnswerabilityThresholds:
             semantic_rescue_rank=_env_float("BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK", cls.semantic_rescue_rank),
             semantic_rescue_overlap=_env_float("BHM_ANSWERABILITY_SEMANTIC_RESCUE_OVERLAP", cls.semantic_rescue_overlap),
             semantic_rescue_memory_types=_env_types("BHM_ANSWERABILITY_SEMANTIC_RESCUE_MEMORY_TYPES"),
+            rerank_rescue_score=_env_float("BHM_ANSWERABILITY_RERANK_RESCUE_SCORE", cls.rerank_rescue_score),
         )
 
 
@@ -138,7 +141,10 @@ def assess_answerability(
                 rescue_rank = semantic_rank
                 rescue_score = score
                 break
+    rerank_scores = [value for value in (_number(item, "llm_rerank_score") for item in memories[:3]) if value is not None]
+    top_rerank = max(rerank_scores) if rerank_scores else None
     signals = {
+        "top_rerank_score": top_rerank,
         "top_score": round(top_score, 4),
         "score_gap": round(score_gap, 4),
         "lexical_overlap": round(lexical_overlap, 4),
@@ -147,6 +153,8 @@ def assess_answerability(
         "semantic_rescue_rank": int(rescue_rank) if rescue_rank is not None and rescue_rank.is_integer() else (round(rescue_rank, 4) if rescue_rank is not None else None),
         "semantic_rescue_score": round(rescue_score, 4) if rescue_score is not None else None,
     }
+    if configured.rerank_rescue_score > 0 and top_rerank is not None and top_rerank >= configured.rerank_rescue_score:
+        return {"status": "weak", "reason": "rerank_graded_match", "signals": signals}
     if rescue_score is not None:
         return {"status": "weak", "reason": "semantic_ranked_match", "signals": signals}
     if lexical_overlap <= configured.none_overlap and top_score < configured.none_score_ceiling:
