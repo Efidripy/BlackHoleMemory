@@ -44,6 +44,7 @@ from .temporal_contract import temporal_intent_requested
 from . import app_core_memory_base as app_core
 from . import app_core_graph
 from . import app_core_hit
+from .retrieval_rank_tuning import search_include_checkpoints_enabled
 
 from . import llm_rerank
 
@@ -733,7 +734,13 @@ async def federated_search(
     # SQLite-authoritative and therefore cannot silently lose rare classes.
     candidate_count = max(
         page_limit + page_offset,
-        _search_candidate_pool() if (pushdown_ready or not typed_filter_requested) and not temporal_filter_requested else 200,
+        (
+            max(_search_candidate_pool(), 50)
+            if search_include_checkpoints_enabled()
+            else _search_candidate_pool()
+        )
+        if (pushdown_ready or not typed_filter_requested) and not temporal_filter_requested
+        else 200,
     )
     candidate_filters = build_candidate_filters(
         user_id=settings.mem0_user_id,
@@ -754,8 +761,10 @@ async def federated_search(
         priority=priority,
         include_archived=include_archived,
         include_logs=include_logs,
-        include_historical=include_historical,
+        include_historical=include_historical or search_include_checkpoints_enabled(),
     )
+    if search_include_checkpoints_enabled() and not include_historical:
+        candidate_filters.setdefault("NOT", []).append({"artifact_kind": "session-record"})
     exact_task: asyncio.Task[_TimedRetrievalContour] | None = None
     if query.strip() and exact_identifier_enabled() and exact_identifier_tokens(query, query=True):
         exact_task = asyncio.create_task(

@@ -33,6 +33,9 @@ from .retrieval_rank_tuning import (
     state_freshness_enabled,
     title_boost_enabled,
     title_lexical_bonus,
+    checkpoint_rank_multiplier,
+    is_search_checkpoint,
+    search_include_checkpoints_enabled,
     type_prior_bonus,
     type_prior_enabled,
 )
@@ -205,6 +208,7 @@ def _memory_matches_filters(
         not include_historical
         and requested_event_role != MemoryEventRole.TRACE.value
         and app_core._effective_event_role(record) == MemoryEventRole.TRACE.value
+        and not (search_include_checkpoints_enabled() and is_search_checkpoint(record))
     ):
         return False
     if concepts and not set(concepts).issubset(record_concepts):
@@ -447,6 +451,12 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
     else:
         freshness_bonuses = {}
 
+    checkpoint_multipliers = {
+        key: checkpoint_rank_multiplier(hit) for _, key, hit in indexed_hits
+    }
+    for key, multiplier in checkpoint_multipliers.items():
+        fused_scores[key] *= multiplier
+
     ranked = sorted(
         indexed_hits,
         key=lambda entry: (
@@ -489,6 +499,8 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
             metadata["howto_type_bonus"] = howto_bonuses.get(key, 0.0)
         if state_freshness_active:
             metadata["state_freshness_bonus"] = freshness_bonuses.get(key, 0.0)
+        if checkpoint_multipliers[key] != 1.0:
+            metadata["checkpoint_rank_multiplier"] = checkpoint_multipliers[key]
         hit["metadata"] = metadata
         diversified.append(hit)
 
@@ -838,6 +850,7 @@ def _vector_hit_matches_filters(
         not include_historical
         and requested_event_role != MemoryEventRole.TRACE.value
         and app_core._effective_event_role(hit) == MemoryEventRole.TRACE.value
+        and not (search_include_checkpoints_enabled() and is_search_checkpoint(hit))
     ):
         return False
     if concepts and not set(concepts).issubset(set(metadata.get("tags") or [])):
