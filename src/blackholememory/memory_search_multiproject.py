@@ -233,7 +233,7 @@ async def execute_multiproject_search(
             project,
             **federated_kwargs,
         )
-        hits = result[0] if isinstance(result, tuple) else result
+        hits, _total = result
         return [dependencies.serialize_vector_hit(item) for item in hits]
 
     resolve_projects = dependencies.resolve_projects or (

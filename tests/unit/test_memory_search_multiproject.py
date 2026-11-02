@@ -338,3 +338,29 @@ def test_mcp_wrapper_projects_csv():
 
         bhm_search("query text", projects_csv=None)
         assert "projects" not in posts[-1][1]
+
+
+def test_service_wiring_multiproject_accepts_federated_outcome_dataclass():
+    from blackholememory.app_core_fallback import FederatedSearchOutcome
+
+    async def mock_federated_search(query, project, **kwargs):
+        return FederatedSearchOutcome(hits=[{"id": f"{project}-1", "score": 0.85}], total=1, contour_trace={})
+
+    deps = MemorySearchDependencies(
+        ensure_provider_warmup_ready=MagicMock(return_value=asyncio.sleep(0)),
+        effective_search_project=lambda p: p or "default-p",
+        federated_search=mock_federated_search,
+        advanced_search=MagicMock(),
+        serialize_vector_hit=lambda hit: hit,
+        emit_memory_pulses=MagicMock(),
+        is_fallback_grace_error=lambda exc: False,
+        fallback_grace_memories_response=MagicMock(),
+        local_collection_name=lambda p: f"local-{p}",
+        global_collection_name=lambda: "global-coll",
+        resolve_projects=lambda projs: projs,
+        authorize_projects=lambda projs: None,
+    )
+    request = MemoryAdvancedSearchRequest(query="q", projects=["demo-a", "demo-b"], limit=5)
+    response = asyncio.run(MemorySearchService(deps).execute(request))
+    assert response["cross_project"]["projects_with_hits"] == 2
+    assert not response["cross_project"]["skipped"]
