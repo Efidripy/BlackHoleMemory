@@ -126,3 +126,20 @@ def test_federated_result_and_fallback_preserve_response_policy():
     assert fallback["fallback_grace"]["route"] == "bhm.search.federated"
     assert fallback["retrieval"]["mode"] == "federated-fallback-grace"
     assert fallback["side_effects"]["projection_mutation"] is False
+
+
+def test_federated_search_global_contour_follows_environment(monkeypatch):
+    calls = []
+
+    async def federated(query, project, **kwargs):
+        calls.append(kwargs)
+        return ([{"id": "m1"}], 1)
+
+    monkeypatch.setenv("BHM_SEARCH_INCLUDE_GLOBAL", "no")
+    result = asyncio.run(_service(federated_search=federated).execute(_request()))
+    assert result["memories"] == [{"id": "m1"}]
+    assert calls[-1]["include_global"] is False
+
+    monkeypatch.delenv("BHM_SEARCH_INCLUDE_GLOBAL", raising=False)
+    asyncio.run(_service(federated_search=federated).execute(_request()))
+    assert calls[-1]["include_global"] is True

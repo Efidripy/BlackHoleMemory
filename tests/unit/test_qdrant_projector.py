@@ -123,6 +123,19 @@ def test_projector_is_idempotent_and_payload_is_filterable(tmp_path):
     assert repository.list_outbox(status=OutboxStatus.COMPLETED)[0].event_id == first.outcomes[0].event_id
 
 
+def test_projector_global_target_follows_search_switch(tmp_path, monkeypatch):
+    repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
+    memory = _memory()
+    repository.save_memory(memory)
+    client = _FakeQdrant()
+    monkeypatch.setenv("BHM_SEARCH_INCLUDE_GLOBAL", "false")
+
+    result = _projector(client).run_once(repository)
+
+    assert result.completed == 1
+    assert set(name for name, _point_id in client.points) == {local_collection_name(memory.project)}
+
+
 def test_equivalent_replay_acks_without_reembedding(tmp_path):
     repository = SQLiteMemoryRepository(tmp_path / "memory.sqlite3")
     memory = _memory()

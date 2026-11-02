@@ -17,8 +17,7 @@ from .retrieval_scope import resolve_history_scope
 from .retrieval_confidence import assess_answerability
 from .memory_search_compact import apply_abstain, finalize_search_response
 from .memory_search_multiproject import execute_multiproject_search
-
-
+from .retrieval_rank_tuning import search_include_global_enabled
 def read_only_side_effects() -> dict[str, Any]:
     """Describe the storage contract for retrieval-only responses.
 
@@ -124,7 +123,7 @@ class MemorySearchService:
                 "priority": request.priority,
                 "include_archived": request.include_archived,
                 "include_logs": request.include_logs,
-                "include_historical": history.include_historical,
+                "include_historical": history.include_historical, "include_global": search_include_global_enabled(),
             }
             if history.freshness_days is not None:
                 federated_kwargs["freshness_days"] = history.freshness_days
@@ -140,7 +139,7 @@ class MemorySearchService:
                 total_candidates=total,
                 returned_hits=hits,
                 duration_ms=(time.perf_counter() - started) * 1000.0,
-                include_global=True,
+                include_global=search_include_global_enabled(),
                 include_graph_expansion=True,
                 typed_filter_requested=(
                     getattr(request, "memory_class", None) is not None

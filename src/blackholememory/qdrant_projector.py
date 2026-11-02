@@ -12,12 +12,12 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-
 from .config import settings
 from .domain import Lifecycle
 from .domain import Memory
 from .mem0_adapter import global_collection_name
 from .mem0_adapter import local_collection_name
+from .retrieval_rank_tuning import search_include_global_enabled
 from .mem0_adapter import qdrant_models
 from .outbox import OutboxEvent
 from .vector_routing import route_vector_targets
@@ -426,7 +426,7 @@ class QdrantProjector:
     def collection_names(memory: Memory) -> tuple[str, ...]:
         targets = _vector_targets(memory)
         names = [local_collection_name(memory.project)]
-        if "global" in targets:
+        if "global" in targets and search_include_global_enabled():
             names.append(global_collection_name())
         return tuple(names)
 
@@ -455,7 +455,7 @@ class QdrantProjector:
                 raise ProjectorError(f"projection route unavailable: {route.reason}")
             local_name = route.collection_name
         names = [local_name]
-        if "global" in targets:
+        if "global" in targets and search_include_global_enabled():
             names.append(global_collection_name())
         return tuple(names)
 

@@ -26,7 +26,19 @@ from blackholememory.retrieval_rank_tuning import (
     title_boost_enabled,
     title_boost_weight,
     title_lexical_bonus,
+    search_include_global_enabled,
 )
+
+
+def test_search_include_global_env_defaults_on_and_accepts_disable_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BHM_SEARCH_INCLUDE_GLOBAL", raising=False)
+    assert search_include_global_enabled() is True
+    for value in ("0", "false", "no", " OFF "):
+        monkeypatch.setenv("BHM_SEARCH_INCLUDE_GLOBAL", value)
+        assert search_include_global_enabled() is False
+    for value in ("1", "true", "yes", "on", "unexpected"):
+        monkeypatch.setenv("BHM_SEARCH_INCLUDE_GLOBAL", value)
+        assert search_include_global_enabled() is True
 
 
 def test_search_semantic_threshold_env(monkeypatch: pytest.MonkeyPatch) -> None:

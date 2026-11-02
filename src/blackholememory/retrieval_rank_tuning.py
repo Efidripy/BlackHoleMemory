@@ -31,6 +31,15 @@ _ENABLED_TRUTHY_VALUES = frozenset({"1", "true", "on"})
 _DISABLED_VALUES = frozenset({"0", "false", "off", "no"})
 
 
+def search_include_global_enabled() -> bool:
+    """Return whether the global vector contour is enabled for search/write paths."""
+
+    raw = os.environ.get("BHM_SEARCH_INCLUDE_GLOBAL")
+    if raw is None:
+        return True
+    return raw.strip().casefold() not in _DISABLED_VALUES
+
+
 def search_semantic_threshold() -> float | None:
     raw = os.environ.get("BHM_SEARCH_SEMANTIC_THRESHOLD")
     if raw is None or not raw.strip():
