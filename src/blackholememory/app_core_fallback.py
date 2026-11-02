@@ -45,9 +45,9 @@ from . import app_core_memory_base as app_core
 from . import app_core_graph
 from . import app_core_hit
 
+from . import llm_rerank
 
 _LOGGER = logging.getLogger(__name__)
-
 
 def _search_candidate_pool() -> int:
     value = _env_int("BHM_SEARCH_CANDIDATE_POOL", 20)
@@ -899,7 +899,7 @@ async def federated_search(
     ]
     if include_graph_expansion:
         filtered = await app_core_hit._augment_hits_with_graph_expansion(filtered, project_name, now)
-    ranked_hits = app_core_hit._rank_hybrid_vector_hits(query, filtered)
+    ranked_hits = await llm_rerank.rerank_hits(query, app_core_hit._rank_hybrid_vector_hits(query, filtered))
     total = len(ranked_hits)
     trace_contours = [*results]
     if exact_contour is not None:
