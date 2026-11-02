@@ -93,7 +93,7 @@ async def multiproject_search(
     resolve_projects: Callable[[list[str] | None], Iterable[str] | Awaitable[Iterable[str]]],
     search_one: Callable[[str], Iterable[dict[str, Any]] | Awaitable[Iterable[dict[str, Any]]]],
     authorize: Callable[[Iterable[str]], str | None] | None = None,
-    deadline_s: float = 3.0,
+    deadline_s: float = 8.0,
     concurrency: int = 2,  # retrieval provider has only 4 non-blocking slots; more fan-out fails with capacity errors
     per_project_limit: int = 5,
 ) -> dict[str, Any]:
