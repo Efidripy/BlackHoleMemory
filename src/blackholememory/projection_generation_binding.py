@@ -536,9 +536,11 @@ def resolve_projection_route(
         return ProjectionCollectionRoute(None, "binding_authority_unavailable", False)
     if snapshot.legacy_schema:
         return ProjectionCollectionRoute(legacy_collection, "binding_schema_legacy", True)
-    candidate = next((item for item in snapshot.active if item.project == project), None)
+    # Search normalizes project names ("_" -> "-"), bindings keep the stored spelling.
+    same = lambda name: name == project or name.replace("_", "-") == project.replace("_", "-")  # noqa: E731
+    candidate = next((item for item in snapshot.active if same(item.project)), None)
     if candidate is None:
-        if project in snapshot.historical_projects:
+        if any(same(name) for name in snapshot.historical_projects):
             return ProjectionCollectionRoute(None, "binding_retired_unavailable", False)
         return ProjectionCollectionRoute(legacy_collection, "binding_unavailable", True)
     group = tuple(item for item in snapshot.active if item.generation_id == candidate.generation_id)
