@@ -130,33 +130,36 @@ async def multiproject_search(
     semaphore = asyncio.Semaphore(max(int(concurrency), 1))
     deadline = time.monotonic() + max(float(deadline_s), 0.0)
 
-    async def run_one(project: str) -> tuple[str, list[dict[str, Any]] | None, str | None]:
+    async def run_one(project: str) -> tuple[str, list[dict[str, Any]] | None, str | None, int, float]:
+        started = time.perf_counter()
+        attempts = 0
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                return project, None, "timeout"
+                return project, None, "timeout", attempts, (time.perf_counter() - started) * 1000.0
             try:
                 async with semaphore:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        return project, None, "timeout"
+                        return project, None, "timeout", attempts, (time.perf_counter() - started) * 1000.0
+                    attempts += 1
                     result = await asyncio.wait_for(search_one(project), timeout=remaining)
                 records = list(result or [])[: max(int(per_project_limit), 0)]
-                return project, records, None
+                return project, records, None, attempts, (time.perf_counter() - started) * 1000.0
             except asyncio.TimeoutError:
-                return project, None, "timeout"
+                return project, None, "timeout", attempts, (time.perf_counter() - started) * 1000.0
             except Exception as exc:  # broad: one failing project must not fail the whole fan-out
                 if type(exc).__name__ == "RetrievalProviderCapacityExceeded":
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
-                        return project, None, "timeout"
+                        return project, None, "timeout", attempts, (time.perf_counter() - started) * 1000.0
                     await asyncio.sleep(min(0.1, remaining))
                     continue
                 _LOGGER.warning("multiproject search failed for %s (%s: %s)", project, type(exc).__name__, str(exc)[:160])
-                return project, None, "error"
+                return project, None, "error", attempts, (time.perf_counter() - started) * 1000.0
 
     tasks = [asyncio.create_task(run_one(project)) for project in projects]
-    results: list[tuple[str, list[dict[str, Any]] | None, str | None]] = []
+    results: list[tuple[str, list[dict[str, Any]] | None, str | None, int, float]] = []
     if tasks:
         remaining = max(deadline - time.monotonic(), 0.0)
         try:
@@ -171,14 +174,20 @@ async def multiproject_search(
                 for task in tasks
                 if task.done() and not task.cancelled() and task.exception() is None
             ]
-            completed = {project for project, _records, _reason in results}
-            results.extend((project, None, "timeout") for project in projects if project not in completed)
+            completed = {project for project, _records, _reason, _attempts, _elapsed_ms in results}
+            results.extend((project, None, "timeout", 0, 0.0) for project in projects if project not in completed)
 
     memories: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
     per_project_top: dict[str, float] = {}
+    project_diagnostics: dict[str, dict[str, Any]] = {}
     projects_with_hits = 0
-    for project, records, reason in results:
+    for project, records, reason, attempts, elapsed_ms in results:
+        project_diagnostics[project] = {
+            "attempts": attempts,
+            "elapsed_ms": round(elapsed_ms, 1),
+            "status": reason or ("hits" if records else "empty"),
+        }
         if reason is not None or records is None:
             skipped.append({"project": project, "reason": reason or "error"})
             continue
@@ -200,6 +209,7 @@ async def multiproject_search(
             "projects_with_hits": projects_with_hits,
             "skipped": skipped,
             "per_project_top": per_project_top,
+            "project_diagnostics": project_diagnostics,
         },
     }
 
@@ -252,7 +262,7 @@ async def execute_multiproject_search(
         resolve_projects=resolve_projects,
         search_one=search_one,
         authorize=dependencies.authorize_projects,
-        concurrency=3,
+        concurrency=2,
         per_project_limit=5,
     )
     response["query"] = request.query

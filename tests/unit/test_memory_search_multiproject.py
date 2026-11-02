@@ -223,6 +223,8 @@ def test_capacity_exceeded_retries_before_returning_project_hits():
     assert attempts == 3
     assert result["memories"][0]["project"] == "busy"
     assert result["cross_project"]["skipped"] == []
+    assert result["cross_project"]["project_diagnostics"]["busy"]["attempts"] == 3
+    assert result["cross_project"]["project_diagnostics"]["busy"]["status"] == "hits"
 
 
 def test_capacity_exceeded_is_timeout_when_deadline_expires():
