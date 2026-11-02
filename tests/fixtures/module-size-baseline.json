@@ -222,7 +222,7 @@
   "src/blackholememory/app_core.py": 574,
   "src/blackholememory/app_core_fallback.py": 917,
   "src/blackholememory/app_core_graph.py": 106,
-  "src/blackholememory/app_core_hit.py": 841,
+  "src/blackholememory/app_core_hit.py": 872,
   "src/blackholememory/app_core_hook.py": 814,
   "src/blackholememory/app_core_memory_base.py": 350,
   "src/blackholememory/app_core_memory_projection.py": 73,
