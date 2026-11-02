@@ -94,7 +94,7 @@ async def multiproject_search(
     search_one: Callable[[str], Iterable[dict[str, Any]] | Awaitable[Iterable[dict[str, Any]]]],
     authorize: Callable[[Iterable[str]], str | None] | None = None,
     deadline_s: float = 8.0,
-    concurrency: int = 2,  # retrieval provider has only 4 non-blocking slots; more fan-out fails with capacity errors
+    concurrency: int = 2,  # retrieval provider has only 4 non-blocking slots; execute path uses all four
     per_project_limit: int = 5,
 ) -> dict[str, Any]:
     """Search requested projects with bounded concurrency and a hard deadline."""
@@ -206,7 +206,7 @@ async def execute_multiproject_search(
 
     async def search_one(project: str) -> list[dict[str, Any]]:
         federated_kwargs: dict[str, Any] = {
-            "limit": max(int(getattr(request, "limit", 10)), 1),
+            "limit": min(max(int(getattr(request, "limit", 10)), 1), 5),
             "offset": 0,
             "memory_type": getattr(request, "memory_type", None),
             "memory_class": getattr(request, "memory_class", None),
@@ -224,6 +224,7 @@ async def execute_multiproject_search(
             "include_logs": getattr(request, "include_logs", False),
             "include_historical": getattr(history, "include_historical", False),
             "include_global": False,
+            "include_graph_expansion": False,
         }
         if getattr(history, "freshness_days", None) is not None:
             federated_kwargs["freshness_days"] = history.freshness_days
@@ -244,6 +245,8 @@ async def execute_multiproject_search(
         resolve_projects=resolve_projects,
         search_one=search_one,
         authorize=dependencies.authorize_projects,
+        concurrency=4,
+        per_project_limit=5,
     )
     response["query"] = request.query
     response["limit"] = max(min(getattr(request, "limit", 10), 200), 1)

@@ -280,6 +280,8 @@ def test_service_wiring_single_project_without_projects():
     assert query == "search something"
     assert project == "demo-a"
     assert kwargs.get("include_global") is not False
+    assert "include_graph_expansion" not in kwargs
+    assert "candidate_pool" not in kwargs
     assert response["retrieval"]["mode"] == "federated"
 
 
@@ -315,6 +317,8 @@ def test_service_wiring_multiproject():
     assert len(federated_calls) == 2
     for _q, _p, kwargs in federated_calls:
         assert kwargs.get("include_global") is False
+        assert kwargs["include_graph_expansion"] is False
+        assert kwargs["limit"] == 5
     assert response["retrieval"]["mode"] == "multiproject"
     assert response["retrieval"]["include_global"] is False
     assert "cross_project" in response
