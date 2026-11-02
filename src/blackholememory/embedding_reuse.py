@@ -22,7 +22,6 @@ class _PrecomputedEmbeddingModel:
 
 def embed_query_once(memory: Any, query: str) -> Any:
     """Compute the provider embedding exactly once for a federated query."""
-
     return memory.embedding_model.embed(query, "search")
 
 
@@ -33,6 +32,7 @@ def search_with_precomputed_embedding(
     *,
     top_k: int,
     filters: dict[str, Any],
+    **search_kwargs: Any,
 ) -> Any:
     """Call Mem0's normal search path while injecting one already-made vector.
 
@@ -47,4 +47,4 @@ def search_with_precomputed_embedding(
         query,
         embedding,
     )
-    return isolated_memory.search(query, top_k=top_k, filters=filters)
+    return isolated_memory.search(query, top_k=top_k, filters=filters, **search_kwargs)

@@ -298,7 +298,7 @@ def _cached_query_embedding(memory: Any, query: str) -> Any:
     model_key = f"{settings.mem0_embedding_model}:{settings.mem0_embedding_dims}"
     vector, _cache_hit = embed_query_with_cache(
         memory.embedding_model,
-        query,
+        f"{os.environ.get('BHM_QUERY_EMBED_PREFIX', '')}{query}",
         model_key=model_key,
         cache=_QUERY_EMBEDDING_CACHE,
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from blackholememory import app_core_fallback
 from blackholememory.embedding_cache import (
     EmbeddingCache,
     embed_queries_with_cache,
@@ -19,7 +20,7 @@ def test_embedding_cache_is_bounded_lru_and_ttl_aware():
     assert cache.get("a") is None
 
 
-def test_embedding_cache_reuses_query_without_provider_call():
+def test_embedding_cache_reuses_query_without_provider_call(monkeypatch):
     class Embedder:
         calls = 0
 
@@ -32,6 +33,27 @@ def test_embedding_cache_reuses_query_without_provider_call():
     assert embed_query_with_cache(embedder, "same", model_key="m1", cache=cache) == ([4.0], False)
     assert embed_query_with_cache(embedder, "same", model_key="m1", cache=cache) == ([4.0], True)
     assert embedder.calls == 1
+
+
+def test_query_prefix_changes_provider_text_and_cache_key(monkeypatch):
+    class Embedder:
+        def __init__(self):
+            self.queries = []
+
+        def embed(self, query, _action):
+            self.queries.append(query)
+            return [float(len(query))]
+
+    embedder = Embedder()
+    cache = EmbeddingCache()
+    memory = type("Memory", (), {"embedding_model": embedder})()
+    monkeypatch.setattr(app_core_fallback, "_QUERY_EMBEDDING_CACHE", cache)
+    monkeypatch.delenv("BHM_QUERY_EMBED_PREFIX", raising=False)
+    app_core_fallback._cached_query_embedding(memory, "same")
+    monkeypatch.setenv("BHM_QUERY_EMBED_PREFIX", "search_query: ")
+    app_core_fallback._cached_query_embedding(memory, "same")
+
+    assert embedder.queries == ["same", "search_query: same"]
 
 
 def test_embedding_batch_deduplicates_and_uses_provider_batch_method():

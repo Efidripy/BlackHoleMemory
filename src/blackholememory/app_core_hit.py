@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
@@ -47,16 +48,11 @@ from . import app_core_fallback
 from . import app_core_graph
 
 MemoryClass = _memory_contracts.MemoryClass
-
 MemoryEventRole = _memory_contracts.MemoryEventRole
-
 _VECTOR_CONTEXT_LOCAL = "LOCAL"
-
 _VECTOR_CONTEXT_GLOBAL = "GLOBAL"
 
-
 _GRAPH_FUSION_WEIGHT = 0.04
-
 
 _MMR_LAMBDA = min(_env_float("BHM_MMR_LAMBDA", 0.94, 0.0), 1.0)
 
@@ -708,7 +704,10 @@ def _search_memory_collection(
     filters = candidate_filters or {"user_id": settings.mem0_user_id}
     threshold = search_semantic_threshold()
     search_kwargs = memory_search_kwargs(memory, top_k=max(limit, 1), filters=filters)
-    if query_embedding is None or (threshold is not None and "threshold" in search_kwargs):
+    prefix_enabled = bool(os.environ.get("BHM_QUERY_EMBED_PREFIX", ""))
+    if query_embedding is None and prefix_enabled:
+        query_embedding = app_core_fallback._cached_query_embedding(memory, query)
+    if query_embedding is None or (threshold is not None and "threshold" in search_kwargs and not prefix_enabled):
         result = memory.search(query, **search_kwargs)
     else:
         result = search_with_precomputed_embedding(
@@ -717,6 +716,7 @@ def _search_memory_collection(
             query_embedding,
             top_k=max(limit, 1),
             filters=filters,
+            **{key: value for key, value in search_kwargs.items() if key not in {"top_k", "filters"}},
         )
     if isinstance(result, dict):
         raw_hits = result.get("results") or []
