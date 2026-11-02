@@ -29,7 +29,7 @@ import os  # noqa: F401
 import subprocess  # noqa: F401
 import threading  # noqa: F401
 from datetime import timezone  # noqa: F401
-from . import app_lifecycle
+from . import app_lifecycle, project_warmup
 from .resource_limits import BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS  # noqa: F401
 from .resource_limits import BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS  # noqa: F401
 from .governed_consolidation import GovernedConsolidationRepository  # noqa: F401
@@ -558,7 +558,7 @@ async def _app_lifespan(_app: FastAPI):
     telemetry_task: asyncio.Task[None] | None = None
     sqlite_retention_task: asyncio.Task[None] | None = None
     try:
-        warmup_task = asyncio.create_task(rt.warmup_provider_probe())
+        warmup_task = project_warmup.start_warmup()
         if app_lifecycle._boot_report_is_pending():
             boot_report_task = asyncio.create_task(app_lifecycle._finalize_pending_boot_report(warmup_task))
         telemetry_task = asyncio.create_task(app_lifecycle._telemetry_harvester_loop())
@@ -606,7 +606,7 @@ async def _app_lifespan(_app: FastAPI):
             await app_lifecycle._cancel_lifespan_task(boot_report_task, name="boot_report")
             await app_lifecycle._cancel_lifespan_task(telemetry_task, name="telemetry")
             await app_lifecycle._cancel_lifespan_task(sqlite_retention_task, name="sqlite_retention")
-            await app_lifecycle._cancel_lifespan_task(warmup_task, name="provider_warmup")
+            await project_warmup.cancel_warmup(warmup_task)
             await app_lifecycle._cleanup_registered_infra_processes(reason="api_shutdown")
             _shutdown_graph_parse_executor()
 
