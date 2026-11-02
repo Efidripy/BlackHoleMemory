@@ -198,6 +198,57 @@ def test_skip_failed_and_timed_out_projects_respecting_deadline():
     assert skipped_map["slow"] == "timeout"
 
 
+def test_capacity_exceeded_retries_before_returning_project_hits():
+    from blackholememory.app_core_fallback import RetrievalProviderCapacityExceeded
+
+    attempts = 0
+
+    async def search_one(project):
+        nonlocal attempts
+        attempts += 1
+        if attempts <= 2:
+            raise RetrievalProviderCapacityExceeded("provider busy")
+        return [{"id": f"{project}-1", "score": 0.8}]
+
+    result = asyncio.run(
+        multiproject_search(
+            make_request(["busy"]),
+            resolve_projects=lambda value: value,
+            search_one=search_one,
+            authorize=None,
+            deadline_s=0.5,
+        )
+    )
+
+    assert attempts == 3
+    assert result["memories"][0]["project"] == "busy"
+    assert result["cross_project"]["skipped"] == []
+
+
+def test_capacity_exceeded_is_timeout_when_deadline_expires():
+    from blackholememory.app_core_fallback import RetrievalProviderCapacityExceeded
+
+    attempts = 0
+
+    async def search_one(_project):
+        nonlocal attempts
+        attempts += 1
+        raise RetrievalProviderCapacityExceeded("provider busy")
+
+    result = asyncio.run(
+        multiproject_search(
+            make_request(["busy"]),
+            resolve_projects=lambda value: value,
+            search_one=search_one,
+            authorize=None,
+            deadline_s=0.03,
+        )
+    )
+
+    assert attempts >= 1
+    assert result["cross_project"]["skipped"] == [{"project": "busy", "reason": "timeout"}]
+
+
 def test_project_labels_and_cross_project_block():
     async def search_one(project):
         if project == "empty":

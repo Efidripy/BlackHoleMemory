@@ -94,7 +94,7 @@ async def multiproject_search(
     search_one: Callable[[str], Iterable[dict[str, Any]] | Awaitable[Iterable[dict[str, Any]]]],
     authorize: Callable[[Iterable[str]], str | None] | None = None,
     deadline_s: float = 8.0,
-    concurrency: int = 2,  # retrieval provider has only 4 non-blocking slots; execute path uses all four
+    concurrency: int = 2,
     per_project_limit: int = 5,
 ) -> dict[str, Any]:
     """Search requested projects with bounded concurrency and a hard deadline."""
@@ -131,22 +131,29 @@ async def multiproject_search(
     deadline = time.monotonic() + max(float(deadline_s), 0.0)
 
     async def run_one(project: str) -> tuple[str, list[dict[str, Any]] | None, str | None]:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return project, None, "timeout"
-        try:
-            async with semaphore:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return project, None, "timeout"
-                result = await asyncio.wait_for(search_one(project), timeout=remaining)
-            records = list(result or [])[: max(int(per_project_limit), 0)]
-            return project, records, None
-        except asyncio.TimeoutError:
-            return project, None, "timeout"
-        except Exception as exc:  # broad: one failing project must not fail the whole fan-out
-            _LOGGER.warning("multiproject search failed for %s (%s: %s)", project, type(exc).__name__, str(exc)[:160])
-            return project, None, "error"
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return project, None, "timeout"
+            try:
+                async with semaphore:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return project, None, "timeout"
+                    result = await asyncio.wait_for(search_one(project), timeout=remaining)
+                records = list(result or [])[: max(int(per_project_limit), 0)]
+                return project, records, None
+            except asyncio.TimeoutError:
+                return project, None, "timeout"
+            except Exception as exc:  # broad: one failing project must not fail the whole fan-out
+                if type(exc).__name__ == "RetrievalProviderCapacityExceeded":
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return project, None, "timeout"
+                    await asyncio.sleep(min(0.1, remaining))
+                    continue
+                _LOGGER.warning("multiproject search failed for %s (%s: %s)", project, type(exc).__name__, str(exc)[:160])
+                return project, None, "error"
 
     tasks = [asyncio.create_task(run_one(project)) for project in projects]
     results: list[tuple[str, list[dict[str, Any]] | None, str | None]] = []
@@ -245,7 +252,7 @@ async def execute_multiproject_search(
         resolve_projects=resolve_projects,
         search_one=search_one,
         authorize=dependencies.authorize_projects,
-        concurrency=4,
+        concurrency=3,
         per_project_limit=5,
     )
     response["query"] = request.query
