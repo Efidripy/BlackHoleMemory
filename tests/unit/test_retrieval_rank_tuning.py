@@ -18,6 +18,8 @@ from blackholememory.retrieval_rank_tuning import (
     howto_type_boost_weight,
     kind_decay_enabled,
     kind_decay_lambda,
+    memory_search_kwargs,
+    search_semantic_threshold,
     state_freshness_bonus,
     state_freshness_enabled,
     state_freshness_weight,
@@ -25,6 +27,22 @@ from blackholememory.retrieval_rank_tuning import (
     title_boost_weight,
     title_lexical_bonus,
 )
+
+
+def test_search_semantic_threshold_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BHM_SEARCH_SEMANTIC_THRESHOLD", raising=False)
+    memory = type("Memory", (), {"search": lambda self, **kwargs: kwargs})()
+    assert search_semantic_threshold() is None
+    assert "threshold" not in memory_search_kwargs(memory, top_k=5, filters={})
+
+    monkeypatch.setenv("BHM_SEARCH_SEMANTIC_THRESHOLD", "0.0")
+    assert search_semantic_threshold() == 0.0
+    assert memory_search_kwargs(memory, top_k=5, filters={})["threshold"] == 0.0
+
+    for invalid in ("", "garbage", "-0.1", "1.1", "nan", "inf"):
+        monkeypatch.setenv("BHM_SEARCH_SEMANTIC_THRESHOLD", invalid)
+        assert search_semantic_threshold() is None
+        assert "threshold" not in memory_search_kwargs(memory, top_k=5, filters={})
 
 
 def test_hit_title_extraction_precedence() -> None:

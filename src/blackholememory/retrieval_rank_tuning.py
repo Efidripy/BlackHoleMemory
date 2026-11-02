@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import inspect
 from datetime import datetime, timezone
 from typing import Any
 
@@ -28,6 +29,37 @@ KIND_DECAY_LAMBDA: dict[str, float] = {
 
 _ENABLED_TRUTHY_VALUES = frozenset({"1", "true", "on"})
 _DISABLED_VALUES = frozenset({"0", "false", "off", "no"})
+
+
+def search_semantic_threshold() -> float | None:
+    raw = os.environ.get("BHM_SEARCH_SEMANTIC_THRESHOLD")
+    if raw is None or not raw.strip():
+        return None
+    try:
+        value = float(raw.strip())
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and 0.0 <= value <= 1.0 else None
+
+
+def memory_search_kwargs(memory: Any, *, top_k: int, filters: dict[str, Any]) -> dict[str, Any]:
+    kwargs: dict[str, Any] = {"top_k": top_k, "filters": filters}
+    threshold = search_semantic_threshold()
+    if threshold is None:
+        return kwargs
+    try:
+        parameters = inspect.signature(memory.search).parameters
+    except (TypeError, ValueError):
+        return kwargs
+    threshold_parameter = parameters.get("threshold")
+    supports_threshold = threshold_parameter is not None and threshold_parameter.kind in {
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    }
+    supports_kwargs = any(parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
+    if supports_threshold or supports_kwargs:
+        kwargs["threshold"] = threshold
+    return kwargs
 
 
 def title_boost_enabled() -> bool:

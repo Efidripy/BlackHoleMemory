@@ -25,7 +25,9 @@ from .retrieval_diversity import mmr_select
 from .retrieval_rank_tuning import (
     howto_type_boost_enabled,
     howto_type_bonus,
+    memory_search_kwargs,
     memory_intent,
+    search_semantic_threshold,
     state_freshness_bonus,
     state_freshness_enabled,
     title_boost_enabled,
@@ -44,15 +46,11 @@ from . import app_core_memory_base as app_core
 from . import app_core_fallback
 from . import app_core_graph
 
-
 MemoryClass = _memory_contracts.MemoryClass
-
 
 MemoryEventRole = _memory_contracts.MemoryEventRole
 
-
 _VECTOR_CONTEXT_LOCAL = "LOCAL"
-
 
 _VECTOR_CONTEXT_GLOBAL = "GLOBAL"
 
@@ -708,8 +706,10 @@ def _search_memory_collection(
         )
 
     filters = candidate_filters or {"user_id": settings.mem0_user_id}
-    if query_embedding is None:
-        result = memory.search(query, top_k=max(limit, 1), filters=filters)
+    threshold = search_semantic_threshold()
+    search_kwargs = memory_search_kwargs(memory, top_k=max(limit, 1), filters=filters)
+    if query_embedding is None or (threshold is not None and "threshold" in search_kwargs):
+        result = memory.search(query, **search_kwargs)
     else:
         result = search_with_precomputed_embedding(
             memory,
