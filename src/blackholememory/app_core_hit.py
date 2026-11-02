@@ -22,7 +22,17 @@ from .mem0_adapter import local_collection_name
 from .mem0_adapter import memory_decay_score
 from .retrieval_fusion import weighted_rank_fusion
 from .retrieval_diversity import mmr_select
-from .retrieval_rank_tuning import memory_intent, title_boost_enabled, title_lexical_bonus, type_prior_bonus, type_prior_enabled
+from .retrieval_rank_tuning import (
+    howto_type_boost_enabled,
+    howto_type_bonus,
+    memory_intent,
+    state_freshness_bonus,
+    state_freshness_enabled,
+    title_boost_enabled,
+    title_lexical_bonus,
+    type_prior_bonus,
+    type_prior_enabled,
+)
 from .runtime_storage import resolve_runtime_storage_config
 from .projection_generation_binding import ProjectionRouteUnavailable
 from .projection_generation_binding import resolve_projection_route
@@ -426,6 +436,23 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
     else:
         type_bonuses = {}
 
+    intent = memory_intent(query)
+    howto_boost_active = howto_type_boost_enabled()
+    if howto_boost_active:
+        howto_bonuses = {key: howto_type_bonus(intent, hit) for _, key, hit in indexed_hits}
+        for key, bonus in howto_bonuses.items():
+            fused_scores[key] += bonus
+    else:
+        howto_bonuses = {}
+
+    state_freshness_active = state_freshness_enabled()
+    if state_freshness_active:
+        freshness_bonuses = {key: state_freshness_bonus(intent, hit) for _, key, hit in indexed_hits}
+        for key, bonus in freshness_bonuses.items():
+            fused_scores[key] += bonus
+    else:
+        freshness_bonuses = {}
+
     ranked = sorted(
         indexed_hits,
         key=lambda entry: (
@@ -464,6 +491,10 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
             metadata["title_bonus"] = hit_bonuses.get(key, 0.0)
         if type_prior_active:
             metadata["type_prior_bonus"] = type_bonuses.get(key, 0.0)
+        if howto_boost_active:
+            metadata["howto_type_bonus"] = howto_bonuses.get(key, 0.0)
+        if state_freshness_active:
+            metadata["state_freshness_bonus"] = freshness_bonuses.get(key, 0.0)
         hit["metadata"] = metadata
         diversified.append(hit)
 

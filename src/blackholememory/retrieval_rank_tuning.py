@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from .mem0_adapter_graph import lexical_score
@@ -106,6 +107,14 @@ TYPE_PRIOR_BY_INTENT: dict[str, set[str]] = {
     "state": {"state"},
     "reference": {"reference", "architecture"},
 }
+
+DEFAULT_HOWTO_TYPE_BOOST_WEIGHT = 0.02
+MIN_HOWTO_TYPE_BOOST_WEIGHT = 0.0
+MAX_HOWTO_TYPE_BOOST_WEIGHT = 0.2
+DEFAULT_STATE_FRESHNESS_WEIGHT = 0.05
+MIN_STATE_FRESHNESS_WEIGHT = 0.0
+MAX_STATE_FRESHNESS_WEIGHT = 0.2
+STATE_FRESHNESS_HALF_LIFE_DAYS = 30.0
 
 _RE_DECISION_OVERRIDE = re.compile(
     r"\b(?:почему\b.*?\b(?:реш\w*|выбр\w*|отказ\w*)|why\s+did\s+we|what\s+was\s+decided)\b",
@@ -251,3 +260,84 @@ def type_prior_bonus(
     if mem_type in allowed:
         return type_prior_weight() if weight is None else float(weight)
     return 0.0
+
+
+def howto_type_boost_enabled() -> bool:
+    return os.environ.get("BHM_RANK_HOWTO_TYPE_BOOST", "").strip().casefold() in _ENABLED_TRUTHY_VALUES
+
+
+def howto_type_boost_weight() -> float:
+    raw = os.environ.get("BHM_RANK_HOWTO_TYPE_BOOST_WEIGHT")
+    if raw is None or not raw.strip():
+        return DEFAULT_HOWTO_TYPE_BOOST_WEIGHT
+    try:
+        value = float(raw.strip())
+        if math.isfinite(value) and MIN_HOWTO_TYPE_BOOST_WEIGHT <= value <= MAX_HOWTO_TYPE_BOOST_WEIGHT:
+            return value
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_HOWTO_TYPE_BOOST_WEIGHT
+
+
+def howto_type_bonus(query_intent: str, hit: dict[str, Any], *, weight: float | None = None) -> float:
+    if query_intent != "howto" or hit_memory_type(hit) not in {"playbook", "runbook", "howto"}:
+        return 0.0
+    return howto_type_boost_weight() if weight is None else float(weight)
+
+
+def state_freshness_enabled() -> bool:
+    return os.environ.get("BHM_RANK_STATE_FRESHNESS", "").strip().casefold() in _ENABLED_TRUTHY_VALUES
+
+
+def state_freshness_weight() -> float:
+    raw = os.environ.get("BHM_RANK_STATE_FRESHNESS_WEIGHT")
+    if raw is None or not raw.strip():
+        return DEFAULT_STATE_FRESHNESS_WEIGHT
+    try:
+        value = float(raw.strip())
+        if math.isfinite(value) and MIN_STATE_FRESHNESS_WEIGHT <= value <= MAX_STATE_FRESHNESS_WEIGHT:
+            return value
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_STATE_FRESHNESS_WEIGHT
+
+
+def _hit_timestamp(hit: dict[str, Any]) -> datetime | None:
+    metadata = hit.get("metadata") if isinstance(hit, dict) else None
+    sources = [hit, metadata if isinstance(metadata, dict) else {}]
+    nested = metadata.get("metadata") if isinstance(metadata, dict) else None
+    if isinstance(nested, dict):
+        sources.append(nested)
+    for source in sources:
+        for key in ("updated_at", "created_at", "last_accessed_at"):
+            raw = source.get(key)
+            if not raw:
+                continue
+            try:
+                value = raw if isinstance(raw, datetime) else datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+    return None
+
+
+def state_freshness_bonus(
+    query_intent: str,
+    hit: dict[str, Any],
+    *,
+    now: datetime | None = None,
+    weight: float | None = None,
+) -> float:
+    if query_intent != "state" or hit_memory_type(hit) != "state":
+        return 0.0
+    timestamp = _hit_timestamp(hit)
+    if timestamp is None:
+        return 0.0
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    age_days = max((current.astimezone(timezone.utc) - timestamp).total_seconds() / 86400.0, 0.0)
+    freshness = math.exp(-age_days / STATE_FRESHNESS_HALF_LIFE_DAYS)
+    return (state_freshness_weight() if weight is None else float(weight)) * freshness

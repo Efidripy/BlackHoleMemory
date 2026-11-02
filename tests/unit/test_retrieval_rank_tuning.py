@@ -10,9 +10,17 @@ from blackholememory.mem0_adapter_graph import lexical_score
 from blackholememory.retrieval_rank_tuning import (
     DEFAULT_TITLE_BOOST_WEIGHT,
     KIND_DECAY_LAMBDA,
+    DEFAULT_HOWTO_TYPE_BOOST_WEIGHT,
+    DEFAULT_STATE_FRESHNESS_WEIGHT,
     hit_title,
+    howto_type_bonus,
+    howto_type_boost_enabled,
+    howto_type_boost_weight,
     kind_decay_enabled,
     kind_decay_lambda,
+    state_freshness_bonus,
+    state_freshness_enabled,
+    state_freshness_weight,
     title_boost_enabled,
     title_boost_weight,
     title_lexical_bonus,
@@ -301,3 +309,59 @@ def test_ranking_title_boost_promotes_title_match(monkeypatch: pytest.MonkeyPatc
 def test_hit_title_reads_the_nested_stored_metadata_of_vector_hits():
     hit = {"title": "content prefix", "metadata": {"metadata": {"raw_title": "Explicit stored title"}}}
     assert hit_title(hit) == "Explicit stored title"
+
+
+def test_howto_type_boost_is_opt_in_and_promotes_playbook(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BHM_RANK_HOWTO_TYPE_BOOST", raising=False)
+    assert not howto_type_boost_enabled()
+    assert howto_type_boost_weight() == DEFAULT_HOWTO_TYPE_BOOST_WEIGHT
+    hit = {"metadata": {"memory_type": "playbook"}}
+    assert howto_type_bonus("howto", hit) == DEFAULT_HOWTO_TYPE_BOOST_WEIGHT
+    assert howto_type_bonus("state", hit) == 0.0
+
+    query = "Как перезапустить API?"
+    rule = {
+        "id": "rule",
+        "score": 0.88,
+        "content": "инструкция по перезапуску API",
+        "metadata": {"memory_type": "rule"},
+    }
+    playbook = {
+        "id": "playbook",
+        "score": 0.88,
+        "content": "инструкция по перезапуску API",
+        "metadata": {"memory_type": "playbook"},
+    }
+    monkeypatch.setenv("BHM_RANK_HOWTO_TYPE_BOOST", "1")
+    ranked = _rank_hybrid_vector_hits(query, [rule, playbook])
+    assert [item["id"] for item in ranked] == ["playbook", "rule"]
+    assert ranked[0]["metadata"]["howto_type_bonus"] == DEFAULT_HOWTO_TYPE_BOOST_WEIGHT
+
+
+def test_state_freshness_bonus_prefers_new_state_and_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BHM_RANK_STATE_FRESHNESS", raising=False)
+    assert not state_freshness_enabled()
+    assert state_freshness_weight() == DEFAULT_STATE_FRESHNESS_WEIGHT
+    now = datetime(2026, 11, 2, tzinfo=timezone.utc)
+    fresh = {"metadata": {"memory_type": "state", "updated_at": "2026-11-01T00:00:00Z"}}
+    old = {"metadata": {"memory_type": "state", "updated_at": "2026-01-01T00:00:00Z"}}
+    assert state_freshness_bonus("howto", fresh, now=now) == 0.0
+    assert state_freshness_bonus("state", fresh, now=now) > state_freshness_bonus("state", old, now=now)
+
+    query = "Что сейчас с проектом?"
+    stale = {
+        "id": "stale",
+        "score": 0.88,
+        "content": "состояние проекта",
+        "metadata": {"memory_type": "state", "updated_at": "2026-01-01T00:00:00Z"},
+    }
+    current = {
+        "id": "current",
+        "score": 0.88,
+        "content": "состояние проекта",
+        "metadata": {"memory_type": "state", "updated_at": "2026-11-01T00:00:00Z"},
+    }
+    monkeypatch.setenv("BHM_RANK_STATE_FRESHNESS", "1")
+    ranked = _rank_hybrid_vector_hits(query, [stale, current])
+    assert [item["id"] for item in ranked] == ["current", "stale"]
+    assert ranked[0]["metadata"]["state_freshness_bonus"] > ranked[1]["metadata"]["state_freshness_bonus"]
