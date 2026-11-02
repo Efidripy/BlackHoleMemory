@@ -110,3 +110,25 @@ def test_common_query_words_do_not_count_as_coverage():
     result = assess_answerability("как правильно деплоить сервер на ubuntu", memories)
     assert result["signals"]["lexical_overlap"] <= 0.25
     assert result["status"] == "none"
+
+
+def test_semantic_ranked_rescue_handles_paraphrase_when_enabled(monkeypatch):
+    hit = _hit(0.81, "Плановое обновления", channels=["semantic"])
+    hit["metadata"].update({"semantic_score": 0.81, "semantic_rank": 2})
+    query = "как подтянуть свежие обновления пакетов"
+
+    assert assess_answerability(query, [hit])["status"] == "none"
+    monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_SCORE", "0.75")
+    monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK", "3")
+    result = assess_answerability(query, [hit])
+    assert result["status"] == "weak"
+    assert result["reason"] == "semantic_ranked_match"
+
+
+def test_semantic_rescue_keeps_unranked_no_answer_as_none(monkeypatch):
+    hit = _hit(0.81, "Архивирование логов", channels=["semantic"])
+    hit["metadata"]["semantic_score"] = 0.81
+    query = "как подтянуть свежие обновления пакетов"
+    monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_SCORE", "0.75")
+    monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK", "3")
+    assert assess_answerability(query, [hit])["status"] == "none"

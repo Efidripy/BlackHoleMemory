@@ -35,6 +35,10 @@ class AnswerabilityThresholds:
     # Optional cap on the vector score of a "none" answer; off by default because off-topic queries
     # still reach high vector scores against generic records and would leak into the prompt context.
     none_score_ceiling: float = 10.0
+    # Optional semantic rescue for paraphrases. It is disabled unless both thresholds are positive.
+    semantic_rescue_score: float = 0.0
+    semantic_rescue_rank: float = 0.0
+    semantic_rescue_overlap: float = 0.05
 
     @classmethod
     def from_env(cls) -> "AnswerabilityThresholds":
@@ -43,6 +47,9 @@ class AnswerabilityThresholds:
             confident_overlap=_env_float("BHM_ANSWERABILITY_CONFIDENT_OVERLAP", cls.confident_overlap),
             none_overlap=_env_float("BHM_ANSWERABILITY_NONE_OVERLAP", cls.none_overlap),
             none_score_ceiling=_env_float("BHM_ANSWERABILITY_NONE_SCORE_CEILING", cls.none_score_ceiling),
+            semantic_rescue_score=_env_float("BHM_ANSWERABILITY_SEMANTIC_RESCUE_SCORE", cls.semantic_rescue_score),
+            semantic_rescue_rank=_env_float("BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK", cls.semantic_rescue_rank),
+            semantic_rescue_overlap=_env_float("BHM_ANSWERABILITY_SEMANTIC_RESCUE_OVERLAP", cls.semantic_rescue_overlap),
         )
 
 
@@ -105,13 +112,31 @@ def assess_answerability(
         or ({"semantic", "lexical"} <= channels)
         or (any("semantic" in channel for channel in channels) and any("lexical" in channel for channel in channels))
     )
+    rescue_rank: float | None = None
+    rescue_score: float | None = None
+    if configured.semantic_rescue_score > 0 and configured.semantic_rescue_rank > 0:
+        for item, score in zip(memories, scores):
+            semantic_rank = _number(item, "semantic_rank")
+            if (
+                lexical_overlap >= configured.semantic_rescue_overlap
+                and score >= configured.semantic_rescue_score
+                and semantic_rank is not None
+                and semantic_rank <= configured.semantic_rescue_rank
+            ):
+                rescue_rank = semantic_rank
+                rescue_score = score
+                break
     signals = {
         "top_score": round(top_score, 4),
         "score_gap": round(score_gap, 4),
         "lexical_overlap": round(lexical_overlap, 4),
         "top_lexical_rank": int(lexical_rank) if lexical_rank is not None and lexical_rank.is_integer() else (round(lexical_rank, 4) if lexical_rank is not None else None),
         "channels_agree": channels_agree,
+        "semantic_rescue_rank": int(rescue_rank) if rescue_rank is not None and rescue_rank.is_integer() else (round(rescue_rank, 4) if rescue_rank is not None else None),
+        "semantic_rescue_score": round(rescue_score, 4) if rescue_score is not None else None,
     }
+    if rescue_score is not None:
+        return {"status": "weak", "reason": "semantic_ranked_match", "signals": signals}
     if lexical_overlap <= configured.none_overlap and top_score < configured.none_score_ceiling:
         return {"status": "none", "reason": "low_query_coverage", "signals": signals}
     if top_score >= configured.confident_score and lexical_overlap >= configured.confident_overlap:
