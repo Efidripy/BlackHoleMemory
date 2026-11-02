@@ -94,7 +94,7 @@ async def multiproject_search(
     search_one: Callable[[str], Iterable[dict[str, Any]] | Awaitable[Iterable[dict[str, Any]]]],
     authorize: Callable[[Iterable[str]], str | None] | None = None,
     deadline_s: float = 3.0,
-    concurrency: int = 6,
+    concurrency: int = 2,  # retrieval provider has only 4 non-blocking slots; more fan-out fails with capacity errors
     per_project_limit: int = 5,
 ) -> dict[str, Any]:
     """Search requested projects with bounded concurrency and a hard deadline."""
