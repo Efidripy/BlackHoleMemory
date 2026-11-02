@@ -515,6 +515,46 @@ def test_report_format_and_russian_stdout(tmp_path: Path, monkeypatch: pytest.Mo
         server.server_close()
 
 
+def test_report_includes_top_details_and_answerability() -> None:
+    eval_mod = _load_eval_module()
+    answerability = {
+        "status": "weak",
+        "reason": "partial_query_coverage",
+        "signals": {"top_score": 0.8, "top_lexical_rank": 2},
+    }
+    memories = [
+        {
+            "id": "m1",
+            "title": "First",
+            "score": 0.8,
+            "semantic_rank": 1,
+            "lexical_rank": 2,
+            "memory_type": "workflow",
+        },
+        {
+            "id": "m2",
+            "score": 0.7,
+            "metadata": {"semantic_rank": 4, "lexical_rank": 3, "memory_type": "fact"},
+        },
+    ]
+
+    result = eval_mod.evaluate_item(
+        item={"id": "Q1", "kind": "howto", "expect_any": ["m1"]},
+        response_data={"memories": memories, "answerability": answerability},
+        response_bytes=0,
+        latency_ms=0.0,
+        error=None,
+        top=3,
+    )
+
+    assert result["top_memories"] == [{"id": "m1", "title": "First"}, {"id": "m2", "title": None}]
+    assert result["top_details"] == [
+        {"id": "m1", "score": 0.8, "semantic_rank": 1, "lexical_rank": 2, "memory_type": "workflow"},
+        {"id": "m2", "score": 0.7, "semantic_rank": 4, "lexical_rank": 3, "memory_type": "fact"},
+    ]
+    assert result["answerability"] == answerability
+
+
 def test_cli_exit_codes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     eval_mod = _load_eval_module()
     monkeypatch.setenv("EXISTING_TOKEN", "any_token")

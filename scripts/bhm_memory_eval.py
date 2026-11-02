@@ -131,6 +131,8 @@ def evaluate_item(
     is_expect_any = bool(expect_any and not is_route and not is_expect_none)
 
     top_memories: list[dict[str, Any]] = []
+    top_details: list[dict[str, Any]] = []
+    answerability: dict[str, Any] | None = None
     best_score: float | None = None
     route_hint: str | None = None
     rank: int | None = None
@@ -142,12 +144,24 @@ def evaluate_item(
             memories = []
 
         route_hint = response_data.get("suggested_source")
+        raw_answerability = response_data.get("answerability")
+        if isinstance(raw_answerability, dict):
+            answerability = raw_answerability
 
-        for m in memories[:3]:
+        for index, m in enumerate(memories[:10]):
             if isinstance(m, dict):
-                top_memories.append({
+                metadata = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
+                if index < 3:
+                    top_memories.append({
+                        "id": m.get("id"),
+                        "title": m.get("title"),
+                    })
+                top_details.append({
                     "id": m.get("id"),
-                    "title": m.get("title"),
+                    "score": m.get("score"),
+                    "semantic_rank": m.get("semantic_rank", metadata.get("semantic_rank")),
+                    "lexical_rank": m.get("lexical_rank", metadata.get("lexical_rank")),
+                    "memory_type": m.get("memory_type", m.get("type", metadata.get("memory_type"))),
                 })
 
         if memories and isinstance(memories[0], dict):
@@ -214,6 +228,8 @@ def evaluate_item(
         "response_bytes": response_bytes,
         "latency_ms": latency_ms,
         "top_memories": top_memories,
+        "top_details": top_details,
+        "answerability": answerability,
         "route_hint": route_hint,
         "error": error,
     }
@@ -424,6 +440,8 @@ def run_evaluation(
             "response_bytes": it["response_bytes"],
             "latency_ms": round(it["latency_ms"], 2),
             "top_memories": it["top_memories"],
+            "top_details": it["top_details"],
+            "answerability": it["answerability"],
             "route_hint": it["route_hint"],
             "error": it["error"],
         })

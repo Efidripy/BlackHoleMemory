@@ -36,7 +36,7 @@ def test_compact_response_bounds_fields_and_size():
             "id": "m1", "title": "Заметка", "project": "demo", "type": "workflow", "memory_class": "general",
             "updated_at": "2026-01-01", "score": 0.9, "fusion_channels": ["lexical"], "content": content,
             "files": ["a.py", "b.py", "c.py", "d.py"], "upsert_key": "u1", "lifecycle": "active",
-            "metadata": {"huge": "x" * 10000},
+            "metadata": {"huge": "x" * 10000, "semantic_rank": 2, "lexical_rank": 1},
         }],
         "retrieval": {"mode": "federated", "local_collection": "l", "global_collection": "g", "query_plan": {"huge": True}},
         "side_effects": {"read_only": True},
@@ -46,6 +46,8 @@ def test_compact_response_bounds_fields_and_size():
     assert len(compact["memories"][0]["snippet"]) <= 80
     assert compact["memories"][0]["has_more"] is True
     assert compact["memories"][0]["files"] == ["a.py", "b.py", "c.py"]
+    assert compact["memories"][0]["semantic_rank"] == 2
+    assert compact["memories"][0]["lexical_rank"] == 1
     assert "metadata" not in compact["memories"][0]
     assert len(json.dumps(compact, ensure_ascii=False)) < 4096
 
