@@ -34,6 +34,9 @@ function Set-AuthoritativeEnvironment {
   $env:BHM_QDRANT_REQUIRED_FOR_CORE = "false"
   $env:BHM_FALLBACK_MODE = "explicit"
   $env:BHM_PROJECTION_WORKER_ENABLED = "false"
+  # Semantic rescue keeps paraphrased questions answerable (held-out eval 2026-11-02: pass@3 5% -> 37.5% with abstain on).
+  if (-not $env:BHM_ANSWERABILITY_SEMANTIC_RESCUE_SCORE) { $env:BHM_ANSWERABILITY_SEMANTIC_RESCUE_SCORE = "0.70" }
+  if (-not $env:BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK) { $env:BHM_ANSWERABILITY_SEMANTIC_RESCUE_RANK = "3" }
   $env:BHM_MEMORY_STORE_PARITY_CONFIRMED = "true"
   $env:BHM_MEMORY_STORE_WRITER_OFFLINE_CONFIRMED = "true"
   # WL-300.1 added the capability marker through an additive, verified SQLite
