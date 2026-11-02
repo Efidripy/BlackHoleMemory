@@ -9,6 +9,7 @@ from blackholememory import app as bhm_app
 from blackholememory import app_core_fallback, app_core_hit, app_retrieval, app_runtime
 from blackholememory.retrieval_filters import build_candidate_filters
 from blackholememory.retrieval_scope import resolve_history_scope
+from blackholememory.retrieval_rank_tuning import is_search_checkpoint
 from tests.app_patch import patch_app_import
 
 
@@ -74,6 +75,61 @@ def test_authoritative_post_filter_excludes_trace_unless_history_is_explicit():
     assert app_core_hit._memory_matches_filters(
         trace, project="blackholememory", event_role="trace"
     ) is True
+
+
+def _checkpoint_record(*, source_id: str = "mem-checkpoint", content: str = "перекалиброван abstain rerank порог 5 bge-m3") -> dict:
+    return {
+        "source_id": source_id,
+        "project": "blackholememory",
+        "memory_type": "workflow",
+        "memory_class": "episodic",
+        "event_role": "trace",
+        "content": content,
+        "metadata": {
+            "memory_class": "episodic",
+            "event_role": "trace",
+            "artifact_kind": "checkpoint",
+            "upsert_key": "checkpoint:blackholememory:workflow:rerank",
+        },
+    }
+
+
+def test_workflow_checkpoint_trace_is_searchable_and_ranked_with_penalty(monkeypatch):
+    monkeypatch.delenv("BHM_SEARCH_INCLUDE_CHECKPOINTS", raising=False)
+    checkpoint = _checkpoint_record()
+    assert is_search_checkpoint(checkpoint)
+    assert app_core_hit._memory_matches_filters(checkpoint, project="blackholememory") is True
+
+    hits = [
+        {"id": "knowledge-1", "content": "unrelated knowledge", "score": 0.8, "metadata": {"memory_type": "decision"}},
+        {"id": "knowledge-2", "content": "another unrelated knowledge", "score": 0.7, "metadata": {"memory_type": "playbook"}},
+        {"id": "checkpoint", "content": checkpoint["content"], "score": 0.95, "metadata": checkpoint["metadata"] | {"memory_type": "workflow"}},
+    ]
+    ranked = app_core_hit._rank_hybrid_vector_hits(checkpoint["content"], hits)
+
+    assert any(item["id"] == "checkpoint" for item in ranked[:3])
+    checkpoint_hit = next(item for item in ranked if item["id"] == "checkpoint")
+    assert checkpoint_hit["metadata"]["checkpoint_rank_multiplier"] == pytest.approx(0.35)
+
+
+def test_session_record_trace_stays_hidden_from_normal_search(monkeypatch):
+    monkeypatch.delenv("BHM_SEARCH_INCLUDE_CHECKPOINTS", raising=False)
+    session_record = _checkpoint_record(source_id="mem-session")
+    session_record["metadata"].update(
+        artifact_kind="session-record",
+        upsert_key="session-record:blackholememory:run-1",
+        raw_title="hybrid session record",
+    )
+    assert not is_search_checkpoint(session_record)
+    assert app_core_hit._memory_matches_filters(session_record, project="blackholememory") is False
+
+
+def test_checkpoint_switch_zero_restores_trace_exclusion(monkeypatch):
+    monkeypatch.setenv("BHM_SEARCH_INCLUDE_CHECKPOINTS", "0")
+    checkpoint = _checkpoint_record()
+    assert is_search_checkpoint(checkpoint)
+    assert app_core_hit._memory_matches_filters(checkpoint, project="blackholememory") is False
+    assert {"event_role": "trace"} in build_candidate_filters(user_id="user-1")["NOT"]
 
 
 def test_memory_listing_and_fallback_keep_trace_history_opt_in(monkeypatch):

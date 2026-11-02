@@ -30,6 +30,56 @@ KIND_DECAY_LAMBDA: dict[str, float] = {
 _ENABLED_TRUTHY_VALUES = frozenset({"1", "true", "on"})
 _DISABLED_VALUES = frozenset({"0", "false", "off", "no"})
 
+CHECKPOINT_RANK_MULTIPLIER = 0.35
+
+
+def search_include_checkpoints_enabled() -> bool:
+    """Return whether workflow checkpoint traces join ordinary semantic search."""
+
+    raw = os.environ.get("BHM_SEARCH_INCLUDE_CHECKPOINTS")
+    if raw is None:
+        return True
+    return raw.strip().casefold() not in _DISABLED_VALUES
+
+
+def _hit_field(hit: dict[str, Any], key: str) -> str:
+    if not isinstance(hit, dict):
+        return ""
+    metadata = hit.get("metadata")
+    nested = metadata.get("metadata") if isinstance(metadata, dict) else None
+    for source in (hit, metadata if isinstance(metadata, dict) else {}, nested if isinstance(nested, dict) else {}):
+        value = source.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip().casefold()
+    return ""
+
+
+def is_search_checkpoint(hit: dict[str, Any]) -> bool:
+    """Identify first-class workflow checkpoints while excluding session logs."""
+
+    if (
+        _hit_field(hit, "memory_type") != "workflow"
+        or _hit_field(hit, "memory_class") != "episodic"
+        or _hit_field(hit, "event_role") != "trace"
+    ):
+        return False
+    metadata = hit.get("metadata") if isinstance(hit, dict) else {}
+    nested = metadata.get("metadata") if isinstance(metadata, dict) else None
+    sources = (hit, metadata if isinstance(metadata, dict) else {}, nested if isinstance(nested, dict) else {})
+    artifact_kind = next((str(source.get("artifact_kind") or "").strip().casefold() for source in sources if source.get("artifact_kind")), "")
+    upsert_key = next((str(source.get("upsert_key") or "").strip().casefold() for source in sources if source.get("upsert_key")), "")
+    title = next((str(source.get("raw_title") or source.get("title") or "").strip().casefold() for source in sources if source.get("raw_title") or source.get("title")), "")
+    if artifact_kind == "session-record" or upsert_key.startswith("session-record:") or "hybrid session record" in title:
+        return False
+    # Older projections may omit artifact_kind/upsert_key; the typed tuple is
+    # the checkpoint contract in that case. Explicit session markers above
+    # always win and keep raw session records out of ordinary search.
+    return artifact_kind in {"", "checkpoint"} or upsert_key.startswith("checkpoint:")
+
+
+def checkpoint_rank_multiplier(hit: dict[str, Any]) -> float:
+    return CHECKPOINT_RANK_MULTIPLIER if search_include_checkpoints_enabled() and is_search_checkpoint(hit) else 1.0
+
 
 def search_include_global_enabled() -> bool:
     """Return whether the global vector contour is enabled for search/write paths."""
