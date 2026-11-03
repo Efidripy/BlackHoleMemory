@@ -302,3 +302,13 @@ def test_federated_search_pushes_the_same_project_boundary_to_both_contours(monk
     for filters in captured.values():
         assert filters["user_id"] == bhm_app.settings.mem0_user_id
         assert {"project": {"in": expected_projects}} in filters["AND"]
+
+
+def test_lesson_checkpoint_types_join_search_with_softer_multiplier():
+    from blackholememory.retrieval_rank_tuning import checkpoint_rank_multiplier, is_search_checkpoint
+
+    lesson = {"memory_type": "bug", "memory_class": "episodic", "event_role": "trace", "metadata": {"artifact_kind": "checkpoint"}}
+    imported = {"memory_type": "bug", "memory_class": "episodic", "event_role": "trace"}
+    chronicle = {"memory_type": "workflow", "memory_class": "episodic", "event_role": "trace", "metadata": {"artifact_kind": "checkpoint"}}
+    assert is_search_checkpoint(lesson) and not is_search_checkpoint(imported)
+    assert checkpoint_rank_multiplier(lesson) > checkpoint_rank_multiplier(chronicle)

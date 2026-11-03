@@ -31,6 +31,9 @@ _ENABLED_TRUTHY_VALUES = frozenset({"1", "true", "on"})
 _DISABLED_VALUES = frozenset({"0", "false", "off", "no"})
 
 CHECKPOINT_RANK_MULTIPLIER = 0.35
+# Checkpoints written as bug/pattern/... are lessons the agent wants to find again: demote them less than chronicle.
+LESSON_CHECKPOINT_TYPES = frozenset({"bug", "pattern", "architecture", "fact", "preference"})
+LESSON_CHECKPOINT_RANK_MULTIPLIER = 0.6
 
 
 def search_include_checkpoints_enabled() -> bool:
@@ -57,8 +60,9 @@ def _hit_field(hit: dict[str, Any], key: str) -> str:
 def is_search_checkpoint(hit: dict[str, Any]) -> bool:
     """Identify first-class workflow checkpoints while excluding session logs."""
 
+    memory_type = _hit_field(hit, "memory_type")
     if (
-        _hit_field(hit, "memory_type") != "workflow"
+        memory_type not in ({"workflow"} | LESSON_CHECKPOINT_TYPES)
         or _hit_field(hit, "memory_class") != "episodic"
         or _hit_field(hit, "event_role") != "trace"
     ):
@@ -74,11 +78,16 @@ def is_search_checkpoint(hit: dict[str, Any]) -> bool:
     # Older projections may omit artifact_kind/upsert_key; the typed tuple is
     # the checkpoint contract in that case. Explicit session markers above
     # always win and keep raw session records out of ordinary search.
+    if memory_type in LESSON_CHECKPOINT_TYPES:
+        # Non-workflow traces are only checkpoints when explicitly marked, never legacy imports.
+        return artifact_kind == "checkpoint"
     return artifact_kind in {"", "checkpoint"} or upsert_key.startswith("checkpoint:")
 
 
 def checkpoint_rank_multiplier(hit: dict[str, Any]) -> float:
-    return CHECKPOINT_RANK_MULTIPLIER if search_include_checkpoints_enabled() and is_search_checkpoint(hit) else 1.0
+    if not (search_include_checkpoints_enabled() and is_search_checkpoint(hit)):
+        return 1.0
+    return LESSON_CHECKPOINT_RANK_MULTIPLIER if _hit_field(hit, "memory_type") in LESSON_CHECKPOINT_TYPES else CHECKPOINT_RANK_MULTIPLIER
 
 
 def search_include_global_enabled() -> bool:
