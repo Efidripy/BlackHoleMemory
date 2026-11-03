@@ -103,3 +103,15 @@ def test_scores_are_cached(monkeypatch):
     result = asyncio.run(llm_rerank.rerank_hits("question", hits))
     assert _FakeClient.calls == first_call_count
     assert [hit["id"] for hit in result] == ["second", "first"]
+
+
+def test_blend_lets_hybrid_rank_break_close_model_scores(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0.3")
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert [hit["id"] for hit in result] == ["second", "first"]
+    llm_rerank.clear_rerank_cache()
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "1")
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert [hit["id"] for hit in result] == ["first", "second"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 2.0

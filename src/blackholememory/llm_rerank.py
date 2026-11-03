@@ -34,6 +34,14 @@ def _setting(name: str, default: str = "") -> str:
     return os.getenv(name, default).strip()
 
 
+def _blend() -> float:
+    """Weight of the incoming hybrid rank blended into the 0-10 model score (0 keeps model order)."""
+    try:
+        return min(max(float(_setting("BHM_LLM_RERANK_BLEND", "0")), 0.0), 1.0)
+    except ValueError:
+        return 0.0
+
+
 def _config() -> tuple[str, str, int, int, float] | None:
     if _setting("BHM_LLM_RERANK") != "1":
         return None
@@ -214,11 +222,17 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
         metadata = dict(selected[index].get("metadata") or {})
         metadata["llm_rerank_score"] = score
         selected[index]["metadata"] = metadata
-    ranked = sorted(
-        enumerate(selected),
-        key=lambda item: (scores.get(item[0], -1.0), -item[0]),
-        reverse=True,
-    )
+    blend = _blend()
+    span = max(len(selected) - 1, 1)
+
+    def sort_key(item: tuple[int, dict[str, Any]]) -> tuple[float, int]:
+        index = item[0]
+        base = scores.get(index, -1.0)
+        if base >= 0 and blend:
+            base += blend * 10.0 * (1.0 - index / span)
+        return base, -index
+
+    ranked = sorted(enumerate(selected), key=sort_key, reverse=True)
     return [hit for _, hit in ranked] + list(hits[top_n:])
 
 
