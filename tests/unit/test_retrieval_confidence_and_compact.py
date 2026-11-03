@@ -92,6 +92,9 @@ def test_bhm_search_defaults_to_compact(monkeypatch):
     bhm_mcp_memory.bhm_search(query="search default")
     assert seen[-1]["detail"] == "compact"
 
+    bhm_mcp_memory.bhm_search(query="search null", detail=None)
+    assert seen[-1]["detail"] == "compact"
+
     bhm_mcp_memory.bhm_search(query="search full", detail="full")
     assert seen[-1]["detail"] == "full"
 
