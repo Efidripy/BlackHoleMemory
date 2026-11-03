@@ -24,6 +24,8 @@ BHM_REMEMBER_ALLOWED_ARGUMENTS = frozenset(
         "concepts",
         "files",
         "metadata",
+        "title",
+        "upsert_key",
         "memory_class",
         "event_role",
         "observed_at",
