@@ -14,6 +14,23 @@ def _hits() -> list[dict]:
     ]
 
 
+def _confident_hits(*, first_score: float = 0.9, second_score: float = 0.8, first_sem: int = 1, first_lex: int = 1) -> list[dict]:
+    return [
+        {
+            "id": "first",
+            "content": "alpha",
+            "score": first_score,
+            "metadata": {"semantic_rank": first_sem, "lexical_rank": first_lex},
+        },
+        {
+            "id": "second",
+            "content": "beta",
+            "score": second_score,
+            "metadata": {"semantic_rank": 2, "lexical_rank": 2},
+        },
+    ]
+
+
 class _FakeClient:
     calls = 0
     mode = "success"
@@ -115,3 +132,99 @@ def test_blend_lets_hybrid_rank_break_close_model_scores(monkeypatch):
     result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
     assert [hit["id"] for hit in result] == ["first", "second"]
     assert result[0]["metadata"]["llm_rerank_score"] == 2.0
+
+
+def test_default_does_not_skip_confident_head(monkeypatch):
+    _configure(monkeypatch)
+    hits = _confident_hits()
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 2
+    assert [hit["id"] for hit in result] == ["second", "first"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 9.0
+
+
+def test_confident_head_skips_model_calls_and_preserves_hits(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_SKIP_GAP", "0.05")
+    hits = _confident_hits(first_score=0.85, second_score=0.80)
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 0
+    assert result is hits
+    assert [hit["id"] for hit in result] == ["first", "second"]
+    assert all("llm_rerank_score" not in hit["metadata"] for hit in result)
+
+
+def test_unconfident_head_small_gap_calls_model(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_SKIP_GAP", "0.05")
+    hits = _confident_hits(first_score=0.84, second_score=0.80)
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 2
+    assert [hit["id"] for hit in result] == ["second", "first"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 9.0
+
+
+def test_unconfident_head_ranks_not_top_calls_model(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_SKIP_GAP", "0.05")
+    # semantic_rank not 1
+    hits = _confident_hits(first_score=0.9, second_score=0.8, first_sem=2, first_lex=1)
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 2
+    assert [hit["id"] for hit in result] == ["second", "first"]
+
+    _FakeClient.calls = 0
+    llm_rerank.clear_rerank_cache()
+    # lexical_rank not 1
+    hits = _confident_hits(first_score=0.9, second_score=0.8, first_sem=1, first_lex=2)
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 2
+    assert [hit["id"] for hit in result] == ["second", "first"]
+
+    _FakeClient.calls = 0
+    llm_rerank.clear_rerank_cache()
+    # ranks missing
+    hits = [
+        {"id": "first", "content": "alpha", "score": 0.9, "metadata": {}},
+        {"id": "second", "content": "beta", "score": 0.8, "metadata": {}},
+    ]
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 2
+    assert [hit["id"] for hit in result] == ["second", "first"]
+
+
+def test_confident_head_requires_at_least_two_candidates(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_SKIP_GAP", "0.05")
+    hits = [
+        {"id": "first", "content": "alpha", "score": 0.9, "metadata": {"semantic_rank": 1, "lexical_rank": 1}},
+    ]
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 1
+    assert result[0]["metadata"]["llm_rerank_score"] == 2.0
+
+
+def test_garbage_skip_gap_env_disables_skip(monkeypatch):
+    _configure(monkeypatch)
+    for garbage in ("invalid-text", "-0.05", "-1", "0", "nan", "inf", ""):
+        monkeypatch.setenv("BHM_LLM_RERANK_SKIP_GAP", garbage)
+        _FakeClient.calls = 0
+        llm_rerank.clear_rerank_cache()
+        hits = _confident_hits(first_score=0.9, second_score=0.8)
+        result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+        assert _FakeClient.calls == 2, f"Failed for garbage value: {garbage!r}"
+        assert [hit["id"] for hit in result] == ["second", "first"]
+
+
+def test_confident_head_helper_direct(monkeypatch):
+    monkeypatch.setenv("BHM_LLM_RERANK_SKIP_GAP", "0.05")
+    hits = _confident_hits(first_score=0.9, second_score=0.8)
+    assert llm_rerank._confident_head(hits)
+    assert not llm_rerank._confident_head([])
+    assert not llm_rerank._confident_head(hits[:1])
+    assert not llm_rerank._confident_head([{"invalid": "hit"}, {"invalid": "second"}])
+    no_score = [
+        {"id": "first", "metadata": {"semantic_rank": 1, "lexical_rank": 1}},
+        {"id": "second", "score": 0.5, "metadata": {}},
+    ]
+    assert not llm_rerank._confident_head(no_score)

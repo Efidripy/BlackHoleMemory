@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import os
 import re
 import threading
@@ -42,6 +43,17 @@ def _blend() -> float:
         return 0.0
 
 
+def _skip_gap() -> float:
+    """Score gap threshold to bypass LLM reranking when head candidate is confident."""
+    try:
+        gap = float(_setting("BHM_LLM_RERANK_SKIP_GAP", "0"))
+    except (TypeError, ValueError):
+        return 0.0
+    if gap <= 0.0 or not math.isfinite(gap):
+        return 0.0
+    return gap
+
+
 def _config() -> tuple[str, str, int, int, float] | None:
     if _setting("BHM_LLM_RERANK") != "1":
         return None
@@ -58,6 +70,66 @@ def _config() -> tuple[str, str, int, int, float] | None:
     if not 1 <= top_n <= 30 or concurrency < 1 or timeout_s <= 0:
         return None
     return base_url.rstrip("/"), model, top_n, concurrency, timeout_s
+
+
+def _confident_head(hits: Sequence[Mapping[str, Any]]) -> bool:
+    """Check if hybrid retrieval already identified a confident top candidate."""
+    try:
+        if len(hits) < 2:
+            return False
+    except TypeError:
+        return False
+
+    skip_gap = _skip_gap()
+    if skip_gap <= 0.0:
+        return False
+
+    first = hits[0]
+    second = hits[1]
+    if not isinstance(first, Mapping) or not isinstance(second, Mapping):
+        return False
+
+    first_meta = first.get("metadata") if isinstance(first.get("metadata"), Mapping) else {}
+    sem_rank = first_meta.get("semantic_rank")
+    if sem_rank is None:
+        sem_rank = first.get("semantic_rank")
+    lex_rank = first_meta.get("lexical_rank")
+    if lex_rank is None:
+        lex_rank = first.get("lexical_rank")
+
+    def _is_top_rank(val: Any) -> bool:
+        if isinstance(val, bool):
+            return False
+        if isinstance(val, int) and val == 1:
+            return True
+        if isinstance(val, float) and val == 1.0:
+            return True
+        if isinstance(val, str) and val.strip() == "1":
+            return True
+        return False
+
+    if not _is_top_rank(sem_rank) or not _is_top_rank(lex_rank):
+        return False
+
+    def _score(item: Mapping[str, Any]) -> float | None:
+        val = item.get("score")
+        if val is None:
+            meta = item.get("metadata") if isinstance(item.get("metadata"), Mapping) else {}
+            val = meta.get("score")
+        if isinstance(val, bool):
+            return None
+        try:
+            parsed = float(val) if val is not None else None
+        except (TypeError, ValueError):
+            return None
+        return parsed if (parsed is not None and math.isfinite(parsed)) else None
+
+    first_score = _score(first)
+    second_score = _score(second)
+    if first_score is None or second_score is None:
+        return False
+
+    return (first_score - second_score) >= (skip_gap - 1e-9)
 
 
 def _hit_content(hit: Mapping[str, Any]) -> str:
@@ -176,6 +248,8 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
 
     config = _config()
     if config is None or not hits:
+        return hits if isinstance(hits, list) else list(hits)
+    if _confident_head(hits):
         return hits if isinstance(hits, list) else list(hits)
     base_url, model, top_n, concurrency, timeout_s = config
     selected = list(hits[:top_n])
