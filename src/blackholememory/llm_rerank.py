@@ -35,9 +35,9 @@ def _setting(name: str, default: str = "") -> str:
 
 
 def _blend() -> float:
-    """Weight of the incoming hybrid rank blended into the 0-10 model score (0 keeps model order)."""
+    """Weight of the incoming hybrid rank blended into the 0-10 model score (0 keeps model order, default 0.3)."""
     try:
-        return min(max(float(_setting("BHM_LLM_RERANK_BLEND", "0")), 0.0), 1.0)
+        return min(max(float(_setting("BHM_LLM_RERANK_BLEND", "0.3")), 0.0), 1.0)
     except ValueError:
         return 0.0
 
