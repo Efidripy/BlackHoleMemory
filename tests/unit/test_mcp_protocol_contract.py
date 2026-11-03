@@ -114,6 +114,8 @@ def test_bhm_remember_allowed_argument_set_is_canonical_and_immutable():
         "concepts",
         "files",
         "metadata",
+        "title",
+        "upsert_key",
     }
     assert isinstance(BHM_REMEMBER_ALLOWED_ARGUMENTS, frozenset)
 
