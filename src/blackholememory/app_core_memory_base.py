@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 
 from . import app_runtime as rt
-from .write_enrichment import enrich_content
+from .write_enrichment import schedule_live_enrichment
 from . import memory_contracts as _memory_contracts
 from .mem0_adapter import StorageNotReady
 from .memory_service import MemoryServiceNotReady
@@ -21,17 +21,12 @@ MemoryClassSource = _memory_contracts.MemoryClassSource
 EVENT_ROLE_SCHEMA_VERSION = _memory_contracts.EVENT_ROLE_SCHEMA_VERSION
 
 def _save_live_memories(items: list[dict]) -> Path:
-    for item in items:
-        content = item.get("content")
-        if not isinstance(content, str):
-            continue
-        metadata = item.setdefault("metadata", {})
-        title = str(metadata.get("raw_title") or "")
-        item["content"] = enrich_content(title, content)
     try:
-        return rt._memory_service().upsert_records(items)
+        path = rt._memory_service().upsert_records(items)
     except MemoryServiceNotReady as exc:
         raise StorageNotReady(str(exc)) from exc
+    schedule_live_enrichment(items)
+    return path
 
 
 def _replace_live_memory(record: dict) -> None:
