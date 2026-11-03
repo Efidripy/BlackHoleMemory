@@ -152,3 +152,27 @@ def test_upsert_key_is_taken_from_sqlite_metadata(monkeypatch):
     )
 
     assert accepted[0]["metadata"]["upsert_key"] == "project-lesson-key"
+
+
+def test_attach_upsert_keys_fills_page_hits_from_sqlite(monkeypatch):
+    record = _record("keyed")
+    record["metadata"]["upsert_key"] = "page-key"
+    service = _AuthoritativeStub([record])
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
+    hits = [_hit("keyed"), _hit("unknown")]
+
+    out = app_core_fallback._attach_upsert_keys(hits, "blackholememory")
+
+    assert out[0]["metadata"]["upsert_key"] == "page-key"
+    assert "upsert_key" not in out[1]["metadata"]
+    assert len(service.calls) == 1
+
+
+def test_attach_upsert_keys_is_best_effort(monkeypatch):
+    def broken():
+        raise RuntimeError("sqlite down")
+
+    monkeypatch.setattr(app_runtime, "_memory_service", broken)
+    hits = [_hit("keyed")]
+
+    assert app_core_fallback._attach_upsert_keys(hits, "blackholememory") is hits
