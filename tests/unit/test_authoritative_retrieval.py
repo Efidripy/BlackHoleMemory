@@ -137,3 +137,18 @@ def test_typed_filter_does_not_trust_qdrant_metadata(monkeypatch):
     )
 
     assert accepted == []
+
+
+def test_upsert_key_is_taken_from_sqlite_metadata(monkeypatch):
+    record = _record("keyed")
+    record["metadata"]["upsert_key"] = "project-lesson-key"
+    service = _AuthoritativeStub([record])
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
+
+    accepted = app_core_fallback._strict_retrieval_hits(
+        [_hit("keyed")],
+        project_name="blackholememory",
+        limit=10,
+    )
+
+    assert accepted[0]["metadata"]["upsert_key"] == "project-lesson-key"

@@ -486,6 +486,7 @@ def _strict_retrieval_hits(
                 or authoritative_metadata.get("source_episode_id"),
                 "source_uri": record.get("source_uri") or authoritative_metadata.get("source_uri"),
                 "source_digest": record.get("source_digest") or authoritative_metadata.get("source_digest"),
+                "upsert_key": record.get("upsert_key") or authoritative_metadata.get("upsert_key"),
             }
         )
         enriched["metadata"] = metadata
