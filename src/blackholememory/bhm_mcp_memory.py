@@ -159,7 +159,7 @@ def bhm_search(
     freshness_days: Annotated[int | None, Field(ge=1, le=3650)] = None,
     history_scope: Literal["current", "recent", "all"] | None = None,
     abstain: bool = False,
-    detail: Literal["full", "compact"] | None = None,
+    detail: Literal["full", "compact"] = "compact",
 ) -> dict[str, Any]:
     body = {
         "query": query,

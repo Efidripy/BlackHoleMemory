@@ -10,9 +10,18 @@ from .retrieval_routing import classify_query
 
 
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{2,}")
+_QUESTIONS_MARKER_RE = re.compile(r"(?m)^[ \t]*Вопросы:")
 
 
 _MAX_TOKEN_OCCURRENCES = 40
+
+
+def _strip_questions(text: str) -> str:
+    matches = list(_QUESTIONS_MARKER_RE.finditer(text))
+    if not matches:
+        return text
+    stripped = text[: matches[-1].start()].rstrip()
+    return stripped or text
 
 
 def _best_window_start(lowered: str, tokens: list[str], limit: int) -> int:
@@ -35,14 +44,15 @@ def _best_window_start(lowered: str, tokens: list[str], limit: int) -> int:
 
 def _snippet(content: str, query: str, limit: int) -> tuple[str, bool]:
     text = str(content or "").strip()
-    if len(text) <= limit:
-        return text, False
+    source = _strip_questions(text)
+    if len(source) <= limit:
+        return source, False
     # Short words ("как", "что") match everywhere and would pin the window to noise.
     query_tokens = sorted({token.casefold() for token in _TOKEN_RE.findall(query or "") if len(token) >= 4})
-    lowered = text.casefold()
+    lowered = source.casefold()
     start = _best_window_start(lowered, query_tokens, limit)
     budget = max(limit - 1, 1)
-    excerpt = text[start : start + budget]
+    excerpt = source[start : start + budget]
     if start > 0:
         excerpt = excerpt.split(" ", 1)[-1]
     if len(excerpt) >= budget:
