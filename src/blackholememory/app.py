@@ -5,6 +5,7 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from typing import Any
+import logging
 
 from fastapi import FastAPI
 from fastapi import Request
@@ -67,7 +68,10 @@ from .memory_doctor import load_authoritative_sqlite_snapshot  # noqa: F401
 from .utility_feedback_store import load_utility_events  # noqa: F401
 from .mem0_adapter import local_collection_name  # noqa: F401
 from .mem0_adapter import mem0_runtime_plan  # noqa: F401
-from .projection_generation_binding import resolve_projection_route  # noqa: F401
+from .projection_generation_binding import (  # noqa: F401
+    active_projection_generation_bindings,
+    resolve_projection_route,
+)
 from .context_tier_promotion import rollback_tier_promotion  # noqa: F401
 from .memory_doctor import run_authoritative_sqlite_memory_doctor  # noqa: F401
 import sqlite3  # noqa: F401
@@ -506,9 +510,35 @@ from .observation_security import observation_body_limit
 from .usage_telemetry import monotonic_elapsed_ms
 from .surface_report import build_surface_report
 
+_LOGGER = logging.getLogger(__name__)
+
 
 if not rt._PROVIDER_WARMUP_REQUIRED:
     rt._PROVIDER_WARMUP_READY.set()
+
+
+def _check_active_project_dimensions() -> None:
+    """Warn once at startup if an active projection binding mismatches configured dimensions."""
+    try:
+        database_path = resolve_runtime_storage_config(runtime_dir=settings.runtime_dir).database_path
+        bindings = active_projection_generation_bindings(database_path)
+        try:
+            expected_dims = int(os.environ.get("BHM_MEM0_EMBEDDING_DIMS") or settings.mem0_embedding_dims)
+        except (TypeError, ValueError):
+            expected_dims = int(settings.mem0_embedding_dims)
+
+        for binding in bindings:
+            if binding.vector_dimensions != expected_dims:
+                _LOGGER.warning(
+                    "Active projection binding dimension mismatch for project %s: "
+                    "binding has %sD, expected %sD",
+                    binding.project,
+                    binding.vector_dimensions,
+                    expected_dims,
+                )
+                break
+    except Exception as exc:  # broad: diagnostic check must never fail startup
+        _LOGGER.warning("Could not verify projection binding dimensions (%s)", type(exc).__name__)
 
 
 @asynccontextmanager
@@ -553,6 +583,7 @@ async def _app_lifespan(_app: FastAPI):
             f"{storage.reason}",
             flush=True,
         )
+    _check_active_project_dimensions()
     warmup_task: asyncio.Task[None] | None = None
     boot_report_task: asyncio.Task[None] | None = None
     telemetry_task: asyncio.Task[None] | None = None

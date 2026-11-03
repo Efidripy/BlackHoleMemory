@@ -15,6 +15,29 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+$adoptedUserEnvironmentNames = [System.Collections.Generic.List[string]]::new()
+foreach ($name in @(
+    'BHM_MEM0_EMBEDDING_MODEL',
+    'BHM_MEM0_EMBEDDING_DIMS',
+    'BHM_SEARCH_INCLUDE_GLOBAL',
+    'BHM_LLM_RERANK',
+    'BHM_LLM_RERANK_BASE_URL',
+    'BHM_LLM_RERANK_MODEL',
+    'BHM_ANSWERABILITY_RERANK_RESCUE_SCORE'
+  )) {
+  if ([string]::IsNullOrWhiteSpace([string][Environment]::GetEnvironmentVariable($name, 'Process'))) {
+    $userValue = [string][Environment]::GetEnvironmentVariable($name, 'User')
+    if (-not [string]::IsNullOrWhiteSpace($userValue)) {
+      [Environment]::SetEnvironmentVariable($name, $userValue.Trim(), 'Process')
+      Set-Item -Path "Env:$name" -Value $userValue.Trim()
+      $adoptedUserEnvironmentNames.Add($name)
+    }
+  }
+}
+if ($adoptedUserEnvironmentNames.Count -gt 0) {
+  Write-Host ($adoptedUserEnvironmentNames -join ' ')
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $repoRoot 'scripts\runtime-endpoints.ps1')
 . (Join-Path $repoRoot 'scripts\bhm-caller-credential.ps1')
