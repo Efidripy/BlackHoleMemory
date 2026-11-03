@@ -9,7 +9,7 @@ from blackholememory import app as bhm_app
 from blackholememory import app_core_fallback, app_core_hit, app_retrieval, app_runtime
 from blackholememory.retrieval_filters import build_candidate_filters
 from blackholememory.retrieval_scope import resolve_history_scope
-from blackholememory.retrieval_rank_tuning import is_search_checkpoint
+from blackholememory.retrieval_rank_tuning import cap_checkpoints_in_top, is_search_checkpoint
 from tests.app_patch import patch_app_import
 
 
@@ -312,3 +312,45 @@ def test_lesson_checkpoint_types_join_search_with_softer_multiplier():
     chronicle = {"memory_type": "workflow", "memory_class": "episodic", "event_role": "trace", "metadata": {"artifact_kind": "checkpoint"}}
     assert is_search_checkpoint(lesson) and not is_search_checkpoint(imported)
     assert checkpoint_rank_multiplier(lesson) > checkpoint_rank_multiplier(chronicle)
+
+
+def test_checkpoint_cap_moves_knowledge_cards_into_top_three(monkeypatch):
+    checkpoint_one = _checkpoint_record(source_id="checkpoint-1")
+    checkpoint_two = _checkpoint_record(source_id="checkpoint-2")
+    cards = [
+        {"id": "checkpoint-1", "metadata": checkpoint_one["metadata"] | {"memory_type": "workflow"}},
+        {"id": "checkpoint-2", "metadata": checkpoint_two["metadata"] | {"memory_type": "workflow"}},
+        {"id": "card-1", "metadata": {"memory_type": "decision"}},
+        {"id": "card-2", "metadata": {"memory_type": "reference"}},
+        {"id": "card-3", "metadata": {"memory_type": "playbook"}},
+    ]
+
+    assert [item["id"] for item in cap_checkpoints_in_top(cards)] == [
+        "card-1",
+        "card-2",
+        "checkpoint-1",
+        "checkpoint-2",
+        "card-3",
+    ]
+
+
+def test_checkpoint_cap_keeps_order_with_fewer_than_two_cards():
+    checkpoint = _checkpoint_record()
+    hits = [
+        {"id": "checkpoint", "metadata": checkpoint["metadata"] | {"memory_type": "workflow"}},
+        {"id": "card", "metadata": {"memory_type": "decision"}},
+    ]
+
+    assert cap_checkpoints_in_top(hits) == hits
+
+
+def test_checkpoint_cap_can_be_disabled(monkeypatch):
+    monkeypatch.setenv("BHM_SEARCH_CHECKPOINT_CAP", "0")
+    checkpoint = _checkpoint_record()
+    hits = [
+        {"id": "checkpoint", "metadata": checkpoint["metadata"] | {"memory_type": "workflow"}},
+        {"id": "card-1", "metadata": {"memory_type": "decision"}},
+        {"id": "card-2", "metadata": {"memory_type": "reference"}},
+    ]
+
+    assert cap_checkpoints_in_top(hits) == hits
