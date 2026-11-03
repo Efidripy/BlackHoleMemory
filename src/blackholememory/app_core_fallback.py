@@ -497,6 +497,29 @@ def _strict_retrieval_hits(
     return accepted[: max(int(limit), 1)]
 
 
+def _attach_upsert_keys(hits: list[dict], project_name: str) -> list[dict]:
+    """Fill metadata.upsert_key for a result page; the projection payload does not carry it."""
+
+    missing: dict[str, dict] = {}
+    for hit in hits:
+        metadata = hit.get("metadata") if isinstance(hit.get("metadata"), Mapping) else {}
+        source_id = str(metadata.get("source_id") or hit.get("source_id") or hit.get("id") or "").strip()
+        if source_id and not metadata.get("upsert_key"):
+            missing[source_id] = hit
+    if not missing:
+        return hits
+    try:
+        records = rt._memory_service().get_records(list(missing), project=rt._canonical_project(project_name))
+    except Exception:  # best effort: the key is informational and must not fail a search
+        return hits
+    for record in records:
+        key = (record.get("metadata") or {}).get("upsert_key") or record.get("upsert_key")
+        hit = missing.get(str(record.get("source_id") or record.get("id") or ""))
+        if key and hit is not None:
+            hit["metadata"] = {**(hit.get("metadata") or {}), "upsert_key": key}
+    return hits
+
+
 @dataclass(frozen=True)
 class FederatedSearchOutcome:
     """Backward-compatible federated result plus content-free contour timing."""
@@ -917,7 +940,7 @@ async def federated_search(
     if exact_contour is not None:
         trace_contours.append(exact_contour)
     return FederatedSearchOutcome(
-        hits=ranked_hits[page_offset : page_offset + page_limit],
+        hits=_attach_upsert_keys(ranked_hits[page_offset : page_offset + page_limit], project_name),
         total=total,
         contour_trace=_federated_contour_trace(
             started=started,
