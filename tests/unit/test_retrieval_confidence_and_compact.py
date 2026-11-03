@@ -78,9 +78,22 @@ def test_mcp_optional_fields_are_only_sent_when_set(monkeypatch):
     seen = []
     monkeypatch.setattr(bhm_mcp_memory._base, "_post", lambda path, body: seen.append(body) or body)
     bhm_mcp_memory.bhm_search(query="x")
-    assert "abstain" not in seen[-1] and "detail" not in seen[-1]
+    assert "abstain" not in seen[-1]
+    assert seen[-1]["detail"] == "compact"
     bhm_mcp_memory.bhm_search(query="x", abstain=True, detail="compact")
     assert seen[-1]["abstain"] is True and seen[-1]["detail"] == "compact"
+    bhm_mcp_memory.bhm_search(query="x", detail="full")
+    assert seen[-1]["detail"] == "full"
+
+
+def test_bhm_search_defaults_to_compact(monkeypatch):
+    seen = []
+    monkeypatch.setattr(bhm_mcp_memory._base, "_post", lambda path, body: seen.append(body) or body)
+    bhm_mcp_memory.bhm_search(query="search default")
+    assert seen[-1]["detail"] == "compact"
+
+    bhm_mcp_memory.bhm_search(query="search full", detail="full")
+    assert seen[-1]["detail"] == "full"
 
 
 def test_compact_snippet_centres_on_the_densest_query_window():
@@ -92,6 +105,59 @@ def test_compact_snippet_centres_on_the_densest_query_window():
     }
     snippet = compact_search_response(response, snippet_chars=200)["memories"][0]["snippet"]
     assert "BHM_ADMIN_CAPABILITY" in snippet
+
+
+def test_compact_snippet_excludes_trailing_questions():
+    filler = "Суть карточки и полезная архитектурная информация. " * 8
+    content = (
+        filler
+        + "\n\nВопросы: как устроена архитектура? какие компоненты важны? где найти документацию?"
+    )
+    response = {
+        "total": 1,
+        "limit": 5,
+        "offset": 0,
+        "query": "какие компоненты важны архитектура документация",
+        "memories": [{"id": "m1", "title": "Архитектура", "content": content, "score": 0.9}],
+    }
+    compact = compact_search_response(response, snippet_chars=200)
+    snippet = compact["memories"][0]["snippet"]
+    assert "Вопросы:" not in snippet
+    assert "Суть карточки" in snippet
+    assert "Вопросы:" in response["memories"][0]["content"]
+
+
+def test_compact_snippet_fallback_when_content_is_only_questions():
+    content = "Вопросы: единственный вопрос карточки?"
+    response = {
+        "total": 1,
+        "limit": 5,
+        "offset": 0,
+        "query": "единственный вопрос",
+        "memories": [{"id": "m1", "title": "Вопросы", "content": content, "score": 0.8}],
+    }
+    compact = compact_search_response(response, snippet_chars=180)
+    snippet = compact["memories"][0]["snippet"]
+    assert "Вопросы:" in snippet
+
+
+def test_compact_snippet_multiple_questions_markers():
+    content = (
+        "Первый раздел.\nВопросы: черновик вопросов\n\n"
+        "Второй актуальный раздел с важными данными.\n\n"
+        "Вопросы: финальный блок вопросов? как делать?"
+    )
+    response = {
+        "total": 1,
+        "limit": 5,
+        "offset": 0,
+        "query": "финальный блок вопросов как делать",
+        "memories": [{"id": "m1", "title": "Разделы", "content": content, "score": 0.9}],
+    }
+    compact = compact_search_response(response, snippet_chars=200)
+    snippet = compact["memories"][0]["snippet"]
+    assert "финальный блок вопросов" not in snippet
+    assert "Второй актуальный раздел" in snippet
 
 
 def test_none_score_ceiling_keeps_high_score_hits_out_of_none():
