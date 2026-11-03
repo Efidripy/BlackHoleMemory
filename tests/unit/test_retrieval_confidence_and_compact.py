@@ -214,3 +214,12 @@ def test_semantic_rescue_memory_type_gate_is_opt_in(monkeypatch):
     assert assess_answerability(query, [hit])["status"] == "weak"
     monkeypatch.setenv("BHM_ANSWERABILITY_SEMANTIC_RESCUE_MEMORY_TYPES", "fact,pattern")
     assert assess_answerability(query, [hit])["status"] == "none"
+
+
+def test_compact_upsert_key_falls_back_to_metadata_when_item_value_is_null():
+    response = {
+        "total": 1, "limit": 5, "offset": 0, "query": "q",
+        "memories": [{"id": "m1", "title": "t", "content": "text", "upsert_key": None,
+                      "metadata": {"upsert_key": "from-metadata"}}],
+    }
+    assert compact_search_response(response)["memories"][0]["upsert_key"] == "from-metadata"

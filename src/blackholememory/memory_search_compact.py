@@ -83,7 +83,7 @@ def compact_search_response(response: dict, *, snippet_chars: int = 280) -> dict
             "fusion_channels": channels,
             "snippet": snippet,
             "files": list(item.get("files", metadata.get("files", [])) or [])[:3],
-            "upsert_key": item.get("upsert_key", metadata.get("upsert_key")),
+            "upsert_key": item.get("upsert_key") or metadata.get("upsert_key"),
             "lifecycle": item.get("lifecycle", metadata.get("lifecycle")),
             "has_more": has_more,
         }
