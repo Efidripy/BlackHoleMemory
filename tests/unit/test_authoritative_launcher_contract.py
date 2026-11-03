@@ -192,3 +192,25 @@ def test_service_imports_only_explicit_non_secret_governed_feature_configuration
     assert "BHM_CALLER_TOKEN" not in feature_block
     assert "BHM_ADMIN_CAPABILITY" not in feature_block
     assert "Write-Host" not in feature_block
+
+
+def test_authoritative_launcher_adopts_exact_seven_user_environment_variables():
+    text = LAUNCHER.read_text(encoding="utf-8")
+
+    assert text.index("$adoptedUserEnvironmentNames") < text.index("function Set-AuthoritativeEnvironment")
+
+    adopted_vars = (
+        "BHM_MEM0_EMBEDDING_MODEL",
+        "BHM_MEM0_EMBEDDING_DIMS",
+        "BHM_SEARCH_INCLUDE_GLOBAL",
+        "BHM_LLM_RERANK",
+        "BHM_LLM_RERANK_BASE_URL",
+        "BHM_LLM_RERANK_MODEL",
+        "BHM_ANSWERABILITY_RERANK_RESCUE_SCORE",
+    )
+    for var in adopted_vars:
+        assert var in text
+
+    assert "GetEnvironmentVariable($name, 'Process')" in text
+    assert "GetEnvironmentVariable($name, 'User')" in text
+    assert "Write-Host ($adoptedUserEnvironmentNames -join ' ')" in text

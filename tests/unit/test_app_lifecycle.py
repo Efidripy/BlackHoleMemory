@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+import logging
 
 import pytest
 
@@ -180,3 +181,107 @@ def test_lifespan_cleanup_runs_when_worker_stop_fails(monkeypatch: pytest.Monkey
     assert events == ["workers_started", "mcp_enter", "body", "mcp_exit", "api_shutdown"]
     assert created
     assert all(task.done() and task.cancelled() for task in created)
+
+
+def test_startup_warns_on_active_binding_dimension_mismatch(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    binding1 = SimpleNamespace(project="proj-mismatch-1", vector_dimensions=1024)
+    binding2 = SimpleNamespace(project="proj-mismatch-2", vector_dimensions=512)
+
+    monkeypatch.setattr(
+        bhm_app,
+        "active_projection_generation_bindings",
+        lambda _db: (binding1, binding2),
+    )
+    monkeypatch.setattr(bhm_app.settings, "mem0_embedding_dims", 768)
+    monkeypatch.delenv("BHM_MEM0_EMBEDDING_DIMS", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="blackholememory.app"):
+        bhm_app._check_active_project_dimensions()
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "proj-mismatch-1" in warnings[0].message
+    assert "proj-mismatch-2" not in warnings[0].message
+    assert "1024" in warnings[0].message
+    assert "768" in warnings[0].message
+
+
+def test_startup_does_not_warn_when_dimensions_match(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    binding = SimpleNamespace(project="proj-matching", vector_dimensions=768)
+
+    monkeypatch.setattr(
+        bhm_app,
+        "active_projection_generation_bindings",
+        lambda _db: (binding,),
+    )
+    monkeypatch.setattr(bhm_app.settings, "mem0_embedding_dims", 768)
+    monkeypatch.delenv("BHM_MEM0_EMBEDDING_DIMS", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="blackholememory.app"):
+        bhm_app._check_active_project_dimensions()
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 0
+
+
+def test_startup_check_dimension_error_does_not_crash(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def failing_bindings(_db):
+        raise RuntimeError("database unreachable")
+
+    monkeypatch.setattr(
+        bhm_app,
+        "active_projection_generation_bindings",
+        failing_bindings,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="blackholememory.app"):
+        bhm_app._check_active_project_dimensions()
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "Could not verify" in warnings[0].message
+
+
+def test_lifespan_emits_dimension_warning_without_blocking_startup(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    events: list[str] = []
+    _patch_lifespan_dependencies(monkeypatch, events)
+
+    binding = SimpleNamespace(project="proj-mismatch-lifespan", vector_dimensions=1024)
+    monkeypatch.setattr(
+        bhm_app,
+        "active_projection_generation_bindings",
+        lambda _db: (binding,),
+    )
+    monkeypatch.setattr(bhm_app.settings, "mem0_embedding_dims", 768)
+    monkeypatch.delenv("BHM_MEM0_EMBEDDING_DIMS", raising=False)
+
+    @asynccontextmanager
+    async def fake_mcp_run():
+        events.append("mcp_running")
+        yield
+
+    monkeypatch.setattr(app_core._MCP_STREAMABLE_HTTP, "run", fake_mcp_run)
+
+    async def fake_start_workers():
+        events.append("workers_started")
+
+    monkeypatch.setattr(app_lifecycle, "_start_hook_queue_workers", fake_start_workers)
+
+    async def exercise() -> None:
+        async with bhm_app._app_lifespan(bhm_app.app):
+            events.append("lifespan_active")
+
+    with caplog.at_level(logging.WARNING, logger="blackholememory.app"):
+        asyncio.run(exercise())
+
+    assert "lifespan_active" in events
+    warnings = [r for r in caplog.records if r.levelname == "WARNING" and "proj-mismatch-lifespan" in r.message]
+    assert len(warnings) == 1

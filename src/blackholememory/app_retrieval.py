@@ -444,7 +444,26 @@ async def bhm_search(request: MemoryAdvancedSearchRequest) -> dict:
             authorize_projects=authorize_search_projects,
         )
     )
-    return await service.execute(request)
+    try:
+        return await service.execute(request)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        project = getattr(request, "project", None)
+        if not project:
+            if getattr(request, "projects", None):
+                project = ",".join(str(p) for p in request.projects)
+            else:
+                try:
+                    project = app_core_fallback._effective_search_project(None)
+                except Exception:
+                    project = "default"
+        _LOGGER.exception(
+            "POST /bhm/search unhandled error (%s) for project %s",
+            type(exc).__name__,
+            project,
+        )
+        raise HTTPException(status_code=500, detail="Internal server error") from None
 
 
 async def bhm_context_compile(
