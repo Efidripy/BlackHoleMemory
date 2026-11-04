@@ -39,6 +39,16 @@
       "release": true
     },
     {
+      "path": "scripts/backfill_doc2query.py",
+      "role": "operator-maintenance",
+      "release": true
+    },
+    {
+      "path": "scripts/backfill_titles.py",
+      "role": "operator-maintenance",
+      "release": true
+    },
+    {
       "path": "scripts/diff-route-table.py",
       "role": "operator",
       "release": true

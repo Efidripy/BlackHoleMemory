@@ -215,6 +215,7 @@ def test_mcp_temporal_intent_is_forwarded_without_reinterpretation(monkeypatch: 
                 "offset": 0,
                 "include_archived": False,
                 "include_logs": False,
+                "detail": "compact",
                 "project": "blackholememory",
                 "as_of": "2026-08-22T00:00:00Z",
                 "valid_from": "2026-08-20T00:00:00Z",
