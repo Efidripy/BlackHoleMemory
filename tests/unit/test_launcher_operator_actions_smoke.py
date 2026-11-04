@@ -15,11 +15,11 @@ SCRIPTS_ROOT = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from blackholememory.memory_repository import SQLiteMemoryRepository
+from blackholememory.memory_repository import SQLiteMemoryRepository  # noqa: E402
 
-import bhm_launcher
-import bhm_launcher_dashboard
-import bhm_launcher_operator
+import bhm_launcher  # noqa: E402
+import bhm_launcher_dashboard  # noqa: E402
+import bhm_launcher_operator  # noqa: E402
 
 
 ACTION_KEYS = [item.key for item in bhm_launcher.OPERATOR_ACTIONS]

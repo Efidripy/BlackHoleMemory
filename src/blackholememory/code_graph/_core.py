@@ -287,12 +287,14 @@ def _import_file_index(file_paths: set[str]) -> tuple[dict[str, str], dict[str, 
         for name in (*_module_candidates(path, ""), PurePosixPath(path).stem):
             modules.setdefault(name, path)
         for index, char in enumerate(path):
-            if char == "/": suffixes.setdefault(path[index + 1 :], path)
+            if char == "/":
+                suffixes.setdefault(path[index + 1 :], path)
     return modules, suffixes
 
 
 def _index_match(candidates: set[str], index: tuple[dict[str, str], dict[str, str]] | None) -> str | None:
-    if index is None: return None
+    if index is None:
+        return None
     matches = [index[1][item] for item in candidates if item in index[1]]
     return min(matches) if matches else None
 
