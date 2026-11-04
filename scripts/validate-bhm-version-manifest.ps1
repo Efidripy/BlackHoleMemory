@@ -48,11 +48,14 @@ $pluginPath = Join-Path $repoRoot "plugins\bhm-codex-connector\.codex-plugin\plu
 $plugin = Get-Content -Raw -LiteralPath $pluginPath -Encoding UTF8 | ConvertFrom-Json
 Add-Check -Id "plugin-source" -Ok ([string]$plugin.version -eq [string]$components.plugin) -Path $pluginPath -Expected ([string]$components.plugin)
 
-$appPath = Join-Path $repoRoot "src\blackholememory\app.py"
-$appText = Read-Text $appPath
-$runtimeVersionSignal = $null -ne $appText -and $appText.Contains("RUNTIME_VERSION") -and ($appText.Contains('"version": RUNTIME_VERSION') -or $appText.Contains('version=RUNTIME_VERSION'))
-Add-Check -Id "runtime-health" -Ok $runtimeVersionSignal -Path $appPath -Expected "RUNTIME_VERSION from version_manifest"
-Add-Check -Id "broker" -Ok ($null -ne $appText -and $appText.Contains("BROKER_VERSION") -and $appText.Contains('"version": BROKER_VERSION')) -Path $appPath -Expected "BROKER_VERSION from version_manifest"
+$runtimeHealthPath = Join-Path $repoRoot "src\blackholememory\app_telemetry.py"
+$runtimeHealthText = Read-Text $runtimeHealthPath
+$runtimeVersionSignal = $null -ne $runtimeHealthText -and $runtimeHealthText.Contains("from .version_manifest import RUNTIME_VERSION") -and $runtimeHealthText.Contains("runtime_version=RUNTIME_VERSION")
+Add-Check -Id "runtime-health" -Ok $runtimeVersionSignal -Path $runtimeHealthPath -Expected "RUNTIME_VERSION from version_manifest"
+
+$brokerPath = Join-Path $repoRoot "src\blackholememory\app_core.py"
+$brokerText = Read-Text $brokerPath
+Add-Check -Id "broker" -Ok ($null -ne $brokerText -and $brokerText.Contains("BROKER_VERSION") -and $brokerText.Contains('"version": BROKER_VERSION')) -Path $brokerPath -Expected "BROKER_VERSION from version_manifest"
 
 $openapiPath = Join-Path $repoRoot "src\blackholememory\openapi_contract.py"
 $openapiText = Read-Text $openapiPath
@@ -64,9 +67,9 @@ foreach ($relativePath in @("src\blackholememory\static\index.html", "src\blackh
     Add-Check -Id ("ui-" + $relativePath.Replace('\', '/')) -Ok ($null -ne $text -and $text.Contains([string]$components.ui)) -Path $path -Expected ([string]$components.ui)
 }
 
-$launcherPath = Join-Path $repoRoot "scripts\bhm_launcher.py"
+$launcherPath = Join-Path $repoRoot "scripts\bhm_launcher_paths.py"
 $launcherText = Read-Text $launcherPath
-Add-Check -Id "launcher" -Ok ($null -ne $launcherText -and $launcherText.Contains("version-manifest.json") -and $launcherText.Contains("UI_VERSION")) -Path $launcherPath -Expected "UI_VERSION from version manifest"
+Add-Check -Id "launcher" -Ok ($null -ne $launcherText -and $launcherText.Contains("version-manifest.json") -and $launcherText.Contains('"components"') -and $launcherText.Contains('"ui"')) -Path $launcherPath -Expected "UI_VERSION from version manifest"
 
 $releaseScriptPath = Join-Path $repoRoot "scripts\build-release.ps1"
 $releaseScriptText = Read-Text $releaseScriptPath

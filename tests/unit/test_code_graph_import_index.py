@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 import re
 
 from blackholememory.code_graph import _core as core

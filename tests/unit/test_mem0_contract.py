@@ -25,6 +25,7 @@ class _DeterministicEmbedder:
 def mem0_memory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("MEM0_DIR", str(tmp_path / "mem0"))
     monkeypatch.setenv("MEM0_TELEMETRY", "False")
+    monkeypatch.setenv("OPENAI_API_KEY", "contract-test-placeholder")
 
     from mem0 import Memory
     from mem0.configs.base import MemoryConfig, VectorStoreConfig
