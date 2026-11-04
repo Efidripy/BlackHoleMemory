@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import httpx
 
@@ -35,6 +36,7 @@ class _FakeClient:
     calls = 0
     mode = "success"
     response_content = None
+    last_json = None
 
     async def __aenter__(self):
         return self
@@ -44,6 +46,7 @@ class _FakeClient:
 
     async def post(self, _url, *, json, timeout):
         type(self).calls += 1
+        type(self).last_json = json
         assert timeout == 12.0
         assert json["chat_template_kwargs"] == {"enable_thinking": False}
         if self.mode == "error":
@@ -79,6 +82,7 @@ def _configure(monkeypatch, *, enabled=True):
     _FakeClient.calls = 0
     _FakeClient.mode = "success"
     _FakeClient.response_content = None
+    _FakeClient.last_json = None
     monkeypatch.setattr(llm_rerank.httpx, "AsyncClient", _FakeClient)
 
 
@@ -293,3 +297,198 @@ def test_confident_head_helper_direct(monkeypatch):
         {"id": "second", "score": 0.5, "metadata": {}},
     ]
     assert not llm_rerank._confident_head(no_score)
+
+
+def test_listwise3_reranks_with_one_request_and_translates_buckets(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = (
+        '{"analysis": "c2 is direct, c4 is context, c1 is irrelevant", '
+        '"direct_answers": [2], "useful_context": [4], "irrelevant": [1]}'
+    )
+    hits = [
+        {"id": "c1", "content": "first", "metadata": {}},
+        {"id": "c2", "content": "second", "metadata": {}},
+        {"id": "c3", "content": "third", "metadata": {}},
+        {"id": "c4", "content": "fourth", "metadata": {}},
+    ]
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 1
+    assert [hit["id"] for hit in result] == ["c2", "c4", "c3", "c1"]
+    scores = {hit["id"]: hit["metadata"]["llm_rerank_score"] for hit in result}
+    assert scores["c2"] == 10.0
+    assert scores["c4"] == 4.6
+    assert scores["c3"] == 4.0
+    assert scores["c1"] == 1.5
+
+
+def test_listwise3_direct_answers_decay_with_floor(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    monkeypatch.setenv("BHM_LLM_RERANK_TOP_N", "20")
+    order = list(range(1, 18))
+    _FakeClient.response_content = json.dumps({
+        "analysis": "all direct",
+        "direct_answers": order,
+        "useful_context": [],
+        "irrelevant": [],
+    })
+    hits = [{"id": f"c{i}", "content": f"doc{i}", "metadata": {}} for i in order]
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 1
+    scores = [hit["metadata"]["llm_rerank_score"] for hit in result]
+    assert round(scores[0], 2) == 10.0
+    assert round(scores[1], 2) == 9.65
+    assert round(scores[2], 2) == 9.30
+    assert round(scores[14], 2) == 5.10
+    assert round(scores[15], 2) == 5.0
+    assert round(scores[16], 2) == 5.0
+
+
+def test_listwise3_single_direct_answer_scores_ten(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = '{"analysis": "exact match", "direct_answers": [1], "useful_context": [], "irrelevant": []}'
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert _FakeClient.calls == 1
+    assert result[0]["id"] == "first"
+    assert result[0]["metadata"]["llm_rerank_score"] == 10.0
+    assert result[1]["id"] == "second"
+    assert result[1]["metadata"]["llm_rerank_score"] == 4.0
+
+
+def test_listwise3_parses_string_ids_and_markdown_garbage(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = (
+        'Here is my verdict:\n```json\n'
+        '{\n'
+        '  "analysis": "candidate 2 is exact, candidate 1 is useful",\n'
+        '  "direct_answers": ["2"],\n'
+        '  "useful_context": [" 1 "],\n'
+        '  "irrelevant": []\n'
+        '}\n'
+        '```\nDone.'
+    )
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert _FakeClient.calls == 1
+    assert [hit["id"] for hit in result] == ["second", "first"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 10.0
+    assert result[1]["metadata"]["llm_rerank_score"] == 4.6
+
+
+def test_listwise3_discards_out_of_range_and_duplicate_ids_with_precedence(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = json.dumps({
+        "analysis": "mixed duplicate data",
+        "direct_answers": [2, "2", 99, 0],
+        "useful_context": [2, 1],
+        "irrelevant": [1, 2, "abc"],
+    })
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert _FakeClient.calls == 1
+    assert [hit["id"] for hit in result] == ["second", "first"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 10.0
+    assert result[1]["metadata"]["llm_rerank_score"] == 4.6
+
+
+def test_listwise3_empty_lists_and_invalid_json_keeps_original_hits(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+
+    for invalid in (
+        '{"analysis": "no matches", "direct_answers": [], "useful_context": [], "irrelevant": []}',
+        '{"analysis": "all out of range", "direct_answers": [99], "useful_context": [0], "irrelevant": [-5]}',
+        "plain text not json at all",
+        '{"broken json: true',
+        "[]",
+    ):
+        _FakeClient.calls = 0
+        _FakeClient.response_content = invalid
+        hits = _hits()
+        result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+        assert [hit["id"] for hit in result] == ["first", "second"], f"Failed for: {invalid}"
+        assert all("llm_rerank_score" not in hit["metadata"] for hit in result)
+
+
+def test_listwise3_server_error_and_timeout_keeps_original_hits(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+
+    _FakeClient.mode = "error"
+    hits = _hits()
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 1
+    assert [hit["id"] for hit in result] == ["first", "second"]
+    assert all("llm_rerank_score" not in hit["metadata"] for hit in result)
+
+    _FakeClient.calls = 0
+    _FakeClient.mode = "timeout"
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert [hit["id"] for hit in result] == ["first", "second"]
+    assert all("llm_rerank_score" not in hit["metadata"] for hit in result)
+
+
+def test_listwise3_prompt_formatting_and_whitespace_collapse(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+    hits = [
+        {"id": "first", "title": "Doc 1", "content": "  alpha   \n\n  beta \t gamma  ", "metadata": {}},
+        {"id": "second", "title": "Doc 2", "content": "normal text", "metadata": {}},
+    ]
+    blocks = llm_rerank._listwise3_candidate_text(hits)
+    assert blocks[0] == '<candidate id="1" title="Doc 1">alpha beta gamma</candidate>'
+    assert blocks[1] == '<candidate id="2" title="Doc 2">normal text</candidate>'
+
+    _FakeClient.response_content = '{"analysis": "ok", "direct_answers": [1], "useful_context": [], "irrelevant": []}'
+    asyncio.run(llm_rerank.rerank_hits("my query", hits))
+    assert _FakeClient.last_json["max_tokens"] == 300
+    assert _FakeClient.last_json["temperature"] == 0
+    assert _FakeClient.last_json["chat_template_kwargs"] == {"enable_thinking": False}
+    user_content = _FakeClient.last_json["messages"][1]["content"]
+    assert user_content.startswith("Вопрос: my query\n<candidate id=\"1\"")
+
+
+def test_listwise3_stable_sort_preserves_initial_order_on_equal_scores(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = (
+        '{"analysis": "only 3 is irrelevant", "direct_answers": [], "useful_context": [], "irrelevant": [3]}'
+    )
+    hits = [
+        {"id": "c1", "content": "doc1", "metadata": {}},
+        {"id": "c2", "content": "doc2", "metadata": {}},
+        {"id": "c3", "content": "doc3", "metadata": {}},
+    ]
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert [hit["id"] for hit in result] == ["c1", "c2", "c3"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 4.0
+    assert result[1]["metadata"]["llm_rerank_score"] == 4.0
+    assert result[2]["metadata"]["llm_rerank_score"] == 1.5
+
+
+def test_listwise3_preserves_tail_hits_beyond_top_n(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise3")
+    monkeypatch.setenv("BHM_LLM_RERANK_TOP_N", "2")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = '{"analysis": "c2 direct", "direct_answers": [2], "useful_context": [], "irrelevant": []}'
+    hits = [
+        {"id": "c1", "content": "doc1", "metadata": {}},
+        {"id": "c2", "content": "doc2", "metadata": {}},
+        {"id": "c3", "content": "doc3", "metadata": {}},
+        {"id": "c4", "content": "doc4", "metadata": {}},
+    ]
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert [hit["id"] for hit in result] == ["c2", "c1", "c3", "c4"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 10.0
+    assert result[1]["metadata"]["llm_rerank_score"] == 4.0
+    assert "llm_rerank_score" not in result[2]["metadata"]
+    assert "llm_rerank_score" not in result[3]["metadata"]

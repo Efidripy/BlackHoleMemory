@@ -19,6 +19,7 @@ import httpx
 _CONTENT_LIMIT = 600
 _MAX_TOKENS = 25
 _LISTWISE_MAX_TOKENS = 120
+_LISTWISE3_MAX_TOKENS = 300
 _LISTWISE_PROMPT_LIMIT = 12000
 _CACHE_LIMIT = 512
 _CACHE: OrderedDict[tuple[str, str, str], float] = OrderedDict()
@@ -39,6 +40,19 @@ _LISTWISE_SYSTEM_PROMPT = (
     'Ответь ТОЛЬКО JSON формата {"order":[номера],"answers":[номера]}, '
     "где order содержит номера подходящих документов, а answers — номера, "
     "которые полностью отвечают на вопрос. Если подходящих нет, верни пустые списки."
+)
+
+_LISTWISE3_SYSTEM_PROMPT = (
+    "Ты экспертный модуль переоценки поисковой выдачи. "
+    "Определи, какие из кандидатов помогут ответить на вопрос, а какие бесполезны или отвлекают. "
+    "Три группы: direct_answers - содержит точный ответ, факты, параметры, пути, решения; "
+    "useful_context - та же тема, связанный контекст; "
+    "irrelevant - другая тема, пустые общие слова. "
+    "Используй только номера из списка. "
+    "Внутри direct_answers отсортируй от самого важного к менее важному. "
+    "Сначала кратко (одно-два предложения) напиши analysis, затем списки. "
+    'Ответ строго валидный JSON без markdown: '
+    '{"analysis": "...", "direct_answers": [...], "useful_context": [...], "irrelevant": [...]}'
 )
 
 
@@ -223,24 +237,33 @@ def _response_text(payload: Mapping[str, Any]) -> str:
     return content
 
 
-def _listwise_candidate_text(selected: Sequence[Mapping[str, Any]]) -> list[str]:
+def _format_candidate_blocks(
+    selected: Sequence[Mapping[str, Any]],
+    format_block: Any,
+    collapse_whitespace: bool = False,
+) -> list[str]:
+    raw_contents = [
+        " ".join(_hit_content(hit).split()) if collapse_whitespace else _hit_content(hit)
+        for hit in selected
+    ]
+    initial_contents = [content[:_CONTENT_LIMIT] for content in raw_contents]
     blocks = [
-        f"{index}. Заголовок: {_hit_title(hit)}\nТекст: {_hit_content(hit)[:_CONTENT_LIMIT]}"
-        for index, hit in enumerate(selected, 1)
+        format_block(index, hit, content)
+        for index, (hit, content) in enumerate(zip(selected, initial_contents), 1)
     ]
     total_length = sum(len(block) for block in blocks)
     if total_length <= _LISTWISE_PROMPT_LIMIT:
         return blocks
 
     fixed_lengths = [
-        len(block) - len(_hit_content(hit)[:_CONTENT_LIMIT])
-        for block, hit in zip(blocks, selected)
+        len(block) - len(content)
+        for block, content in zip(blocks, initial_contents)
     ]
     available = max(
         250 * len(selected),
         _LISTWISE_PROMPT_LIMIT - sum(fixed_lengths),
     )
-    content_lengths = [len(_hit_content(hit)[:_CONTENT_LIMIT]) for hit in selected]
+    content_lengths = [len(content) for content in initial_contents]
     scale = min(1.0, available / max(sum(content_lengths), 1))
     lengths = [max(250, min(length, int(length * scale))) for length in content_lengths]
     while sum(lengths) > available:
@@ -249,9 +272,25 @@ def _listwise_candidate_text(selected: Sequence[Mapping[str, Any]]) -> list[str]
             break
         lengths[index] -= 1
     return [
-        f"{index}. Заголовок: {_hit_title(hit)}\nТекст: {_hit_content(hit)[:length]}"
-        for index, (hit, length) in enumerate(zip(selected, lengths), 1)
+        format_block(index, hit, text[:length])
+        for index, (hit, text, length) in enumerate(zip(selected, raw_contents, lengths), 1)
     ]
+
+
+def _listwise_candidate_text(selected: Sequence[Mapping[str, Any]]) -> list[str]:
+    return _format_candidate_blocks(
+        selected,
+        lambda idx, hit, content: f"{idx}. Заголовок: {_hit_title(hit)}\nТекст: {content}",
+        collapse_whitespace=False,
+    )
+
+
+def _listwise3_candidate_text(selected: Sequence[Mapping[str, Any]]) -> list[str]:
+    return _format_candidate_blocks(
+        selected,
+        lambda idx, hit, content: f'<candidate id="{idx}" title="{_hit_title(hit)}">{content}</candidate>',
+        collapse_whitespace=True,
+    )
 
 
 def _parse_listwise(text: str, candidate_count: int) -> tuple[list[int], set[int]]:
@@ -291,6 +330,57 @@ def _parse_listwise(text: str, candidate_count: int) -> tuple[list[int], set[int
     return order, answers
 
 
+def _clean_candidate_ids(
+    raw_list: Any,
+    candidate_count: int,
+    seen: set[int],
+) -> list[int]:
+    if not isinstance(raw_list, list):
+        return []
+    cleaned: list[int] = []
+    for item in raw_list:
+        if isinstance(item, bool):
+            continue
+        cid: int | None = None
+        if isinstance(item, int):
+            cid = item
+        elif isinstance(item, str) and item.strip().isdigit():
+            try:
+                cid = int(item.strip())
+            except ValueError:
+                cid = None
+        if cid is not None and 1 <= cid <= candidate_count and cid not in seen:
+            seen.add(cid)
+            cleaned.append(cid)
+    return cleaned
+
+
+def _parse_listwise3(
+    text: str,
+    candidate_count: int,
+) -> tuple[list[int], list[int], list[int]]:
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise ValueError("no json object found")
+    try:
+        parsed = json.loads(text[start : end + 1])
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid listwise3 response json") from exc
+    if not isinstance(parsed, Mapping):
+        raise ValueError("invalid listwise3 response shape")
+
+    seen: set[int] = set()
+    direct_answers = _clean_candidate_ids(parsed.get("direct_answers"), candidate_count, seen)
+    useful_context = _clean_candidate_ids(parsed.get("useful_context"), candidate_count, seen)
+    irrelevant = _clean_candidate_ids(parsed.get("irrelevant"), candidate_count, seen)
+
+    if not direct_answers and not useful_context and not irrelevant:
+        raise ValueError("all listwise3 candidate groups are empty")
+
+    return direct_answers, useful_context, irrelevant
+
+
 async def _request_listwise(
     client: httpx.AsyncClient,
     endpoint: str,
@@ -321,6 +411,58 @@ async def _request_listwise(
     )
     response.raise_for_status()
     return _parse_listwise(_response_text(response.json()), len(selected))
+
+
+async def _request_listwise3(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    model: str,
+    query: str,
+    selected: Sequence[Mapping[str, Any]],
+    timeout_s: float,
+) -> tuple[list[int], list[int], list[int]]:
+    blocks = _listwise3_candidate_text(selected)
+    user_prompt = f"Вопрос: {query}\n" + "\n".join(blocks)
+    response = await client.post(
+        endpoint,
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": _LISTWISE3_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0,
+            "max_tokens": _LISTWISE3_MAX_TOKENS,
+            "chat_template_kwargs": {"enable_thinking": False},
+        },
+        timeout=timeout_s,
+    )
+    response.raise_for_status()
+    return _parse_listwise3(_response_text(response.json()), len(selected))
+
+
+def _apply_scores_and_rank(
+    hits: Sequence[dict[str, Any]],
+    selected: list[dict[str, Any]],
+    scores: Mapping[int, float],
+    top_n: int,
+) -> list[dict[str, Any]]:
+    for index, score in scores.items():
+        metadata = dict(selected[index].get("metadata") or {})
+        metadata["llm_rerank_score"] = score
+        selected[index]["metadata"] = metadata
+    blend = _blend()
+    span = max(len(selected) - 1, 1)
+
+    def sort_key(item: tuple[int, dict[str, Any]]) -> tuple[float, int]:
+        index = item[0]
+        base = scores[index]
+        if blend:
+            base += blend * 10.0 * (1.0 - index / span)
+        return base, -index
+
+    ranked = sorted(enumerate(selected), key=sort_key, reverse=True)
+    return [hit for _, hit in ranked] + list(hits[top_n:])
 
 
 async def _request_score(
@@ -368,7 +510,27 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
         return list(hits)
     endpoint = f"{base_url}/chat/completions"
 
-    if _setting("BHM_LLM_RERANK_MODE", "pointwise") == "listwise":
+    mode = _setting("BHM_LLM_RERANK_MODE", "pointwise")
+    if mode == "listwise3":
+        async with httpx.AsyncClient() as client:
+            try:
+                direct_answers, useful_context, irrelevant = await asyncio.wait_for(
+                    _request_listwise3(client, endpoint, model, query, selected, timeout_s),
+                    timeout=timeout_s,
+                )
+            except Exception:
+                return list(hits)
+        # Unnamed candidates receive 4.0 so context is soft-retained without qualifying as confirmed (>= 5.0).
+        scores = {index: 4.0 for index in range(len(selected))}
+        for cid in irrelevant:
+            scores[cid - 1] = 1.5
+        for cid in useful_context:
+            scores[cid - 1] = 4.6
+        for rank, cid in enumerate(direct_answers):
+            scores[cid - 1] = max(5.0, 10.0 - 0.35 * rank)
+        return _apply_scores_and_rank(hits, selected, scores, top_n)
+
+    if mode == "listwise":
         async with httpx.AsyncClient() as client:
             try:
                 order, answers = await asyncio.wait_for(
@@ -383,22 +545,7 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
             if not answers:
                 score = min(score, 7.0)
             scores[candidate_number - 1] = score
-        for index, score in scores.items():
-            metadata = dict(selected[index].get("metadata") or {})
-            metadata["llm_rerank_score"] = score
-            selected[index]["metadata"] = metadata
-        blend = _blend()
-        span = max(len(selected) - 1, 1)
-
-        def sort_key(item: tuple[int, dict[str, Any]]) -> tuple[float, int]:
-            index = item[0]
-            base = scores[index]
-            if blend:
-                base += blend * 10.0 * (1.0 - index / span)
-            return base, -index
-
-        ranked = sorted(enumerate(selected), key=sort_key, reverse=True)
-        return [hit for _, hit in ranked] + list(hits[top_n:])
+        return _apply_scores_and_rank(hits, selected, scores, top_n)
 
     scores: dict[int, float] = {}
     failed = False
