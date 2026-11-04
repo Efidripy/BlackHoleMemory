@@ -208,6 +208,7 @@ def test_authoritative_launcher_adopts_exact_seven_user_environment_variables():
         "BHM_LLM_RERANK_MODEL",
         "BHM_ANSWERABILITY_RERANK_RESCUE_SCORE",
         "BHM_WRITE_DOC2QUERY",
+        "BHM_WRITE_DEDUP",
     )
     for var in adopted_vars:
         assert var in text

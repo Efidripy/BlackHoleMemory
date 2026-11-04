@@ -25,7 +25,8 @@ foreach ($name in @(
     'BHM_LLM_RERANK_BASE_URL',
     'BHM_LLM_RERANK_MODEL',
     'BHM_ANSWERABILITY_RERANK_RESCUE_SCORE',
-    'BHM_WRITE_DOC2QUERY'
+    'BHM_WRITE_DOC2QUERY',
+    'BHM_WRITE_DEDUP'
   )) {
   if ([string]::IsNullOrWhiteSpace([string][Environment]::GetEnvironmentVariable($name, 'Process'))) {
     $userValue = [string][Environment]::GetEnvironmentVariable($name, 'User')
