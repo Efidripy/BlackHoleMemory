@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from blackholememory.model_router import ModelRouterError, route_model, router_snapshot
+from blackholememory.model_router import DEFAULT_MODEL_INVENTORY, ModelRouterError, route_model, router_snapshot
+
+
+def test_default_inventory_uses_bge_m3_embedding_model():
+    embedding = next(item for item in DEFAULT_MODEL_INVENTORY if "embedding" in item["capabilities"])
+
+    assert embedding["model_id"] == "text-embedding-bge-m3"
+    assert embedding["context_window"] == 8192
 
 
 def test_default_8k_profile_routes_local_coder_model():
