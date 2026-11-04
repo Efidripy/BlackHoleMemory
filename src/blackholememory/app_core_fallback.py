@@ -44,7 +44,12 @@ from .temporal_contract import temporal_intent_requested
 from . import app_core_memory_base as app_core
 from . import app_core_graph
 from . import app_core_hit
-from .retrieval_rank_tuning import cap_checkpoints_in_top, search_include_checkpoints_enabled
+from .retrieval_rank_tuning import (
+    cap_checkpoints_in_top,
+    demote_near_duplicates,
+    length_normalized,
+    search_include_checkpoints_enabled,
+)
 
 from . import llm_rerank
 
@@ -933,7 +938,12 @@ async def federated_search(
     if include_graph_expansion:
         filtered = await app_core_hit._augment_hits_with_graph_expansion(filtered, project_name, now)
     ranked_hits = cap_checkpoints_in_top(
-        await llm_rerank.rerank_hits(query, app_core_hit._rank_hybrid_vector_hits(query, filtered))
+        demote_near_duplicates(
+            await llm_rerank.rerank_hits(
+                query,
+                length_normalized(app_core_hit._rank_hybrid_vector_hits(query, filtered)),
+            )
+        )
     )
     total = len(ranked_hits)
     trace_contours = [*results]
