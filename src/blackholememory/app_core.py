@@ -397,17 +397,33 @@ def _admit_new_content(*, ingress: IngressKind, project: str, actor: str, payloa
 
 
 def _remember_response(record: dict[str, Any]) -> dict[str, Any]:
-    return {
+    metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
+    duplicate_ids = metadata.get("possible_duplicate_of")
+    memory_id = record.get("source_id") or record.get("id") or record.get("memory_id")
+    raw_title = metadata.get("raw_title") if isinstance(metadata, dict) else None
+    title = raw_title or record.get("title") or ""
+    response: dict[str, Any] = {
         "success": True,
         "memory": {
-            "id": record["source_id"],
-            "title": record["metadata"]["raw_title"],
-            "project": record["project"],
-            "type": record["memory_type"],
+            "id": memory_id,
+            "title": title,
+            "project": record.get("project"),
+            "type": record.get("memory_type") or record.get("type"),
             "memoryClass": _effective_memory_class(record),
-            "createdAt": record["created_at"],
+            "createdAt": record.get("created_at"),
         },
     }
+    if duplicate_ids:
+        response["possible_duplicate_of"] = list(duplicate_ids)
+        response["memory"]["possible_duplicate_of"] = list(duplicate_ids)
+        response["memory"]["metadata"] = {"possible_duplicate_of": list(duplicate_ids)}
+    if record.get("_dedup_skipped") or metadata.get("dedup_reason") == "duplicate":
+        response["reason"] = "duplicate"
+        response["id"] = memory_id
+        response["memory_id"] = memory_id
+    elif metadata.get("dedup_reason"):
+        response["reason"] = metadata["dedup_reason"]
+    return response
 
 
 async def _remember_authoritative(request: RememberRequest, *, actor: str) -> dict[str, Any]:

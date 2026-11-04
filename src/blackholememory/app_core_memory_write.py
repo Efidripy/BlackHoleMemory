@@ -22,6 +22,7 @@ from .temporal_contract import temporal_contract_enabled
 from .typed_memory_contract import classify_new_memory
 from .typed_memory_contract import TypedMemoryContractUnavailable
 from .typed_memory_contract import typed_memory_capability_available
+from .write_dedup import WriteDedupDecision, find_write_duplicates
 
 MemoryClassSource = _base.MemoryClassSource
 EVENT_ROLE_SCHEMA_VERSION = _base.EVENT_ROLE_SCHEMA_VERSION
@@ -33,6 +34,33 @@ def _remember_live_memory(request: RememberRequest) -> dict:
     source_id = f"mem_bhm_{uuid.uuid4().hex[:16]}"
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     project = rt._canonical_project(request.project)
+    dedup_decision = WriteDedupDecision("off")
+    if not request.upsert_key:
+        try:
+            dedup_decision = find_write_duplicates(
+                project=project,
+                memory_type=request.type,
+                title=(request.title or "").strip() or _base._build_memory_title(request.content),
+                content=request.content,
+                service_getter=rt._memory_service,
+            )
+        except Exception as exc:  # dedup is explicitly fail-open
+            app_core_fallback._LOGGER.warning("memory write dedup check failed (%s)", type(exc).__name__)
+            dedup_decision = WriteDedupDecision("off")
+        if dedup_decision.mode == "skip" and dedup_decision.existing is not None:
+            existing = copy.deepcopy(dedup_decision.existing)
+            existing_id = existing.get("source_id") or existing.get("id")
+            if existing_id:
+                existing["source_id"] = existing_id
+            existing_type = existing.get("memory_type") or existing.get("type")
+            if existing_type:
+                existing["memory_type"] = existing_type
+            existing_metadata = dict(existing.get("metadata") or {})
+            existing_metadata["possible_duplicate_of"] = list(dedup_decision.duplicate_ids)
+            existing_metadata["dedup_reason"] = "duplicate"
+            existing["metadata"] = existing_metadata
+            existing["_dedup_skipped"] = True
+            return existing
     temporal_request_fields = {
         key: getattr(request, key)
         for key in (
@@ -96,6 +124,7 @@ def _remember_live_memory(request: RememberRequest) -> dict:
             "memory_class_rule_version": classification.rule_version,
             "event_role": event_role.value,
             "event_role_version": EVENT_ROLE_SCHEMA_VERSION,
+            **({"possible_duplicate_of": list(dedup_decision.duplicate_ids)} if dedup_decision.mode == "warn" and dedup_decision.is_duplicate else {}),
             **user_metadata,
         },
         created_at=now,
@@ -425,6 +454,9 @@ def _crystallize_memories(request: MemoryCrystallizeRequest) -> tuple[str, dict]
             )
         )
         action = "created"
+
+    if record.get("_dedup_skipped"):
+        return "skipped", record
 
     metadata = record.setdefault("metadata", {})
     metadata["crystallized_from"] = request.source_ids
