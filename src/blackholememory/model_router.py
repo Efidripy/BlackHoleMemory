@@ -49,9 +49,9 @@ DEFAULT_MODEL_INVENTORY = (
         "selection_tier": 3,
     },
     {
-        "model_id": "text-embedding-nomic-embed-text-v1.5",
+        "model_id": "text-embedding-bge-m3",
         "capabilities": ("embedding",),
-        "context_window": 2048,
+        "context_window": 8192,
         "local_only": True,
         "available": True,
         "latency_ms": 100.0,

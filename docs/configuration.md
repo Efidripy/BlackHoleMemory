@@ -24,7 +24,7 @@ SQLite authority boundary.
 
 Обязательный `provider_ready` проверяет только BHM embedding endpoint с
 `BHM_MEM0_EMBEDDING_MODEL` (по умолчанию
-`text-embedding-nomic-embed-text-v1.5`). Это ровно тот provider, который нужен
+`text-embedding-bge-m3`). Это ровно тот provider, который нужен
 semantic retrieval. Probe не сохраняет вектор и не вызывает chat completion.
 
 `OPENAI_MODEL` — пользовательская или operator chat-модель — не влияет на

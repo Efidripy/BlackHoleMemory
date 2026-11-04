@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     mem0_provider_hint: str = "python-package"
     mem0_collection_name: str = "blackholememory-mem0"
     mem0_user_id: str = "blackholememory-import"
-    mem0_embedding_dims: int = 768
+    mem0_embedding_dims: int = 1024
     mem0_llm_provider: str = "openai"
     mem0_embedder_provider: str = "openai"
     mem0_api_key: str = _read_memory_env_value("OPENAI_API_KEY", "")
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     mem0_llm_model: str = _read_memory_env_value("OPENAI_MODEL", "qwen2.5-coder-7b-instruct")
     mem0_embedding_model: str = _read_memory_env_value(
         "BHM_MEM0_EMBEDDING_MODEL",
-        "text-embedding-nomic-embed-text-v1.5",
+        "text-embedding-bge-m3",
     )
     repo_root: Path = Path(__file__).resolve().parents[2]
     runtime_dir: Path = repo_root / ".runtime"
