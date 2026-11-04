@@ -306,7 +306,9 @@ def test_concurrency_bounding():
     assert peak <= 2
 
 
-def test_service_wiring_single_project_without_projects():
+def test_service_wiring_single_project_without_projects(monkeypatch):
+    # The default contour is under test; the machine may set this variable for the live API.
+    monkeypatch.delenv("BHM_SEARCH_INCLUDE_GLOBAL", raising=False)
     federated_calls = []
 
     async def mock_federated_search(query, project, **kwargs):
