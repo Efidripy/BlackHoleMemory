@@ -27,6 +27,10 @@ from blackholememory.retrieval_rank_tuning import (
     title_boost_weight,
     title_lexical_bonus,
     search_include_global_enabled,
+    demote_near_duplicates,
+    length_normalized,
+    search_dedup_jaccard_threshold,
+    search_length_norm_anchor,
 )
 
 
@@ -395,3 +399,154 @@ def test_state_freshness_bonus_prefers_new_state_and_is_opt_in(monkeypatch: pyte
     ranked = _rank_hybrid_vector_hits(query, [stale, current])
     assert [item["id"] for item in ranked] == ["current", "stale"]
     assert ranked[0]["metadata"]["state_freshness_bonus"] > ranked[1]["metadata"]["state_freshness_bonus"]
+
+
+
+def test_demote_near_duplicates_disabled_by_default_and_invalid_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BHM_SEARCH_DEDUP_JACCARD", raising=False)
+    hits = [
+        {"id": "a", "title": "Test Title", "content": "Sample content for testing duplicate detection."},
+        {"id": "b", "title": "Test Title", "content": "Sample content for testing duplicate detection."},
+    ]
+    # Disabled by default: returns identical object
+    assert demote_near_duplicates(hits) is hits
+    assert search_dedup_jaccard_threshold() is None
+
+    # Garbage / disabled environment values
+    for invalid in ("", "   ", "0", "0.0", "-0.1", "1.1", "nan", "inf", "not-a-number", "false"):
+        monkeypatch.setenv("BHM_SEARCH_DEDUP_JACCARD", invalid)
+        assert search_dedup_jaccard_threshold() is None
+        assert demote_near_duplicates(hits) is hits
+
+    # Garbage passed as parameter
+    monkeypatch.delenv("BHM_SEARCH_DEDUP_JACCARD", raising=False)
+    for invalid_val in (0, 0.0, -0.5, 1.5, "garbage"):  # type: ignore[arg-type]
+        assert search_dedup_jaccard_threshold(invalid_val) is None
+        assert demote_near_duplicates(hits, threshold=invalid_val) is hits
+
+
+def test_demote_near_duplicates_reorders_within_window_preserving_order() -> None:
+    # 5 hits; window=4; hit-0 and hit-1 are duplicates; hit-2 and hit-3 are different; hit-4 is outside window
+    hits = [
+        {"id": "h0", "score": 0.95, "title": "PostgreSQL pool tuning", "content": "Connection pool size parameters and timeout guide."},
+        {"id": "h1", "score": 0.92, "title": "PostgreSQL pool tuning guide", "content": "Connection pool size parameters and timeout guide in postgresql."},
+        {"id": "h2", "score": 0.88, "title": "React theme palette", "content": "CSS custom properties and color variables definition."},
+        {"id": "h3", "score": 0.85, "title": "Kubernetes helm chart", "content": "Deployment templates and ingress configuration."},
+        {"id": "h4", "score": 0.80, "title": "WAL-G backup strategy", "content": "Storage retention and continuous archive verification."},
+    ]
+
+    out = demote_near_duplicates(hits, window=4, threshold=0.5)
+    # hit-1 moved to the end of the 4-item window (index 3). hit-4 after window untouched.
+    assert [h["id"] for h in out] == ["h0", "h2", "h3", "h1", "h4"]
+    # All scores and objects are preserved without mutation
+    assert [h["score"] for h in out] == [0.95, 0.88, 0.85, 0.92, 0.80]
+    assert {id(h) for h in out} == {id(h) for h in hits}
+
+
+def test_demote_near_duplicates_preserves_mutual_order_of_multiple_demoted() -> None:
+    hits = [
+        {"id": "a1", "title": "Database replication failover", "content": "Primary standby sync state."},
+        {"id": "a2", "title": "Database replication failover guide", "content": "Primary standby sync state details."},
+        {"id": "b1", "title": "Kafka consumer group lag", "content": "Monitoring partition offsets."},
+        {"id": "b2", "title": "Kafka consumer group lag monitor", "content": "Monitoring partition offsets alerts."},
+        {"id": "c1", "title": "Redis cluster eviction policy", "content": "Volatile lru memory limits."},
+    ]
+
+    out = demote_near_duplicates(hits, window=5, threshold=0.5)
+    # a2 and b2 are demoted to the end of window, preserving mutual order (a2 then b2)
+    assert [h["id"] for h in out] == ["a1", "b1", "c1", "a2", "b2"]
+
+
+def test_demote_near_duplicates_handles_cyrillic_short_words_and_text_limit() -> None:
+    # Short words (< 3 chars like 'в', 'по', 'на', 'db', 'ui') are ignored
+    # Russian letters with 'ё' are recognized
+    hit_base = {
+        "id": "c1",
+        "title": "Ёлка в лесу на Новый Год",
+        "content": "ui db по в на праздничная ёлка украшена гирляндами яркими.",
+    }
+    hit_near = {
+        "id": "c2",
+        "title": "ёлка в лесу на новый год",
+        "content": "праздничная ёлка украшена гирляндами яркими новыми огоньками.",
+    }
+    hit_diff = {
+        "id": "c3",
+        "title": "Настройка Nginx прокси",
+        "content": "конфигурация upstream балансировщика запросов.",
+    }
+    out = demote_near_duplicates([hit_base, hit_near, hit_diff], window=3, threshold=0.5)
+    assert [h["id"] for h in out] == ["c1", "c3", "c2"]
+
+    # Only first 600 characters of content participate
+    long_prefix = "уникальный заголовок темы " + ("alpha beta gamma delta " * 30)
+    suffix_a = "tail text different one two three"
+    suffix_b = "tail text different four five six"
+    h_a = {"id": "la", "title": "", "content": long_prefix[:500] + suffix_a}
+    h_b = {"id": "lb", "title": "", "content": long_prefix[:500] + suffix_b}
+    out_long = demote_near_duplicates([h_a, h_b], window=2, threshold=0.6)
+    assert [h["id"] for h in out_long] == ["la", "lb"]
+
+
+def test_length_normalized_disabled_by_default_and_invalid_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("BHM_SEARCH_LENGTH_NORM_ANCHOR", raising=False)
+    hits = [
+        {"id": "1", "score": 0.8, "content": "Short text"},
+        {"id": "2", "score": 0.8, "content": "Very long text " * 100},
+    ]
+    # Disabled by default: returns identical object
+    assert length_normalized(hits) is hits
+    assert search_length_norm_anchor() is None
+
+    # Garbage / disabled environment values (< 100, non-numeric, empty)
+    for invalid in ("", "   ", "0", "99", "-100", "not-a-number", "false"):
+        monkeypatch.setenv("BHM_SEARCH_LENGTH_NORM_ANCHOR", invalid)
+        assert search_length_norm_anchor() is None
+        assert length_normalized(hits) is hits
+
+    # Garbage passed as parameter
+    monkeypatch.delenv("BHM_SEARCH_LENGTH_NORM_ANCHOR", raising=False)
+    for invalid_val in (0, 50, -10, "garbage"):  # type: ignore[arg-type]
+        assert search_length_norm_anchor(invalid_val) is None
+        assert length_normalized(hits, anchor=invalid_val) is hits
+
+
+def test_length_normalized_reorders_long_and_short_with_equal_score() -> None:
+    # Initial order: long card first, short card second with equal score 0.90
+    long_content = "x" * 4000  # len = 4000
+    short_content = "y" * 200   # len = 200
+    hits = [
+        {"id": "long", "score": 0.90, "content": long_content, "metadata": {"origin": "wiki"}},
+        {"id": "short", "score": 0.90, "content": short_content, "metadata": {"origin": "note"}},
+    ]
+
+    out = length_normalized(hits, anchor=1000)
+    # Returns a new list
+    assert out is not hits
+    # Short card ranks higher than long card due to length penalty
+    assert [h["id"] for h in out] == ["short", "long"]
+
+    # Short card score unchanged, metadata untouched
+    short_hit = out[0]
+    assert short_hit["score"] == pytest.approx(0.90)
+    assert "score_before_length_norm" not in short_hit["metadata"]
+    assert short_hit["metadata"]["origin"] == "note"
+
+    # Long card score discounted: 0.90 * (1 / (1 + log2(4000 / 1000))) = 0.90 / (1 + 2) = 0.30
+    long_hit = out[1]
+    assert long_hit["score"] == pytest.approx(0.30)
+    assert long_hit["metadata"]["score_before_length_norm"] == pytest.approx(0.90)
+    assert long_hit["metadata"]["origin"] == "wiki"
+
+    # Original hits were not mutated
+    assert hits[0]["score"] == 0.90
+    assert "score_before_length_norm" not in hits[0]["metadata"]
+
+
+def test_length_normalized_stable_sort_preserves_order_on_ties() -> None:
+    hits = [
+        {"id": "a", "score": 0.75, "content": "short text a"},
+        {"id": "b", "score": 0.75, "content": "short text b"},
+    ]
+    out = length_normalized(hits, anchor=500)
+    assert [h["id"] for h in out] == ["a", "b"]

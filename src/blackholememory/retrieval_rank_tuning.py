@@ -187,6 +187,144 @@ def hit_title(hit: dict[str, Any]) -> str:
     return ""
 
 
+def _hit_content(hit: dict[str, Any]) -> str:
+    if not isinstance(hit, dict):
+        return ""
+    val = hit.get("content") or hit.get("text") or hit.get("memory")
+    if val is not None and str(val).strip():
+        return str(val)
+    metadata = hit.get("metadata")
+    if isinstance(metadata, dict):
+        nested = metadata.get("metadata")
+        for source in (metadata, nested if isinstance(nested, dict) else {}):
+            val = source.get("content") or source.get("text") or source.get("memory")
+            if val is not None and str(val).strip():
+                return str(val)
+    return ""
+
+
+_RE_DIVERSITY_WORD = re.compile(r"[a-z0-9а-яё]+")
+
+
+def _hit_diversity_words(hit: dict[str, Any]) -> set[str]:
+    title = hit_title(hit)
+    content = _hit_content(hit)
+    sample = f"{title} {content[:600]}".casefold()
+    return {w for w in _RE_DIVERSITY_WORD.findall(sample) if len(w) >= 3}
+
+
+def search_dedup_jaccard_threshold(threshold: float | None = None) -> float | None:
+    if threshold is not None:
+        try:
+            value = float(threshold)
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and 0.0 < value <= 1.0 else None
+
+    raw = os.environ.get("BHM_SEARCH_DEDUP_JACCARD")
+    if raw is None or not raw.strip():
+        return None
+    try:
+        value = float(raw.strip())
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) and 0.0 < value <= 1.0 else None
+
+
+def demote_near_duplicates(
+    hits: list[dict[str, Any]],
+    window: int = 8,
+    threshold: float | None = None,
+) -> list[dict[str, Any]]:
+    effective_threshold = search_dedup_jaccard_threshold(threshold)
+    if effective_threshold is None:
+        return hits
+
+    win_size = max(int(window), 0)
+    if win_size <= 1 or len(hits) <= 1:
+        return hits
+
+    actual_window = min(win_size, len(hits))
+    leading = hits[:actual_window]
+    trailing = hits[actual_window:]
+
+    kept: list[dict[str, Any]] = []
+    demoted: list[dict[str, Any]] = []
+    kept_words: list[set[str]] = []
+
+    for hit in leading:
+        words = _hit_diversity_words(hit)
+        is_duplicate = False
+        if words:
+            for prior_words in kept_words:
+                if not prior_words:
+                    continue
+                intersection = len(words & prior_words)
+                if not intersection:
+                    continue
+                union = len(words | prior_words)
+                if union > 0 and (intersection / union) >= (effective_threshold - 1e-9):
+                    is_duplicate = True
+                    break
+        if is_duplicate:
+            # Demoting near-duplicates without eviction keeps them reachable while exposing distinct results.
+            demoted.append(hit)
+        else:
+            kept.append(hit)
+            kept_words.append(words)
+
+    return kept + demoted + trailing
+
+
+def search_length_norm_anchor(anchor: int | None = None) -> int | None:
+    if anchor is not None:
+        try:
+            value = int(anchor)
+        except (TypeError, ValueError):
+            return None
+        return value if value >= 100 else None
+
+    raw = os.environ.get("BHM_SEARCH_LENGTH_NORM_ANCHOR")
+    if raw is None or not raw.strip():
+        return None
+    try:
+        value = int(raw.strip())
+    except (TypeError, ValueError):
+        return None
+    return value if value >= 100 else None
+
+
+def length_normalized(
+    hits: list[dict[str, Any]],
+    anchor: int | None = None,
+) -> list[dict[str, Any]]:
+    effective_anchor = search_length_norm_anchor(anchor)
+    if effective_anchor is None or not hits:
+        return hits
+
+    adjusted_hits: list[dict[str, Any]] = []
+    for hit in hits:
+        if not isinstance(hit, dict):
+            continue
+        text = _hit_content(hit)
+        text_len = len(text)
+        if text_len > effective_anchor:
+            hit_copy = dict(hit)
+            metadata = dict(hit_copy.get("metadata") or {}) if isinstance(hit_copy.get("metadata"), dict) else {}
+            raw_score = float(hit_copy.get("score") or 0.0)
+            metadata["score_before_length_norm"] = raw_score
+            hit_copy["metadata"] = metadata
+            # Dampen score growth from lengthy card text dominating lexical retrieval.
+            multiplier = 1.0 / (1.0 + math.log2(text_len / effective_anchor))
+            hit_copy["score"] = raw_score * multiplier
+            adjusted_hits.append(hit_copy)
+        else:
+            adjusted_hits.append(dict(hit))
+
+    adjusted_hits.sort(key=lambda item: float(item.get("score") or 0.0), reverse=True)
+    return adjusted_hits
+
+
 def title_lexical_bonus(query: str, hit: dict[str, Any], *, weight: float | None = None) -> float:
     title = hit_title(hit)
     if not title:
