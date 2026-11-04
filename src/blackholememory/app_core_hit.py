@@ -253,7 +253,7 @@ def _write_vector_record(
     updated_ids: list[str] = []
     for mem0_id in existing_ids:
         try:
-            memory.update(mem0_id, data=content, metadata=metadata)
+            memory.update(mem0_id, text=content, metadata=metadata)
         except Exception as exc:  # broad: best-effort Mem0 update must not block authoritative flow
             app_core_fallback._LOGGER.warning("Mem0 vector update skipped (%s)", type(exc).__name__)
             continue
