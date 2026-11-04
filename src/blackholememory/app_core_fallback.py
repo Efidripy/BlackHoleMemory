@@ -492,12 +492,17 @@ def _strict_retrieval_hits(
                 "source_uri": record.get("source_uri") or authoritative_metadata.get("source_uri"),
                 "source_digest": record.get("source_digest") or authoritative_metadata.get("source_digest"),
                 "upsert_key": record.get("upsert_key") or authoritative_metadata.get("upsert_key"),
+                "raw_title": record.get("title")
+                or authoritative_metadata.get("raw_title")
+                or metadata.get("raw_title"),
             }
         )
         enriched["metadata"] = metadata
         enriched["source_id"] = source_id
         enriched["content"] = record.get("content")
         enriched["memory"] = record.get("content")
+        if metadata["raw_title"]:
+            enriched["title"] = metadata["raw_title"]
         accepted.append(enriched)
     return accepted[: max(int(limit), 1)]
 
