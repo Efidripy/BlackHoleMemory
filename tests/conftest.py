@@ -12,6 +12,7 @@ os.environ["BHM_CALLER_TOKEN"] = TEST_CALLER_TOKEN
 os.environ["BHM_CALLER_ID"] = "pytest"
 os.environ["BHM_CALLER_PROJECTS"] = "*"
 os.environ["BHM_CALLER_DEFAULT_PROJECT"] = "blackholememory"
+os.environ.pop("BHM_SEARCH_INCLUDE_GLOBAL", None)
 
 
 _ORIGINAL_TEST_CLIENT_INIT = TestClient.__init__
