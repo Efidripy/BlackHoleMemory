@@ -526,7 +526,7 @@ def _attach_upsert_keys(hits: list[dict], project_name: str) -> list[dict]:
 
 
 def _attach_titles(hits: list[dict], project_name: str) -> list[dict]:
-    """Fill the title for ranking and output; the projection keeps it only in a nested, stale payload."""
+    """Fill the output title from SQLite; after ranking, since titles in ranking lost 6 eval questions."""
 
     by_source_id: dict[str, list[dict]] = {}
     for hit in hits:
@@ -961,7 +961,6 @@ async def federated_search(
     ]
     if include_graph_expansion:
         filtered = await app_core_hit._augment_hits_with_graph_expansion(filtered, project_name, now)
-    filtered = _attach_titles(filtered, project_name)
     ranked_hits = cap_checkpoints_in_top(
         demote_near_duplicates(
             await llm_rerank.rerank_hits(
@@ -975,7 +974,10 @@ async def federated_search(
     if exact_contour is not None:
         trace_contours.append(exact_contour)
     return FederatedSearchOutcome(
-        hits=_attach_upsert_keys(ranked_hits[page_offset : page_offset + page_limit], project_name),
+        hits=_attach_titles(
+            _attach_upsert_keys(ranked_hits[page_offset : page_offset + page_limit], project_name),
+            project_name,
+        ),
         total=total,
         contour_trace=_federated_contour_trace(
             started=started,
