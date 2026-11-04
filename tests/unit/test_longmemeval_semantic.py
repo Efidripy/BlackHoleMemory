@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from blackholememory.config import settings
 from blackholememory.longmemeval_semantic import (
     LongMemEvalSemanticError,
     _build_authority_records,
@@ -82,7 +83,7 @@ def _dataset() -> list[dict[str, object]]:
 class _FakeEmbedder:
     def embed_batch(self, texts: list[str], memory_action: str = "search") -> list[list[float]]:
         _ = memory_action
-        return [[0.25] * 768 for _ in texts]
+        return [[0.25] * settings.mem0_embedding_dims for _ in texts]
 
 
 class _FakeQdrant:
