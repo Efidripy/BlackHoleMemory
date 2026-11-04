@@ -38,6 +38,9 @@ class _FakeClient:
     response_content = None
     last_json = None
 
+    def __init__(self, **_kwargs):
+        pass
+
     async def __aenter__(self):
         return self
 

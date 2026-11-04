@@ -512,7 +512,11 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
 
     mode = _setting("BHM_LLM_RERANK_MODE", "listwise3")
     if mode == "listwise3":
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            timeout=timeout_s,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             try:
                 direct_answers, useful_context, irrelevant = await asyncio.wait_for(
                     _request_listwise3(client, endpoint, model, query, selected, timeout_s),
@@ -531,7 +535,11 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
         return _apply_scores_and_rank(hits, selected, scores, top_n)
 
     if mode == "listwise":
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            timeout=timeout_s,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             try:
                 order, answers = await asyncio.wait_for(
                     _request_listwise(client, endpoint, model, query, selected, timeout_s),
@@ -579,7 +587,11 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
             _store(key, score)
             scores[index] = score
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            timeout=timeout_s,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             await asyncio.gather(*(score_one(client, index, hit, key) for index, hit, key in pending))
     if failed or not scores:
         return list(hits)
