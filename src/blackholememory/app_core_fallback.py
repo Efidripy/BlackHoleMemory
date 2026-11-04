@@ -492,17 +492,12 @@ def _strict_retrieval_hits(
                 "source_uri": record.get("source_uri") or authoritative_metadata.get("source_uri"),
                 "source_digest": record.get("source_digest") or authoritative_metadata.get("source_digest"),
                 "upsert_key": record.get("upsert_key") or authoritative_metadata.get("upsert_key"),
-                "raw_title": record.get("title")
-                or authoritative_metadata.get("raw_title")
-                or metadata.get("raw_title"),
             }
         )
         enriched["metadata"] = metadata
         enriched["source_id"] = source_id
         enriched["content"] = record.get("content")
         enriched["memory"] = record.get("content")
-        if metadata["raw_title"]:
-            enriched["title"] = metadata["raw_title"]
         accepted.append(enriched)
     return accepted[: max(int(limit), 1)]
 
@@ -527,6 +522,30 @@ def _attach_upsert_keys(hits: list[dict], project_name: str) -> list[dict]:
         hit = missing.get(str(record.get("source_id") or record.get("id") or ""))
         if key and hit is not None:
             hit["metadata"] = {**(hit.get("metadata") or {}), "upsert_key": key}
+    return hits
+
+
+def _attach_titles(hits: list[dict], project_name: str) -> list[dict]:
+    """Fill the title for ranking and output; the projection keeps it only in a nested, stale payload."""
+
+    by_source_id: dict[str, list[dict]] = {}
+    for hit in hits:
+        metadata = hit.get("metadata") if isinstance(hit.get("metadata"), Mapping) else {}
+        source_id = str(metadata.get("source_id") or hit.get("source_id") or hit.get("id") or "").strip()
+        if source_id:
+            by_source_id.setdefault(source_id, []).append(hit)
+    if not by_source_id:
+        return hits
+    try:
+        records = rt._memory_service().get_records(list(by_source_id), project=rt._canonical_project(project_name))
+    except Exception:  # best effort: a missing title lowers ranking quality but must not fail a search
+        return hits
+    for record in records:
+        title = record.get("title") or (record.get("metadata") or {}).get("raw_title")
+        if title:
+            for hit in by_source_id.get(str(record.get("source_id") or record.get("id") or ""), []):
+                hit["metadata"] = {**(hit.get("metadata") or {}), "raw_title": title}
+                hit["title"] = title
     return hits
 
 
@@ -942,6 +961,7 @@ async def federated_search(
     ]
     if include_graph_expansion:
         filtered = await app_core_hit._augment_hits_with_graph_expansion(filtered, project_name, now)
+    filtered = _attach_titles(filtered, project_name)
     ranked_hits = cap_checkpoints_in_top(
         demote_near_duplicates(
             await llm_rerank.rerank_hits(
