@@ -75,6 +75,7 @@ def _configure(monkeypatch, *, enabled=True):
         "BHM_LLM_RERANK": "1" if enabled else "0",
         "BHM_LLM_RERANK_BASE_URL": "http://rerank.test/v1",
         "BHM_LLM_RERANK_MODEL": "test-model",
+        "BHM_LLM_RERANK_MODE": "pointwise",  # default is listwise3; these tests cover pointwise
     }
     for key, value in values.items():
         monkeypatch.setenv(key, value)

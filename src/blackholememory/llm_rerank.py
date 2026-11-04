@@ -510,7 +510,7 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
         return list(hits)
     endpoint = f"{base_url}/chat/completions"
 
-    mode = _setting("BHM_LLM_RERANK_MODE", "pointwise")
+    mode = _setting("BHM_LLM_RERANK_MODE", "listwise3")
     if mode == "listwise3":
         async with httpx.AsyncClient() as client:
             try:
