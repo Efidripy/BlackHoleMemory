@@ -154,6 +154,20 @@ def test_upsert_key_is_taken_from_sqlite_metadata(monkeypatch):
     assert accepted[0]["metadata"]["upsert_key"] == "project-lesson-key"
 
 
+def test_title_is_taken_from_sqlite_not_stale_projection(monkeypatch):
+    record = _record("known")
+    record["title"] = "new title"
+    service = _AuthoritativeStub([record])
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
+
+    stale = _hit("known", raw_title="old title")
+    stale["title"] = "old title"
+    accepted = app_core_fallback._strict_retrieval_hits([stale], project_name="blackholememory", limit=10)
+
+    assert accepted[0]["title"] == "new title"
+    assert accepted[0]["metadata"]["raw_title"] == "new title"
+
+
 def test_attach_upsert_keys_fills_page_hits_from_sqlite(monkeypatch):
     record = _record("keyed")
     record["metadata"]["upsert_key"] = "page-key"
