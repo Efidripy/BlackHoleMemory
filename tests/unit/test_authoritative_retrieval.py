@@ -154,18 +154,31 @@ def test_upsert_key_is_taken_from_sqlite_metadata(monkeypatch):
     assert accepted[0]["metadata"]["upsert_key"] == "project-lesson-key"
 
 
-def test_title_is_taken_from_sqlite_not_stale_projection(monkeypatch):
+def test_attach_titles_replaces_stale_projection_title_from_sqlite(monkeypatch):
     record = _record("known")
     record["title"] = "new title"
     service = _AuthoritativeStub([record])
     monkeypatch.setattr(app_runtime, "_memory_service", lambda: service)
 
     stale = _hit("known", raw_title="old title")
-    stale["title"] = "old title"
-    accepted = app_core_fallback._strict_retrieval_hits([stale], project_name="blackholememory", limit=10)
+    unknown = _hit("unknown", raw_title="kept title")
+    hits = app_core_fallback._attach_titles([stale, unknown], "blackholememory")
 
-    assert accepted[0]["title"] == "new title"
-    assert accepted[0]["metadata"]["raw_title"] == "new title"
+    assert hits[0]["title"] == "new title"
+    assert hits[0]["metadata"]["raw_title"] == "new title"
+    assert hits[1]["metadata"]["raw_title"] == "kept title"
+    assert len(service.calls) == 1
+
+
+def test_attach_titles_is_best_effort(monkeypatch):
+    class _Failing:
+        def get_records(self, memory_ids, *, project=None):
+            raise RuntimeError("sqlite unavailable")
+
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: _Failing())
+    hits = [_hit("known", raw_title="old title")]
+
+    assert app_core_fallback._attach_titles(hits, "blackholememory")[0]["metadata"]["raw_title"] == "old title"
 
 
 def test_attach_upsert_keys_fills_page_hits_from_sqlite(monkeypatch):
