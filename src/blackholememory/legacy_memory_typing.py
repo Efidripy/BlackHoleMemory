@@ -29,12 +29,13 @@ class LegacyMemoryTypingError(RuntimeError):
     """Raised when an operator-gated classification cannot safely proceed."""
 
 
-def _rule_for(*, memory_type: str, title: str, upsert_key: str) -> dict[str, str] | None:
+def _rule_for(*, memory_type: str, title: str, upsert_key: str, content: str = "") -> dict[str, str] | None:
     """Return only classifications that follow from durable structural facts."""
 
     normalized_type = str(memory_type or "").strip().casefold()
     normalized_title = str(title or "").strip().casefold()
     normalized_key = str(upsert_key or "").strip().casefold()
+    content_head = str(content or "").split("\n", 1)[0].casefold()
 
     # A typed trace is structural evidence, not a semantic judgment.  This
     # must win over legacy memory_type because older checkpoint writers used
@@ -44,8 +45,11 @@ def _rule_for(*, memory_type: str, title: str, upsert_key: str) -> dict[str, str
         or normalized_key.startswith(("code-metadata:", "hook-compact-source:"))
         or normalized_title.startswith("code metadata ")
         or "hybrid session record" in normalized_title
+        or "hybrid session record" in content_head
         or "pre-compact transit buffer" in normalized_title
+        or "pre-compact transit buffer" in content_head
         or " checkpoint:" in normalized_title
+        or " checkpoint:" in content_head
         or normalized_type == "checkpoint"
     ):
         return {
@@ -56,6 +60,7 @@ def _rule_for(*, memory_type: str, title: str, upsert_key: str) -> dict[str, str
                 else "hook-compact-transit"
                 if normalized_key.startswith("hook-compact-source:")
                 or "pre-compact transit buffer" in normalized_title
+                or "pre-compact transit buffer" in content_head
                 else "durable-history-marker"
             ),
             "memory_class": MemoryClass.EPISODIC.value,
@@ -158,7 +163,9 @@ def _read_targets(database: Path) -> list[dict[str, str]]:
             SELECT m.memory_id, m.project, m.memory_type, m.title, m.upsert_key,
                    m.current_revision_id,
                    (SELECT content_sha256 FROM memory_revisions AS r
-                    WHERE r.revision_id = m.current_revision_id) AS content_sha256
+                    WHERE r.revision_id = m.current_revision_id) AS content_sha256,
+                   (SELECT content FROM memory_revisions AS r
+                    WHERE r.revision_id = m.current_revision_id) AS content
             FROM memories AS m
             WHERE m.lifecycle != 'tombstoned'
               AND m.memory_class = 'unclassified'
@@ -172,6 +179,7 @@ def _read_targets(database: Path) -> list[dict[str, str]]:
             memory_type=str(row["memory_type"] or ""),
             title=str(row["title"] or ""),
             upsert_key=str(row["upsert_key"] or ""),
+            content=str(row["content"] or ""),
         )
         if rule is None:
             continue

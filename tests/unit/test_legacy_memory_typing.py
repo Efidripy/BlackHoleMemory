@@ -12,6 +12,8 @@ from blackholememory.freshness_migration import (
 )
 from blackholememory.legacy_memory_typing import (
     LegacyMemoryTypingError,
+    _read_targets,
+    _rule_for,
     apply_legacy_memory_typing,
     build_legacy_memory_typing_plan,
 )
@@ -97,3 +99,52 @@ def test_apply_fails_closed_after_the_target_set_changes(tmp_path: Path) -> None
     repository.save_memory(changed.model_copy(update={"title": "changed"}))
     with pytest.raises(LegacyMemoryTypingError, match="changed since plan"):
         apply_legacy_memory_typing(database, backup, plan, expected_plan_digest=plan["plan_digest"], confirm_operator=True, offline_verified=True)
+
+
+def test_card_with_readable_title_and_session_record_content_head_gets_durable_history_marker(tmp_path: Path) -> None:
+    repository, database, _ = _typed_database(tmp_path)
+    session_memory = Memory.from_record({
+        "source_id": "renamed-session",
+        "project": "blackholememory",
+        "memory_type": "workflow",
+        "title": "2026-08-21 blackholememory: readable session overview",
+        "content": "x hybrid session record:\nsecondary body line",
+        "created_at": "2026-08-25T12:00:00Z",
+        "updated_at": "2026-08-25T12:00:00Z",
+        "metadata": {"raw_title": "2026-08-21 blackholememory: readable session overview"},
+    })
+    repository.save_memory(session_memory)
+
+    targets = _read_targets(database)
+    target = next((t for t in targets if t["memory_id"] == "renamed-session"), None)
+    assert target is not None
+    assert target["rule_id"] == "durable-history-marker"
+    assert target["memory_class"] == "episodic"
+    assert target["event_role"] == "trace"
+
+    single_line_rule = _rule_for(
+        memory_type="workflow",
+        title="Readable session overview",
+        upsert_key="",
+        content="x hybrid session record:",
+    )
+    assert single_line_rule is not None
+    assert single_line_rule["rule_id"] == "durable-history-marker"
+
+    checkpoint_rule = _rule_for(
+        memory_type="workflow",
+        title="Readable checkpoint title",
+        upsert_key="workflow-checkpoint",
+        content="blackholememory checkpoint:\nstatus details",
+    )
+    assert checkpoint_rule is not None
+    assert checkpoint_rule["rule_id"] == "durable-history-marker"
+
+    transit_rule = _rule_for(
+        memory_type="transient-context",
+        title="Readable transit title",
+        upsert_key="transit-key",
+        content="BHM pre-compact transit buffer:\ncontext items",
+    )
+    assert transit_rule is not None
+    assert transit_rule["rule_id"] == "hook-compact-transit"
