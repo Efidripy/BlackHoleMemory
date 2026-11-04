@@ -276,6 +276,11 @@ def read_candidates(connection: sqlite3.Connection, projects: set[str] | None, l
     else:
         select_cols.append("NULL AS created_at")
 
+    if "updated_at" in cols:
+        select_cols.append("m.updated_at")
+    else:
+        select_cols.append("NULL AS updated_at")
+
     if "metadata_json" in cols:
         select_cols.append("m.metadata_json")
     else:
@@ -295,7 +300,7 @@ def read_candidates(connection: sqlite3.Connection, projects: set[str] | None, l
     skipped_filtered = 0
     skipped_meaningless = 0
 
-    for memory_id, project, lifecycle, title, observed_at, created_at, metadata_json, content in rows:
+    for memory_id, project, lifecycle, title, observed_at, created_at, updated_at, metadata_json, content in rows:
         if projects and project not in projects:
             skipped_filtered += 1
             continue
@@ -308,6 +313,17 @@ def read_candidates(connection: sqlite3.Connection, projects: set[str] | None, l
         if not isinstance(content, str):
             skipped_meaningless += 1
             continue
+
+        meta: dict[str, object] = {}
+        if metadata_json and isinstance(metadata_json, str):
+            try:
+                loaded = json.loads(metadata_json)
+                if isinstance(loaded, dict):
+                    meta = loaded
+            except (json.JSONDecodeError, TypeError):
+                pass
+        effective_observed_at = observed_at or meta.get("observed_at")
+        effective_updated_at = updated_at or meta.get("updated_at")
 
         date = extract_date(observed_at, created_at, metadata_json)
         new_title = derive_new_title(project, content, date, old_title=title)
@@ -323,6 +339,8 @@ def read_candidates(connection: sqlite3.Connection, projects: set[str] | None, l
                     "title": title,
                     "old_title": title,
                     "new_title": new_title,
+                    "observed_at": effective_observed_at,
+                    "updated_at": effective_updated_at,
                 }
             )
 
@@ -335,7 +353,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", required=True, type=Path)
     parser.add_argument("--limit", type=positive_integer, default=50)
     parser.add_argument("--project", "--projects", action="append", dest="projects")
-    parser.add_argument("--concurrency", type=positive_integer, default=3)
     parser.add_argument("--backup", type=Path)
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args(argv)
@@ -371,7 +388,9 @@ def main(argv: list[str] | None = None) -> int:
 
     consecutive_errors = 0
     items_list: list[dict[str, object]] = []
-    for item in candidates:
+    has_mismatch = False
+
+    for idx, item in enumerate(candidates):
         entry: dict[str, object] = {
             "memory_id": item["memory_id"],
             "project": item["project"],
@@ -395,15 +414,50 @@ def main(argv: list[str] | None = None) -> int:
                 headers={"Authorization": f"Bearer {os.environ['BHM_CALLER_TOKEN']}"},
                 timeout=20.0,
             )
-            success = response.status_code == 200
         except httpx.HTTPError:
-            success = False
+            entry["status"] = "failed"
+            consecutive_errors += 1
+            continue
 
-        entry["status"] = "ok" if success else "failed"
-        consecutive_errors = 0 if success else consecutive_errors + 1
+        if response.status_code != 200:
+            entry["status"] = "failed"
+            consecutive_errors += 1
+            continue
+
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+
+        memory = body.get("memory") if isinstance(body, dict) else None
+        if (
+            isinstance(memory, dict)
+            and memory.get("title") == item["new_title"]
+            and memory.get("updated_at") == item["updated_at"]
+            and memory.get("observed_at") == item["observed_at"]
+        ):
+            entry["status"] = "ok"
+            consecutive_errors = 0
+        else:
+            entry["status"] = "mismatch"
+            has_mismatch = True
+            for remaining in candidates[idx + 1:]:
+                items_list.append(
+                    {
+                        "memory_id": remaining["memory_id"],
+                        "project": remaining["project"],
+                        "title": remaining["title"],
+                        "old_title": remaining["old_title"],
+                        "new_title": remaining["new_title"],
+                        "status": "not_attempted",
+                    }
+                )
+            break
 
     report["items"] = items_list
     args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if has_mismatch:
+        return 1
     return 0
 
 
