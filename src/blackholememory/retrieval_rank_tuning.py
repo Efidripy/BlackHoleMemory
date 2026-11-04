@@ -73,7 +73,14 @@ def is_search_checkpoint(hit: dict[str, Any]) -> bool:
     artifact_kind = next((str(source.get("artifact_kind") or "").strip().casefold() for source in sources if source.get("artifact_kind")), "")
     upsert_key = next((str(source.get("upsert_key") or "").strip().casefold() for source in sources if source.get("upsert_key")), "")
     title = next((str(source.get("raw_title") or source.get("title") or "").strip().casefold() for source in sources if source.get("raw_title") or source.get("title")), "")
-    if artifact_kind == "session-record" or upsert_key.startswith("session-record:") or "hybrid session record" in title:
+    # Titles are editable, so the marker is also read from the content's first line.
+    content_head = str(hit.get("content") or hit.get("memory") or "").split("\n", 1)[0].casefold()
+    if (
+        artifact_kind == "session-record"
+        or upsert_key.startswith("session-record:")
+        or "hybrid session record" in title
+        or "hybrid session record" in content_head
+    ):
         return False
     # Older projections may omit artifact_kind/upsert_key; the typed tuple is
     # the checkpoint contract in that case. Explicit session markers above

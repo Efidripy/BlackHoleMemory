@@ -13,6 +13,7 @@ from blackholememory.retrieval_rank_tuning import (
     DEFAULT_HOWTO_TYPE_BOOST_WEIGHT,
     DEFAULT_STATE_FRESHNESS_WEIGHT,
     hit_title,
+    is_search_checkpoint,
     howto_type_bonus,
     howto_type_boost_enabled,
     howto_type_boost_weight,
@@ -550,3 +551,16 @@ def test_length_normalized_stable_sort_preserves_order_on_ties() -> None:
     ]
     out = length_normalized(hits, anchor=500)
     assert [h["id"] for h in out] == ["a", "b"]
+
+
+def test_session_record_marker_in_content_survives_a_renamed_title():
+    hit = {
+        "memory_type": "workflow",
+        "memory_class": "episodic",
+        "event_role": "trace",
+        "title": "2026-08-21 blackholememory: readable title",
+        "content": "blackholememory hybrid session record:\ndone: something",
+    }
+
+    assert is_search_checkpoint(hit) is False
+    assert is_search_checkpoint({**hit, "content": "blackholememory checkpoint:\ndone: something"}) is True
