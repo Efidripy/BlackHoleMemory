@@ -191,6 +191,21 @@ def test_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     class Response:
         status_code = 200
 
+        def __init__(self, memory_id: str, title: str) -> None:
+            self.memory_id = memory_id
+            self.title = title
+
+        def json(self) -> dict:
+            return {
+                "success": True,
+                "memory": {
+                    "id": self.memory_id,
+                    "title": self.title,
+                    "updated_at": None,
+                    "observed_at": None,
+                },
+            }
+
     def mock_post(*args, **kwargs):
         calls.append(kwargs)
         # Simulate what BHM server does upon successful title update in SQLite
@@ -198,20 +213,23 @@ def test_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         conn.execute("UPDATE memories SET title = ? WHERE memory_id = ?", (kwargs["json"]["title"], kwargs["json"]["id"]))
         conn.commit()
         conn.close()
-        return Response()
+        return Response(kwargs["json"]["id"], kwargs["json"]["title"])
 
     monkeypatch.setattr(backfill.httpx, "post", mock_post)
 
     # First run: updates template title
-    run_main(db, out1, "--apply", "--backup", str(backup1))
+    res1 = run_main(db, out1, "--apply", "--backup", str(backup1))
+    assert res1 == 0
     report1 = json.loads(out1.read_text(encoding="utf-8"))
     assert len(report1["items"]) == 1
+    assert report1["items"][0]["status"] == "ok"
     assert len(calls) == 1
     new_title = report1["items"][0]["new_title"]
     assert not new_title.endswith(":")
 
     # Second run: already non-template title is skipped, changes nothing
-    run_main(db, out2, "--apply", "--backup", str(backup2))
+    res2 = run_main(db, out2, "--apply", "--backup", str(backup2))
+    assert res2 == 0
     report2 = json.loads(out2.read_text(encoding="utf-8"))
     assert len(report2["items"]) == 0
     assert len(calls) == 1  # No additional calls made
@@ -231,9 +249,21 @@ def test_raw_title_immutability(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     class Response:
         status_code = 200
 
+        def json(self) -> dict:
+            return {
+                "success": True,
+                "memory": {
+                    "id": calls[-1]["json"]["id"],
+                    "title": calls[-1]["json"]["title"],
+                    "updated_at": None,
+                    "observed_at": None,
+                },
+            }
+
     monkeypatch.setattr(backfill.httpx, "post", lambda *args, **kwargs: calls.append(kwargs) or Response())
 
-    run_main(db, out, "--apply", "--backup", str(backup))
+    res = run_main(db, out, "--apply", "--backup", str(backup))
+    assert res == 0
 
     assert len(calls) == 1
     payload = calls[0]["json"]
@@ -357,3 +387,186 @@ def test_apply_requires_backup_and_token(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.delenv("BHM_CALLER_TOKEN", raising=False)
     with pytest.raises(SystemExit):
         run_main(db, out, "--apply", "--backup", str(tmp_path / "backup.sqlite3"))
+
+
+def make_temporal_db(path: Path, rows: list[dict]) -> None:
+    connection = sqlite3.connect(path)
+    connection.executescript(
+        """
+        CREATE TABLE memories (
+            memory_id TEXT PRIMARY KEY,
+            project TEXT,
+            memory_type TEXT,
+            lifecycle TEXT,
+            title TEXT,
+            upsert_key TEXT,
+            current_revision_id TEXT,
+            created_at TEXT,
+            updated_at TEXT,
+            observed_at TEXT,
+            metadata_json TEXT
+        );
+        CREATE TABLE memory_revisions (
+            revision_id TEXT PRIMARY KEY,
+            memory_id TEXT,
+            content TEXT
+        );
+        """
+    )
+    for r in rows:
+        connection.execute(
+            "INSERT INTO memories VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                r["memory_id"],
+                r.get("project", "demo"),
+                r.get("memory_type", "checkpoint"),
+                r.get("lifecycle", "active"),
+                r["title"],
+                r["memory_id"],
+                f"r-{r['memory_id']}",
+                r.get("created_at", "2026-03-01T10:00:00Z"),
+                r.get("updated_at", "2026-03-01T10:00:00Z"),
+                r.get("observed_at", "2026-03-01T10:00:00Z"),
+                r.get("metadata_json", "{}"),
+            ),
+        )
+        connection.execute(
+            "INSERT INTO memory_revisions VALUES (?, ?, ?)",
+            (f"r-{r['memory_id']}", r["memory_id"], r.get("content", "demo checkpoint:\ndone: test task\n")),
+        )
+    connection.commit()
+    connection.close()
+
+
+def test_response_without_new_title_triggers_mismatch_and_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = tmp_path / "memories.sqlite3"
+    out = tmp_path / "report.json"
+    backup = tmp_path / "backup.sqlite3"
+    rows = [
+        {"memory_id": "1", "title": "demo checkpoint:", "content": "demo checkpoint:\ndone: task 1"},
+        {"memory_id": "2", "title": "demo checkpoint:", "content": "demo checkpoint:\ndone: task 2"},
+    ]
+    make_temporal_db(db, rows)
+    monkeypatch.setenv("BHM_CALLER_TOKEN", "test-token")
+
+    calls: list[dict] = []
+
+    class Response:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {
+                "success": True,
+                "memory": {
+                    "id": calls[-1]["json"]["id"],
+                    "title": "demo checkpoint:",
+                    "updated_at": "2026-03-01T10:00:00Z",
+                    "observed_at": "2026-03-01T10:00:00Z",
+                },
+            }
+
+    monkeypatch.setattr(backfill.httpx, "post", lambda *args, **kwargs: calls.append(kwargs) or Response())
+
+    exit_code = run_main(db, out, "--apply", "--backup", str(backup))
+    assert exit_code != 0
+    assert len(calls) == 1
+
+    report = json.loads(out.read_text(encoding="utf-8"))
+    items = report["items"]
+    assert len(items) == 2
+    assert items[0]["status"] == "mismatch"
+    assert items[0]["old_title"] == "demo checkpoint:"
+    assert items[0]["new_title"] == "2026-03-01 demo: task 1"
+    assert items[1]["status"] == "not_attempted"
+
+
+def test_response_with_shifted_updated_at_triggers_mismatch_and_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = tmp_path / "memories.sqlite3"
+    out = tmp_path / "report.json"
+    backup = tmp_path / "backup.sqlite3"
+    rows = [
+        {"memory_id": "1", "title": "demo checkpoint:", "content": "demo checkpoint:\ndone: task 1"},
+        {"memory_id": "2", "title": "demo checkpoint:", "content": "demo checkpoint:\ndone: task 2"},
+    ]
+    make_temporal_db(db, rows)
+    monkeypatch.setenv("BHM_CALLER_TOKEN", "test-token")
+
+    calls: list[dict] = []
+
+    class Response:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {
+                "success": True,
+                "memory": {
+                    "id": calls[-1]["json"]["id"],
+                    "title": calls[-1]["json"]["title"],
+                    "updated_at": "2026-11-04T12:00:00Z",
+                    "observed_at": "2026-03-01T10:00:00Z",
+                },
+            }
+
+    monkeypatch.setattr(backfill.httpx, "post", lambda *args, **kwargs: calls.append(kwargs) or Response())
+
+    exit_code = run_main(db, out, "--apply", "--backup", str(backup))
+    assert exit_code != 0
+    assert len(calls) == 1
+
+    report = json.loads(out.read_text(encoding="utf-8"))
+    items = report["items"]
+    assert items[0]["status"] == "mismatch"
+    assert items[1]["status"] == "not_attempted"
+
+
+def test_response_with_shifted_observed_at_triggers_mismatch_and_stops(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = tmp_path / "memories.sqlite3"
+    out = tmp_path / "report.json"
+    backup = tmp_path / "backup.sqlite3"
+    rows = [
+        {"memory_id": "1", "title": "demo checkpoint:", "content": "demo checkpoint:\ndone: task 1"},
+        {"memory_id": "2", "title": "demo checkpoint:", "content": "demo checkpoint:\ndone: task 2"},
+    ]
+    make_temporal_db(db, rows)
+    monkeypatch.setenv("BHM_CALLER_TOKEN", "test-token")
+
+    calls: list[dict] = []
+
+    class Response:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {
+                "success": True,
+                "memory": {
+                    "id": calls[-1]["json"]["id"],
+                    "title": calls[-1]["json"]["title"],
+                    "updated_at": "2026-03-01T10:00:00Z",
+                    "observed_at": "2026-11-04T12:00:00Z",
+                },
+            }
+
+    monkeypatch.setattr(backfill.httpx, "post", lambda *args, **kwargs: calls.append(kwargs) or Response())
+
+    exit_code = run_main(db, out, "--apply", "--backup", str(backup))
+    assert exit_code != 0
+    assert len(calls) == 1
+
+    report = json.loads(out.read_text(encoding="utf-8"))
+    items = report["items"]
+    assert items[0]["status"] == "mismatch"
+    assert items[1]["status"] == "not_attempted"
+
+
+def test_concurrency_argument_removed(tmp_path: Path) -> None:
+    db = tmp_path / "memories.sqlite3"
+    out = tmp_path / "report.json"
+    make_db(db, [valid_row("1")])
+    with pytest.raises(SystemExit):
+        run_main(db, out, "--concurrency", "2")

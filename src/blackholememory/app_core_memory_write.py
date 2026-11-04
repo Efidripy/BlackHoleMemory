@@ -195,19 +195,44 @@ def _apply_temporal_update(item: dict[str, Any], request: Any, *, now: str) -> N
         item.update(normalized)
 
 
+def _is_title_only_update(request: MemoryUpdateRequest) -> bool:
+    if request.title is None:
+        return False
+    mutable_fields = (
+        "type",
+        "memory_class",
+        "event_role",
+        "observed_at",
+        "valid_from",
+        "valid_to",
+        "open_interval",
+        "supersedes_revision_id",
+        "source_episode_id",
+        "source_uri",
+        "source_digest",
+        "content",
+        "concepts",
+        "files",
+        "metadata_patch",
+    )
+    return all(getattr(request, field, None) is None for field in mutable_fields)
+
+
 def _update_live_memory(request: MemoryUpdateRequest) -> dict:
     from . import app_core as _owner
     app_core_fallback._require_typed_memory_boundary(
         memory_class=request.memory_class,
         event_role=request.event_role,
     )
+    title_only = _is_title_only_update(request)
     if rt._memory_store_is_authoritative():
         item = rt._find_live_memory(request.id, request.project)
         if item is None:
             raise HTTPException(status_code=404, detail="memory not found in live store")
         item = copy.deepcopy(item)
         now = rt._utc_now_iso()
-        _apply_temporal_update(item, request, now=now)
+        if not title_only:
+            _apply_temporal_update(item, request, now=now)
         canonical_project = rt._canonical_project(request.project) if request.project else None
         if canonical_project:
             item["project"] = canonical_project
@@ -226,6 +251,9 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
         if request.content is not None:
             item["content"] = request.content
             item.setdefault("metadata", {})["raw_title"] = _base._build_memory_title(request.content)
+        if request.title is not None:
+            item["title"] = request.title
+            item.setdefault("metadata", {})["raw_title"] = request.title
         if request.concepts is not None:
             item["tags"] = request.concepts
         if request.files is not None:
@@ -233,10 +261,11 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
         if request.metadata_patch is not None:
             item.setdefault("metadata", {}).update(_base._user_memory_metadata(request.metadata_patch))
         _base._validate_procedure_contract_binding(_base._effective_memory_class(item), item.setdefault("metadata", {}))
-        item["updated_at"] = now
+        if not title_only:
+            item["updated_at"] = now
         item["metadata"] = ensure_decay_metadata(
             item.setdefault("metadata", {}),
-            fallback_at=item.get("created_at") or now,
+            fallback_at=item.get("created_at") or item.get("updated_at") or now,
         )
         _base._append_memory_changelog(
             item,
@@ -246,6 +275,7 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
                 "memory_class": request.memory_class.value if request.memory_class else None,
                 "event_role": request.event_role.value if request.event_role else None,
                 "content_changed": request.content is not None,
+                "title_changed": request.title is not None,
                 "metadata_changed": request.metadata_patch is not None,
             },
         )
@@ -264,7 +294,8 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
         if request.project and item.get("project") not in accepted_projects:
             continue
 
-        _apply_temporal_update(item, request, now=now)
+        if not title_only:
+            _apply_temporal_update(item, request, now=now)
 
         if canonical_project:
             item["project"] = canonical_project
@@ -283,6 +314,9 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
         if request.content is not None:
             item["content"] = request.content
             item.setdefault("metadata", {})["raw_title"] = _base._build_memory_title(request.content)
+        if request.title is not None:
+            item["title"] = request.title
+            item.setdefault("metadata", {})["raw_title"] = request.title
         if request.concepts is not None:
             item["tags"] = request.concepts
         if request.files is not None:
@@ -291,10 +325,11 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
             item.setdefault("metadata", {}).update(_base._user_memory_metadata(request.metadata_patch))
         _base._validate_procedure_contract_binding(_base._effective_memory_class(item), item.setdefault("metadata", {}))
 
-        item["updated_at"] = now
+        if not title_only:
+            item["updated_at"] = now
         item["metadata"] = ensure_decay_metadata(
             item.setdefault("metadata", {}),
-            fallback_at=item.get("created_at") or now,
+            fallback_at=item.get("created_at") or item.get("updated_at") or now,
         )
         _base._append_memory_changelog(
             item,
@@ -304,6 +339,7 @@ def _update_live_memory(request: MemoryUpdateRequest) -> dict:
                 "memory_class": request.memory_class.value if request.memory_class else None,
                 "event_role": request.event_role.value if request.event_role else None,
                 "content_changed": request.content is not None,
+                "title_changed": request.title is not None,
                 "metadata_changed": request.metadata_patch is not None,
             },
         )

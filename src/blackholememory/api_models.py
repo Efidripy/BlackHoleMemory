@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr  # noqa: F401
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr, field_validator  # noqa: F401
 
 from .config import settings
 from .memory_contracts import MemoryMetadata, MemoryClass, MemoryEventRole
@@ -101,6 +101,7 @@ class RememberRequest(BaseModel):
 class MemoryUpdateRequest(BaseModel):
     id: str
     project: str | None = None
+    title: str | None = None
     type: str | None = None
     memory_class: MemoryClass | None = None
     event_role: MemoryEventRole | None = None
@@ -116,6 +117,16 @@ class MemoryUpdateRequest(BaseModel):
     concepts: list[str] | None = None
     files: list[str] | None = None
     metadata_patch: MemoryMetadata | None = None
+
+    @field_validator("title")
+    @classmethod
+    def _validate_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped or len(stripped) > 200:
+            raise ValueError("title cannot be empty and must be at most 200 characters")
+        return stripped
 
 class MemoryArchiveRequest(BaseModel):
     id: str
