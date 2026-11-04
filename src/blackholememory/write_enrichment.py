@@ -81,7 +81,11 @@ def enrich_content(title: str, content: str) -> str:
 
     try:
         user_prompt = f"Заголовок заметки:\n{title}\n\nТекст заметки:\n{content}"
-        with httpx.Client() as client:
+        with httpx.Client(
+            timeout=_TIMEOUT_SECONDS,
+            trust_env=False,
+            follow_redirects=False,
+        ) as client:
             response = client.post(
                 f"{base_url.rstrip('/')}/chat/completions",
                 json={

@@ -26,6 +26,9 @@ class _Client:
     mode = "ok"
     calls = 0
 
+    def __init__(self, **_kwargs):
+        pass
+
     def __enter__(self):
         return self
 
