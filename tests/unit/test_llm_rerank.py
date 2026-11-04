@@ -34,6 +34,7 @@ def _confident_hits(*, first_score: float = 0.9, second_score: float = 0.8, firs
 class _FakeClient:
     calls = 0
     mode = "success"
+    response_content = None
 
     async def __aenter__(self):
         return self
@@ -49,6 +50,8 @@ class _FakeClient:
             raise httpx.ConnectError("fake server")
         if self.mode == "timeout":
             raise TimeoutError("fake timeout")
+        if self.response_content is not None:
+            return _FakeResponse({"choices": [{"message": {"content": self.response_content}}]})
         score = 9 if "beta" in json["messages"][1]["content"] else 2
         return _FakeResponse({"choices": [{"message": {"content": '{"score": %s}' % score}}]})
 
@@ -75,6 +78,7 @@ def _configure(monkeypatch, *, enabled=True):
     llm_rerank.clear_rerank_cache()
     _FakeClient.calls = 0
     _FakeClient.mode = "success"
+    _FakeClient.response_content = None
     monkeypatch.setattr(llm_rerank.httpx, "AsyncClient", _FakeClient)
 
 
@@ -93,6 +97,67 @@ def test_enabled_reranks_and_records_scores(monkeypatch):
     assert result[0]["metadata"]["llm_rerank_score"] == 9.0
     assert result[1]["metadata"]["llm_rerank_score"] == 2.0
     assert _FakeClient.calls == 2
+
+
+def test_listwise_reranks_with_one_request_and_scores_non_answers(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = '{"order":[2],"answers":[2]}'
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert _FakeClient.calls == 1
+    assert [hit["id"] for hit in result] == ["second", "first"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 10.0
+    assert result[1]["metadata"]["llm_rerank_score"] == 2.0
+
+
+def test_listwise_without_answers_caps_scores(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = '{"order":[2,1],"answers":[]}'
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert [hit["metadata"]["llm_rerank_score"] for hit in result] == [7.0, 7.0]
+
+
+def test_listwise_invalid_response_keeps_original_hits(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise")
+    _FakeClient.response_content = "not json"
+    hits = _hits()
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert [hit["id"] for hit in result] == ["first", "second"]
+    assert all("llm_rerank_score" not in hit["metadata"] for hit in result)
+
+
+def test_listwise_discards_duplicate_and_unknown_numbers(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise")
+    monkeypatch.setenv("BHM_LLM_RERANK_BLEND", "0")
+    _FakeClient.response_content = '{"order":[9,2,2,1],"answers":[2,99,2]}'
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert _FakeClient.calls == 1
+    assert [hit["id"] for hit in result] == ["second", "first"]
+    assert result[0]["metadata"]["llm_rerank_score"] == 10.0
+
+
+def test_listwise_server_error_keeps_original_hits(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "listwise")
+    _FakeClient.mode = "error"
+    hits = _hits()
+    result = asyncio.run(llm_rerank.rerank_hits("question", hits))
+    assert _FakeClient.calls == 1
+    assert [hit["id"] for hit in result] == ["first", "second"]
+    assert all("llm_rerank_score" not in hit["metadata"] for hit in result)
+
+
+def test_unknown_mode_uses_pointwise(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK_MODE", "unexpected")
+    result = asyncio.run(llm_rerank.rerank_hits("question", _hits()))
+    assert _FakeClient.calls == 2
+    assert [hit["id"] for hit in result] == ["second", "first"]
 
 
 def test_server_error_keeps_original_order(monkeypatch):

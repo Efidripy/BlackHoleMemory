@@ -18,6 +18,8 @@ import httpx
 
 _CONTENT_LIMIT = 600
 _MAX_TOKENS = 25
+_LISTWISE_MAX_TOKENS = 120
+_LISTWISE_PROMPT_LIMIT = 12000
 _CACHE_LIMIT = 512
 _CACHE: OrderedDict[tuple[str, str, str], float] = OrderedDict()
 _CACHE_LOCK = threading.Lock()
@@ -28,6 +30,15 @@ _SYSTEM_PROMPT = (
     "(где 0 — совершенно не по теме, 10 — документ точно и полно отвечает на вопрос). "
     'Ответь ТОЛЬКО валидным JSON формата: {"score": n}, где n — целое число от 0 до 10, '
     "без каких-либо рассуждений и пояснений."
+)
+
+_LISTWISE_SYSTEM_PROMPT = (
+    "Ты сортируешь документы по релевантности вопросу. "
+    "Выбери только документы, которые действительно отвечают на вопрос, "
+    "и расположи их от лучшего к худшему. "
+    'Ответь ТОЛЬКО JSON формата {"order":[номера],"answers":[номера]}, '
+    "где order содержит номера подходящих документов, а answers — номера, "
+    "которые полностью отвечают на вопрос. Если подходящих нет, верни пустые списки."
 )
 
 
@@ -212,6 +223,106 @@ def _response_text(payload: Mapping[str, Any]) -> str:
     return content
 
 
+def _listwise_candidate_text(selected: Sequence[Mapping[str, Any]]) -> list[str]:
+    blocks = [
+        f"{index}. Заголовок: {_hit_title(hit)}\nТекст: {_hit_content(hit)[:_CONTENT_LIMIT]}"
+        for index, hit in enumerate(selected, 1)
+    ]
+    total_length = sum(len(block) for block in blocks)
+    if total_length <= _LISTWISE_PROMPT_LIMIT:
+        return blocks
+
+    fixed_lengths = [
+        len(block) - len(_hit_content(hit)[:_CONTENT_LIMIT])
+        for block, hit in zip(blocks, selected)
+    ]
+    available = max(
+        250 * len(selected),
+        _LISTWISE_PROMPT_LIMIT - sum(fixed_lengths),
+    )
+    content_lengths = [len(_hit_content(hit)[:_CONTENT_LIMIT]) for hit in selected]
+    scale = min(1.0, available / max(sum(content_lengths), 1))
+    lengths = [max(250, min(length, int(length * scale))) for length in content_lengths]
+    while sum(lengths) > available:
+        index = max(range(len(lengths)), key=lengths.__getitem__)
+        if lengths[index] <= 250:
+            break
+        lengths[index] -= 1
+    return [
+        f"{index}. Заголовок: {_hit_title(hit)}\nТекст: {_hit_content(hit)[:length]}"
+        for index, (hit, length) in enumerate(zip(selected, lengths), 1)
+    ]
+
+
+def _parse_listwise(text: str, candidate_count: int) -> tuple[list[int], set[int]]:
+    value = text.strip()
+    if value.startswith("```"):
+        value = re.sub(r"^```(?:json)?\s*", "", value)
+        value = re.sub(r"\s*```$", "", value)
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("invalid listwise response") from exc
+    if (
+        not isinstance(parsed, Mapping)
+        or not isinstance(parsed.get("order"), list)
+        or not isinstance(parsed.get("answers"), list)
+    ):
+        raise ValueError("invalid listwise response shape")
+
+    order: list[int] = []
+    seen: set[int] = set()
+    for item in parsed["order"]:
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise ValueError("invalid listwise candidate number")
+        if not 1 <= item <= candidate_count or item in seen:
+            continue
+        seen.add(item)
+        order.append(item)
+    if not order:
+        raise ValueError("empty listwise order")
+
+    answers: set[int] = set()
+    for item in parsed["answers"]:
+        if isinstance(item, bool) or not isinstance(item, int):
+            raise ValueError("invalid listwise answer number")
+        if item in seen:
+            answers.add(item)
+    return order, answers
+
+
+async def _request_listwise(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    model: str,
+    query: str,
+    selected: Sequence[Mapping[str, Any]],
+    timeout_s: float,
+) -> tuple[list[int], set[int]]:
+    user_prompt = (
+        f"Вопрос: {query}\n\n"
+        "Документы:\n"
+        + "\n\n".join(_listwise_candidate_text(selected))
+        + "\n\nВерни только JSON."
+    )
+    response = await client.post(
+        endpoint,
+        json={
+            "model": model,
+            "messages": [
+                {"role": "system", "content": _LISTWISE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0,
+            "max_tokens": _LISTWISE_MAX_TOKENS,
+            "chat_template_kwargs": {"enable_thinking": False},
+        },
+        timeout=timeout_s,
+    )
+    response.raise_for_status()
+    return _parse_listwise(_response_text(response.json()), len(selected))
+
+
 async def _request_score(
     client: httpx.AsyncClient,
     endpoint: str,
@@ -256,6 +367,39 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
     if not selected:
         return list(hits)
     endpoint = f"{base_url}/chat/completions"
+
+    if _setting("BHM_LLM_RERANK_MODE", "pointwise") == "listwise":
+        async with httpx.AsyncClient() as client:
+            try:
+                order, answers = await asyncio.wait_for(
+                    _request_listwise(client, endpoint, model, query, selected, timeout_s),
+                    timeout=timeout_s,
+                )
+            except Exception:
+                return list(hits)
+        scores = {index: 2.0 for index in range(len(selected))}
+        for rank, candidate_number in enumerate(order):
+            score = max(5.0, 10.0 - 0.35 * rank)
+            if not answers:
+                score = min(score, 7.0)
+            scores[candidate_number - 1] = score
+        for index, score in scores.items():
+            metadata = dict(selected[index].get("metadata") or {})
+            metadata["llm_rerank_score"] = score
+            selected[index]["metadata"] = metadata
+        blend = _blend()
+        span = max(len(selected) - 1, 1)
+
+        def sort_key(item: tuple[int, dict[str, Any]]) -> tuple[float, int]:
+            index = item[0]
+            base = scores[index]
+            if blend:
+                base += blend * 10.0 * (1.0 - index / span)
+            return base, -index
+
+        ranked = sorted(enumerate(selected), key=sort_key, reverse=True)
+        return [hit for _, hit in ranked] + list(hits[top_n:])
+
     scores: dict[int, float] = {}
     failed = False
     pending: list[tuple[int, dict[str, Any], tuple[str, str, str]]] = []
