@@ -134,7 +134,7 @@ def bhm_preflight(project: str = DEFAULT_PROJECT, query: str | None = None, limi
     }
 
 
-@mcp.tool(name="bhm_search", description="Native BHM search. Use history_scope=current|recent|all for an explicit history view; recent defaults to 30 days and can be narrowed with freshness_days. Optionally request abstention or compact details.")
+@mcp.tool(name="bhm_search", description="Native BHM search. Without project, search is limited to the default project; specify project for another project or projects=[\"*\"] for all projects. Use history_scope=current|recent|all for an explicit history view; recent defaults to 30 days and can be narrowed with freshness_days. Optionally request abstention or compact details.")
 def bhm_search(
     query: str = "",
     project: str | None = None,
