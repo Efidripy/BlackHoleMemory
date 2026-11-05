@@ -154,7 +154,8 @@ def assess_answerability(
         "semantic_rescue_score": round(rescue_score, 4) if rescue_score is not None else None,
     }
     non_ws_chars = [ch for ch in query if not ch.isspace()]
-    if not any(ch.isalnum() for ch in non_ws_chars) or (non_ws_chars.count("\ufffd") * 3 > len(non_ws_chars)):
+    # U+2500-257F (box drawing) is what UTF-8 Cyrillic turns into when read as cp866.
+    if not any(ch.isalnum() for ch in non_ws_chars) or (sum(ch == "\ufffd" or "\u2500" <= ch <= "\u257f" for ch in non_ws_chars) * 3 > len(non_ws_chars)):
         return {"status": "none", "reason": "unreadable_query", "signals": signals}
     if top_score >= configured.confident_score and lexical_overlap >= configured.confident_overlap:
         return {"status": "confident", "reason": "strong_top_match", "signals": signals}
