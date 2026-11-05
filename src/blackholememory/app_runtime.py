@@ -27,7 +27,6 @@ from .resource_limits import LLM_HTTP_TIMEOUT_SECONDS
 from .filesystem_boundaries import replace_bytes_safely
 from .mem0_adapter import StorageNotReady
 from .mem0_adapter import get_global_core_memory
-from .mem0_adapter import get_mem0_memory
 from .mem0_adapter import get_project_mem0_memory
 from .mem0_adapter import get_qdrant_client
 from .mem0_adapter import global_collection_name
@@ -189,9 +188,6 @@ _PROVIDER_MEMORY_WARMUP_MAX_PROJECTS = _env_int("BHM_PROVIDER_MEMORY_WARMUP_MAX_
 _PROVIDER_WARMUP_READY = threading.Event()
 
 
-_PROVIDER_MEMORY_WARMUP_TASK: asyncio.Task[Any] | None = None
-
-
 _PROVIDER_WARMUP_STATUS_LOCK = threading.RLock()
 
 
@@ -222,9 +218,6 @@ _PROVIDER_WARMUP_STATUS: dict[str, Any] = {
     "memory_skipped_projects": [],
     "memory_last_error": "",
     "memory_phase": "disabled" if not _PROVIDER_MEMORY_WARMUP_ENABLED else "pending",
-    "memory_background_projects": [],
-    "memory_background_skipped_projects": [],
-    "memory_background_errors": {},
 }
 
 
@@ -389,46 +382,10 @@ def _warm_provider_memory_project(project: str, client: Any) -> bool:
     memory = get_project_mem0_memory(
         project,
         collection_name=collection_name,
-        ensure_collection=False,
+        ensure_collection=collection_name == local_collection_name(project),
     )
     _ = memory.embedding_model
     return True
-
-
-async def _warm_remaining_provider_memory_clients() -> None:
-    """Warm additional all-project clients after readiness without delaying search."""
-
-    warmed: list[str] = []
-    skipped: list[str] = []
-    errors: dict[str, str] = {}
-    try:
-        from .memory_search_multiproject import resolve_retrieval_projects
-
-        projects = await run_in_threadpool(resolve_retrieval_projects, ["*"], _memory_service)
-        cache = get_mem0_memory.cache_info()
-        slots = max(cache.maxsize - cache.currsize, 0)
-        initial = set(_provider_memory_warmup_projects())
-        candidates = [project for project in projects if project not in initial][:slots]
-        client = await run_in_threadpool(get_qdrant_client)
-        for project in candidates:
-            try:
-                if await run_in_threadpool(_warm_provider_memory_project, project, client):
-                    warmed.append(project)
-                else:
-                    skipped.append(project)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                errors[project] = _safe_exception_text(exc)
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        errors["*"] = _safe_exception_text(exc)
-    _set_provider_warmup_status(
-        memory_background_projects=warmed,
-        memory_background_skipped_projects=skipped,
-        memory_background_errors=errors,
-    )
 
 
 async def warmup_provider_probe() -> None:
@@ -475,9 +432,6 @@ async def warmup_provider_probe() -> None:
                     )
             _PROVIDER_WARMUP_READY.set()
             _set_provider_warmup_status(ready=True, phase="ready", last_error="")
-            if _PROVIDER_MEMORY_WARMUP_ENABLED:
-                global _PROVIDER_MEMORY_WARMUP_TASK
-                _PROVIDER_MEMORY_WARMUP_TASK = asyncio.create_task(_warm_remaining_provider_memory_clients())
             if _PROVIDER_CHAT_WARMUP_ENABLED:
                 _set_provider_warmup_status(chat_attempts=1, chat_last_error="", chat_phase="probing")
                 try:

@@ -7,7 +7,7 @@ import logging
 import os
 
 from . import app_core_fallback, app_lifecycle, app_runtime
-from .mem0_adapter import get_project_mem0_memory
+from .mem0_adapter import get_qdrant_client
 from .memory_search_multiproject import resolve_retrieval_projects
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,11 +35,20 @@ async def warmup_projects(provider_warmup: asyncio.Task[None]) -> None:
     except Exception:
         _LOGGER.exception("Could not list projects for provider warmup")
         return
+    try:
+        client = await asyncio.to_thread(get_qdrant_client)
+    except Exception:
+        _LOGGER.exception("Could not create Qdrant client for provider warmup")
+        return
     for project in projects:
         while True:
             try:
                 worker = asyncio.create_task(
-                    app_core_fallback._run_bounded_provider_call(get_project_mem0_memory, project)
+                    app_core_fallback._run_bounded_provider_call(
+                        app_runtime._warm_provider_memory_project,
+                        project,
+                        client,
+                    )
                 )
                 try:
                     await asyncio.shield(worker)
