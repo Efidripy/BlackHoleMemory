@@ -9,6 +9,7 @@ from blackholememory.mem0_adapter_decay import decay_lambda_for_payload, memory_
 from blackholememory.mem0_adapter_graph import lexical_score
 from blackholememory.retrieval_rank_tuning import (
     DEFAULT_TITLE_BOOST_WEIGHT,
+    cap_checkpoints_in_top,
     KIND_DECAY_LAMBDA,
     DEFAULT_HOWTO_TYPE_BOOST_WEIGHT,
     DEFAULT_STATE_FRESHNESS_WEIGHT,
@@ -564,3 +565,149 @@ def test_session_record_marker_in_content_survives_a_renamed_title():
 
     assert is_search_checkpoint(hit) is False
     assert is_search_checkpoint({**hit, "content": "blackholememory checkpoint:\ndone: something"}) is True
+
+
+
+def _make_checkpoint(hit_id: str, **kwargs) -> dict:
+    return {
+        "id": hit_id,
+        "memory_type": "workflow",
+        "memory_class": "episodic",
+        "event_role": "trace",
+        "metadata": {"artifact_kind": "checkpoint"},
+        **kwargs,
+    }
+
+
+def _make_knowledge(hit_id: str, **kwargs) -> dict:
+    return {
+        "id": hit_id,
+        "memory_type": "decision",
+        "memory_class": "semantic",
+        "metadata": {},
+        **kwargs,
+    }
+
+
+def test_cap_checkpoints_in_top_zero_or_one_checkpoint_keeps_order() -> None:
+    c1 = _make_checkpoint("C1")
+    k1 = _make_knowledge("K1")
+    k2 = _make_knowledge("K2")
+    k3 = _make_knowledge("K3")
+
+    # [C1, K1, K2, K3] -> unchanged: single checkpoint at rank 1 stays at rank 1
+    hits1 = [c1, k1, k2, k3]
+    assert cap_checkpoints_in_top(hits1, top=3) == hits1
+
+    # [K1, C1, K2] -> unchanged: single checkpoint at rank 2 stays at rank 2
+    hits2 = [k1, c1, k2]
+    assert cap_checkpoints_in_top(hits2, top=3) == hits2
+
+    # [K1, K2, C1] -> unchanged: single checkpoint at rank 3 stays at rank 3
+    hits3 = [k1, k2, c1]
+    assert cap_checkpoints_in_top(hits3, top=3) == hits3
+
+    # Zero checkpoints -> unchanged
+    hits4 = [k1, k2, k3]
+    assert cap_checkpoints_in_top(hits4, top=3) == hits4
+
+
+def test_cap_checkpoints_in_top_moves_excess_checkpoints_behind_top_block() -> None:
+    c1 = _make_checkpoint("C1")
+    c2 = _make_checkpoint("C2")
+    c3 = _make_checkpoint("C3")
+    k1 = _make_knowledge("K1")
+    k2 = _make_knowledge("K2")
+    k3 = _make_knowledge("K3")
+
+    # [C1, C2, K1, K2] -> [C1, K1, K2, C2]
+    out1 = cap_checkpoints_in_top([c1, c2, k1, k2], top=3)
+    assert [h["id"] for h in out1] == ["C1", "K1", "K2", "C2"]
+
+    # [C1, C2, C3, K1, K2, K3] -> [C1, K1, K2, C2, C3, K3]
+    out2 = cap_checkpoints_in_top([c1, c2, c3, k1, k2, k3], top=3)
+    assert [h["id"] for h in out2] == ["C1", "K1", "K2", "C2", "C3", "K3"]
+
+    # [K1, C1, C2, K2] -> [K1, C1, K2, C2] (C1 stays at index 1, C2 moves behind top 3)
+    out3 = cap_checkpoints_in_top([k1, c1, c2, k2], top=3)
+    assert [h["id"] for h in out3] == ["K1", "C1", "K2", "C2"]
+
+
+def test_cap_checkpoints_in_top_preserves_single_checkpoint_high_rerank_score() -> None:
+    # Live scenario: record with semantic_rank 1, lexical_rank 1, llm_rerank_score 10
+    top_checkpoint = _make_checkpoint("checkpoint-best", score=10.0, llm_rerank_score=10.0)
+    card1 = _make_knowledge("card-1", score=4.6, llm_rerank_score=4.6)
+    card2 = _make_knowledge("card-2", score=4.6, llm_rerank_score=4.6)
+
+    hits = [top_checkpoint, card1, card2]
+    res = cap_checkpoints_in_top(hits, top=3)
+    assert res[0]["id"] == "checkpoint-best"
+    assert [h["id"] for h in res] == ["checkpoint-best", "card-1", "card-2"]
+
+
+def test_cap_checkpoints_in_top_hit_preservation_and_remainder_integrity() -> None:
+    c1 = _make_checkpoint("C1")
+    c2 = _make_checkpoint("C2")
+    c3 = _make_checkpoint("C3")
+    c4 = _make_checkpoint("C4")
+    k1 = _make_knowledge("K1")
+    k2 = _make_knowledge("K2")
+    k3 = _make_knowledge("K3")
+
+    hits = [c1, c2, k1, c3, k2, c4, k3]
+    out = cap_checkpoints_in_top(hits, top=3)
+    assert [h["id"] for h in out] == ["C1", "K1", "K2", "C2", "C3", "C4", "K3"]
+    assert len(out) == len(hits)
+    # No items lost or duplicated
+    assert {id(h) for h in out} == {id(h) for h in hits}
+
+
+def test_cap_checkpoints_in_top_insufficient_non_checkpoints_keeps_order() -> None:
+    c1 = _make_checkpoint("C1")
+    c2 = _make_checkpoint("C2")
+    c3 = _make_checkpoint("C3")
+    k1 = _make_knowledge("K1")
+
+    # Only checkpoints
+    assert cap_checkpoints_in_top([c1, c2], top=3) == [c1, c2]
+    assert cap_checkpoints_in_top([c1, c2, c3], top=3) == [c1, c2, c3]
+
+    # Only 1 non-checkpoint, top 3 needs 2 non-checkpoints
+    assert cap_checkpoints_in_top([c1, c2, k1], top=3) == [c1, c2, k1]
+    assert cap_checkpoints_in_top([c1, c2, c3, k1], top=3) == [c1, c2, c3, k1]
+
+
+def test_cap_checkpoints_in_top_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    c1 = _make_checkpoint("C1")
+    c2 = _make_checkpoint("C2")
+    k1 = _make_knowledge("K1")
+    k2 = _make_knowledge("K2")
+    hits = [c1, c2, k1, k2]
+
+    for disabled_val in ("0", "false", "no", "off", " OFF "):
+        monkeypatch.setenv("BHM_SEARCH_CHECKPOINT_CAP", disabled_val)
+        assert cap_checkpoints_in_top(hits, top=3) == hits
+
+
+def test_cap_checkpoints_in_top_edge_cases() -> None:
+    c1 = _make_checkpoint("C1")
+    c2 = _make_checkpoint("C2")
+    c3 = _make_checkpoint("C3")
+    k1 = _make_knowledge("K1")
+    k2 = _make_knowledge("K2")
+    k3 = _make_knowledge("K3")
+
+    # Empty list
+    assert cap_checkpoints_in_top([], top=3) == []
+
+    # top <= 0
+    hits = [c1, c2, k1, k2]
+    assert cap_checkpoints_in_top(hits, top=0) == hits
+    assert cap_checkpoints_in_top(hits, top=-1) == hits
+
+    # top = 1
+    assert cap_checkpoints_in_top(hits, top=1) == hits
+
+    # top = 4
+    out_top4 = cap_checkpoints_in_top([k1, c1, c2, c3, k2, k3], top=4)
+    assert [h["id"] for h in out_top4] == ["K1", "C1", "K2", "K3", "C2", "C3"]

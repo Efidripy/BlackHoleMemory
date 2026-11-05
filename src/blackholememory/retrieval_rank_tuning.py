@@ -105,18 +105,28 @@ def cap_checkpoints_in_top(hits: list[dict[str, Any]], top: int = 3) -> list[dic
     window = max(int(top), 0)
     if window < 1 or len(hits) < 1:
         return hits
-    non_checkpoints = [hit for hit in hits if not is_search_checkpoint(hit)]
-    if len(non_checkpoints) < 2:
+    leading_indices = list(range(min(window, len(hits))))
+    leading_checkpoint_indices = [i for i in leading_indices if is_search_checkpoint(hits[i])]
+    if len(leading_checkpoint_indices) <= 1:
         return hits
-    leading = hits[:window]
-    leading_checkpoints = [hit for hit in leading if is_search_checkpoint(hit)]
-    if not leading_checkpoints:
+    non_checkpoint_indices = [i for i, hit in enumerate(hits) if not is_search_checkpoint(hit)]
+    if len(non_checkpoint_indices) < window - 1:
         return hits
 
-    selected = non_checkpoints[:2] + [leading_checkpoints[0]]
-    selected_ids = {id(hit) for hit in selected}
-    remainder = [hit for hit in hits if id(hit) not in selected_ids]
-    return selected + remainder
+    first_checkpoint_idx = leading_checkpoint_indices[0]
+    excess_checkpoint_indices = leading_checkpoint_indices[1:]
+
+    top_non_checkpoint_indices = non_checkpoint_indices[: window - 1]
+    top_block_indices = (
+        top_non_checkpoint_indices[:first_checkpoint_idx]
+        + [first_checkpoint_idx]
+        + top_non_checkpoint_indices[first_checkpoint_idx:]
+    )
+
+    used_indices = set(top_block_indices) | set(excess_checkpoint_indices)
+    remainder_indices = [i for i in range(len(hits)) if i not in used_indices]
+    final_indices = top_block_indices + excess_checkpoint_indices + remainder_indices
+    return [hits[i] for i in final_indices]
 
 
 def search_include_global_enabled() -> bool:
