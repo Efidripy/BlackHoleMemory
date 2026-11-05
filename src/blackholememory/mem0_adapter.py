@@ -605,7 +605,8 @@ def ensure_memory_collections(project_name: str | None = None) -> dict[str, Any]
     }
 
 
-@lru_cache(maxsize=16)
+# shortcut: 32 covers today's 25 projects without thrashing all-project search (a client costs over a second to build); past 32 projects share one client per embedder instead of raising this.
+@lru_cache(maxsize=32)
 def get_mem0_memory(collection_name: str | None = None, *, ensure_collection: bool = True) -> Any:
     from mem0 import Memory
 
