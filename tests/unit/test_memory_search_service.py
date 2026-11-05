@@ -41,7 +41,11 @@ def _service(*, federated_search, advanced_search=lambda request: _async_value({
             effective_search_project=lambda project: project or "demo",
             federated_search=federated_search,
             advanced_search=_advanced,
-            serialize_vector_hit=lambda item: {"id": item["id"]},
+            serialize_vector_hit=lambda item: {
+                "id": item["id"],
+                **({"memory": item["memory"]} if "memory" in item else {}),
+                **({"score": item["score"]} if "score" in item else {}),
+            },
             emit_memory_pulses=lambda items: None,
             is_fallback_grace_error=lambda exc: isinstance(exc, TimeoutError),
             fallback_grace_memories_response=lambda route, reason, **kwargs: {
@@ -143,3 +147,52 @@ def test_federated_search_global_contour_follows_environment(monkeypatch):
     monkeypatch.delenv("BHM_SEARCH_INCLUDE_GLOBAL", raising=False)
     asyncio.run(_service(federated_search=federated).execute(_request()))
     assert calls[-1]["include_global"] is True
+
+
+def test_default_project_hint_explains_how_to_widen_weak_search():
+    async def federated(query, project, **kwargs):
+        return ([{"id": "m1"}], 1)
+
+    result = asyncio.run(_service(federated_search=federated).execute(_request(project=None)))
+
+    assert "только в проекте demo" in result["hint"]
+    assert 'projects=["*"]' in result["hint"]
+
+
+def test_default_project_hint_explains_how_to_widen_empty_search():
+    async def federated(query, project, **kwargs):
+        return ([], 0)
+
+    async def advanced(request):
+        return {"memories": []}
+
+    result = asyncio.run(
+        _service(federated_search=federated, advanced_search=advanced).execute(_request(project=None))
+    )
+
+    assert result["answerability"]["status"] == "none"
+    assert "только в проекте demo" in result["hint"]
+
+
+def test_default_project_hint_is_omitted_for_confident_or_explicit_search():
+    async def federated(query, project, **kwargs):
+        return ([{"id": "m1", "memory": "needle", "score": 0.8}], 1)
+
+    confident = asyncio.run(_service(federated_search=federated).execute(_request(project=None)))
+    explicit = asyncio.run(_service(federated_search=federated).execute(_request(project="other")))
+
+    assert confident["answerability"]["status"] == "confident"
+    assert "hint" not in confident
+    assert "hint" not in explicit
+
+
+def test_default_project_hint_appends_to_abstain_hint_and_survives_compact():
+    async def federated(query, project, **kwargs):
+        return ([{"id": "m1"}], 1)
+
+    result = asyncio.run(
+        _service(federated_search=federated).execute(_request(project=None, abstain=True, detail="compact"))
+    )
+
+    assert "Ничего уверенно подходящего не найдено;" in result["hint"]
+    assert "только в проекте demo" in result["hint"]

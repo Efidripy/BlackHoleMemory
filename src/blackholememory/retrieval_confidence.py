@@ -104,7 +104,7 @@ def assess_answerability(
     """Assess whether returned memories likely answer a query."""
 
     configured = (AnswerabilityThresholds(**thresholds) if isinstance(thresholds, Mapping) else thresholds) or AnswerabilityThresholds.from_env()
-    if not memories:
+    if not memories or not str(query or "").strip():
         return {"status": "none", "reason": "no_candidates", "signals": {"top_score": 0.0, "score_gap": 0.0, "lexical_overlap": 0.0, "top_lexical_rank": None, "channels_agree": False}}
 
     scores = [max((value for value in (_number(item, "raw_qdrant_score"), _number(item, "semantic_score"), _number(item, "score")) if value is not None), default=0.0) for item in memories]
@@ -153,12 +153,15 @@ def assess_answerability(
         "semantic_rescue_rank": int(rescue_rank) if rescue_rank is not None and rescue_rank.is_integer() else (round(rescue_rank, 4) if rescue_rank is not None else None),
         "semantic_rescue_score": round(rescue_score, 4) if rescue_score is not None else None,
     }
+    non_ws_chars = [ch for ch in query if not ch.isspace()]
+    if not any(ch.isalnum() for ch in non_ws_chars) or (non_ws_chars.count("\ufffd") * 3 > len(non_ws_chars)):
+        return {"status": "none", "reason": "unreadable_query", "signals": signals}
+    if top_score >= configured.confident_score and lexical_overlap >= configured.confident_overlap:
+        return {"status": "confident", "reason": "strong_top_match", "signals": signals}
     if configured.rerank_rescue_score > 0 and top_rerank is not None and top_rerank >= configured.rerank_rescue_score:
         return {"status": "weak", "reason": "rerank_graded_match", "signals": signals}
     if rescue_score is not None:
         return {"status": "weak", "reason": "semantic_ranked_match", "signals": signals}
     if lexical_overlap <= configured.none_overlap and top_score < configured.none_score_ceiling:
         return {"status": "none", "reason": "low_query_coverage", "signals": signals}
-    if top_score >= configured.confident_score and lexical_overlap >= configured.confident_overlap:
-        return {"status": "confident", "reason": "strong_top_match", "signals": signals}
     return {"status": "weak", "reason": "partial_query_coverage", "signals": signals}

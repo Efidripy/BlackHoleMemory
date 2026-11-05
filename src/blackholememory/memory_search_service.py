@@ -59,6 +59,19 @@ class MemorySearchService:
     def __init__(self, dependencies: MemorySearchDependencies) -> None:
         self._dependencies = dependencies
 
+    @staticmethod
+    def _add_default_project_hint(response: dict[str, Any], request: Any, project_name: str) -> None:
+        """Tell callers how to widen a low-confidence default-project search."""
+
+        requested_project = getattr(request, "project", None)
+        if (requested_project and str(requested_project).strip()) or (
+            response.get("answerability") or {}
+        ).get("status") == "confident":
+            return
+        hint = f'Поиск шёл только в проекте {project_name}; другой проект указывается через project, все проекты через projects=["*"].'
+        existing = response.get("hint")
+        response["hint"] = f"{existing}; {hint}" if existing else hint
+
     async def execute(self, request: Any) -> dict[str, Any]:
         """Return a stable search response without changing storage state."""
 
@@ -163,7 +176,9 @@ class MemorySearchService:
                     "local_collection": self._dependencies.local_collection_name(project_name),
                     "global_collection": self._dependencies.global_collection_name(),
                 }
-                return finalize_search_response(apply_abstain(response, request), request)
+                response = apply_abstain(response, request)
+                self._add_default_project_hint(response, request, project_name)
+                return finalize_search_response(response, request)
             response = {
                 "memories": memories,
                 "total": total,
@@ -208,7 +223,9 @@ class MemorySearchService:
                 "side_effects": read_only_side_effects(),
                 "answerability": answerability,
             }
-            return finalize_search_response(apply_abstain(response, request), request)
+            response = apply_abstain(response, request)
+            self._add_default_project_hint(response, request, project_name)
+            return finalize_search_response(response, request)
         except Exception as exc:
             if not self._dependencies.is_fallback_grace_error(exc):
                 raise
@@ -244,4 +261,6 @@ class MemorySearchService:
             }
             response.setdefault("side_effects", read_only_side_effects())
             response.setdefault("answerability", assess_answerability(request.query, response.get("memories") or []))
-            return finalize_search_response(apply_abstain(response, request), request)
+            response = apply_abstain(response, request)
+            self._add_default_project_hint(response, request, project_name)
+            return finalize_search_response(response, request)
