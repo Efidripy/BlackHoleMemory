@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from blackholememory import app_core_fallback
 from blackholememory.embedding_cache import (
     EmbeddingCache,
@@ -54,6 +56,37 @@ def test_query_prefix_changes_provider_text_and_cache_key(monkeypatch):
     app_core_fallback._cached_query_embedding(memory, "same")
 
     assert embedder.queries == ["same", "search_query: same"]
+
+
+def test_federated_embedding_cache_hit_skips_second_project_memory_client(monkeypatch):
+    class Embedder:
+        def __init__(self):
+            self.calls = 0
+
+        def embed(self, query, _action):
+            self.calls += 1
+            return [float(len(query))]
+
+    class Memory:
+        def __init__(self, embedder):
+            self.embedding_model = embedder
+
+    embedder = Embedder()
+    projects: list[str] = []
+    monkeypatch.setattr(app_core_fallback, "_QUERY_EMBEDDING_CACHE", EmbeddingCache())
+    monkeypatch.setattr(
+        app_core_fallback,
+        "get_project_mem0_memory",
+        lambda project: (projects.append(project) or Memory(embedder)),
+    )
+    monkeypatch.delenv("BHM_QUERY_EMBED_PREFIX", raising=False)
+
+    first, _ = asyncio.run(app_core_fallback._prepare_federated_query_embedding("project-a", "same query"))
+    second, _ = asyncio.run(app_core_fallback._prepare_federated_query_embedding("project-b", "same query"))
+
+    assert first == second == [10.0]
+    assert projects == ["project-a"]
+    assert embedder.calls == 1
 
 
 def test_embedding_batch_deduplicates_and_uses_provider_batch_method():
