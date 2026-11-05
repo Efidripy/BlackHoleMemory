@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from . import app_core_fallback
 from . import app_runtime as rt
 from .app_runtime import ResponseTimeout, _env_float, _env_int, _run_bounded_read, _safe_exception_text
-from .api_models import RememberRequest
+from .api_models import MemoryUpsertRequest, RememberRequest
 from .capability import configured_admin_capability
 from .capability import extract_mcp_capability
 from .capability import MCP_OPERATOR_SESSION
@@ -396,7 +396,7 @@ def _admit_new_content(*, ingress: IngressKind, project: str, actor: str, payloa
     return admission.receipt()
 
 
-def _remember_response(record: dict[str, Any]) -> dict[str, Any]:
+def _remember_response(record: dict[str, Any], action: str | None = None) -> dict[str, Any]:
     metadata = record.get("metadata") if isinstance(record.get("metadata"), dict) else {}
     duplicate_ids = metadata.get("possible_duplicate_of")
     memory_id = record.get("source_id") or record.get("id") or record.get("memory_id")
@@ -413,6 +413,8 @@ def _remember_response(record: dict[str, Any]) -> dict[str, Any]:
             "createdAt": record.get("created_at"),
         },
     }
+    if action is not None:
+        response["action"] = action
     if duplicate_ids:
         response["possible_duplicate_of"] = list(duplicate_ids)
         response["memory"]["possible_duplicate_of"] = list(duplicate_ids)
@@ -439,6 +441,30 @@ async def _remember_authoritative(request: RememberRequest, *, actor: str) -> di
     gate = run_write_gate(request, lambda: rt._memory_service().repository.path)
     if gate.reject_detail is not None:
         raise HTTPException(status_code=422, detail=gate.reject_detail)
+    upsert_key = (request.upsert_key or "").strip()
+    if upsert_key:
+        upsert_req = MemoryUpsertRequest(
+            upsert_key=upsert_key,
+            project=request.project,
+            type=request.type,
+            memory_class=request.memory_class,
+            event_role=request.event_role,
+            observed_at=request.observed_at,
+            valid_from=request.valid_from,
+            valid_to=request.valid_to,
+            open_interval=request.open_interval,
+            supersedes_revision_id=request.supersedes_revision_id,
+            source_episode_id=request.source_episode_id,
+            source_uri=request.source_uri,
+            source_digest=request.source_digest,
+            content=request.content,
+            title=request.title,
+            concepts=request.concepts,
+            files=request.files,
+            metadata=request.metadata,
+        )
+        action, record = await rt._run_bounded_write("bhm.remember", _upsert_live_memory, upsert_req)
+        return attach_gate(_remember_response(record, action=action), gate)
     record = await rt._run_bounded_write("bhm.remember", _remember_live_memory, request)
     return attach_gate(_remember_response(record), gate)
 

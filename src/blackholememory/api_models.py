@@ -428,6 +428,7 @@ class MemoryUpsertRequest(BaseModel):
     source_uri: str | None = None
     source_digest: str | None = None
     content: str
+    title: str | None = None
     concepts: list[str] | None = None
     files: list[str] | None = None
     metadata: MemoryMetadata | None = None
