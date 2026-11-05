@@ -323,6 +323,22 @@ def test_answerability_unreadable_fffd_and_valid_queries():
     assert corrupted["status"] == "none"
     assert corrupted["reason"] == "unreadable_query"
 
+    # UTF-8, прочитанный как cp866: живой запрос с такой кодировкой получал выдачу
+    mojibake = assess_answerability(
+        "╨┐╤Ç╨╛ ╨╕ ╤ü╨║╤Ç",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert mojibake["reason"] == "unreadable_query"
+
+    # одиночная рамка в осмысленном запросе отказа не вызывает
+    framed = assess_answerability(
+        "deploy Ubuntu │ systemd",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert framed["reason"] != "unreadable_query"
+
     # обычный запрос на русском и запрос "10048" не дают unreadable_query
     russian = assess_answerability(
         "обычный запрос на русском",
