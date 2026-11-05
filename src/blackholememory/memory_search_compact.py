@@ -66,6 +66,13 @@ def compact_search_response(response: dict, *, snippet_chars: int = 280) -> dict
     compact: dict[str, Any] = {
         key: response[key] for key in ("total", "limit", "offset", "query", "answerability", "weak_matches", "hint", "suggested_source", "routing") if key in response
     }
+    cross_project = response.get("cross_project")
+    if isinstance(cross_project, Mapping):
+        compact["cross_project"] = {
+            key: cross_project[key]
+            for key in ("projects_searched", "projects_with_hits", "skipped")
+            if key in cross_project
+        }
     memories = []
     query = str(response.get("query") or "")
     for item in response.get("memories") or []:
@@ -100,13 +107,21 @@ def compact_search_response(response: dict, *, snippet_chars: int = 280) -> dict
 
 
 def apply_abstain(response: dict, request: Any) -> dict:
+    cross_project = response.get("cross_project")
+    skipped = cross_project.get("skipped") if isinstance(cross_project, Mapping) else None
+    memories = response.get("memories") or []
+    skipped_hint = None
+    if skipped:
+        reasons = sorted({str(item.get("reason") or "error") for item in skipped if isinstance(item, Mapping)})
+        skipped_hint = f"Пропущено проектов: {len(skipped)} ({', '.join(reasons) or 'error'})"
+        if not memories:
+            response["hint"] = skipped_hint
     answerability = response.get("answerability") or {}
     if not getattr(request, "abstain", False) or answerability.get("status") != "none":
         return response
-    memories = response.get("memories") or []
     response["memories"] = []
     response["weak_matches"] = [{"id": item.get("id"), "title": item.get("title"), "score": item.get("score")} for item in memories[:5]]
-    response["hint"] = "Ничего уверенно подходящего не найдено"
+    response["hint"] = skipped_hint or "Ничего уверенно подходящего не найдено"
     return response
 
 

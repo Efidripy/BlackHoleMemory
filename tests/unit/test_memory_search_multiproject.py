@@ -10,9 +10,11 @@ from blackholememory.api_models import MemoryAdvancedSearchRequest
 from blackholememory.bhm_mcp_memory import bhm_search
 from blackholememory.caller_auth import CallerPrincipal
 from blackholememory.memory_search_multiproject import (
+    execute_multiproject_search,
     multiproject_search,
     resolve_retrieval_projects,
 )
+from blackholememory.app_retrieval_context import _serialize_vector_hit
 from blackholememory.memory_search_service import MemorySearchDependencies, MemorySearchService
 
 
@@ -377,6 +379,72 @@ def test_service_wiring_multiproject():
     assert "cross_project" in response
     assert response["cross_project"]["projects_searched"] == 2
     assert "answerability" in response
+
+
+def _multiproject_dependencies(federated_search, serialize=None, resolve=None):
+    return MemorySearchDependencies(
+        ensure_provider_warmup_ready=MagicMock(return_value=asyncio.sleep(0)),
+        effective_search_project=lambda p: p or "default-p",
+        federated_search=federated_search,
+        advanced_search=MagicMock(),
+        serialize_vector_hit=serialize or (lambda hit: hit),
+        emit_memory_pulses=MagicMock(),
+        is_fallback_grace_error=lambda exc: False,
+        fallback_grace_memories_response=MagicMock(),
+        local_collection_name=lambda p: f"local-{p}",
+        global_collection_name=lambda: "global-coll",
+        resolve_projects=resolve or (lambda projects: projects),
+        authorize_projects=lambda projects: None,
+    )
+
+
+def test_execute_multiproject_reranks_serialized_union_once(monkeypatch):
+    calls = []
+
+    async def federated(query, project, **kwargs):
+        calls.append((project, kwargs))
+        return ([{"id": project, "content": f"content-{project}", "score": 0.5, "metadata": {"project": project}}], 1)
+
+    async def rerank(query, hits):
+        assert query == "q"
+        assert all("content" in hit for hit in hits)
+        return list(reversed(hits))
+
+    monkeypatch.setattr("blackholememory.memory_search_multiproject.llm_rerank.rerank_hits", rerank)
+    request = make_request(["p1", "p2"], query="q", limit=1)
+    request.abstain = False
+    response = asyncio.run(execute_multiproject_search(request, SimpleNamespace(include_historical=False), _multiproject_dependencies(federated, serialize=_serialize_vector_hit)))
+
+    assert [project for project, _ in calls] == ["p1", "p2"]
+    assert all(kwargs["include_rerank"] is False for _, kwargs in calls)
+    assert [item["id"] for item in response["memories"]] == ["p2"]
+
+
+def test_execute_multiproject_rerank_failure_keeps_results(monkeypatch):
+    async def federated(_query, project, **_kwargs):
+        return ([{"id": project, "content": project, "score": 0.5}], 1)
+
+    async def rerank(_query, _hits):
+        raise RuntimeError("rerank unavailable")
+
+    monkeypatch.setattr("blackholememory.memory_search_multiproject.llm_rerank.rerank_hits", rerank)
+    request = make_request(["p1"], query="q")
+    request.abstain = False
+    response = asyncio.run(execute_multiproject_search(request, SimpleNamespace(include_historical=False), _multiproject_dependencies(federated)))
+    assert [item["id"] for item in response["memories"]] == ["p1"]
+
+
+@pytest.mark.parametrize("abstain", [False, True])
+def test_execute_multiproject_all_timeouts_explain_skipped(monkeypatch, abstain):
+    async def fake_search(*_args, **_kwargs):
+        return {"memories": [], "total": 0, "cross_project": {"projects_searched": 2, "projects_with_hits": 0, "skipped": [{"project": "p1", "reason": "timeout"}, {"project": "p2", "reason": "timeout"}], "per_project_top": {}, "project_diagnostics": {}}}
+
+    monkeypatch.setattr("blackholememory.memory_search_multiproject.multiproject_search", fake_search)
+    monkeypatch.setattr("blackholememory.memory_search_multiproject.llm_rerank.rerank_hits", lambda _q, hits: hits)
+    request = make_request(["p1", "p2"], query="q")
+    request.abstain = abstain
+    response = asyncio.run(execute_multiproject_search(request, SimpleNamespace(include_historical=False), _multiproject_dependencies(lambda *_a, **_k: None)))
+    assert "Пропущено проектов: 2" in response["hint"]
 
 
 def test_mcp_wrapper_projects_csv():

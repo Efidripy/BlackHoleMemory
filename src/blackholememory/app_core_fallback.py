@@ -752,6 +752,7 @@ async def federated_search(
     include_historical: bool = False,
     include_graph_expansion: bool = True,
     include_global: bool = True,
+    include_rerank: bool = True,
 ) -> FederatedSearchOutcome:
     started = time.perf_counter()
     _require_typed_memory_boundary(memory_class=memory_class, event_role=event_role)
@@ -961,14 +962,10 @@ async def federated_search(
     ]
     if include_graph_expansion:
         filtered = await app_core_hit._augment_hits_with_graph_expansion(filtered, project_name, now)
-    ranked_hits = cap_checkpoints_in_top(
-        demote_near_duplicates(
-            await llm_rerank.rerank_hits(
-                query,
-                length_normalized(app_core_hit._rank_hybrid_vector_hits(query, filtered)),
-            )
-        )
-    )
+    ranked_hits = length_normalized(app_core_hit._rank_hybrid_vector_hits(query, filtered))
+    if include_rerank:
+        ranked_hits = await llm_rerank.rerank_hits(query, ranked_hits)
+    ranked_hits = cap_checkpoints_in_top(demote_near_duplicates(ranked_hits))
     total = len(ranked_hits)
     trace_contours = [*results]
     if exact_contour is not None:

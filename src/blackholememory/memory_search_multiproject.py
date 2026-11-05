@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from .caller_auth import authorize_projects, configured_caller_principal
+from . import llm_rerank
 from .memory_search_compact import apply_abstain, finalize_search_response
 from .retrieval_confidence import assess_answerability
 
@@ -96,6 +97,7 @@ async def multiproject_search(
     deadline_s: float = 8.0,
     concurrency: int = 2,
     per_project_limit: int = 5,
+    return_all: bool = False,
 ) -> dict[str, Any]:
     """Search requested projects with bounded concurrency and a hard deadline."""
 
@@ -202,7 +204,7 @@ async def multiproject_search(
     memories.sort(key=lambda item: (-_score(item), _lexical_rank(item), str(item.get("id") or "")))
     limit = max(int(getattr(request, "limit", 10)), 0)
     return {
-        "memories": memories[:limit],
+        "memories": memories if return_all else memories[:limit],
         "total": len(memories),
         "cross_project": {
             "projects_searched": len(projects),
@@ -242,6 +244,7 @@ async def execute_multiproject_search(
             "include_historical": getattr(history, "include_historical", False),
             "include_global": False,
             "include_graph_expansion": False,
+            "include_rerank": False,
         }
         if getattr(history, "freshness_days", None) is not None:
             federated_kwargs["freshness_days"] = history.freshness_days
@@ -264,10 +267,18 @@ async def execute_multiproject_search(
         authorize=dependencies.authorize_projects,
         concurrency=2,
         per_project_limit=5,
+        return_all=True,
     )
     response["query"] = request.query
     response["limit"] = max(min(getattr(request, "limit", 10), 200), 1)
     response["offset"] = 0
+    memories = list(response.get("memories") or [])
+    try:
+        reranked = await llm_rerank.rerank_hits(request.query, memories)
+        memories = list(reranked)
+    except Exception as exc:  # reranking is optional and must not lose retrieval results
+        _LOGGER.warning("multiproject rerank failed (%s)", type(exc).__name__)
+    response["memories"] = memories[: response["limit"]]
     response["answerability"] = assess_answerability(request.query, response.get("memories") or [])
     response["side_effects"] = read_only_side_effects()
     response["retrieval"] = {"mode": "multiproject", "include_global": False}
