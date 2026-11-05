@@ -326,9 +326,9 @@ def test_checkpoint_cap_moves_knowledge_cards_into_top_three(monkeypatch):
     ]
 
     assert [item["id"] for item in cap_checkpoints_in_top(cards)] == [
+        "checkpoint-1",
         "card-1",
         "card-2",
-        "checkpoint-1",
         "checkpoint-2",
         "card-3",
     ]
