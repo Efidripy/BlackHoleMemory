@@ -499,7 +499,7 @@ def test_remember_title_preservation_and_single_live_record(tmp_path, monkeypatc
     assert resp2.json()["memory"]["id"] == id1
     assert resp2.json()["memory"]["title"] == "Updated Title Version 2"
 
-    # 3. Update without title (title=None): previous title is preserved
+    # 3. New content without a title: the title follows the content, like /bhm/memory/update
     resp3 = client.post(
         "/bhm/remember",
         headers=headers,
@@ -511,7 +511,7 @@ def test_remember_title_preservation_and_single_live_record(tmp_path, monkeypatc
     )
     assert resp3.status_code == 200
     assert resp3.json()["memory"]["id"] == id1
-    assert resp3.json()["memory"]["title"] == "Updated Title Version 2"
+    assert resp3.json()["memory"]["title"] == "Third content version without title."
 
     # Verify that in database, after three writes with same key, there is still exactly 1 live record
     with sqlite3.connect(repo.path) as conn:
@@ -522,7 +522,7 @@ def test_remember_title_preservation_and_single_live_record(tmp_path, monkeypatc
         ).fetchall()
         assert len(rows) == 1
         assert rows[0]["memory_id"] == id1
-        assert rows[0]["title"] == "Updated Title Version 2"
+        assert rows[0]["title"] == "Third content version without title."
         mem = repo.get_memory(id1, project="proj-title-preservation")
         assert mem is not None
         assert mem.current_revision.content == "Third content version without title."
