@@ -12,18 +12,20 @@ def _setup(monkeypatch, projects):
     monkeypatch.delenv("BHM_PROJECT_WARMUP", raising=False)
     monkeypatch.setattr(project_warmup, "resolve_retrieval_projects", lambda requested, service: projects)
     monkeypatch.setattr(project_warmup, "_PAUSE_SECONDS", 0)
+    monkeypatch.setattr(project_warmup, "get_qdrant_client", lambda: object())
 
 
 def test_sequential_warmup_waits_for_provider_and_skips_failure(monkeypatch, caplog):
     _setup(monkeypatch, ["one", "bad", "three"])
     events = []
 
-    async def run(worker, project):
+    async def run(worker, project, client):
         events.append(project)
         if project == "bad":
             raise ValueError("failure")
 
     monkeypatch.setattr(app_core_fallback, "_run_bounded_provider_call", run)
+    monkeypatch.setattr(project_warmup.app_runtime, "_warm_provider_memory_project", lambda project, client: None)
 
     async def exercise():
         gate = asyncio.Event()
@@ -62,13 +64,14 @@ def test_cancellation_does_not_cancel_running_provider_call(monkeypatch):
         release = asyncio.Event()
         finished = asyncio.Event()
 
-        async def run(worker, project):
+        async def run(worker, project, client):
             events.append(project)
             started.set()
             await release.wait()
             finished.set()
 
         monkeypatch.setattr(app_core_fallback, "_run_bounded_provider_call", run)
+        monkeypatch.setattr(project_warmup.app_runtime, "_warm_provider_memory_project", lambda project, client: None)
         provider = asyncio.create_task(asyncio.sleep(0))
         task = asyncio.create_task(project_warmup.warmup_projects(provider))
         await started.wait()
@@ -86,12 +89,13 @@ def test_capacity_retries_same_project(monkeypatch):
     _setup(monkeypatch, ["one", "two"])
     events = []
 
-    async def run(worker, project):
+    async def run(worker, project, client):
         events.append(project)
         if len(events) == 1:
             raise app_core_fallback.RetrievalProviderCapacityExceeded("busy")
 
     monkeypatch.setattr(app_core_fallback, "_run_bounded_provider_call", run)
+    monkeypatch.setattr(project_warmup.app_runtime, "_warm_provider_memory_project", lambda project, client: None)
 
     async def exercise():
         provider = asyncio.create_task(asyncio.sleep(0))
