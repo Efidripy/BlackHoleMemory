@@ -52,6 +52,31 @@ def test_compact_response_bounds_fields_and_size():
     assert len(json.dumps(compact, ensure_ascii=False)) < 4096
 
 
+def test_compact_cross_project_keeps_only_summary():
+    response = {
+        "total": 0,
+        "limit": 5,
+        "offset": 0,
+        "query": "q",
+        "memories": [],
+        "cross_project": {
+            "projects_searched": 3,
+            "projects_with_hits": 1,
+            "skipped": [{"project": "slow", "reason": "timeout"}],
+            "per_project_top": {"p1": 0.9},
+            "project_diagnostics": {"p1": {"status": "hits"}},
+        },
+    }
+    compact = compact_search_response(response)
+    assert compact["cross_project"] == {
+        "projects_searched": 3,
+        "projects_with_hits": 1,
+        "skipped": [{"project": "slow", "reason": "timeout"}],
+    }
+    assert "per_project_top" not in compact["cross_project"]
+    assert "project_diagnostics" not in compact["cross_project"]
+
+
 def test_thresholds_read_environment(monkeypatch):
     monkeypatch.setenv("BHM_ANSWERABILITY_CONFIDENT_SCORE", "0.99")
     result = assess_answerability("x", [_hit(0.9, "x")])

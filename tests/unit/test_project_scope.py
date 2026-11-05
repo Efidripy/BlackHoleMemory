@@ -148,6 +148,34 @@ def test_federated_search_filters_each_contour_and_rejects_missing_project_metad
     assert all(hit["metadata"]["project"] == "blackholememory" for hit in hits)
 
 
+def test_federated_search_include_rerank_switch(monkeypatch):
+    class FakeEmbedder:
+        def embed(self, _query: str, *_args):
+            return [1.0]
+
+    class FakeMemory:
+        embedding_model = FakeEmbedder()
+
+    patch_app_import(monkeypatch, "get_project_mem0_memory", lambda _project: FakeMemory())
+    monkeypatch.setattr(
+        app_core_hit,
+        "_search_memory_collection",
+        lambda **kwargs: [{"id": "a", "content": "a", "score": 0.5, "metadata": {"project": "p"}}],
+    )
+    calls = []
+
+    async def rerank(query, hits):
+        calls.append((query, hits))
+        return list(reversed(hits))
+
+    monkeypatch.setattr(app_core_fallback.llm_rerank, "rerank_hits", rerank)
+    no_rerank, _ = asyncio.run(app_core_fallback.federated_search("q", "p", include_graph_expansion=False, include_global=False, include_rerank=False))
+    assert calls == []
+    with_rerank, _ = asyncio.run(app_core_fallback.federated_search("q", "p", include_graph_expansion=False, include_global=False))
+    assert len(calls) == 1
+    assert no_rerank[0]["id"] == with_rerank[0]["id"]
+
+
 def test_opt_in_exact_identifier_route_hydrates_authoritative_project_record(monkeypatch):
     class FakeEmbedder:
         @staticmethod
