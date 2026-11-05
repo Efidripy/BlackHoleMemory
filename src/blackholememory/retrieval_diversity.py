@@ -23,8 +23,16 @@ class MmrSelection:
 def token_jaccard_similarity(left: str, right: str) -> float:
     """Return bounded token overlap used as a safe no-embedding similarity proxy."""
 
-    left_tokens = set(_TOKEN_RE.findall(str(left or "")[:_MAX_TEXT_CHARS].casefold()))
-    right_tokens = set(_TOKEN_RE.findall(str(right or "")[:_MAX_TEXT_CHARS].casefold()))
+    left_tokens = _tokenize_text(left)
+    right_tokens = _tokenize_text(right)
+    return _token_jaccard_tokens(left_tokens, right_tokens)
+
+
+def _tokenize_text(text: str) -> set[str]:
+    return set(_TOKEN_RE.findall(str(text or "")[:_MAX_TEXT_CHARS].casefold()))
+
+
+def _token_jaccard_tokens(left_tokens: set[str], right_tokens: set[str]) -> float:
     if not left_tokens or not right_tokens:
         return 0.0
     return len(left_tokens & right_tokens) / len(left_tokens | right_tokens)
@@ -50,6 +58,7 @@ def mmr_select(
     if target_limit == 0:
         return []
 
+    token_sets = [_tokenize_text(text) for text in texts]
     scores = [float(score) for score in relevance_scores]
     maximum = max(scores)
     if maximum > 0:
@@ -66,12 +75,12 @@ def mmr_select(
         best_index = max(
             remaining,
             key=lambda index: (
-                _candidate_mmr_score(index, selected, texts, normalized, lambda_param),
+                _candidate_mmr_score(index, selected, token_sets, normalized, lambda_param),
                 normalized[index],
                 -index,
             ),
         )
-        redundancy = _candidate_redundancy(best_index, selected, texts)
+        redundancy = _candidate_redundancy(best_index, selected, token_sets)
         score = lambda_param * normalized[best_index] - (1.0 - lambda_param) * redundancy
         selected.append(best_index)
         remaining.remove(best_index)
@@ -79,20 +88,20 @@ def mmr_select(
     return result
 
 
-def _candidate_redundancy(index: int, selected: list[int], texts: Sequence[str]) -> float:
+def _candidate_redundancy(index: int, selected: list[int], token_sets: Sequence[set[str]]) -> float:
     if not selected:
         return 0.0
-    return max(token_jaccard_similarity(texts[index], texts[other]) for other in selected)
+    return max(_token_jaccard_tokens(token_sets[index], token_sets[other]) for other in selected)
 
 
 def _candidate_mmr_score(
     index: int,
     selected: list[int],
-    texts: Sequence[str],
+    token_sets: Sequence[set[str]],
     normalized_relevance: Sequence[float],
     lambda_param: float,
 ) -> float:
-    redundancy = _candidate_redundancy(index, selected, texts)
+    redundancy = _candidate_redundancy(index, selected, token_sets)
     return lambda_param * normalized_relevance[index] - (1.0 - lambda_param) * redundancy
 
 

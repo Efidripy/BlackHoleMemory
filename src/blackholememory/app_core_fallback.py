@@ -22,6 +22,7 @@ from .config import settings
 from .resource_limits import BHM_FEDERATED_EMBEDDING_PREPARATION_TIMEOUT_SECONDS
 from .resource_limits import BHM_FEDERATED_RETRIEVAL_CONTOUR_TIMEOUT_SECONDS
 from .embedding_cache import EmbeddingCache
+from .embedding_cache import embedding_cache_key
 from .embedding_cache import embed_query_with_cache
 from .mem0_adapter import get_project_mem0_memory
 from .mem0_adapter import storage_runtime_state
@@ -355,6 +356,11 @@ async def _prepare_federated_query_embedding(project_name: str, query: str) -> t
     started = time.perf_counter()
 
     def prepare() -> Any:
+        model_key = f"{settings.mem0_embedding_model}:{settings.mem0_embedding_dims}"
+        prefixed_query = f"{os.environ.get('BHM_QUERY_EMBED_PREFIX', '')}{query}"
+        cached = _QUERY_EMBEDDING_CACHE.get(embedding_cache_key(prefixed_query, model_key))
+        if cached is not None:
+            return cached
         memory = get_project_mem0_memory(project_name)
         return _cached_query_embedding(memory, query)
 
