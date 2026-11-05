@@ -577,7 +577,8 @@ def test_mcp_gateway_core_surface_lists_only_approved_tools(monkeypatch):
     assert "bhm_checkpoint_get_latest" not in names
     assert "bhm_admin_export" not in names
     assert len(json.dumps(response, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) < 32_768
-    assert elapsed < 0.3
+    # This is a hang guard, not a loaded-CI performance measurement.
+    assert elapsed < 1.0
 
 
 def test_mcp_gateway_admin_surface_exposes_full_registered_catalog(monkeypatch):

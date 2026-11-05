@@ -212,6 +212,33 @@ def test_provider_warmup_requires_embedding_but_not_chat(monkeypatch) -> None:
     app_runtime._PROVIDER_WARMUP_READY.clear()
 
 
+def test_provider_warmup_marks_ready_before_background_memory_probe(monkeypatch) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocked_background_probe() -> None:
+        started.set()
+        await release.wait()
+
+    async def run_probe() -> None:
+        app_runtime._PROVIDER_WARMUP_READY.clear()
+        monkeypatch.setattr(app_runtime, "_PROVIDER_WARMUP_REQUIRED", True)
+        monkeypatch.setattr(app_runtime, "_PROVIDER_MEMORY_WARMUP_ENABLED", True)
+        monkeypatch.setattr(app_runtime, "_PROVIDER_CHAT_WARMUP_ENABLED", False)
+        monkeypatch.setattr(app_runtime, "_post_provider_warmup_probe", lambda: None)
+        monkeypatch.setattr(app_runtime, "_warm_remaining_provider_memory_clients", blocked_background_probe)
+        await app_runtime.warmup_provider_probe()
+        await started.wait()
+        assert app_runtime._PROVIDER_WARMUP_READY.is_set()
+        task = app_runtime._PROVIDER_MEMORY_WARMUP_TASK
+        assert task is not None
+        release.set()
+        await task
+
+    asyncio.run(run_probe())
+    app_runtime._PROVIDER_WARMUP_READY.clear()
+
+
 def test_memory_warmup_only_instantiates_existing_collections(monkeypatch) -> None:
     calls: list[str] = []
 
@@ -227,6 +254,11 @@ def test_memory_warmup_only_instantiates_existing_collections(monkeypatch) -> No
     monkeypatch.setattr(app_runtime, "get_qdrant_client", lambda: _Client())
     monkeypatch.setattr(app_runtime, "local_collection_name", lambda project: f"local_{project}")
     monkeypatch.setattr(app_runtime, "global_collection_name", lambda: "global")
+    monkeypatch.setattr(
+        app_runtime,
+        "_project_projection_route",
+        lambda project: SimpleNamespace(collection_name=f"local_{project}"),
+    )
     monkeypatch.setattr(
         app_runtime,
         "get_project_mem0_memory",
@@ -277,3 +309,46 @@ def test_memory_warmup_uses_bound_generation_not_legacy_collection(monkeypatch) 
     assert skipped == []
     assert ("exists", "generation") in calls
     assert ("memory", ("bound", {"collection_name": "generation", "ensure_collection": False})) in calls
+
+
+def test_background_memory_warmup_is_bounded_and_continues_after_project_error(monkeypatch) -> None:
+    calls: list[tuple[str, object]] = []
+    status: dict[str, object] = {}
+
+    class _Client:
+        def collection_exists(self, name: str) -> bool:
+            return name in {"existing", "error", "other"}
+
+    class _Memory:
+        embedding_model = object()
+
+    monkeypatch.setattr(
+        "blackholememory.memory_search_multiproject.resolve_retrieval_projects",
+        lambda _requested, _service: ["existing", "unbound", "missing", "error", "other"],
+    )
+    monkeypatch.setattr(app_runtime, "_memory_service", lambda: object())
+    monkeypatch.setattr(app_runtime, "get_qdrant_client", lambda: _Client())
+    monkeypatch.setattr(app_runtime, "get_mem0_memory", SimpleNamespace(cache_info=lambda: SimpleNamespace(maxsize=6, currsize=1)))
+    monkeypatch.setattr(app_runtime, "_provider_memory_warmup_projects", lambda: ["already"])
+    monkeypatch.setattr(
+        app_runtime,
+        "_project_projection_route",
+        lambda project: SimpleNamespace(collection_name=None if project == "unbound" else project),
+    )
+
+    def fake_memory(project: str, **kwargs):
+        calls.append((project, kwargs))
+        if project == "error":
+            raise OSError("broken project")
+        return _Memory()
+
+    monkeypatch.setattr(app_runtime, "get_project_mem0_memory", fake_memory)
+    monkeypatch.setattr(app_runtime, "_set_provider_warmup_status", lambda **patch: status.update(patch))
+
+    asyncio.run(app_runtime._warm_remaining_provider_memory_clients())
+
+    assert [project for project, _kwargs in calls] == ["existing", "error", "other"]
+    assert status["memory_background_projects"] == ["existing", "other"]
+    assert status["memory_background_skipped_projects"] == ["unbound", "missing"]
+    assert "error" in status["memory_background_errors"]
+    assert all(kwargs["ensure_collection"] is False for _project, kwargs in calls)
