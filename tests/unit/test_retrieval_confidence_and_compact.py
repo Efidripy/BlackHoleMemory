@@ -248,3 +248,107 @@ def test_compact_upsert_key_falls_back_to_metadata_when_item_value_is_null():
                       "metadata": {"upsert_key": "from-metadata"}}],
     }
     assert compact_search_response(response)["memories"][0]["upsert_key"] == "from-metadata"
+
+
+def test_answerability_confident_with_high_score_coverage_and_rerank_grade():
+    hit = _hit(0.95, "Deploy Ubuntu with systemd", channels=["lexical", "semantic"], lexical_rank=1)
+    hit["metadata"]["llm_rerank_score"] = 10.0
+    result = assess_answerability(
+        "deploy Ubuntu",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert result["status"] == "confident"
+    assert result["reason"] == "strong_top_match"
+
+
+def test_answerability_low_top_score_with_high_rerank_grade_gives_weak():
+    hit = _hit(0.4, "Deploy Ubuntu with systemd", channels=["lexical", "semantic"], lexical_rank=1)
+    hit["metadata"]["llm_rerank_score"] = 10.0
+    result = assess_answerability(
+        "deploy Ubuntu",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert result["status"] == "weak"
+    assert result["reason"] == "rerank_graded_match"
+
+
+def test_answerability_low_coverage_with_high_rerank_grade_gives_weak():
+    hit = _hit(0.95, "Completely unrelated content")
+    hit["title"] = "Unrelated"
+    hit["metadata"]["llm_rerank_score"] = 10.0
+    result = assess_answerability(
+        "deploy Ubuntu",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert result["status"] == "weak"
+    assert result["reason"] == "rerank_graded_match"
+
+
+def test_answerability_unreadable_punctuation_query_gives_none():
+    hit = _hit(0.95, "Deploy Ubuntu with systemd", channels=["lexical", "semantic"], lexical_rank=1)
+    hit["metadata"]["llm_rerank_score"] = 10.0
+    result = assess_answerability(
+        "????? ??????? ??????",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert result["status"] == "none"
+    assert result["reason"] == "unreadable_query"
+    for expected_key in (
+        "top_rerank_score",
+        "top_score",
+        "score_gap",
+        "lexical_overlap",
+        "top_lexical_rank",
+        "channels_agree",
+        "semantic_rescue_rank",
+        "semantic_rescue_score",
+    ):
+        assert expected_key in result["signals"]
+
+
+def test_answerability_unreadable_fffd_and_valid_queries():
+    hit = _hit(0.95, "Deploy Ubuntu with systemd 10048", channels=["lexical", "semantic"], lexical_rank=1)
+    hit["metadata"]["llm_rerank_score"] = 10.0
+
+    # строка, где больше трети символов U+FFFD, даёт none
+    corrupted = assess_answerability(
+        "deploy \ufffd\ufffd\ufffd\ufffd",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert corrupted["status"] == "none"
+    assert corrupted["reason"] == "unreadable_query"
+
+    # обычный запрос на русском и запрос "10048" не дают unreadable_query
+    russian = assess_answerability(
+        "обычный запрос на русском",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert russian["reason"] != "unreadable_query"
+
+    numeric = assess_answerability(
+        "10048",
+        [hit],
+        thresholds=AnswerabilityThresholds(rerank_rescue_score=5.0),
+    )
+    assert numeric["reason"] != "unreadable_query"
+
+
+def test_answerability_empty_query_and_empty_memories_give_no_candidates():
+    hit = _hit(0.95, "Deploy Ubuntu with systemd")
+    empty_memories = assess_answerability("deploy Ubuntu", [])
+    assert empty_memories["status"] == "none"
+    assert empty_memories["reason"] == "no_candidates"
+
+    empty_query = assess_answerability("", [hit])
+    assert empty_query["status"] == "none"
+    assert empty_query["reason"] == "no_candidates"
+
+    whitespace_query = assess_answerability("   \t  ", [hit])
+    assert whitespace_query["status"] == "none"
+    assert whitespace_query["reason"] == "no_candidates"
