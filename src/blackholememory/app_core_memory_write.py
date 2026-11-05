@@ -354,6 +354,8 @@ def _upsert_live_memory(request: MemoryUpsertRequest) -> tuple[str, dict]:
     from . import app_core as _owner
     canonical_project = rt._canonical_project(request.project)
     existing = _base._find_live_memory_by_upsert_key(canonical_project, request.upsert_key)
+    if existing is not None and (_base._is_archived_memory(existing) or _base._memory_lifecycle(existing) != "active"):
+        existing = None
     if existing is None:
         record = _remember_live_memory(
             RememberRequest(
@@ -370,6 +372,7 @@ def _upsert_live_memory(request: MemoryUpsertRequest) -> tuple[str, dict]:
                 source_uri=request.source_uri,
                 source_digest=request.source_digest,
                 content=request.content,
+                title=request.title,
                 concepts=request.concepts,
                 files=request.files,
                 upsert_key=request.upsert_key,
@@ -384,6 +387,7 @@ def _upsert_live_memory(request: MemoryUpsertRequest) -> tuple[str, dict]:
             id=existing["source_id"],
             project=canonical_project,
             type=request.type,
+            title=(request.title or "").strip() or None,
             memory_class=request.memory_class,
             event_role=request.event_role,
             observed_at=request.observed_at,
