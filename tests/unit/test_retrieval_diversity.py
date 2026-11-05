@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from blackholememory import retrieval_diversity
 from blackholememory.retrieval_diversity import mmr_select, token_jaccard_similarity
 
 
@@ -28,3 +29,59 @@ def test_mmr_rejects_mismatched_inputs_and_invalid_lambda():
         mmr_select(["one"], [])
     with pytest.raises(ValueError, match="between 0 and 1"):
         mmr_select(["one"], [1.0], lambda_param=1.1)
+
+
+def test_mmr_matches_naive_token_jaccard_reference_for_limits_and_lambda():
+    texts = [
+        "repeat repeat alpha",
+        "repeat beta",
+        "",
+        "gamma " * 2000,
+        "delta repeat",
+    ]
+    relevance = [1.0, 0.92, 0.7, 0.68, 0.6]
+    lambda_param = 0.43
+    limit = 3
+
+    maximum = max(relevance)
+    normalized = [max(score, 0.0) / maximum for score in relevance]
+    remaining = set(range(len(texts)))
+    selected: list[int] = []
+    expected = []
+    while remaining and len(selected) < limit:
+        def score(index: int) -> float:
+            redundancy = max(
+                (token_jaccard_similarity(texts[index], texts[other]) for other in selected),
+                default=0.0,
+            )
+            return lambda_param * normalized[index] - (1.0 - lambda_param) * redundancy
+
+        best_index = max(remaining, key=lambda index: (score(index), normalized[index], -index))
+        redundancy = max(
+            (token_jaccard_similarity(texts[best_index], texts[other]) for other in selected),
+            default=0.0,
+        )
+        expected.append((best_index, round(score(best_index), 6), round(redundancy, 6)))
+        selected.append(best_index)
+        remaining.remove(best_index)
+
+    actual = [(item.index, item.mmr_score, item.redundancy) for item in mmr_select(
+        texts, relevance, lambda_param=lambda_param, limit=limit
+    )]
+    assert actual == expected
+
+
+def test_mmr_tokenizes_each_text_once(monkeypatch):
+    original = retrieval_diversity._TOKEN_RE
+    calls: list[str] = []
+
+    class CountingPattern:
+        def findall(self, text: str):
+            calls.append(text)
+            return original.findall(text)
+
+    monkeypatch.setattr(retrieval_diversity, "_TOKEN_RE", CountingPattern())
+    texts = ["one two", "two three", "", "four " * 1500]
+    mmr_select(texts, [1.0, 0.9, 0.8, 0.7], limit=2)
+
+    assert len(calls) == len(texts)
