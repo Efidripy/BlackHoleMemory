@@ -64,3 +64,6 @@ output/
 *.pfx
 *.jks
 *.log
+
+# graphify knowledge graph (local)
+graphify-out/
