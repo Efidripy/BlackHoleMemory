@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from pydantic import Field
 
 from .config import settings
+from .project_registry import canonical_project_id
 from . import memory_contracts as _memory_contracts
 from .capability import MCP_OPERATOR_HEADER_STATE
 from .ingress_admission import IngressKind
@@ -40,6 +41,8 @@ MetadataStakeholder = _memory_contracts.MetadataStakeholder
 MetadataVerification = _memory_contracts.MetadataVerification
 
 DEFAULT_PROJECT = "e-github-workspace"
+# Code tools need an indexed root: the registry default owns it, "e-github-workspace" has none (409 repository_root_ambiguous).
+CODE_DEFAULT_PROJECT = canonical_project_id(None)
 DEFAULT_BASE_URL = os.getenv("BHM_MCP_BASE_URL", f"http://{settings.host}:{settings.port}")
 TAXONOMY_METADATA_HINT = (
     "Typed metadata taxonomy values: lifecycle=draft|validated|deprecated|archived; "
@@ -255,6 +258,15 @@ def _get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return _bounded_json_response(response)
 
 
+def _raise_for_status_with_detail(response: httpx.Response) -> None:
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        if 400 <= response.status_code < 500:
+            raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}") from exc
+        raise
+
+
 def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
     timeout: float | None = None
     if path == "/bhm/code-tools":
@@ -269,7 +281,7 @@ def _post(path: str, body: dict[str, Any]) -> dict[str, Any]:
             )
     with _client(timeout=timeout) as client:
         response = client.post(path, json=body)
-        response.raise_for_status()
+        _raise_for_status_with_detail(response)
         return _bounded_json_response(response)
 
 
