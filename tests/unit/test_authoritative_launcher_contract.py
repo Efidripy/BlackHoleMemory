@@ -206,6 +206,7 @@ def test_authoritative_launcher_adopts_exact_seven_user_environment_variables():
         "BHM_LLM_RERANK",
         "BHM_LLM_RERANK_BASE_URL",
         "BHM_LLM_RERANK_MODEL",
+        "BHM_LLM_RERANK_SKIP_GAP",
         "BHM_ANSWERABILITY_RERANK_RESCUE_SCORE",
         "BHM_WRITE_DOC2QUERY",
         "BHM_WRITE_DEDUP",
