@@ -354,3 +354,19 @@ def test_checkpoint_cap_can_be_disabled(monkeypatch):
     ]
 
     assert cap_checkpoints_in_top(hits) == hits
+
+
+def test_lesson_checkpoint_leading_both_channels_is_not_demoted(monkeypatch):
+    from blackholememory.retrieval_rank_tuning import checkpoint_rank_multiplier
+
+    monkeypatch.delenv("BHM_SEARCH_INCLUDE_CHECKPOINTS", raising=False)
+    monkeypatch.delenv("BHM_CHECKPOINT_PROTECT_RANK", raising=False)
+    lesson = _checkpoint_record()
+    lesson["memory_type"] = "bug"
+    lesson["metadata"] = lesson["metadata"] | {"memory_type": "bug"}
+    chronicle = _checkpoint_record()
+    assert checkpoint_rank_multiplier(lesson, semantic_rank=1, lexical_rank=1) == 1.0
+    assert checkpoint_rank_multiplier(lesson, semantic_rank=1, lexical_rank=9) == pytest.approx(0.6)
+    assert checkpoint_rank_multiplier(chronicle, semantic_rank=1, lexical_rank=1) == pytest.approx(0.35)
+    monkeypatch.setenv("BHM_CHECKPOINT_PROTECT_RANK", "0")
+    assert checkpoint_rank_multiplier(lesson, semantic_rank=1, lexical_rank=1) == pytest.approx(0.6)

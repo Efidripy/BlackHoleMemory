@@ -91,10 +91,25 @@ def is_search_checkpoint(hit: dict[str, Any]) -> bool:
     return artifact_kind in {"", "checkpoint"} or upsert_key.startswith("checkpoint:")
 
 
-def checkpoint_rank_multiplier(hit: dict[str, Any]) -> float:
+def checkpoint_protect_rank() -> int:
+    """Rank limit within which a checkpoint that leads both channels is not demoted; 0 disables."""
+
+    try:
+        return max(int(os.environ.get("BHM_CHECKPOINT_PROTECT_RANK", "3")), 0)
+    except ValueError:
+        return 3
+
+
+def checkpoint_rank_multiplier(hit: dict[str, Any], *, semantic_rank: int | None = None, lexical_rank: int | None = None) -> float:
     if not (search_include_checkpoints_enabled() and is_search_checkpoint(hit)):
         return 1.0
-    return LESSON_CHECKPOINT_RANK_MULTIPLIER if _hit_field(hit, "memory_type") in LESSON_CHECKPOINT_TYPES else CHECKPOINT_RANK_MULTIPLIER
+    if _hit_field(hit, "memory_type") not in LESSON_CHECKPOINT_TYPES:
+        return CHECKPOINT_RANK_MULTIPLIER
+    # RRF scores are tightly packed (0.030 vs 0.033), so a flat x0.6 pushes a rank-1/rank-1 lesson below rank 4/9 noise.
+    protect = checkpoint_protect_rank()
+    if protect and semantic_rank is not None and lexical_rank is not None and semantic_rank <= protect and lexical_rank <= protect:
+        return 1.0
+    return LESSON_CHECKPOINT_RANK_MULTIPLIER
 
 
 def cap_checkpoints_in_top(hits: list[dict[str, Any]], top: int = 3) -> list[dict[str, Any]]:

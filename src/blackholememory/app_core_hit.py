@@ -452,7 +452,8 @@ def _rank_hybrid_vector_hits(query: str, hits: list[dict], *, k: int = 60) -> li
         freshness_bonuses = {}
 
     checkpoint_multipliers = {
-        key: checkpoint_rank_multiplier(hit) for _, key, hit in indexed_hits
+        key: checkpoint_rank_multiplier(hit, semantic_rank=semantic_ranks[key], lexical_rank=lexical_ranks[key])
+        for _, key, hit in indexed_hits
     }
     for key, multiplier in checkpoint_multipliers.items():
         fused_scores[key] *= multiplier
