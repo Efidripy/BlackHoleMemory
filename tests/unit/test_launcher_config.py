@@ -86,7 +86,7 @@ def test_validation_accepts_project_and_rejects_unsafe_project():
 
 
 def test_paid_tier_setting_is_validated_and_exported():
-    from bhm_launcher_config import paid_tier_env
+    from bhm_launcher_paid_tier import paid_tier_env
 
     assert validate_settings({"llm": {"tier": "paid", "paid_model": "m"}})["llm"]["tier"] == "paid"
     for bad in ({"tier": "cloud"}, {"tier": "paid", "paid_base_url": 5}):

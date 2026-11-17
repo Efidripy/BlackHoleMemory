@@ -8,7 +8,8 @@ import subprocess
 
 import os
 
-from bhm_launcher_config import paid_tier_env
+from bhm_launcher_paid_tier import paid_tier_env
+from bhm_launcher_paid_tier import with_llm_tier
 from bhm_launcher_integrations import IntegrationsWindow
 from bhm_launcher_readiness import probe_http
 from bhm_launcher_telemetry import remote_status
@@ -603,13 +604,10 @@ class DashboardScreen(_launcher.QWidget):
         self.monitor.set_llm_config(self._llm_mode, self._llm_port, self._llm_remote_url)
 
     def on_paid_tier_changed(self, enabled: bool) -> None:
-        previous_settings = dict(self.settings)
-        candidate_settings = dict(self.settings)
-        candidate_settings["llm"] = {**(self.settings.get("llm") or {}), "tier": "paid" if enabled else "local"}
+        candidate_settings = with_llm_tier(self.settings, enabled)
         try:
             _launcher.save_launcher_settings(candidate_settings)
         except (OSError, ValueError, TypeError) as exc:
-            self.settings = previous_settings
             _launcher.append_launcher_log(f"SETTINGS SAVE ERROR: {_launcher.compact_error(exc)}")
             return
         self._paid_tier = enabled
