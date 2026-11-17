@@ -11,9 +11,13 @@ from typing import Any
 
 import httpx
 
+from .config import settings
+from .egress_filter import sanitize_for_egress
+
 _MIN_CONTENT_LENGTH = 200
 _MAX_CONTENT_LENGTH = 6000
 _TIMEOUT_SECONDS = 20.0
+_PAID_TIMEOUT_SECONDS = 120.0  # paid models answer in tens of seconds; this runs in a background thread
 _SYSTEM_PROMPT = (
     "Ты формулируешь поисковые вопросы для карточки знаний. "
     "Составь 3–5 разных вопросов на языке исходной заметки. "
@@ -34,6 +38,18 @@ def get_last_thread() -> threading.Thread | None:
 
 def _setting(name: str) -> str:
     return os.getenv(name, "").strip()
+
+
+def _paid() -> bool:
+    """Explicit operator opt-in (BHM_LLM_TIER=paid) plus a complete endpoint; never inferred from a URL."""
+
+    return settings.llm_tier == "paid" and bool(
+        settings.paid_llm_base_url and settings.paid_llm_model and settings.paid_llm_api_key
+    )
+
+
+def _enabled() -> bool:
+    return _setting("BHM_WRITE_DOC2QUERY") == "1" or _paid()
 
 
 def _response_text(payload: Mapping[str, Any]) -> str:
@@ -70,21 +86,32 @@ def enrich_content(title: str, content: str) -> str:
 
     if not isinstance(content, str):
         return content
-    if "Вопросы:" in content or not _setting("BHM_WRITE_DOC2QUERY") == "1":
+    paid = _paid()
+    if "Вопросы:" in content or not (paid or _setting("BHM_WRITE_DOC2QUERY") == "1"):
         return content
     if not _MIN_CONTENT_LENGTH <= len(content) <= _MAX_CONTENT_LENGTH:
         return content
-    base_url = _setting("BHM_LLM_RERANK_BASE_URL")
-    model = _setting("BHM_LLM_RERANK_MODEL")
+    if paid:
+        base_url, model = settings.paid_llm_base_url, settings.paid_llm_model
+        headers = {"Authorization": f"Bearer {settings.paid_llm_api_key}"}
+        # Everything that leaves the machine goes through the secret/PII filter.
+        title, outbound = sanitize_for_egress(title).text, sanitize_for_egress(content).text
+        timeout = _PAID_TIMEOUT_SECONDS
+        extra: dict[str, Any] = {}
+    else:
+        base_url, model = _setting("BHM_LLM_RERANK_BASE_URL"), _setting("BHM_LLM_RERANK_MODEL")
+        headers, outbound, timeout = {}, content, _TIMEOUT_SECONDS
+        extra = {"chat_template_kwargs": {"enable_thinking": False}}
     if not base_url or not model:
         return content
 
     try:
-        user_prompt = f"Заголовок заметки:\n{title}\n\nТекст заметки:\n{content}"
+        user_prompt = f"Заголовок заметки:\n{title}\n\nТекст заметки:\n{outbound}"
         with httpx.Client(
-            timeout=_TIMEOUT_SECONDS,
+            timeout=timeout,
             trust_env=False,
             follow_redirects=False,
+            headers=headers,
         ) as client:
             response = client.post(
                 f"{base_url.rstrip('/')}/chat/completions",
@@ -96,14 +123,16 @@ def enrich_content(title: str, content: str) -> str:
                     ],
                     "temperature": 0,
                     "max_tokens": 256,
-                    "chat_template_kwargs": {"enable_thinking": False},
+                    **extra,
                 },
-                timeout=_TIMEOUT_SECONDS,
+                timeout=timeout,
             )
             response.raise_for_status()
             questions = _parse_questions(response.json())
     except Exception:
         return content
+    if paid:
+        questions = [sanitize_for_egress(q).text for q in questions]
     return f"{content}\n\nВопросы: {' '.join(questions)}"
 
 
@@ -121,7 +150,7 @@ def schedule_live_enrichment(
     """
     global _thread_count, _last_thread
 
-    if _setting("BHM_WRITE_DOC2QUERY") != "1":
+    if not _enabled():
         return None
 
     try:

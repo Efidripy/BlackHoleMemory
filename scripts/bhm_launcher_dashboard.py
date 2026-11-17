@@ -6,6 +6,9 @@ from typing import Any
 from typing import Callable
 import subprocess
 
+import os
+
+from bhm_launcher_config import paid_tier_env
 from bhm_launcher_integrations import IntegrationsWindow
 from bhm_launcher_readiness import probe_http
 from bhm_launcher_telemetry import remote_status
@@ -48,6 +51,7 @@ class DashboardScreen(_launcher.QWidget):
             self._llm_port = _launcher.DEFAULT_LLM_PORT
         self._llm_remote_url = str(llm_settings.get("remote_url", ""))
         self._llm_openai_base_url = str(llm_settings.get("openai_base_url", "") or self._llm_remote_url)
+        self._paid_tier = llm_settings.get("tier") == "paid"
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -524,12 +528,15 @@ class DashboardScreen(_launcher.QWidget):
         grid.setSpacing(14)
         services = [("qdrant", "Qdrant"), ("api", "BHM API"), ("llm", "LLM"), ("sidecar", "Projection Sidecar")]
         for col, (key, title) in enumerate(services):
-            card = _launcher.ServiceCard(key, title, self._llm_mode, self._llm_port, self._llm_remote_url)
+            card = _launcher.ServiceCard(
+                key, title, self._llm_mode, self._llm_port, self._llm_remote_url, paid_tier=self._paid_tier
+            )
             card.start_requested.connect(self.start_service)
             card.stop_requested.connect(self.stop_service)
             card.restart_requested.connect(self.restart_service)
             card.llm_config_changed.connect(self.on_llm_config_changed)
             card.llm_check_requested.connect(self.check_llm_connection)
+            card.paid_tier_changed.connect(self.on_paid_tier_changed)
             self.service_cards[key] = card
             grid.addWidget(card, 0, col)
             grid.setColumnStretch(col, 1)
@@ -595,10 +602,25 @@ class DashboardScreen(_launcher.QWidget):
             return
         self.monitor.set_llm_config(self._llm_mode, self._llm_port, self._llm_remote_url)
 
+    def on_paid_tier_changed(self, enabled: bool) -> None:
+        previous_settings = dict(self.settings)
+        candidate_settings = dict(self.settings)
+        candidate_settings["llm"] = {**(self.settings.get("llm") or {}), "tier": "paid" if enabled else "local"}
+        try:
+            _launcher.save_launcher_settings(candidate_settings)
+        except (OSError, ValueError, TypeError) as exc:
+            self.settings = previous_settings
+            _launcher.append_launcher_log(f"SETTINGS SAVE ERROR: {_launcher.compact_error(exc)}")
+            return
+        self._paid_tier = enabled
+        self.settings = candidate_settings
+        _launcher.append_launcher_log(f"LLM TIER: {'paid' if enabled else 'local'} (applies after the BHM API restarts)")
+
     def on_llm_config_changed(self, mode: str, port: int, remote_url: str) -> None:
         previous_settings = dict(self.settings)
         candidate_settings = dict(self.settings)
         candidate_settings["llm"] = {
+            **(self.settings.get("llm") or {}),
             "mode": self._llm_mode,
             "port": port,
             "remote_url": remote_url,
@@ -700,6 +722,8 @@ class DashboardScreen(_launcher.QWidget):
             card = self.service_cards.get(key)
             if card:
                 card.set_status(_launcher.ServiceStatus("Starting", "waiting for readiness"))
+            if key == "api":
+                os.environ.update(paid_tier_env(self.settings))
             operation = (
                 _launcher.CanonicalApiOperationThread(project_root, force_restart=force_restart)
                 if key == "api"

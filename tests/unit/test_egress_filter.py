@@ -1,10 +1,8 @@
-from types import SimpleNamespace
-
 import pytest
 
 from blackholememory.config import Settings
 from blackholememory.egress_filter import sanitize_for_egress
-from blackholememory.llm_enhancements import expand_queries, paid_tier_ready
+from blackholememory import write_enrichment
 
 
 @pytest.mark.parametrize(
@@ -33,38 +31,68 @@ def test_ordinary_engineering_text_is_untouched():
     assert sanitize_for_egress(text).text == text  # private IPs, dates, versions, bad-Luhn number
 
 
-def _settings(**kw):
-    base = dict(llm_tier="paid", paid_llm_base_url="http://x/v1", paid_llm_model="m", paid_llm_api_key="k")
-    return SimpleNamespace(**{**base, **kw})
+_NOTE = "Урок про SQLite и поиск, автор alice@example.invalid, token=abcdefgh12345678. " * 6
 
 
-def test_default_tier_is_local_and_never_calls_out():
-    assert Settings().llm_tier == "local"
+class _Resp:
+    def raise_for_status(self):
+        return None
 
-    def boom(*a):
-        raise AssertionError("no request in local tier")
-
-    assert not paid_tier_ready(_settings(llm_tier="local"))
-    assert expand_queries("note", settings=_settings(llm_tier="local"), transport=boom) == []
-    assert expand_queries("note", settings=_settings(paid_llm_api_key=""), transport=boom) == []
-
-
-def test_expand_queries_sends_only_sanitized_text_and_cleans_output():
-    sent = {}
-
-    def transport(url, payload, headers, timeout):
-        sent["user"] = payload["messages"][1]["content"]
-        content = '{"questions": ["how to mail bob@example.invalid?", "  ", 5, "q2"]}'
+    def json(self):
+        content = '{"questions": ["Q1 bob@example.invalid?", "Q2?", "Q3?"]}'
         return {"choices": [{"message": {"content": content}}]}
 
-    out = expand_queries("contact alice@example.invalid, token=abcdefgh12345678", settings=_settings(), transport=transport)
-    assert "alice@example.invalid" not in sent["user"] and "abcdefgh12345678" not in sent["user"]
-    assert out == ["how to mail [REDACTED:email]?", "q2"]
+
+def _client(sent):
+    class Client:
+        def __init__(self, **kwargs):
+            sent["headers"] = kwargs.get("headers")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def post(self, url, *, json, timeout):
+            sent.update(url=url, payload=json, timeout=timeout)
+            return _Resp()
+
+    return Client
 
 
-def test_expand_queries_failure_returns_empty():
-    def transport(*a):
-        raise OSError("down")
+def _paid(monkeypatch, **kw):
+    cfg = dict(llm_tier="paid", paid_llm_base_url="http://paid.test/v1", paid_llm_model="m", paid_llm_api_key="k")
+    for key, value in {**cfg, **kw}.items():
+        monkeypatch.setattr(write_enrichment.settings, key, value)
+    monkeypatch.delenv("BHM_WRITE_DOC2QUERY", raising=False)
 
-    assert expand_queries("note", settings=_settings(), transport=transport) == []
-    assert expand_queries("note", settings=_settings(), transport=lambda *a: {"choices": []}) == []
+
+def test_default_tier_is_local():
+    assert Settings().llm_tier == "local"
+
+
+def test_local_tier_never_calls_out(monkeypatch):
+    monkeypatch.delenv("BHM_WRITE_DOC2QUERY", raising=False)
+    monkeypatch.setattr(write_enrichment.httpx, "Client", lambda **_: (_ for _ in ()).throw(AssertionError("no call")))
+    assert write_enrichment.enrich_content("t", _NOTE) == _NOTE
+    assert write_enrichment.schedule_live_enrichment({"content": _NOTE}) is None
+
+
+def test_paid_tier_sends_only_filtered_text_with_auth(monkeypatch):
+    sent = {}
+    _paid(monkeypatch)
+    monkeypatch.setattr(write_enrichment.httpx, "Client", _client(sent))
+    out = write_enrichment.enrich_content("title bob@example.invalid", _NOTE)
+    user = sent["payload"]["messages"][1]["content"]
+    assert "alice@example.invalid" not in user and "bob@example.invalid" not in user and "abcdefgh12345678" not in user
+    assert sent["headers"] == {"Authorization": "Bearer k"}
+    assert "chat_template_kwargs" not in sent["payload"] and sent["timeout"] == 120.0
+    assert sent["url"] == "http://paid.test/v1/chat/completions"
+    assert out.startswith(_NOTE) and "Вопросы: Q1 [REDACTED:email]? Q2? Q3?" in out
+
+
+def test_paid_tier_needs_complete_endpoint(monkeypatch):
+    _paid(monkeypatch, paid_llm_api_key="")
+    monkeypatch.setattr(write_enrichment.httpx, "Client", lambda **_: (_ for _ in ()).throw(AssertionError("no call")))
+    assert write_enrichment.enrich_content("t", _NOTE) == _NOTE
