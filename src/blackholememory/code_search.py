@@ -20,8 +20,8 @@ from .filesystem_boundaries import assert_safe_path
 CODE_SEARCH_SCHEMA_VERSION = "bhm.code-search.v1"
 CODE_SEARCH_SEMANTIC_FUSION_VERSION = "bhm.code-search.semantic-fusion.v1"
 MAX_QUERY_CHARS = 240
-MAX_SCAN_FILES = 256
-MAX_SCAN_BYTES = 8 * 1024 * 1024
+MAX_SCAN_FILES = 1536
+MAX_SCAN_BYTES = 24 * 1024 * 1024
 MAX_FILE_BYTES = 1024 * 1024
 MAX_SNIPPET_CHARS = 600
 MAX_SEARCH_RESULTS = 2_048
@@ -223,7 +223,19 @@ def search_repository_code(
     # lgtm [py/path-injection]
     root = _admit_repository_root(root)
 
-    ordered_files = sorted(files, key=lambda item: str(item.get("path") or ""))[:MAX_SCAN_FILES]
+    # Cap after prioritising: path hits first, then source files; plain path order starved everything after the first 256 files (all of src/).
+    query_tokens_lower = [token.casefold() for token in _tokens(normalized_query)] or [normalized_query.casefold()]
+    path_filter = normalized_query.casefold() if mode == "path" else None
+
+    def _scan_priority(item: Mapping[str, Any]) -> tuple[int, int, str]:
+        path_text = str(item.get("path") or "")
+        lowered = path_text.casefold()
+        path_hit = any(token in lowered for token in query_tokens_lower)
+        is_doc = lowered.endswith((".md", ".txt", ".json", ".lock", ".csv")) or lowered.startswith((".docs/", "docs/"))
+        return (0 if path_hit else 1, 1 if is_doc else 0, path_text)
+
+    candidates = [item for item in files if path_filter is None or path_filter in str(item.get("path") or "").replace("\\", "/").casefold()]
+    ordered_files = sorted(candidates, key=_scan_priority)[:MAX_SCAN_FILES]
     matches: list[dict[str, Any]] = []
     documents: list[tuple[str, Mapping[str, Any], list[str]]] = []
     scanned_files = 0

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from blackholememory.code_search import get_repository_snippet, search_repository_code
+from blackholememory.code_search import MAX_SCAN_FILES, get_repository_snippet, search_repository_code
 from blackholememory.filesystem_boundaries import FilesystemBoundaryError
 
 
@@ -139,3 +139,20 @@ def test_code_search_semantic_fusion_is_feature_flagged_and_metadata_only(monkey
     assert enabled["search_strategy"] == "bounded-bm25+qdrant-rrf"
     assert enabled["matches"][0]["metadata"]["fusion_channels"] == ["lexical", "qdrant-semantic"]
     assert "must never be copied" not in str(enabled)
+
+
+def test_code_search_scan_cap_does_not_starve_late_paths(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    (root / "aaa").mkdir(parents=True)
+    (root / "src").mkdir()
+    files = []
+    for index in range(MAX_SCAN_FILES + 5):
+        name = f"aaa/f{index:05d}.txt"
+        (root / name).write_text("filler", encoding="utf-8")
+        files.append({"path": name, "language": "Text", "size_bytes": 6, "content_sha256": "a" * 64})
+    late = "def unique_late_symbol():\n    return 1\n"
+    (root / "src" / "zzz_late.py").write_text(late, encoding="utf-8")
+    files.append({"path": "src/zzz_late.py", "language": "Python", "size_bytes": len(late), "content_sha256": "b" * 64})
+
+    assert search_repository_code(root, files, query="unique_late_symbol", mode="text")["total_matches"] == 1
+    assert search_repository_code(root, files, query="zzz_late", mode="path")["total_matches"] == 1
