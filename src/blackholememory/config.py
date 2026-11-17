@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -46,6 +47,12 @@ class Settings(BaseSettings):
 
     app_name: str = "BlackHoleMemory"
     app_env: str = "dev"
+
+    # "paid" is an explicit operator opt-in (BHM_LLM_TIER); a URL never implies it.
+    llm_tier: Literal["local", "paid"] = "local"
+    paid_llm_base_url: str = ""
+    paid_llm_model: str = ""
+    paid_llm_api_key: str = ""
     host: str = endpoint_host("bhm_api")
     port: int = endpoint_port("bhm_api")
     context_profile: str = "standard"
