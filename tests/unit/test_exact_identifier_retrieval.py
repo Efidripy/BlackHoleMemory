@@ -35,6 +35,8 @@ def _record(
 def test_exact_identifier_tokens_reject_prose_and_require_high_signal_shape():
     assert exact_identifier_tokens("find contract_001_anchor now") == ("contract_001_anchor",)
     assert exact_identifier_tokens("ordinaryword no_digits_here") == ()
+    assert exact_identifier_tokens("what does BHM_CHECKPOINT_PROTECT_RANK do", query=True) == ("bhm_checkpoint_protect_rank",)
+    assert exact_identifier_tokens("memory_type SOME_WORD snake_case_name") == ()
     assert exact_identifier_tokens("contract_001_anchor", query=True) == ("contract_001_anchor",)
 
 

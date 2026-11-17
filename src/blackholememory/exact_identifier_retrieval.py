@@ -35,6 +35,12 @@ def exact_identifier_enabled() -> bool:
     return os.getenv(EXACT_IDENTIFIER_ENV, "").strip().casefold() in {"1", "true", "yes", "on"}
 
 
+def _is_env_style(token: str) -> bool:
+    """UPPER_SNAKE names with two or more underscores (BHM_*, env vars) are high-signal even without digits."""
+
+    return token.count("_") >= 2 and token.upper() == token and any(char.isalpha() for char in token)
+
+
 def exact_identifier_tokens(value: str, *, query: bool = False) -> tuple[str, ...]:
     """Extract high-signal identifier tokens, never ordinary prose words."""
 
@@ -45,7 +51,7 @@ def exact_identifier_tokens(value: str, *, query: bool = False) -> tuple[str, ..
             for token in _TOKEN_RE.findall(str(value or ""))
             if len(token) >= MIN_IDENTIFIER_LENGTH
             and "_" in token
-            and any(char.isdigit() for char in token)
+            and (any(char.isdigit() for char in token) or _is_env_style(token))
         )
     )[:limit]
 
