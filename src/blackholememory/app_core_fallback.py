@@ -735,6 +735,26 @@ def _build_exact_identifier_hits(
     return hits, snapshot_digest
 
 
+def _build_alias_hits(*, query: str, project_name: str, candidate_count: int, **filters) -> tuple[list[dict], str]:
+    from .alias_index import alias_tokens
+
+    service = rt._memory_service()
+    ids = service.find_alias_candidate_ids(project_name, alias_tokens(query), limit=candidate_count)
+    records = service.get_records(ids, project=project_name, include_storage_lifecycle=True)
+    accepted = [record for record in records
+                if str(record.get("lifecycle") or "active").casefold() == "active"
+                and str(record.get("project") or "") == project_name
+                and str(record.get("semantic_type") or (record.get("metadata") or {}).get("semantic_type") or "").casefold() not in {"log", "error"}
+                and app_core_hit._memory_matches_filters(record, project=project_name, **filters)]
+    hits = build_exact_identifier_hits(accepted, ids, project=project_name)
+    for hit in hits:
+        metadata = hit.setdefault("metadata", {})
+        metadata.pop("exact_identifier_snapshot_digest", None)
+        metadata["alias_lane"] = True
+        metadata["retrieval_route"] = "alias"
+    return hits, ""
+
+
 async def federated_search(
     query: str,
     project_name: str,
@@ -850,6 +870,18 @@ async def federated_search(
             )
     )
 
+    from .alias_index import alias_retrieval_enabled, alias_tokens
+    from .paid_llm import paid_ready
+    alias_task = None
+    if query.strip() and alias_retrieval_enabled() and paid_ready() and alias_tokens(query):
+        alias_task = asyncio.create_task(_run_timed_retrieval_contour(
+            "alias", _build_alias_hits, query=query, project_name=project_name,
+            candidate_count=candidate_count, memory_type=memory_type, memory_class=memory_class,
+            event_role=event_role, domain=domain, semantic_type=semantic_type, priority=priority,
+            as_of=as_of, valid_from=valid_from, valid_to=valid_to,
+            include_temporal_unknown=include_temporal_unknown, include_archived=include_archived,
+            include_logs=include_logs, include_historical=include_historical))
+
     query_embedding = None
     embedding_duration_ms = 0.0
     if query.strip():
@@ -859,6 +891,8 @@ async def federated_search(
             _LOGGER.warning("Federated embedding preparation failed (%s)", type(exc).__name__)
             if exact_task is not None:
                 exact_task.add_done_callback(_consume_late_read_worker)
+            if alias_task is not None:
+                alias_task.add_done_callback(_consume_late_read_worker)
             raise
 
     local_task = asyncio.create_task(
@@ -918,7 +952,15 @@ async def federated_search(
             raise exact_contour.error
         exact_hits, _exact_snapshot_digest = exact_contour.result
         exact_hits = app_core_hit._apply_decay_to_vector_hits(exact_hits, now)
-    combined_results = app_core_hit.merge_and_sort_hits([*local_hits, *exact_hits], global_hits)
+    alias_hits = []
+    alias_contour = None
+    if alias_task is not None:
+        alias_contour = await alias_task
+        if alias_contour.error is not None:
+            raise alias_contour.error
+        alias_hits, _ = alias_contour.result
+        alias_hits = app_core_hit._apply_decay_to_vector_hits(alias_hits, now)
+    combined_results = app_core_hit.merge_and_sort_hits([*local_hits, *exact_hits, *alias_hits], global_hits)
     if temporal_filter_requested:
         # Temporal fields in Qdrant are an optional projection.  Hydrate from
         # SQLite before filtering so stale or missing projection payloads never
@@ -976,6 +1018,8 @@ async def federated_search(
     trace_contours = [*results]
     if exact_contour is not None:
         trace_contours.append(exact_contour)
+    if alias_contour is not None:
+        trace_contours.append(alias_contour)
     return FederatedSearchOutcome(
         hits=_attach_titles(
             _attach_upsert_keys(ranked_hits[page_offset : page_offset + page_limit], project_name),

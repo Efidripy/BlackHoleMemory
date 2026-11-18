@@ -196,6 +196,28 @@ class MemoryRepositoryReadMixin:
         finally:
             connection.close()
 
+    def find_alias_candidate_ids(self, project: str, query_tokens: Iterable[str], *, limit: int = 200) -> list[str]:
+        from .alias_index import ALIAS_INDEX_CAPABILITY_KEY, ALIAS_INDEX_CAPABILITY_VERSION, alias_tokens
+
+        tokens = tuple(dict.fromkeys(t for value in query_tokens for t in alias_tokens(value)))[:16]
+        if not project or not tokens:
+            return []
+        connection = self._read_connection()
+        try:
+            marker = connection.execute("SELECT value FROM memory_store_meta WHERE key = ?", (ALIAS_INDEX_CAPABILITY_KEY,)).fetchone()
+            if not marker or marker[0] != ALIAS_INDEX_CAPABILITY_VERSION:
+                return []
+            placeholders = ",".join("?" for _ in tokens)
+            rows = connection.execute(
+                f"SELECT m.memory_id FROM memory_alias_tokens t JOIN memories m ON m.memory_id=t.memory_id AND m.project=t.project AND m.current_revision_id=t.revision_id WHERE t.project=? AND m.lifecycle='active' AND t.token IN ({placeholders}) GROUP BY m.memory_id ORDER BY COUNT(DISTINCT t.token) DESC, m.memory_id LIMIT ?",
+                (project, *tokens, max(1, min(int(limit), 200))),
+            ).fetchall()
+            return [str(row[0]) for row in rows]
+        except sqlite3.OperationalError:
+            return []
+        finally:
+            connection.close()
+
     def find_exact_identifier_candidate_ids(
         self,
         project: str,
