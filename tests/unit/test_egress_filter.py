@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from blackholememory.config import Settings
@@ -149,3 +151,53 @@ def test_gateway_payload_filters_and_drops_qwen_fields_for_paid_model():
     assert "a@example.invalid" not in paid["messages"][1]["content"] and "abcdefgh12345678" not in paid["messages"][1]["content"]
     assert "chat_template_kwargs" not in paid and "chat_template_kwargs" in local
     assert "a@example.invalid" in local["messages"][1]["content"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "kind"),
+    [
+        ("ФИО: Иванов Иван Иванович", "name"),
+        ("Фамилия — Петров", "name"),
+        ("Имя: Анна", "name"),
+        ("Имя Анна", "name"),
+        ("Отчество: Сергеевна", "name"),
+        ("Full name: John Smith", "name"),
+        ("Name: Jane Doe", "name"),
+        ("Иванов Иван Иванович", "name"),
+        ("Петрова Анна Ильинична", "name"),
+        ("Адрес: Москва, ул. Ленина, д. 1", "address"),
+        ("Address: 10 Main Street", "address"),
+        ("Проживает в Москве на улице Ленина", "address"),
+        ("Проживает:Москва", "address"),
+        ("прописан по адресу Москва, дом 1", "address"),
+        ("зарегистрирован по адресу Москва, дом 1", "address"),
+        ("ул. Ленина, д. 12", "address"),
+        ("проспект Мира дом 42", "address"),
+        ("Дата рождения: 01.02.1990", "birthdate"),
+        ("д.р. 01/02/1990", "birthdate"),
+        ("DOB: 1990-02-01", "birthdate"),
+        ("Date of birth - 01.02.1990", "birthdate"),
+        ("born 1990-02-01", "birthdate"),
+    ],
+)
+def test_names_addresses_and_birthdates_are_redacted(raw, kind):
+    result = sanitize_for_egress(raw)
+    assert result.text == f"[REDACTED:{kind}]"
+    assert kind in result.kinds
+
+
+@pytest.mark.parametrize("text", [
+    "Class FooBar extends BaseHandler", "Иван", "Адрес сервера 127.0.0.1",
+    "commit от 2026-11-18", "Name: sanitize_for_egress", "Москва",
+    "Проект BlackHoleMemory использует функцию sanitize_for_egress и класс BaseHandler",
+    "src/blackholememory/egress_filter.py version 1.2.3",
+])
+def test_engineering_text_and_unlabelled_words_are_untouched(text):
+    assert sanitize_for_egress(text).text == text
+
+
+def test_repeated_text_performance():
+    text = "обычный текст ул. " * 1112
+    start = time.perf_counter()
+    sanitize_for_egress(text)
+    assert time.perf_counter() - start < 1.0
