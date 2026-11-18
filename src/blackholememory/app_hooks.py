@@ -589,7 +589,7 @@ async def _call_fact_synthesis_llm(request: FactSynthesisRequest) -> tuple[dict[
         max_tokens=_FACT_SYNTHESIS_MAX_TOKENS,
         temperature=0.0,
         json_required_keys=("core_insight", "root_cause_resolved", "reusable_patterns", "tags"),
-        timeout_seconds=_FACT_SYNTHESIS_TIMEOUT_SECONDS,
+        timeout_seconds=max(_FACT_SYNTHESIS_TIMEOUT_SECONDS, 90.0) if chat.paid else _FACT_SYNTHESIS_TIMEOUT_SECONDS,
     )
     # The gateway's synchronous adapter already enforces the shared
     # loopback/private endpoint, proxy-free, redirect-free and bounded-response
