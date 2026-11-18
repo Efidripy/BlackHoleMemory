@@ -15,6 +15,9 @@ from typing import Any
 
 import httpx
 
+from .config import settings
+from .paid_llm import auth_headers, local_chat_kwargs, outbound, rerank_uses_paid
+
 
 _CONTENT_LIMIT = 600
 _MAX_TOKENS = 25
@@ -82,8 +85,10 @@ def _skip_gap() -> float:
 def _config() -> tuple[str, str, int, int, float] | None:
     if _setting("BHM_LLM_RERANK") != "1":
         return None
-    base_url = _setting("BHM_LLM_RERANK_BASE_URL")
-    model = _setting("BHM_LLM_RERANK_MODEL")
+    if rerank_uses_paid():
+        base_url, model = settings.paid_llm_base_url, settings.paid_llm_model
+    else:
+        base_url, model = _setting("BHM_LLM_RERANK_BASE_URL"), _setting("BHM_LLM_RERANK_MODEL")
     if not base_url or not model:
         return None
     try:
@@ -395,6 +400,7 @@ async def _request_listwise(
         + "\n\n".join(_listwise_candidate_text(selected))
         + "\n\nВерни только JSON."
     )
+    user_prompt = outbound(user_prompt)
     response = await client.post(
         endpoint,
         json={
@@ -405,7 +411,7 @@ async def _request_listwise(
             ],
             "temperature": 0,
             "max_tokens": _LISTWISE_MAX_TOKENS,
-            "chat_template_kwargs": {"enable_thinking": False},
+            **local_chat_kwargs(),
         },
         timeout=timeout_s,
     )
@@ -422,7 +428,7 @@ async def _request_listwise3(
     timeout_s: float,
 ) -> tuple[list[int], list[int], list[int]]:
     blocks = _listwise3_candidate_text(selected)
-    user_prompt = f"Вопрос: {query}\n" + "\n".join(blocks)
+    user_prompt = outbound(f"Вопрос: {query}\n" + "\n".join(blocks))
     response = await client.post(
         endpoint,
         json={
@@ -433,7 +439,7 @@ async def _request_listwise3(
             ],
             "temperature": 0,
             "max_tokens": _LISTWISE3_MAX_TOKENS,
-            "chat_template_kwargs": {"enable_thinking": False},
+            **local_chat_kwargs(),
         },
         timeout=timeout_s,
     )
@@ -478,6 +484,7 @@ async def _request_score(
         f"Заголовок документа: {_hit_title(hit)}\n\n"
         f"Текст документа:\n{_hit_content(hit)[:_CONTENT_LIMIT]}"
     )
+    user_prompt = outbound(user_prompt)
     response = await client.post(
         endpoint,
         json={
@@ -488,7 +495,7 @@ async def _request_score(
             ],
             "temperature": 0,
             "max_tokens": _MAX_TOKENS,
-            "chat_template_kwargs": {"enable_thinking": False},
+            **local_chat_kwargs(),
         },
         timeout=timeout_s,
     )
@@ -516,6 +523,7 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
             timeout=timeout_s,
             trust_env=False,
             follow_redirects=False,
+            headers=auth_headers(),
         ) as client:
             try:
                 direct_answers, useful_context, irrelevant = await asyncio.wait_for(
@@ -539,6 +547,7 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
             timeout=timeout_s,
             trust_env=False,
             follow_redirects=False,
+            headers=auth_headers(),
         ) as client:
             try:
                 order, answers = await asyncio.wait_for(
@@ -591,6 +600,7 @@ async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[s
             timeout=timeout_s,
             trust_env=False,
             follow_redirects=False,
+            headers=auth_headers(),
         ) as client:
             await asyncio.gather(*(score_one(client, index, hit, key) for index, hit, key in pending))
     if failed or not scores:

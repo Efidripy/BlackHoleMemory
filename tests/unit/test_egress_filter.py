@@ -96,3 +96,29 @@ def test_paid_tier_needs_complete_endpoint(monkeypatch):
     _paid(monkeypatch, paid_llm_api_key="")
     monkeypatch.setattr(write_enrichment.httpx, "Client", lambda **_: (_ for _ in ()).throw(AssertionError("no call")))
     assert write_enrichment.enrich_content("t", _NOTE) == _NOTE
+
+
+def test_rerank_stays_local_without_its_own_opt_in(monkeypatch):
+    from blackholememory import llm_rerank, paid_llm
+
+    _paid(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK", "1")
+    monkeypatch.setenv("BHM_LLM_RERANK_BASE_URL", "http://local.test/v1")
+    monkeypatch.setenv("BHM_LLM_RERANK_MODEL", "qwen")
+    monkeypatch.delenv("BHM_PAID_RERANK", raising=False)
+    assert not paid_llm.rerank_uses_paid()
+    assert llm_rerank._config()[:2] == ("http://local.test/v1", "qwen")
+    assert "chat_template_kwargs" in paid_llm.local_chat_kwargs() and paid_llm.auth_headers() == {}
+    assert paid_llm.outbound("a@example.invalid") == "a@example.invalid"
+
+
+def test_rerank_paid_endpoint_auth_filter_and_no_qwen_kwargs(monkeypatch):
+    from blackholememory import llm_rerank, paid_llm
+
+    _paid(monkeypatch)
+    monkeypatch.setenv("BHM_LLM_RERANK", "1")
+    monkeypatch.setenv("BHM_PAID_RERANK", "1")
+    assert paid_llm.rerank_uses_paid()
+    assert llm_rerank._config()[:2] == ("http://paid.test/v1", "m")
+    assert paid_llm.local_chat_kwargs() == {} and paid_llm.auth_headers() == {"Authorization": "Bearer k"}
+    assert "[REDACTED:email]" in paid_llm.outbound("ask a@example.invalid")

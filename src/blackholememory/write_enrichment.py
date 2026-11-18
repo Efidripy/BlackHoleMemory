@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from .config import settings
+from .paid_llm import paid_ready
 from .egress_filter import sanitize_for_egress
 
 _MIN_CONTENT_LENGTH = 200
@@ -41,11 +42,7 @@ def _setting(name: str) -> str:
 
 
 def _paid() -> bool:
-    """Explicit operator opt-in (BHM_LLM_TIER=paid) plus a complete endpoint; never inferred from a URL."""
-
-    return settings.llm_tier == "paid" and bool(
-        settings.paid_llm_base_url and settings.paid_llm_model and settings.paid_llm_api_key
-    )
+    return paid_ready()
 
 
 def _enabled() -> bool:
