@@ -33,7 +33,9 @@ foreach ($name in @(
     'BHM_LLM_TIER',
     'BHM_PAID_LLM_BASE_URL',
     'BHM_PAID_LLM_MODEL',
-    'BHM_PAID_LLM_API_KEY'
+    'BHM_PAID_LLM_API_KEY',
+    'BHM_PAID_RERANK',
+    'BHM_LLM_RERANK_TIMEOUT_S'
   )) {
   if ([string]::IsNullOrWhiteSpace([string][Environment]::GetEnvironmentVariable($name, 'Process'))) {
     $userValue = [string][Environment]::GetEnvironmentVariable($name, 'User')
