@@ -304,6 +304,7 @@ class ServiceCard(_launcher.QFrame):
     restart_requested = _launcher.pyqtSignal(str)
     llm_config_changed = _launcher.pyqtSignal(str, int, str)
     llm_check_requested = _launcher.pyqtSignal()
+    paid_tier_changed = _launcher.pyqtSignal(bool)
 
     def __init__(
         self,
@@ -312,9 +313,11 @@ class ServiceCard(_launcher.QFrame):
         llm_mode: str = "local",
         llm_port: int = _launcher.DEFAULT_LLM_PORT,
         llm_remote_url: str = "",
+        paid_tier: bool = False,
     ) -> None:
         super().__init__()
         self.key = key
+        self.initial_paid_tier = bool(paid_tier)
         self.initial_llm_mode = "remote" if llm_mode == "remote" else "local"
         self.initial_llm_port = llm_port if 1 <= llm_port <= 65535 else _launcher.DEFAULT_LLM_PORT
         self.initial_llm_remote_url = llm_remote_url
@@ -420,6 +423,14 @@ class ServiceCard(_launcher.QFrame):
         remote_layout.addWidget(url_label)
         remote_layout.addWidget(self.remote_input)
         layout.addWidget(self.remote_panel)
+        self.paid_checkbox = _launcher.QCheckBox("Paid model: send notes to improve search")
+        self.paid_checkbox.setToolTip(
+            "Paid tier: new notes (without passwords, API keys and personal data, which are filtered out first) "
+            "go to the configured paid model to generate search questions. Applies after the BHM API restarts."
+        )
+        self.paid_checkbox.setChecked(self.initial_paid_tier)
+        self.paid_checkbox.toggled.connect(self.paid_tier_changed.emit)
+        layout.addWidget(self.paid_checkbox)
         self.on_llm_mode_changed(self.initial_llm_mode)
         return panel
 

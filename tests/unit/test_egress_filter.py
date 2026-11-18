@@ -1,0 +1,98 @@
+import pytest
+
+from blackholememory.config import Settings
+from blackholememory.egress_filter import sanitize_for_egress
+from blackholememory import write_enrichment
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "write to john.doe@example.invalid today",
+        "call +7 916 123-45-67 now",
+        "call 8 (916) 123-45-67 now",
+        "card 4111 1111 1111 1111 expired",
+        "iban GB82WEST12345698765432 here",
+        "ssn 123-45-6789 leaked",
+        "ИНН: 7707083893 организации",
+        "паспорт 4510 123456 выдан",
+        "client ip 8.8.4.4 logged",
+        "OPENAI_API_KEY=abcdefghijklmnop1234",
+    ],
+)
+def test_pii_and_secrets_are_redacted(raw):
+    result = sanitize_for_egress(raw)
+    assert "[REDACTED:" in result.text
+    assert result.kinds
+
+
+def test_ordinary_engineering_text_is_untouched():
+    text = "Fixed retrieval at 127.0.0.1 and 192.168.1.5 on 2026-11-18, build 4.5.1, id 4111 1111 1111 1112"
+    assert sanitize_for_egress(text).text == text  # private IPs, dates, versions, bad-Luhn number
+
+
+_NOTE = "Урок про SQLite и поиск, автор alice@example.invalid, token=abcdefgh12345678. " * 6
+
+
+class _Resp:
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        content = '{"questions": ["Q1 bob@example.invalid?", "Q2?", "Q3?"]}'
+        return {"choices": [{"message": {"content": content}}]}
+
+
+def _client(sent):
+    class Client:
+        def __init__(self, **kwargs):
+            sent["headers"] = kwargs.get("headers")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def post(self, url, *, json, timeout):
+            sent.update(url=url, payload=json, timeout=timeout)
+            return _Resp()
+
+    return Client
+
+
+def _paid(monkeypatch, **kw):
+    cfg = dict(llm_tier="paid", paid_llm_base_url="http://paid.test/v1", paid_llm_model="m", paid_llm_api_key="k")
+    for key, value in {**cfg, **kw}.items():
+        monkeypatch.setattr(write_enrichment.settings, key, value)
+    monkeypatch.delenv("BHM_WRITE_DOC2QUERY", raising=False)
+
+
+def test_default_tier_is_local():
+    assert Settings().llm_tier == "local"
+
+
+def test_local_tier_never_calls_out(monkeypatch):
+    monkeypatch.delenv("BHM_WRITE_DOC2QUERY", raising=False)
+    monkeypatch.setattr(write_enrichment.httpx, "Client", lambda **_: (_ for _ in ()).throw(AssertionError("no call")))
+    assert write_enrichment.enrich_content("t", _NOTE) == _NOTE
+    assert write_enrichment.schedule_live_enrichment({"content": _NOTE}) is None
+
+
+def test_paid_tier_sends_only_filtered_text_with_auth(monkeypatch):
+    sent = {}
+    _paid(monkeypatch)
+    monkeypatch.setattr(write_enrichment.httpx, "Client", _client(sent))
+    out = write_enrichment.enrich_content("title bob@example.invalid", _NOTE)
+    user = sent["payload"]["messages"][1]["content"]
+    assert "alice@example.invalid" not in user and "bob@example.invalid" not in user and "abcdefgh12345678" not in user
+    assert sent["headers"] == {"Authorization": "Bearer k"}
+    assert "chat_template_kwargs" not in sent["payload"] and sent["timeout"] == 120.0
+    assert sent["url"] == "http://paid.test/v1/chat/completions"
+    assert out.startswith(_NOTE) and "Вопросы: Q1 [REDACTED:email]? Q2? Q3?" in out
+
+
+def test_paid_tier_needs_complete_endpoint(monkeypatch):
+    _paid(monkeypatch, paid_llm_api_key="")
+    monkeypatch.setattr(write_enrichment.httpx, "Client", lambda **_: (_ for _ in ()).throw(AssertionError("no call")))
+    assert write_enrichment.enrich_content("t", _NOTE) == _NOTE

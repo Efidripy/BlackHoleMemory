@@ -83,3 +83,19 @@ def test_validation_accepts_project_and_rejects_unsafe_project():
     assert validate_settings({"project": "blackholememory"})["project"] == "blackholememory"
     with pytest.raises(ValueError, match="project"):
         validate_settings({"project": "../outside"})
+
+
+def test_paid_tier_setting_is_validated_and_exported():
+    from bhm_launcher_paid_tier import paid_tier_env
+
+    assert validate_settings({"llm": {"tier": "paid", "paid_model": "m"}})["llm"]["tier"] == "paid"
+    for bad in ({"tier": "cloud"}, {"tier": "paid", "paid_base_url": 5}):
+        with pytest.raises(ValueError):
+            validate_settings({"llm": bad})
+
+    assert paid_tier_env({}) == {} and paid_tier_env({"llm": {"mode": "local"}}) == {}  # panel never set a tier
+    assert paid_tier_env({"llm": {"tier": "local"}}) == {"BHM_LLM_TIER": "local"}
+    env = paid_tier_env({"llm": {"tier": "paid", "paid_model": "my-model"}})
+    assert env["BHM_LLM_TIER"] == "paid" and env["BHM_PAID_LLM_MODEL"] == "my-model"
+    assert env["BHM_PAID_LLM_BASE_URL"].startswith("http://127.0.0.1")
+    assert not any("KEY" in name for name in env)  # the key never travels through launcher settings

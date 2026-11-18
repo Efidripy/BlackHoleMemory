@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from bhm_launcher_paid_tier import validate_paid_tier
 from bhm_runtime_endpoints import endpoint_port
 from blackholememory.filesystem_boundaries import replace_bytes_safely
 
@@ -56,6 +57,7 @@ def validate_settings(payload: Any) -> dict[str, Any]:
         remote_url = llm.get("remote_url", "")
         if not isinstance(remote_url, str):
             raise ValueError("launcher settings llm.remote_url must be a string")
+        validate_paid_tier(llm)
     json.dumps(candidate, ensure_ascii=False)
     return candidate
 

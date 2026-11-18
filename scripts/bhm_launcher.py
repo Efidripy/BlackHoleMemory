@@ -100,6 +100,7 @@ def _install_pyqt_placeholders() -> None:
         "QIcon",
         "QLabel",
         "QLineEdit",
+        "QCheckBox",
         "QMainWindow",
         "QMenu",
         "QMessageBox",
@@ -144,6 +145,7 @@ def load_pyqt6() -> bool:
     global QIcon
     global QLabel
     global QLineEdit
+    global QCheckBox
     global QMainWindow
     global QMenu
     global QMessageBox
@@ -188,6 +190,7 @@ def load_pyqt6() -> bool:
             QHBoxLayout as _QHBoxLayout,
             QLabel as _QLabel,
             QLineEdit as _QLineEdit,
+            QCheckBox as _QCheckBox,
             QMainWindow as _QMainWindow,
             QMenu as _QMenu,
             QMessageBox as _QMessageBox,
@@ -219,6 +222,7 @@ def load_pyqt6() -> bool:
     QIcon = _QIcon
     QLabel = _QLabel
     QLineEdit = _QLineEdit
+    QCheckBox = _QCheckBox
     QMainWindow = _QMainWindow
     QMenu = _QMenu
     QMessageBox = _QMessageBox

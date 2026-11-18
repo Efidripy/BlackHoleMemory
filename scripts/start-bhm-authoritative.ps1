@@ -29,7 +29,11 @@ foreach ($name in @(
     'BHM_WRITE_DOC2QUERY',
     'BHM_WRITE_DEDUP',
     'BHM_EXACT_IDENTIFIER_RETRIEVAL',
-    'BHM_CHECKPOINT_PROTECT_RANK'
+    'BHM_CHECKPOINT_PROTECT_RANK',
+    'BHM_LLM_TIER',
+    'BHM_PAID_LLM_BASE_URL',
+    'BHM_PAID_LLM_MODEL',
+    'BHM_PAID_LLM_API_KEY'
   )) {
   if ([string]::IsNullOrWhiteSpace([string][Environment]::GetEnvironmentVariable($name, 'Process'))) {
     $userValue = [string][Environment]::GetEnvironmentVariable($name, 'User')
