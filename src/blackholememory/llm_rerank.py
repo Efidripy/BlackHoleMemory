@@ -9,14 +9,15 @@ import math
 import os
 import re
 import threading
+import time
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import httpx
 
 from .config import settings
-from .paid_llm import auth_headers, local_chat_kwargs, outbound, rerank_uses_paid
+from .paid_llm import auth_headers, local_chat_kwargs, outbound, record_call, rerank_uses_paid
 
 
 _CONTENT_LIMIT = 600
@@ -386,6 +387,28 @@ def _parse_listwise3(
     return direct_answers, useful_context, irrelevant
 
 
+async def _recorded_post(
+    client: httpx.AsyncClient,
+    endpoint: str,
+    payload: dict[str, Any],
+    timeout_s: float,
+    parser: Callable[[httpx.Response], Any],
+) -> Any:
+    paid = rerank_uses_paid()
+    started = time.perf_counter()
+    try:
+        response = await client.post(endpoint, json=payload, timeout=timeout_s)
+        response.raise_for_status()
+        result = parser(response)
+    except Exception:
+        if paid:
+            record_call("rerank", False, (time.perf_counter() - started) * 1000.0)
+        raise
+    if paid:
+        record_call("rerank", True, (time.perf_counter() - started) * 1000.0)
+    return result
+
+
 async def _request_listwise(
     client: httpx.AsyncClient,
     endpoint: str,
@@ -401,9 +424,10 @@ async def _request_listwise(
         + "\n\nВерни только JSON."
     )
     user_prompt = outbound(user_prompt)
-    response = await client.post(
+    response = await _recorded_post(
+        client,
         endpoint,
-        json={
+        {
             "model": model,
             "messages": [
                 {"role": "system", "content": _LISTWISE_SYSTEM_PROMPT},
@@ -413,10 +437,10 @@ async def _request_listwise(
             "max_tokens": _LISTWISE_MAX_TOKENS,
             **local_chat_kwargs(),
         },
-        timeout=timeout_s,
+        timeout_s,
+        lambda response: _parse_listwise(_response_text(response.json()), len(selected)),
     )
-    response.raise_for_status()
-    return _parse_listwise(_response_text(response.json()), len(selected))
+    return response
 
 
 async def _request_listwise3(
@@ -429,9 +453,10 @@ async def _request_listwise3(
 ) -> tuple[list[int], list[int], list[int]]:
     blocks = _listwise3_candidate_text(selected)
     user_prompt = outbound(f"Вопрос: {query}\n" + "\n".join(blocks))
-    response = await client.post(
+    response = await _recorded_post(
+        client,
         endpoint,
-        json={
+        {
             "model": model,
             "messages": [
                 {"role": "system", "content": _LISTWISE3_SYSTEM_PROMPT},
@@ -441,10 +466,10 @@ async def _request_listwise3(
             "max_tokens": _LISTWISE3_MAX_TOKENS,
             **local_chat_kwargs(),
         },
-        timeout=timeout_s,
+        timeout_s,
+        lambda response: _parse_listwise3(_response_text(response.json()), len(selected)),
     )
-    response.raise_for_status()
-    return _parse_listwise3(_response_text(response.json()), len(selected))
+    return response
 
 
 def _apply_scores_and_rank(
@@ -485,9 +510,10 @@ async def _request_score(
         f"Текст документа:\n{_hit_content(hit)[:_CONTENT_LIMIT]}"
     )
     user_prompt = outbound(user_prompt)
-    response = await client.post(
+    response = await _recorded_post(
+        client,
         endpoint,
-        json={
+        {
             "model": model,
             "messages": [
                 {"role": "system", "content": _SYSTEM_PROMPT},
@@ -497,10 +523,10 @@ async def _request_score(
             "max_tokens": _MAX_TOKENS,
             **local_chat_kwargs(),
         },
-        timeout=timeout_s,
+        timeout_s,
+        lambda response: _parse_score(_response_text(response.json())),
     )
-    response.raise_for_status()
-    return _parse_score(_response_text(response.json()))
+    return response
 
 
 async def rerank_hits(query: str, hits: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:

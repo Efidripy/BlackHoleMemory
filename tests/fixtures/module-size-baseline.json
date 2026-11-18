@@ -250,7 +250,7 @@
   "src/blackholememory/app_retrieval_context.py": 208,
   "src/blackholememory/app_retrieval_support.py": 392,
   "src/blackholememory/app_runtime.py": 896,
-  "src/blackholememory/app_telemetry.py": 468,
+  "src/blackholememory/app_telemetry.py": 469,
   "src/blackholememory/architecture_intelligence.py": 591,
   "src/blackholememory/artifact_signature.py": 64,
   "src/blackholememory/bhm_mcp.py": 268,

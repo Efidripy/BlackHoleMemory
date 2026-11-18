@@ -6,13 +6,14 @@ import copy
 import json
 import os
 import threading
+import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import httpx
 
 from .config import settings
-from .paid_llm import paid_ready
+from .paid_llm import paid_ready, record_call
 from .egress_filter import sanitize_for_egress
 
 _MIN_CONTENT_LENGTH = 200
@@ -102,6 +103,9 @@ def enrich_content(title: str, content: str) -> str:
     if not base_url or not model:
         return content
 
+    started = time.perf_counter()
+    ok = False
+    recorded = False
     try:
         user_prompt = f"Заголовок заметки:\n{title}\n\nТекст заметки:\n{outbound}"
         with httpx.Client(
@@ -126,8 +130,15 @@ def enrich_content(title: str, content: str) -> str:
             )
             response.raise_for_status()
             questions = _parse_questions(response.json())
+        ok = True
     except Exception:
+        if paid:
+            record_call("doc2query", False, (time.perf_counter() - started) * 1000.0)
+            recorded = True
         return content
+    finally:
+        if paid and not recorded:
+            record_call("doc2query", ok, (time.perf_counter() - started) * 1000.0)
     if paid:
         questions = [sanitize_for_egress(q).text for q in questions]
     return f"{content}\n\nВопросы: {' '.join(questions)}"
