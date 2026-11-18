@@ -36,6 +36,7 @@ from .runtime_storage import MemoryStoreMode
 from .memory_service import MemoryServiceNotReady
 from .version_manifest import RUNTIME_VERSION
 from .llm_telemetry import get_llm_telemetry
+from . import paid_llm
 from .mcp_panel import build_mcp_panel_snapshot
 from .mcp_panel import load_configured_sources
 from .qdrant_catalog import build_qdrant_catalog
@@ -340,7 +341,7 @@ def bhm_retrieval_telemetry() -> dict[str, Any]:
 def bhm_llm_telemetry() -> dict[str, Any]:
     """Return bounded local-LLM queue/gateway/GPU aggregates without raw content."""
 
-    return get_llm_telemetry().snapshot()
+    return {**get_llm_telemetry().snapshot(), **({"paid_llm_calls": paid_llm.snapshot()} if paid_llm.paid_ready() else {})}
 
 
 def bhm_feedback_tuning(project: str = "") -> dict[str, Any]:
