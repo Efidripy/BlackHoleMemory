@@ -89,6 +89,23 @@ def enrich_content(title: str, content: str) -> str:
         return content
     if not _MIN_CONTENT_LENGTH <= len(content) <= _MAX_CONTENT_LENGTH:
         return content
+    questions = generate_questions(title, content) if paid else _generate_questions(title, content, paid=False)
+    if not questions:
+        return content
+    return f"{content}\n\nВопросы: {' '.join(questions)}"
+
+
+def generate_questions(title: str, content: str) -> list[str]:
+    """Generate sanitized questions only for a configured paid endpoint."""
+    if not _paid() or not isinstance(content, str):
+        return []
+    try:
+        return _generate_questions(title, content, paid=True)
+    except Exception:
+        return []
+
+
+def _generate_questions(title: str, content: str, *, paid: bool) -> list[str]:
     if paid:
         base_url, model = settings.paid_llm_base_url, settings.paid_llm_model
         headers = {"Authorization": f"Bearer {settings.paid_llm_api_key}"}
@@ -101,7 +118,7 @@ def enrich_content(title: str, content: str) -> str:
         headers, outbound, timeout = {}, content, _TIMEOUT_SECONDS
         extra = {"chat_template_kwargs": {"enable_thinking": False}}
     if not base_url or not model:
-        return content
+        return []
 
     started = time.perf_counter()
     ok = False
@@ -135,13 +152,13 @@ def enrich_content(title: str, content: str) -> str:
         if paid:
             record_call("doc2query", False, (time.perf_counter() - started) * 1000.0)
             recorded = True
-        return content
+        return []
     finally:
         if paid and not recorded:
             record_call("doc2query", ok, (time.perf_counter() - started) * 1000.0)
     if paid:
         questions = [sanitize_for_egress(q).text for q in questions]
-    return f"{content}\n\nВопросы: {' '.join(questions)}"
+    return questions
 
 
 def schedule_live_enrichment(

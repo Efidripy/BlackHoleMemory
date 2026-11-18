@@ -402,6 +402,14 @@ class SQLiteMemoryService:
             records.append(record)
         return records
 
+    def save_memory_aliases(self, memory_id: str, revision_id: str, project: str, aliases: list[str]) -> None:
+        self._ensure_ready(verify_integrity=False)
+        self.repository.save_memory_aliases(memory_id, revision_id, project, aliases)
+
+    def find_alias_candidate_ids(self, project: str, query_tokens: Iterable[str], *, limit: int = 200) -> list[str]:
+        self._ensure_ready(verify_integrity=False)
+        return self.repository.find_alias_candidate_ids(project, query_tokens, limit=limit)
+
     def find_exact_identifier_candidate_ids(
         self,
         project: str,

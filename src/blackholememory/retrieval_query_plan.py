@@ -13,8 +13,8 @@ from typing import Any, Iterable, Mapping
 
 SCHEMA_VERSION = "bhm.retrieval-query-plan.v1"
 _ALLOWED_ORIGINS = frozenset({"LOCAL", "GLOBAL"})
-_ALLOWED_ROUTES = frozenset({"vector", "exact-identifier"})
-_ALLOWED_CONTOUR_NAMES = frozenset({"local_vector", "global_vector", "exact_identifier"})
+_ALLOWED_ROUTES = frozenset({"vector", "exact-identifier", "alias"})
+_ALLOWED_CONTOUR_NAMES = frozenset({"local_vector", "global_vector", "exact_identifier", "alias"})
 _ALLOWED_CONTOUR_STATUS = frozenset({"completed", "failed", "timed_out", "disabled"})
 
 

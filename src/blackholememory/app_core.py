@@ -428,6 +428,17 @@ def _remember_response(record: dict[str, Any], action: str | None = None) -> dic
     return response
 
 
+def _schedule_alias_enrichment(record: dict) -> None:
+    from .alias_index import alias_retrieval_enabled
+    from .alias_enrichment import enrich_written_record
+    from .paid_llm import paid_ready
+
+    if alias_retrieval_enabled() and paid_ready():
+        async def run() -> None:
+            await asyncio.to_thread(enrich_written_record, rt._memory_service, record)
+        asyncio.create_task(run())
+
+
 async def _remember_authoritative(request: RememberRequest, *, actor: str) -> dict[str, Any]:
     """Run the single operator-authority write path shared by REST and HTTP MCP."""
 
@@ -464,8 +475,10 @@ async def _remember_authoritative(request: RememberRequest, *, actor: str) -> di
             metadata=request.metadata,
         )
         action, record = await rt._run_bounded_write("bhm.remember", _upsert_live_memory, upsert_req)
+        _schedule_alias_enrichment(record)
         return attach_gate(_remember_response(record, action=action), gate)
     record = await rt._run_bounded_write("bhm.remember", _remember_live_memory, request)
+    _schedule_alias_enrichment(record)
     return attach_gate(_remember_response(record), gate)
 
 

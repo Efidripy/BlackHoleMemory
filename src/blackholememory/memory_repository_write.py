@@ -29,6 +29,27 @@ from .outbox import utc_now_iso
 class MemoryRepositoryWriteMixin:
     """Atomic write and CAS operations mixed into SQLiteMemoryRepository."""
 
+    def save_memory_aliases(self, memory_id: str, revision_id: str, project: str, aliases: list[str]) -> None:
+        from .alias_index import ALIAS_INDEX_CAPABILITY_KEY, ALIAS_INDEX_CAPABILITY_VERSION, alias_tokens
+
+        with self._write_transaction() as connection:
+            try:
+                marker = connection.execute("SELECT value FROM memory_store_meta WHERE key=?", (ALIAS_INDEX_CAPABILITY_KEY,)).fetchone()
+                if not marker or marker[0] != ALIAS_INDEX_CAPABILITY_VERSION:
+                    return
+                row = connection.execute("SELECT 1 FROM memories WHERE memory_id=? AND project=? AND current_revision_id=? AND lifecycle='active'", (memory_id, project, revision_id)).fetchone()
+                if not row:
+                    return
+                clean = list(dict.fromkeys(a.strip() for a in aliases if isinstance(a, str) and a.strip()))
+                connection.execute("DELETE FROM memory_alias_tokens WHERE memory_id=?", (memory_id,))
+                connection.execute("DELETE FROM memory_aliases WHERE memory_id=?", (memory_id,))
+                connection.executemany("INSERT INTO memory_aliases(project,memory_id,revision_id,alias) VALUES (?,?,?,?)", [(project, memory_id, revision_id, a) for a in clean])
+                tokens = set(t for a in clean for t in alias_tokens(a))
+                connection.executemany("INSERT INTO memory_alias_tokens(project,token,memory_id,revision_id) VALUES (?,?,?,?)", [(project, t, memory_id, revision_id) for t in sorted(tokens)])
+            except sqlite3.OperationalError:
+                # Roll back any partially applied writes on malformed optional schema.
+                raise
+
     def _save_memory_in_transaction(
         self,
         connection: sqlite3.Connection,

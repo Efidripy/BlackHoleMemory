@@ -127,6 +127,10 @@ class MemoryRepository(Protocol):
 
     def get_memories(self, memory_ids: Iterable[str], *, project: str | None = None) -> list[Memory]: ...
 
+    def save_memory_aliases(self, memory_id: str, revision_id: str, project: str, aliases: list[str]) -> None: ...
+
+    def find_alias_candidate_ids(self, project: str, query_tokens: Iterable[str], *, limit: int = 200) -> list[str]: ...
+
     def find_exact_identifier_candidate_ids(
         self,
         project: str,
