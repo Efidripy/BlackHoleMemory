@@ -331,7 +331,7 @@ def _post_provider_chat_warmup_probe() -> None:
         headers=headers,
         method="POST",
     )
-    with open_local_url(request, timeout=_PROVIDER_WARMUP_TIMEOUT_SECONDS) as response:
+    with open_local_url(request, timeout=max(_PROVIDER_WARMUP_TIMEOUT_SECONDS, 45.0) if chat.paid else _PROVIDER_WARMUP_TIMEOUT_SECONDS) as response:
         raw = read_bounded_response(response, limit=_PROVIDER_WARMUP_MAX_RESPONSE_BYTES)
     try:
         response_payload = json.loads(raw)
