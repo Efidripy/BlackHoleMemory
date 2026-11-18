@@ -11,7 +11,14 @@ from .swarm_tools import (
 )
 
 class LocalLLMClient:
-    def __init__(self, base_url: str, model: str, api_key: str, timeout: float):
+    def __init__(self, base_url: str, model: str, api_key: str, timeout: float, *, allow_paid: bool = True):
+        from ...paid_llm import chat_endpoint
+
+        chat = chat_endpoint()
+        # Paid tier: every text call goes to the paid model through the egress filter (images stay local).
+        self._paid = chat.paid and allow_paid
+        if self._paid:
+            base_url, model, api_key, timeout = chat.base_url, chat.model, chat.api_key, max(timeout, 90.0)
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.api_key = api_key
@@ -31,6 +38,7 @@ class LocalLLMClient:
                         self.base_url,
                         frozenset({"text", "json", "tools"}),
                         api_key=self.api_key,
+                        egress_filter=self._paid,
                     )
                 ]
             ),
@@ -50,6 +58,7 @@ class LocalLLMClient:
                     self.base_url,
                     capabilities or frozenset({"text"}),
                     api_key=self.api_key,
+                    egress_filter=self._paid,
                 )
             )
 
@@ -664,6 +673,7 @@ async def analyze_screenshot(file_path: str, context_query: str) -> str:
         _read_bhm_env("OPENAI_VISION_MODEL", _read_bhm_env("VISION_MODEL", _read_bhm_env("OPENAI_MODEL", "qwen2.5-coder-7b-instruct"))),
         _read_bhm_env("OPENAI_API_KEY", ""),
         LLM_HTTP_TIMEOUT_SECONDS,
+        allow_paid=False,
     )
     prompt = (
         "Analyze this screenshot for the BHM Swarm agent before QA verdict.\n"

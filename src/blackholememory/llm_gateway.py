@@ -45,6 +45,7 @@ class ModelDefinition:
     capabilities: frozenset[str] = frozenset()
     local_only: bool = True
     api_key: str = ""
+    egress_filter: bool = False  # paid endpoint: strip secrets/PII from outbound text, no Qwen-only fields
 
 
 @dataclass(frozen=True)
@@ -273,7 +274,7 @@ class LocalOpenAICompatibleAdapter:
         payload: dict[str, Any] = {
             "model": model.model_id,
             "messages": ([{"role": "system", "content": prompt.system}] if prompt.system else [])
-            + list(request.messages),
+            + (_egress_messages(request.messages) if model.egress_filter else list(request.messages)),
             "temperature": max(min(float(request.temperature), 2.0), 0.0),
             "max_tokens": max(min(int(request.max_tokens), 4096), 1),
         }
@@ -293,7 +294,7 @@ class LocalOpenAICompatibleAdapter:
             payload["tools"] = list(request.tools)
             payload["tool_choice"] = request.tool_choice or "auto"
         chat_template_kwargs = _bounded_chat_template_kwargs(request.chat_template_kwargs)
-        if chat_template_kwargs:
+        if chat_template_kwargs and not model.egress_filter:
             payload["chat_template_kwargs"] = chat_template_kwargs
         return payload
 
@@ -466,6 +467,21 @@ def _content_from_message(message: dict[str, Any]) -> str:
     if isinstance(content, str):
         return content
     return str(content or "")
+
+
+def _egress_messages(messages: Any) -> list[dict[str, Any]]:
+    from .egress_filter import sanitize_for_egress
+
+    def clean(value: Any) -> Any:
+        if isinstance(value, str):
+            return sanitize_for_egress(value).text
+        if isinstance(value, list):
+            return [clean(item) for item in value]
+        if isinstance(value, dict):
+            return {key: (clean(item) if key in {"text", "content"} else item) for key, item in value.items()}
+        return value
+
+    return [{**message, "content": clean(message.get("content"))} for message in messages]
 
 
 def _prepare_safe_request(

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
 from .governed_consolidation import OPERATIONS
+from .paid_llm import chat_endpoint
 from .governed_semantic_editor_base import (
     GOVERNED_SEMANTIC_EDITOR_JSON_SCHEMA,
     GOVERNED_SEMANTIC_EDITOR_PROMPT_ID,
@@ -47,6 +49,15 @@ class LocalGatewaySemanticCompletion:
             raise GovernedSemanticEditorUnavailable(
                 "local semantic editor model is not configured",
                 code="semantic_editor_model_not_configured",
+            )
+        chat = chat_endpoint()
+        self._paid = chat.paid and not os.getenv("BHM_GOVERNED_SEMANTIC_EDITOR_BASE_URL")
+        if self._paid:
+            config = replace(
+                config,
+                base_url=chat.base_url,
+                model_id=chat.model,
+                timeout_seconds=max(config.timeout_seconds, 90.0),
             )
         self.config = config
         self.gateway = LocalLLMGateway(
@@ -98,7 +109,13 @@ class LocalGatewaySemanticCompletion:
                 )
             ]),
             models=ModelRegistry([
-                ModelDefinition(model_id=config.model_id, base_url=config.base_url, capabilities=frozenset({"json", "proposal"}))
+                ModelDefinition(
+                    model_id=config.model_id,
+                    base_url=config.base_url,
+                    capabilities=frozenset({"json", "proposal"}),
+                    api_key=chat.api_key if self._paid else "",
+                    egress_filter=self._paid,
+                )
             ]),
             adapter=LocalOpenAICompatibleAdapter(),
         )
@@ -118,7 +135,7 @@ class LocalGatewaySemanticCompletion:
             # Qwen's LM Studio template otherwise may emit a reasoning-only
             # response instead of the required message content.  This narrow
             # request-level hint is allowlisted by the common gateway.
-            chat_template_kwargs={"enable_thinking": False},
+            chat_template_kwargs={"enable_thinking": False},  # dropped by the gateway for the paid endpoint
             messages=(
                 {
                     "role": "user",
