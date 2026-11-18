@@ -233,7 +233,7 @@
   "src/blackholememory/app_governed_semantic.py": 471,
   "src/blackholememory/app_governed_shared.py": 226,
   "src/blackholememory/app_graphs.py": 258,
-  "src/blackholememory/app_hooks.py": 896,
+  "src/blackholememory/app_hooks.py": 898,
   "src/blackholememory/app_lifecycle.py": 491,
   "src/blackholememory/app_lifecycle_hooks.py": 660,
   "src/blackholememory/app_mcp.py": 162,

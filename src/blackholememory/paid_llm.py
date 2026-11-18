@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, NamedTuple
 
 from .config import settings
 from .egress_filter import sanitize_for_egress
@@ -37,3 +37,24 @@ def outbound(text: str) -> str:
     """Secrets and personal data are stripped from anything sent to the paid model."""
 
     return sanitize_for_egress(text).text if rerank_uses_paid() else text
+
+
+class ChatEndpoint(NamedTuple):
+    base_url: str
+    model: str
+    api_key: str
+    paid: bool
+
+
+def chat_endpoint() -> ChatEndpoint:
+    """Chat model for every non-embedding consumer; embeddings always stay on the local endpoint."""
+
+    if paid_ready():
+        return ChatEndpoint(settings.paid_llm_base_url, settings.paid_llm_model, settings.paid_llm_api_key, True)
+    return ChatEndpoint(settings.mem0_openai_base_url, settings.mem0_llm_model, settings.mem0_api_key, False)
+
+
+def chat_outbound(text: str) -> str:
+    """Secret/PII filter for chat calls; a no-op for the local model."""
+
+    return sanitize_for_egress(text).text if paid_ready() else text
