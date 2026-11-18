@@ -20,6 +20,7 @@ from typing import Any, Mapping
 from fastapi import HTTPException
 from starlette.concurrency import run_in_threadpool
 from .config import settings
+from .paid_llm import chat_endpoint
 from .local_endpoint_policy import open_local_url
 from .local_endpoint_policy import read_bounded_response
 from .memory_pulse_bus import MemoryPulseBus
@@ -311,20 +312,21 @@ def _post_provider_embedding_warmup_probe() -> None:
 def _post_provider_chat_warmup_probe() -> None:
     """Optionally verify a chat model without making it a memory health gate."""
 
+    chat = chat_endpoint()
     payload = {
-        "model": settings.mem0_llm_model,
+        "model": chat.model,
         "messages": [{"role": "user", "content": "ping"}],
         "max_tokens": 1,
         "temperature": 0,
     }
     disable_thinking = os.getenv("BHM_PROVIDER_DISABLE_THINKING", "").strip().lower()
-    if disable_thinking in {"1", "true", "yes", "on"} or "qwen" in settings.mem0_llm_model.lower():
+    if not chat.paid and (disable_thinking in {"1", "true", "yes", "on"} or "qwen" in chat.model.lower()):
         payload["chat_template_kwargs"] = {"enable_thinking": False}
     headers = {"Content-Type": "application/json"}
-    if settings.mem0_api_key:
-        headers["Authorization"] = f"Bearer {settings.mem0_api_key}"
+    if chat.api_key:
+        headers["Authorization"] = f"Bearer {chat.api_key}"
     request = urllib.request.Request(
-        f"{settings.mem0_openai_base_url.rstrip('/')}/chat/completions",
+        f"{chat.base_url.rstrip('/')}/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
         method="POST",

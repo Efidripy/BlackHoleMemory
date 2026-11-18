@@ -37,6 +37,7 @@ class _LazyQdrantModels:
 qdrant_models: Any = _LazyQdrantModels()
 
 from .config import settings
+from .paid_llm import chat_endpoint
 from .local_endpoint_policy import LocalEndpointError
 from .local_endpoint_policy import open_local_url
 from .local_endpoint_policy import read_bounded_response
@@ -523,6 +524,7 @@ def build_mem0_config(collection_name: str) -> dict[str, Any]:
     # timeout on the native QdrantClient path and pass only provider-supported
     # fields into Mem0.
     openai_base_url = validate_local_endpoint(settings.mem0_openai_base_url)
+    chat = chat_endpoint()
     qdrant_config = {
         key: value
         for key, value in _qdrant_connection_config().items()
@@ -543,9 +545,9 @@ def build_mem0_config(collection_name: str) -> dict[str, Any]:
         "llm": {
             "provider": settings.mem0_llm_provider,
             "config": {
-                "api_key": settings.mem0_api_key,
-                "openai_base_url": openai_base_url,
-                "model": settings.mem0_llm_model,
+                "api_key": chat.api_key,
+                "openai_base_url": validate_local_endpoint(chat.base_url),
+                "model": chat.model,
             },
         },
         "embedder": {

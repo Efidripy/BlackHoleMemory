@@ -16,6 +16,7 @@ from . import app_runtime as rt
 from .app_runtime import _env_float, _env_int, _safe_exception_text, _safe_json_list, _write_json_atomic
 from .api_models import FactCrystalDomain, FactCrystalPriority, FactCrystalSemanticType, SearchRequest, MemoryCrystallizeRequest, FactSynthesisRequest, SessionCapturePreviewRequest, FactCrystal, BhmMatchSearchRequest, LessonRequest, LessonStrengthenRequest, BhmHookCompactRequest, BhmHookIdleRequest
 from .config import settings
+from .paid_llm import chat_endpoint, chat_outbound
 from .llm_gateway import GatewayRequest
 from .llm_gateway import LocalLLMGateway
 from .llm_gateway import LocalOpenAICompatibleAdapter
@@ -561,6 +562,7 @@ async def _call_fact_synthesis_llm(request: FactSynthesisRequest) -> tuple[dict[
         },
         "output_rule": "Return only one strict JSON object. Do not wrap it in Markdown.",
     }
+    chat = chat_endpoint()
     gateway = LocalLLMGateway(
         prompts=PromptRegistry(
             [PromptDefinition("fact-synthesis", "1", FACT_SYNTHESIS_SYSTEM_PROMPT, output_mode="json")]
@@ -568,10 +570,10 @@ async def _call_fact_synthesis_llm(request: FactSynthesisRequest) -> tuple[dict[
         models=ModelRegistry(
             [
                 ModelDefinition(
-                    settings.mem0_llm_model,
-                    settings.mem0_openai_base_url,
+                    chat.model,
+                    chat.base_url,
                     frozenset({"text", "json"}),
-                    api_key=settings.mem0_api_key,
+                    api_key=chat.api_key,
                 )
             ]
         ),
@@ -580,9 +582,9 @@ async def _call_fact_synthesis_llm(request: FactSynthesisRequest) -> tuple[dict[
     gateway_request = GatewayRequest(
         request_id=f"fact-synthesis-{uuid.uuid4().hex}",
         prompt_id="fact-synthesis",
-        model_id=settings.mem0_llm_model,
+        model_id=chat.model,
         messages=(
-            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+            {"role": "user", "content": chat_outbound(json.dumps(user_payload, ensure_ascii=False))},
         ),
         max_tokens=_FACT_SYNTHESIS_MAX_TOKENS,
         temperature=0.0,
@@ -715,8 +717,8 @@ async def bhm_synthesis_fact_crystal(request: FactSynthesisRequest) -> dict:
         "synthesis": {
             "mode": mode,
             "degraded": mode == "fallback",
-            "provider": "local-lm-studio",
-            "model": settings.mem0_llm_model,
+            "provider": "paid-cpa" if chat_endpoint().paid else "local-lm-studio",
+            "model": chat_endpoint().model,
             "fallback_reason": fallback_reason,
             "tokens": tokens,
         },

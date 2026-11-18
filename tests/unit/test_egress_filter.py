@@ -122,3 +122,14 @@ def test_rerank_paid_endpoint_auth_filter_and_no_qwen_kwargs(monkeypatch):
     assert llm_rerank._config()[:2] == ("http://paid.test/v1", "m")
     assert paid_llm.local_chat_kwargs() == {} and paid_llm.auth_headers() == {"Authorization": "Bearer k"}
     assert "[REDACTED:email]" in paid_llm.outbound("ask a@example.invalid")
+
+
+def test_chat_endpoint_follows_tier_and_filters(monkeypatch):
+    from blackholememory import paid_llm
+
+    local = paid_llm.chat_endpoint()
+    assert not local.paid and paid_llm.chat_outbound("a@example.invalid") == "a@example.invalid"
+    _paid(monkeypatch)
+    paid = paid_llm.chat_endpoint()
+    assert paid[:3] == ("http://paid.test/v1", "m", "k") and paid.paid
+    assert "[REDACTED:email]" in paid_llm.chat_outbound("a@example.invalid")
