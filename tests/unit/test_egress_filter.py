@@ -133,3 +133,19 @@ def test_chat_endpoint_follows_tier_and_filters(monkeypatch):
     paid = paid_llm.chat_endpoint()
     assert paid[:3] == ("http://paid.test/v1", "m", "k") and paid.paid
     assert "[REDACTED:email]" in paid_llm.chat_outbound("a@example.invalid")
+
+
+def test_gateway_payload_filters_and_drops_qwen_fields_for_paid_model():
+    from blackholememory.llm_gateway import GatewayRequest, LocalOpenAICompatibleAdapter, ModelDefinition, PromptDefinition
+
+    request = GatewayRequest(
+        request_id="r", prompt_id="p", model_id="m",
+        messages=({"role": "user", "content": "mail a@example.invalid token=abcdefgh12345678"},),
+        chat_template_kwargs={"enable_thinking": False},
+    )
+    prompt = PromptDefinition("p", "1", "sys")
+    paid = LocalOpenAICompatibleAdapter._payload(request, prompt, ModelDefinition("m", "http://x/v1", egress_filter=True))
+    local = LocalOpenAICompatibleAdapter._payload(request, prompt, ModelDefinition("m", "http://x/v1"))
+    assert "a@example.invalid" not in paid["messages"][1]["content"] and "abcdefgh12345678" not in paid["messages"][1]["content"]
+    assert "chat_template_kwargs" not in paid and "chat_template_kwargs" in local
+    assert "a@example.invalid" in local["messages"][1]["content"]
