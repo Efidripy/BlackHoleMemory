@@ -115,7 +115,7 @@ def load_ui_version() -> str:
                 return value
         except (OSError, _launcher.json.JSONDecodeError, AttributeError):
             continue
-    return "Runtime v2.1.0-PURE"
+    return "Runtime v2.1.1-PURE"
 
 
 def has_docker() -> bool:
