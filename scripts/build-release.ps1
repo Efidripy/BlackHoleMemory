@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "v2.0.7",
+  [string]$Version = "v2.1.0",
   [string]$PythonPath = "",
   [string]$OutputRoot = "",
   [switch]$RefreshCanonicalLauncher,

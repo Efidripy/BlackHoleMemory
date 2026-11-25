@@ -91,6 +91,13 @@ def build_qss() -> str:
         font-size: 10px;
         font-weight: 400;
     }}
+    QLabel#LlmBadge {{
+        color: {COLOR_MUTED};
+        font-size: 10px;
+        font-weight: 700;
+    }}
+    QLabel#LlmBadge[kind="paid"] {{ color: {COLOR_CYAN}; }}
+    QLabel#LlmBadge[kind="remote"] {{ color: {COLOR_CYAN}; }}
     QLabel#OperatorDrawerEmpty {{
         color: {COLOR_MUTED};
         background: {COLOR_CARD_2};

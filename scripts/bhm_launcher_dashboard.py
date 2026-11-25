@@ -8,6 +8,7 @@ import subprocess
 
 import os
 
+from bhm_launcher_paid_tier import llm_badge
 from bhm_launcher_paid_tier import paid_tier_env
 from bhm_launcher_paid_tier import with_llm_tier
 from bhm_launcher_integrations import IntegrationsWindow
@@ -96,6 +97,11 @@ class DashboardScreen(_launcher.QWidget):
         version.setObjectName("VersionLabel")
         text.addWidget(name)
         text.addWidget(version)
+        self.llm_badge_label = _launcher.QLabel()
+        self.llm_badge_label.setObjectName("LlmBadge")
+        self.llm_badge_label.setToolTip("Which LLM the BHM API uses. A change applies after the BHM API restarts.")
+        text.addWidget(self.llm_badge_label)
+        self.refresh_llm_badge()
         brand.addWidget(icon)
         brand.addLayout(text)
         layout.addLayout(brand)
@@ -603,6 +609,14 @@ class DashboardScreen(_launcher.QWidget):
             return
         self.monitor.set_llm_config(self._llm_mode, self._llm_port, self._llm_remote_url)
 
+    def refresh_llm_badge(self) -> None:
+        text, kind = llm_badge((self.settings or {}).get("llm"))
+        label = self.llm_badge_label
+        label.setText(text)
+        label.setProperty("kind", kind)
+        label.style().unpolish(label)
+        label.style().polish(label)
+
     def on_paid_tier_changed(self, enabled: bool) -> None:
         candidate_settings = with_llm_tier(self.settings, enabled)
         try:
@@ -612,6 +626,7 @@ class DashboardScreen(_launcher.QWidget):
             return
         self._paid_tier = enabled
         self.settings = candidate_settings
+        self.refresh_llm_badge()
         _launcher.append_launcher_log(f"LLM TIER: {'paid' if enabled else 'local'} (applies after the BHM API restarts)")
 
     def on_llm_config_changed(self, mode: str, port: int, remote_url: str) -> None:
@@ -635,6 +650,7 @@ class DashboardScreen(_launcher.QWidget):
         self._llm_port = port
         self._llm_remote_url = remote_url
         self.settings = candidate_settings
+        self.refresh_llm_badge()
         self.apply_llm_config()
 
     def apply_statuses(self, statuses: dict) -> None:

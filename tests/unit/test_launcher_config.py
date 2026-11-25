@@ -99,3 +99,17 @@ def test_paid_tier_setting_is_validated_and_exported():
     assert env["BHM_LLM_TIER"] == "paid" and env["BHM_PAID_LLM_MODEL"] == "my-model"
     assert env["BHM_PAID_LLM_BASE_URL"].startswith("http://127.0.0.1")
     assert not any("KEY" in name for name in env)  # the key never travels through launcher settings
+
+
+def test_llm_badge_shows_paid_remote_or_local(monkeypatch):
+    from bhm_launcher_paid_tier import llm_badge
+
+    monkeypatch.delenv("BHM_LLM_TIER", raising=False)
+    assert llm_badge({"tier": "paid", "paid_model": "m1"}) == ("LLM: PAID  m1", "paid")
+    assert llm_badge({"tier": "paid"})[0] == "LLM: PAID  gpt-6-luna"
+    assert llm_badge({"mode": "remote"}) == ("LLM: REMOTE", "remote")
+    assert llm_badge({"mode": "local", "port": 1234}) == ("LLM: LOCAL  :1234", "local")
+    assert llm_badge(None) == ("LLM: LOCAL", "local")
+    monkeypatch.setenv("BHM_LLM_TIER", "paid")
+    assert llm_badge({"mode": "local", "port": 1234})[1] == "paid"  # panel never chose: user environment decides
+    assert llm_badge({"tier": "local", "port": 1234})[1] == "local"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 PAID_TIER_DEFAULT_BASE_URL = "http://127.0.0.1:8317/v1"
@@ -39,3 +40,16 @@ def paid_tier_env(settings: Any) -> dict[str, str]:
         "BHM_PAID_LLM_BASE_URL": str(llm.get("paid_base_url") or PAID_TIER_DEFAULT_BASE_URL),
         "BHM_PAID_LLM_MODEL": str(llm.get("paid_model") or PAID_TIER_DEFAULT_MODEL),
     }
+
+
+def llm_badge(llm: dict[str, Any] | None) -> tuple[str, str]:
+    """Sidebar badge (text, kind) telling which LLM the BHM API uses: paid remote, remote URL or local."""
+
+    llm = llm or {}
+    # The panel never chose a tier: the API start script then adopts the user environment, so show that.
+    tier = llm.get("tier") or os.environ.get("BHM_LLM_TIER", "local")
+    if tier == "paid":
+        return f"LLM: PAID  {llm.get('paid_model') or PAID_TIER_DEFAULT_MODEL}", "paid"
+    if llm.get("mode") == "remote":
+        return "LLM: REMOTE", "remote"
+    return f"LLM: LOCAL  :{llm.get('port', '')}".rstrip(" :"), "local"
