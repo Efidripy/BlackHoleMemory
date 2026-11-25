@@ -125,7 +125,7 @@ class DashboardScreen(_launcher.QWidget):
         button.setObjectName("OperatorDrawerToggle")
         button.setCheckable(True)
         button.setChecked(False)
-        button.setFixedSize(64, 36)
+        button.setFixedSize(64, 26)
         button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
         button.setToolTip("Open operator tools")
         button.setAccessibleName("Toggle operator tools")
@@ -500,10 +500,9 @@ class DashboardScreen(_launcher.QWidget):
             toggle_x = drawer_x - gap - self.operator_drawer_toggle.width()
         else:
             toggle_x = self.width() - margin - self.operator_drawer_toggle.width()
-        toggle_y = margin + 12 if self.operator_drawer.isVisible() else max(
-            margin,
-            (self.height() - self.operator_drawer_toggle.height()) // 2,
-        )
+        if not self.operator_drawer.isVisible():
+            toggle_x = self.width() - 20 - self.operator_drawer_toggle.width()  # header row, right of Restart All
+        toggle_y = margin + 12 if self.operator_drawer.isVisible() else 16
         self.operator_drawer_toggle.move(toggle_x, toggle_y)
         self.operator_drawer.raise_()
         self.operator_drawer_toggle.raise_()
@@ -534,6 +533,7 @@ class DashboardScreen(_launcher.QWidget):
             button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(callback)
             header.addWidget(button)
+        header.addSpacing(68)  # room for the floating TOOLS toggle
         return header
 
     def build_service_column(self) -> _launcher.QScrollArea:

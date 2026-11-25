@@ -396,7 +396,7 @@ class ServiceCard(_launcher.QFrame):
         if tip:  # icon-only button: compact, the tooltip names the action
             button.setToolTip(tip)
             button.setAccessibleName(tip)
-            button.setFixedWidth(30)
+            button.setFixedSize(26, 26)
             button.setStyleSheet("padding: 0px; min-width: 0px;")
         button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
         button.setSizePolicy(_launcher.QSizePolicy.Policy.Expanding, _launcher.QSizePolicy.Policy.Fixed)
@@ -669,8 +669,7 @@ class MainWindow(_launcher.QMainWindow):
         self._allow_exit = False
         self._last_statuses: dict[str, _launcher.ServiceStatus] = {}
         self.setWindowTitle("BlackHoleMemory Control Deck")
-        self.setMinimumSize(960, 500)
-        self.resize(1000, 580)
+        self.setFixedSize(1250, 610)  # sized so no label is clipped; Integrations needs ~1240 px
         self.setWindowIcon(_launcher.make_bhm_icon())
 
         self.stack = _launcher.QStackedWidget()
