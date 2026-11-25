@@ -126,6 +126,7 @@ class DashboardScreen(_launcher.QWidget):
         button.setCheckable(True)
         button.setChecked(False)
         button.setFixedSize(64, 26)
+        button.setStyleSheet("padding: 0px; min-width: 64px; max-width: 64px; min-height: 26px; max-height: 26px; font-size: 10px;")
         button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
         button.setToolTip("Open operator tools")
         button.setAccessibleName("Toggle operator tools")
