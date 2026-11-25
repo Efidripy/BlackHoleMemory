@@ -5,7 +5,7 @@ Usage (token in BHM_CALLER_TOKEN, service on 127.0.0.1:8000):
   python -X utf8 scripts/bhm_fresh_lessons_eval.py fetch --out pool.json
   python -X utf8 scripts/bhm_fresh_lessons_eval.py replay --pool pool.json [--variants 0,1,3,5,10]
 
-`live` prints @1/@3/@10/MRR over scripts/fresh_lessons_paraphrases.json (rank of the expected id in the top 15).
+`live` prints @1/@3/@10/MRR over tests/fixtures/fresh_lessons_paraphrases.json (rank of the expected id in the top 15).
 `fetch` stores /bhm/search limit=100 detail=full candidates for those queries and for the golden set.
 `replay` recomputes fused = rrf_score / current_multiplier x new multiplier, then MMR (lambda 0.94) per
 BHM_CHECKPOINT_PROTECT_RANK variant. It ignores LLM-rerank and cap_checkpoints_in_top, so it only compares variants
@@ -24,7 +24,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-PARAPHRASES = Path(__file__).with_name("fresh_lessons_paraphrases.json")
+PARAPHRASES = ROOT / "tests" / "fixtures" / "fresh_lessons_paraphrases.json"
 GOLDEN = Path(os.environ.get("BHM_GOLDEN_PATH") or ROOT / ".docs" / "ops" / "memory-golden-v1.json")
 BASE_URL = os.environ.get("BHM_BASE_URL", "http://127.0.0.1:8000")
 PROJECT = "blackholememory"

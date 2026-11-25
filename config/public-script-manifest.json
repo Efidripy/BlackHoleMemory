@@ -1202,6 +1202,21 @@
       "path": "scripts/verify-release-trust.py",
       "role": "release",
       "release": true
+    },
+    {
+      "path": "scripts/bhm-alias-index.py",
+      "role": "operator",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_launcher_paid_tier.py",
+      "role": "runtime-support",
+      "release": true
+    },
+    {
+      "path": "scripts/bhm_fresh_lessons_eval.py",
+      "role": "quality-gate",
+      "release": false
     }
   ]
 }
