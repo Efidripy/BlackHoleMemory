@@ -540,6 +540,8 @@ class DashboardScreen(_launcher.QWidget):
         """Service cards stacked on the left; the column scrolls because the LLM card grows in Paid mode."""
 
         column = _launcher.QFrame()
+        column.setObjectName("ServiceColumn")
+        column.setStyleSheet("QFrame#ServiceColumn { background: transparent; border: 0; }")
         grid = _launcher.QGridLayout(column)
         grid.setContentsMargins(0, 0, 4, 0)
         grid.setSpacing(6)
@@ -564,6 +566,8 @@ class DashboardScreen(_launcher.QWidget):
         scroll.setFrameShape(_launcher.QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(_launcher.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFixedWidth(420)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: 0; }")
+        scroll.viewport().setAutoFillBackground(False)
         scroll.setWidget(column)
         return scroll
 
