@@ -562,7 +562,7 @@ class DashboardScreen(_launcher.QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(_launcher.QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(_launcher.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFixedWidth(260)
+        scroll.setFixedWidth(372)
         scroll.setWidget(column)
         return scroll
 

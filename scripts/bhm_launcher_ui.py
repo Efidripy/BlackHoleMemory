@@ -276,6 +276,8 @@ class MetricCard(_launcher.QFrame):
         layout = _launcher.QVBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 5)
         layout.setSpacing(0)
+        for part in (label, self.value):
+            part.setSizePolicy(_launcher.QSizePolicy.Policy.Ignored, _launcher.QSizePolicy.Policy.Preferred)
         layout.addWidget(label)
         layout.addWidget(self.value)
 
@@ -291,9 +293,11 @@ class MetricCard(_launcher.QFrame):
             color = COLOR_GREEN
         if getattr(self, "_last_rendered_value", None) == text and getattr(self, "_last_rendered_color", None) == color:
             return
-        if getattr(self, "_last_rendered_color", None) != color:
-            self.value.setStyleSheet(f"color: {color};")
+        size = 12 if len(text) > 11 else 18  # long states must fit a narrow tile
+        if getattr(self, "_last_rendered_color", None) != color or getattr(self, "_last_size", None) != size:
+            self.value.setStyleSheet(f"color: {color}; font-size: {size}px;")
             self._last_rendered_color = color
+            self._last_size = size
         if getattr(self, "_last_rendered_value", None) != text:
             self.value.setText(text)
             self._last_rendered_value = text
@@ -653,8 +657,8 @@ class MainWindow(_launcher.QMainWindow):
         self._allow_exit = False
         self._last_statuses: dict[str, _launcher.ServiceStatus] = {}
         self.setWindowTitle("BlackHoleMemory Control Deck")
-        self.setMinimumSize(800, 480)
-        self.resize(900, 560)
+        self.setMinimumSize(960, 500)
+        self.resize(1000, 580)
         self.setWindowIcon(_launcher.make_bhm_icon())
 
         self.stack = _launcher.QStackedWidget()

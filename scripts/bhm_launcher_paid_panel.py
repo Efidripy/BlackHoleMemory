@@ -29,7 +29,7 @@ class ModeSelector(_launcher.QWidget):
             button = _launcher.QPushButton(name.capitalize())
             button.setObjectName("ModeToggle")
             button.setCheckable(True)
-            button.setFixedSize(58, 24)
+            button.setFixedSize(52, 22)
             button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(lambda _checked=False, n=name: self.select(n))
             self.buttons[name] = button
