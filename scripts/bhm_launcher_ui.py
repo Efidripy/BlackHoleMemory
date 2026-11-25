@@ -378,7 +378,7 @@ class ServiceCard(_launcher.QFrame):
         self.stop_button = self.make_button("■", tip="Stop")
         self.restart_button = self.make_button("⟳", "DangerButton", tip="Restart")
         self.check_button = self.make_button("Check Connection", "AccentButton")
-        self.check_button.hide()
+        self.check_button.setVisible(self.choice == "remote")
         self.start_button.clicked.connect(lambda: self.start_requested.emit(self.key))
         self.stop_button.clicked.connect(lambda: self.stop_requested.emit(self.key))
         self.restart_button.clicked.connect(lambda: self.restart_requested.emit(self.key))
@@ -388,6 +388,8 @@ class ServiceCard(_launcher.QFrame):
         action_layout.addWidget(self.restart_button)
         status_row.addWidget(self.action_row)
         layout.addWidget(self.check_button)
+        if key == "llm":  # the launcher does not manage the LLM server
+            self.action_row.hide()
 
     def make_button(self, text: str, object_name: str = "GhostButton", tip: str = "") -> _launcher.QPushButton:
         button = _launcher.QPushButton(text)
@@ -466,8 +468,7 @@ class ServiceCard(_launcher.QFrame):
         if self.remote_panel:
             self.remote_panel.setVisible(remote)
         self.paid_panel.setVisible(paid)
-        if hasattr(self, "action_row"):
-            self.action_row.setVisible(not remote)
+        if hasattr(self, "check_button"):
             self.check_button.setVisible(remote)
         self.adjustSize()
 

@@ -1430,7 +1430,10 @@ def test_paid_choice_hides_local_port_and_leaves_remote_mode(monkeypatch) -> Non
         card = view.service_cards["llm"]
         assert view._llm_mode == "local"  # a saved remote mode is not probed under Paid
         assert card.local_panel.isHidden()
+        assert card.action_row.isHidden() and card.check_button.isHidden()
+        assert not view.service_cards["api"].action_row.isHidden()
         card.apply_llm_choice("remote")
+        assert card.action_row.isHidden() and not card.check_button.isHidden()
         card.apply_llm_choice("paid")
         assert card.llm_mode == "local" and card.local_panel.isHidden()
         card.apply_llm_choice("local")
