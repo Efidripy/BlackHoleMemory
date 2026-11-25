@@ -450,21 +450,19 @@ class ServiceCard(_launcher.QFrame):
 
     def on_llm_choice_changed(self, choice: str) -> None:
         self.apply_llm_choice(choice)
-        if choice != "paid":
-            self.emit_llm_config()
+        self.emit_llm_config()
         self.paid_config_changed.emit(
             choice == "paid", self.paid_panel.url_input.text().strip(), self.paid_panel.model_input.text().strip()
         )
 
     def apply_llm_choice(self, choice: str) -> None:
-        """Local and Paid keep the local server (embeddings stay there); Remote replaces it with a URL."""
+        """Local and Paid use the local server (embeddings stay there); Remote replaces it with a URL."""
 
         paid = choice == "paid"
-        if not paid:
-            self.llm_mode = "remote" if choice == "remote" else "local"
         remote = choice == "remote"
+        self.llm_mode = "remote" if remote else "local"
         if self.local_panel:
-            self.local_panel.setVisible(not remote)
+            self.local_panel.setVisible(choice == "local")  # the port is not the paid model's
         if self.remote_panel:
             self.remote_panel.setVisible(remote)
         self.paid_panel.setVisible(paid)

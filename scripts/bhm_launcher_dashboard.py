@@ -56,6 +56,8 @@ class DashboardScreen(_launcher.QWidget):
         self._llm_openai_base_url = str(llm_settings.get("openai_base_url", "") or self._llm_remote_url)
         # Same rule as the sidebar badge: with no tier chosen in the panel the user environment decides.
         self._paid_tier = (llm_settings.get("tier") or os.environ.get("BHM_LLM_TIER", "local")) == "paid"
+        if self._paid_tier:  # embeddings stay local under Paid, so a saved "remote" mode must not be probed
+            self._llm_mode = "local"
         self.build_ui()
 
     def build_ui(self) -> None:

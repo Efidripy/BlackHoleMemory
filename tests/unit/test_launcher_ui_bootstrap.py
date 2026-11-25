@@ -1416,3 +1416,25 @@ def test_logs_window_read_log_tail(tmp_path):
     assert len(lines) == 10
     assert lines[-1] == "line 299"
     assert lines[0] == "line 290"
+
+
+def test_paid_choice_hides_local_port_and_leaves_remote_mode(monkeypatch) -> None:
+    monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
+    assert launcher.load_pyqt6()
+    application = launcher.QApplication.instance() or launcher.QApplication([])
+    monkeypatch.setattr(
+        launcher, "load_launcher_settings", lambda *a, **k: {"llm": {"mode": "remote", "remote_url": "", "tier": "paid"}}
+    )
+    view = launcher.DashboardScreen()
+    try:
+        card = view.service_cards["llm"]
+        assert view._llm_mode == "local"  # a saved remote mode is not probed under Paid
+        assert card.local_panel.isHidden()
+        card.apply_llm_choice("remote")
+        card.apply_llm_choice("paid")
+        assert card.llm_mode == "local" and card.local_panel.isHidden()
+        card.apply_llm_choice("local")
+        assert not card.local_panel.isHidden()
+    finally:
+        view.close()
+        application.processEvents()
