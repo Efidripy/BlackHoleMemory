@@ -71,9 +71,13 @@ class DashboardScreen(_launcher.QWidget):
         layout.setContentsMargins(22, 20, 22, 18)
         layout.setSpacing(16)
         layout.addLayout(self.build_header())
-        layout.addLayout(self.build_service_grid())
-        layout.addLayout(self.build_metrics_grid())
-        layout.addStretch(1)
+        body = _launcher.QHBoxLayout()
+        body.setSpacing(16)
+        body.addWidget(self.build_service_column())
+        metrics = self.build_metrics_grid()
+        metrics.setAlignment(_launcher.Qt.AlignmentFlag.AlignTop)
+        body.addLayout(metrics, 1)
+        layout.addLayout(body, 1)
         shell.addWidget(main, 1)
 
         self.operator_drawer = self.build_operator_drawer()
@@ -532,11 +536,15 @@ class DashboardScreen(_launcher.QWidget):
             header.addWidget(button)
         return header
 
-    def build_service_grid(self) -> _launcher.QGridLayout:
-        grid = _launcher.QGridLayout()
+    def build_service_column(self) -> _launcher.QScrollArea:
+        """Service cards stacked on the left; the column scrolls because the LLM card grows in Paid mode."""
+
+        column = _launcher.QFrame()
+        grid = _launcher.QVBoxLayout(column)
+        grid.setContentsMargins(0, 0, 6, 0)
         grid.setSpacing(14)
         services = [("qdrant", "Qdrant"), ("api", "BHM API"), ("llm", "LLM"), ("sidecar", "Projection Sidecar")]
-        for col, (key, title) in enumerate(services):
+        for key, title in services:
             card = _launcher.ServiceCard(
                 key, title, self._llm_mode, self._llm_port, self._llm_remote_url, paid=self.paid_card_settings()
             )
@@ -548,9 +556,15 @@ class DashboardScreen(_launcher.QWidget):
             card.paid_config_changed.connect(self.on_paid_config_changed)
             card.paid_key_entered.connect(self.on_paid_key_entered)
             self.service_cards[key] = card
-            grid.addWidget(card, 0, col)
-            grid.setColumnStretch(col, 1)
-        return grid
+            grid.addWidget(card)
+        grid.addStretch(1)
+        scroll = _launcher.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(_launcher.QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(_launcher.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setFixedWidth(370)
+        scroll.setWidget(column)
+        return scroll
 
     def build_metrics_grid(self) -> _launcher.QGridLayout:
         grid = _launcher.QGridLayout()
@@ -574,8 +588,8 @@ class DashboardScreen(_launcher.QWidget):
             card = _launcher.MetricCard(title, accent, tooltip)
             card._base_tooltip = tooltip
             self.metric_cards[key] = card
-            grid.addWidget(card, index // 4, index % 4)
-            grid.setColumnStretch(index % 4, 1)
+            grid.addWidget(card, index // 3, index % 3)
+            grid.setColumnStretch(index % 3, 1)
         return grid
 
     def show_logs(self) -> None:
