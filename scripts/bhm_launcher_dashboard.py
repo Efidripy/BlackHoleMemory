@@ -10,6 +10,7 @@ import os
 
 from bhm_launcher_paid_tier import llm_badge
 from bhm_launcher_paid_tier import paid_tier_env
+from bhm_launcher_paid_tier import store_paid_api_key
 from bhm_launcher_paid_tier import with_llm_tier
 from bhm_launcher_integrations import IntegrationsWindow
 from bhm_launcher_readiness import probe_http
@@ -53,7 +54,8 @@ class DashboardScreen(_launcher.QWidget):
             self._llm_port = _launcher.DEFAULT_LLM_PORT
         self._llm_remote_url = str(llm_settings.get("remote_url", ""))
         self._llm_openai_base_url = str(llm_settings.get("openai_base_url", "") or self._llm_remote_url)
-        self._paid_tier = llm_settings.get("tier") == "paid"
+        # Same rule as the sidebar badge: with no tier chosen in the panel the user environment decides.
+        self._paid_tier = (llm_settings.get("tier") or os.environ.get("BHM_LLM_TIER", "local")) == "paid"
         self.build_ui()
 
     def build_ui(self) -> None:
@@ -536,14 +538,15 @@ class DashboardScreen(_launcher.QWidget):
         services = [("qdrant", "Qdrant"), ("api", "BHM API"), ("llm", "LLM"), ("sidecar", "Projection Sidecar")]
         for col, (key, title) in enumerate(services):
             card = _launcher.ServiceCard(
-                key, title, self._llm_mode, self._llm_port, self._llm_remote_url, paid_tier=self._paid_tier
+                key, title, self._llm_mode, self._llm_port, self._llm_remote_url, paid=self.paid_card_settings()
             )
             card.start_requested.connect(self.start_service)
             card.stop_requested.connect(self.stop_service)
             card.restart_requested.connect(self.restart_service)
             card.llm_config_changed.connect(self.on_llm_config_changed)
             card.llm_check_requested.connect(self.check_llm_connection)
-            card.paid_tier_changed.connect(self.on_paid_tier_changed)
+            card.paid_config_changed.connect(self.on_paid_config_changed)
+            card.paid_key_entered.connect(self.on_paid_key_entered)
             self.service_cards[key] = card
             grid.addWidget(card, 0, col)
             grid.setColumnStretch(col, 1)
@@ -617,17 +620,32 @@ class DashboardScreen(_launcher.QWidget):
         label.style().unpolish(label)
         label.style().polish(label)
 
-    def on_paid_tier_changed(self, enabled: bool) -> None:
+    def paid_card_settings(self) -> dict:
+        llm = self.settings.get("llm") if isinstance(self.settings.get("llm"), dict) else {}
+        return {"enabled": self._paid_tier, "base_url": llm.get("paid_base_url", ""), "model": llm.get("paid_model", "")}
+
+    def on_paid_config_changed(self, enabled: bool, base_url: str, model: str) -> None:
         candidate_settings = with_llm_tier(self.settings, enabled)
+        candidate_settings["llm"] = {**candidate_settings["llm"], "paid_base_url": base_url, "paid_model": model}
         try:
             _launcher.save_launcher_settings(candidate_settings)
         except (OSError, ValueError, TypeError) as exc:
             _launcher.append_launcher_log(f"SETTINGS SAVE ERROR: {_launcher.compact_error(exc)}")
+            _launcher.QMessageBox.warning(self, "BHM Control Deck", f"Не удалось сохранить настройки платной модели: {_launcher.compact_error(exc)}")
             return
         self._paid_tier = enabled
         self.settings = candidate_settings
         self.refresh_llm_badge()
         _launcher.append_launcher_log(f"LLM TIER: {'paid' if enabled else 'local'} (applies after the BHM API restarts)")
+
+    def on_paid_key_entered(self, key: str) -> None:
+        try:
+            store_paid_api_key(key)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            _launcher.append_launcher_log(f"PAID KEY SAVE ERROR: {type(exc).__name__}")
+            _launcher.QMessageBox.warning(self, "BHM Control Deck", "Не удалось сохранить API-ключ в переменных пользователя.")
+            return
+        _launcher.append_launcher_log("PAID LLM API key saved in the user environment (applies after the BHM API restarts)")
 
     def on_llm_config_changed(self, mode: str, port: int, remote_url: str) -> None:
         previous_settings = dict(self.settings)

@@ -1217,6 +1217,11 @@
       "path": "scripts/bhm_fresh_lessons_eval.py",
       "role": "quality-gate",
       "release": false
+    },
+    {
+      "path": "scripts/bhm_launcher_paid_panel.py",
+      "role": "runtime-support",
+      "release": true
     }
   ]
 }

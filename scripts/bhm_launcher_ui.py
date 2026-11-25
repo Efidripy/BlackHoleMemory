@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from bhm_launcher_dashboard import DashboardScreen
 from bhm_launcher_integrations import IntegrationsOnboardingScreen
+from bhm_launcher_paid_panel import ModeSelector
+from bhm_launcher_paid_panel import PaidPanel
 from bhm_launcher_theme import COLOR_CYAN
 from bhm_launcher_theme import COLOR_GREEN
 from bhm_launcher_theme import COLOR_RED
@@ -304,7 +306,8 @@ class ServiceCard(_launcher.QFrame):
     restart_requested = _launcher.pyqtSignal(str)
     llm_config_changed = _launcher.pyqtSignal(str, int, str)
     llm_check_requested = _launcher.pyqtSignal()
-    paid_tier_changed = _launcher.pyqtSignal(bool)
+    paid_config_changed = _launcher.pyqtSignal(bool, str, str)  # enabled, base_url, model
+    paid_key_entered = _launcher.pyqtSignal(str)
 
     def __init__(
         self,
@@ -313,11 +316,11 @@ class ServiceCard(_launcher.QFrame):
         llm_mode: str = "local",
         llm_port: int = _launcher.DEFAULT_LLM_PORT,
         llm_remote_url: str = "",
-        paid_tier: bool = False,
+        paid: dict | None = None,
     ) -> None:
         super().__init__()
         self.key = key
-        self.initial_paid_tier = bool(paid_tier)
+        self.initial_paid = paid or {}
         self.initial_llm_mode = "remote" if llm_mode == "remote" else "local"
         self.initial_llm_port = llm_port if 1 <= llm_port <= 65535 else _launcher.DEFAULT_LLM_PORT
         self.initial_llm_remote_url = llm_remote_url
@@ -336,14 +339,12 @@ class ServiceCard(_launcher.QFrame):
         title_label.setObjectName("CardTitle")
         header.addWidget(title_label)
         header.addStretch(1)
-        self.mode_button: _launcher.QPushButton | None = None
+        self.mode_selector: ModeSelector | None = None
         if key == "llm":
-            self.mode_button = _launcher.QPushButton("Local")
-            self.mode_button.setObjectName("ModeToggle")
-            self.mode_button.setFixedSize(68, 24)
-            self.mode_button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
-            self.mode_button.clicked.connect(self.toggle_llm_mode)
-            header.addWidget(self.mode_button)
+            start = "paid" if self.initial_paid.get("enabled") else self.initial_llm_mode
+            self.mode_selector = ModeSelector(start)
+            self.mode_selector.changed.connect(self.on_llm_choice_changed)
+            header.addWidget(self.mode_selector)
         layout.addLayout(header)
 
         self.badge = _launcher.StatusBadge()
@@ -423,33 +424,41 @@ class ServiceCard(_launcher.QFrame):
         remote_layout.addWidget(url_label)
         remote_layout.addWidget(self.remote_input)
         layout.addWidget(self.remote_panel)
-        self.paid_checkbox = _launcher.QCheckBox("Paid model: send notes to improve search")
-        self.paid_checkbox.setToolTip(
-            "Paid tier: new notes (without passwords, API keys and personal data, which are filtered out first) "
-            "go to the configured paid model to generate search questions. Applies after the BHM API restarts."
-        )
-        self.paid_checkbox.setChecked(self.initial_paid_tier)
-        self.paid_checkbox.toggled.connect(self.paid_tier_changed.emit)
-        layout.addWidget(self.paid_checkbox)
-        self.on_llm_mode_changed(self.initial_llm_mode)
+        self.paid_panel = PaidPanel(self.initial_paid.get("base_url", ""), self.initial_paid.get("model", ""))
+        self.paid_panel.settings_changed.connect(lambda url, model: self.paid_config_changed.emit(self.choice == "paid", url, model))
+        self.paid_panel.key_entered.connect(self.paid_key_entered.emit)
+        layout.addWidget(self.paid_panel)
+        self.apply_llm_choice(self.mode_selector.choice if self.mode_selector else self.initial_llm_mode)
         return panel
 
-    def toggle_llm_mode(self) -> None:
-        self.on_llm_mode_changed("remote" if self.llm_mode == "local" else "local")
+    @property
+    def choice(self) -> str:
+        return self.mode_selector.choice if self.mode_selector else self.llm_mode
 
-    def on_llm_mode_changed(self, mode: str) -> None:
-        self.llm_mode = "remote" if mode == "remote" else "local"
-        is_remote = self.llm_mode == "remote"
-        if self.mode_button:
-            self.mode_button.setText("Remote" if is_remote else "Local")
+    def on_llm_choice_changed(self, choice: str) -> None:
+        self.apply_llm_choice(choice)
+        if choice != "paid":
+            self.emit_llm_config()
+        self.paid_config_changed.emit(
+            choice == "paid", self.paid_panel.url_input.text().strip(), self.paid_panel.model_input.text().strip()
+        )
+
+    def apply_llm_choice(self, choice: str) -> None:
+        """Local and Paid keep the local server (embeddings stay there); Remote replaces it with a URL."""
+
+        paid = choice == "paid"
+        if not paid:
+            self.llm_mode = "remote" if choice == "remote" else "local"
+        remote = choice == "remote"
         if self.local_panel:
-            self.local_panel.setVisible(not is_remote)
+            self.local_panel.setVisible(not remote)
         if self.remote_panel:
-            self.remote_panel.setVisible(is_remote)
+            self.remote_panel.setVisible(remote)
+        self.paid_panel.setVisible(paid)
         if hasattr(self, "action_row"):
-            self.action_row.setVisible(not is_remote)
-            self.check_button.setVisible(is_remote)
-        self.emit_llm_config()
+            self.action_row.setVisible(not remote)
+            self.check_button.setVisible(remote)
+        self.setMinimumHeight(430 if paid else 210)
 
     def emit_llm_config(self) -> None:
         if not self.port_input or not self.remote_input:

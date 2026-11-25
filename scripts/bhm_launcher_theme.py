@@ -295,6 +295,11 @@ def build_qss() -> str:
         border-color: {COLOR_CYAN};
         color: #FFFFFF;
     }}
+    QPushButton#ModeToggle:checked {{
+        background: {COLOR_CYAN};
+        color: #07101A;
+        border-color: {COLOR_CYAN};
+    }}
     QProgressBar {{
         background: #0B0F19;
         border: 1px solid {COLOR_BORDER};

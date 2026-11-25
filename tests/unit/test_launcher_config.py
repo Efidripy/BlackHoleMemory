@@ -113,3 +113,24 @@ def test_llm_badge_shows_paid_remote_or_local(monkeypatch):
     monkeypatch.setenv("BHM_LLM_TIER", "paid")
     assert llm_badge({"mode": "local", "port": 1234})[1] == "paid"  # panel never chose: user environment decides
     assert llm_badge({"tier": "local", "port": 1234})[1] == "local"
+
+
+def test_paid_key_is_stored_through_the_environment_not_the_command_line(monkeypatch):
+    import bhm_launcher_paid_tier as paid
+
+    calls = []
+    monkeypatch.setattr(paid.os, "environ", dict(paid.os.environ))
+    paid.store_paid_api_key(" secret-value-123 ", runner=lambda cmd, **kw: calls.append((cmd, kw)))
+    cmd, kw = calls[0]
+    assert "secret-value-123" not in " ".join(cmd) and kw["env"]["BHM_TMP_PAID_KEY"] == "secret-value-123"
+    assert paid.os.environ["BHM_PAID_LLM_API_KEY"] == "secret-value-123"
+    with pytest.raises(ValueError):
+        paid.store_paid_api_key("bad\nkey", runner=lambda *a, **k: None)
+
+
+def test_paid_base_url_must_be_local():
+    from bhm_launcher_paid_tier import validate_paid_tier
+
+    validate_paid_tier({"tier": "paid", "paid_base_url": "http://127.0.0.1:8317/v1"})
+    with pytest.raises(ValueError):
+        validate_paid_tier({"tier": "paid", "paid_base_url": "https://api.example.invalid/v1"})
