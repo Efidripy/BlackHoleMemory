@@ -669,7 +669,7 @@ class MainWindow(_launcher.QMainWindow):
         self._allow_exit = False
         self._last_statuses: dict[str, _launcher.ServiceStatus] = {}
         self.setWindowTitle("BlackHoleMemory Control Deck")
-        self.setFixedSize(1250, 520)  # sized so no label is clipped; Integrations needs ~1240 px
+        self.setFixedSize(1250, 560)  # sized so no label is clipped; Integrations needs ~1240 px
         self.setWindowIcon(_launcher.make_bhm_icon())
 
         self.stack = _launcher.QStackedWidget()
