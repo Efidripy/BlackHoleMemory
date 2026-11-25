@@ -255,6 +255,8 @@ class StatusBadge(_launcher.QWidget):
         self.dot.setFixedSize(9, 9)
         self.dot.setStyleSheet(f"background: {color}; border-radius: 4px;")
         self.text.setText("ONLINE" if status.state == "Running" else status.state.upper())
+        self.text.setVisible(status.state != "Running")  # the green dot already says online
+        self.setToolTip(self.text.text())
         self.text.setStyleSheet(f"color: {color}; font: 800 11px 'Segoe UI';")
 
 
@@ -353,7 +355,12 @@ class ServiceCard(_launcher.QFrame):
 
         self.detail = _launcher.QLabel("Waiting for status")
         self.detail.setObjectName("Muted")
-        layout.addWidget(self.detail)
+        self.detail.setSizePolicy(_launcher.QSizePolicy.Policy.Ignored, _launcher.QSizePolicy.Policy.Preferred)
+        status_row = _launcher.QHBoxLayout()
+        status_row.setContentsMargins(0, 0, 0, 0)
+        status_row.setSpacing(4)
+        status_row.addWidget(self.detail, 1)
+        layout.addLayout(status_row)
 
         self.local_panel: _launcher.QFrame | None = None
         self.remote_panel: _launcher.QFrame | None = None
@@ -367,9 +374,9 @@ class ServiceCard(_launcher.QFrame):
         action_layout = _launcher.QHBoxLayout(self.action_row)
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(4)
-        self.start_button = self.make_button("Start")
-        self.stop_button = self.make_button("Stop")
-        self.restart_button = self.make_button("Restart", "DangerButton")
+        self.start_button = self.make_button("▶", tip="Start")
+        self.stop_button = self.make_button("■", tip="Stop")
+        self.restart_button = self.make_button("⟳", "DangerButton", tip="Restart")
         self.check_button = self.make_button("Check Connection", "AccentButton")
         self.check_button.hide()
         self.start_button.clicked.connect(lambda: self.start_requested.emit(self.key))
@@ -379,13 +386,18 @@ class ServiceCard(_launcher.QFrame):
         action_layout.addWidget(self.start_button)
         action_layout.addWidget(self.stop_button)
         action_layout.addWidget(self.restart_button)
-        layout.addWidget(self.action_row)
+        status_row.addWidget(self.action_row)
         layout.addWidget(self.check_button)
 
-    def make_button(self, text: str, object_name: str = "GhostButton") -> _launcher.QPushButton:
+    def make_button(self, text: str, object_name: str = "GhostButton", tip: str = "") -> _launcher.QPushButton:
         button = _launcher.QPushButton(text)
         button.setObjectName(object_name)
         button.setFixedHeight(26)
+        if tip:  # icon-only button: compact, the tooltip names the action
+            button.setToolTip(tip)
+            button.setAccessibleName(tip)
+            button.setFixedWidth(30)
+            button.setStyleSheet("padding: 0px; min-width: 0px;")
         button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
         button.setSizePolicy(_launcher.QSizePolicy.Policy.Expanding, _launcher.QSizePolicy.Policy.Fixed)
         return button

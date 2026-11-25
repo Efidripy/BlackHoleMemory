@@ -540,7 +540,7 @@ class DashboardScreen(_launcher.QWidget):
         """Service cards stacked on the left; the column scrolls because the LLM card grows in Paid mode."""
 
         column = _launcher.QFrame()
-        grid = _launcher.QVBoxLayout(column)
+        grid = _launcher.QGridLayout(column)
         grid.setContentsMargins(0, 0, 4, 0)
         grid.setSpacing(6)
         services = [("qdrant", "Qdrant"), ("api", "BHM API"), ("llm", "LLM"), ("sidecar", "Projection Sidecar")]
@@ -556,13 +556,14 @@ class DashboardScreen(_launcher.QWidget):
             card.paid_config_changed.connect(self.on_paid_config_changed)
             card.paid_key_entered.connect(self.on_paid_key_entered)
             self.service_cards[key] = card
-            grid.addWidget(card)
-        grid.addStretch(1)
+            row, col, span = {"qdrant": (0, 0, 1), "api": (0, 1, 1), "llm": (1, 0, 2), "sidecar": (2, 0, 2)}[key]
+            grid.addWidget(card, row, col, 1, span)
+        grid.setRowStretch(3, 1)
         scroll = _launcher.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(_launcher.QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(_launcher.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFixedWidth(372)
+        scroll.setFixedWidth(420)
         scroll.setWidget(column)
         return scroll
 
