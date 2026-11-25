@@ -133,6 +133,11 @@ function Resolve-AuthoritativeProviderEndpoint {
     # Windows.
     $env:BHM_MEM0_OPENAI_BASE_URL = $loopback
   }
+  # A global OPENAI_BASE_URL belongs to other tools (a chat proxy has no
+  # /embeddings); memory embeddings move only on the BHM-scoped override.
+  if ([string]::IsNullOrWhiteSpace([string]$env:BHM_MEM0_OPENAI_BASE_URL)) {
+    $env:BHM_MEM0_OPENAI_BASE_URL = $loopback
+  }
 }
 
 if ($Authoritative) {

@@ -20,6 +20,7 @@ $adoptedUserEnvironmentNames = [System.Collections.Generic.List[string]]::new()
 foreach ($name in @(
     'BHM_MEM0_EMBEDDING_MODEL',
     'BHM_MEM0_EMBEDDING_DIMS',
+    'BHM_MEM0_OPENAI_BASE_URL',
     'BHM_SEARCH_INCLUDE_GLOBAL',
     'BHM_LLM_RERANK',
     'BHM_LLM_RERANK_BASE_URL',
@@ -148,6 +149,11 @@ function Resolve-LocalLmStudioEndpoint {
   if ($configured -match ('^https?://172\.18\.0\.1:' + $lmStudioParts.Port + '/v1/?$') -and
       (Test-OpenAiBaseUrl -BaseUrl $loopback)) {
     $env:OPENAI_BASE_URL = $loopback
+    $env:BHM_MEM0_OPENAI_BASE_URL = $loopback
+  }
+  # A global OPENAI_BASE_URL belongs to other tools (a chat proxy has no
+  # /embeddings); memory embeddings move only on the BHM-scoped override.
+  if ([string]::IsNullOrWhiteSpace([string]$env:BHM_MEM0_OPENAI_BASE_URL)) {
     $env:BHM_MEM0_OPENAI_BASE_URL = $loopback
   }
 }

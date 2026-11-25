@@ -1151,6 +1151,13 @@ def test_dashboard_slo_card_tooltip_explains_breach_and_shows_projection_hint(mo
 
         view.apply_telemetry({"slo_state": "HEALTHY", "slo_detail": ""})
         assert slo_card.toolTip() == base_tooltip
+
+        provider_card = view.metric_cards["provider_state"]
+        provider_tooltip = provider_card.toolTip()
+        view.apply_telemetry({"provider_detail": "HTTP Error 404: Not Found"})
+        assert provider_card.toolTip() == f"{provider_tooltip}\nHTTP Error 404: Not Found"
+        view.apply_telemetry({"provider_detail": ""})
+        assert provider_card.toolTip() == provider_tooltip
     finally:
         view.close()
         application.processEvents()

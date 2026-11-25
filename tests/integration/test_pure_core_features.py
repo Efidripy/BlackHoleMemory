@@ -1900,6 +1900,9 @@ def test_observation_store_wal_append_is_idempotent_and_collision_safe(tmp_path)
     assert first.inserted is True
     assert duplicate.inserted is False
     assert duplicate.sequence == first.sequence
+    retried = store.append({**record, "ingestedAt": "2027-01-01T00:00:00Z"})
+    assert retried.inserted is False
+    assert retried.sequence == first.sequence
     assert store.load() == [record]
     status = store.status(integrity_check=True)
     assert status["journalMode"].lower() == "wal"

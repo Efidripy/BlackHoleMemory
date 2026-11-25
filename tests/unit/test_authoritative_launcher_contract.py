@@ -55,6 +55,9 @@ def test_authoritative_launcher_contract_is_fail_closed_and_explicit():
     ):
         assert marker in text
 
+    assert "'BHM_MEM0_OPENAI_BASE_URL'," in text
+    for script in (text, SERVICE.read_text(encoding="utf-8")):
+        assert "[string]::IsNullOrWhiteSpace([string]$env:BHM_MEM0_OPENAI_BASE_URL)" in script
     assert "172\\.18\\.0\\.1:13666/v1" not in text
     assert "127.0.0.1:13666/v1" not in text
 

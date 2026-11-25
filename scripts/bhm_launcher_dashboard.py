@@ -711,6 +711,10 @@ class DashboardScreen(_launcher.QWidget):
             slo_card = self.metric_cards.get("slo_state")
             if slo_card:
                 self._update_slo_tooltip(slo_card, telemetry.get("slo_detail", ""))
+        provider_card = self.metric_cards.get("provider_state")
+        if provider_card and "provider_detail" in telemetry:
+            detail = str(telemetry["provider_detail"]).strip()
+            provider_card.setToolTip(f"{provider_card._base_tooltip}\n{detail}" if detail else provider_card._base_tooltip)
 
     def _update_slo_tooltip(self, card: _launcher.MetricCard, slo_detail: str) -> None:
         detail = str(slo_detail or "").strip()

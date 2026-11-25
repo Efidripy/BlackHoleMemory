@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+import json
 from typing import Any, Iterable, Sequence
 
 from .observation_store_base import (
@@ -22,6 +23,18 @@ from .observation_store_base import (
     _scoped_event_id,  # noqa: F401
     _utc_now_iso,  # noqa: F401
 )
+
+
+def _is_replay(stored: str, incoming: str) -> bool:
+    """A retried delivery differs only by the server-assigned ingest time."""
+
+    def content(serialized: str) -> dict[str, Any]:
+        return {key: value for key, value in json.loads(serialized).items() if key != "ingestedAt"}
+
+    try:
+        return content(stored) == content(incoming)
+    except (TypeError, ValueError):  # unreadable stored row stays a collision
+        return False
 
 
 class ObservationStore(ObservationStoreBase):
@@ -63,14 +76,16 @@ class ObservationStore(ObservationStoreBase):
                     record_sha256 = values[-2]
                     existing = connection.execute(
                         """
-                        SELECT sequence, record_sha256 FROM observation_events
+                        SELECT sequence, record_sha256, record_json FROM observation_events
                         WHERE event_id = ?
                            OR (event_id = ? AND project = ?)
                         """,
                         (event_id, public_event_id, project),
                     ).fetchone()
                     if existing is not None:
-                        if str(existing["record_sha256"]) != record_sha256:
+                        if str(existing["record_sha256"]) != record_sha256 and not _is_replay(
+                            existing["record_json"], values[-3]
+                        ):
                             raise ObservationIdCollision(public_event_id)
                         results.append(
                             ObservationAppendResult(
