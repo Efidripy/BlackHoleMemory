@@ -61,12 +61,12 @@ def build_qss() -> str:
     }}
     QLabel#SectionTitle, QLabel#CardTitle {{
         color: #F8FAFF;
-        font-size: 18px;
+        font-size: 14px;
         font-weight: 800;
     }}
     QLabel#Muted, QLabel#MutedLarge {{
         color: {COLOR_MUTED};
-        font-size: 13px;
+        font-size: 11px;
     }}
     QLabel#MutedLarge {{
         font-size: 15px;
@@ -83,7 +83,7 @@ def build_qss() -> str:
     }}
     QLabel#MetricValue {{
         color: {COLOR_CYAN};
-        font-size: 30px;
+        font-size: 18px;
         font-weight: 900;
     }}
     QLabel#VersionLabel {{

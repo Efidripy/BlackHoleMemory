@@ -262,7 +262,7 @@ class MetricCard(_launcher.QFrame):
     def __init__(self, title: str, accent: str = COLOR_CYAN, tooltip: str = "") -> None:
         super().__init__()
         self.setObjectName("MetricCard")
-        self.setMinimumHeight(76)
+        self.setMinimumHeight(50)
         self.setSizePolicy(_launcher.QSizePolicy.Policy.Expanding, _launcher.QSizePolicy.Policy.Fixed)
         self.accent = accent
         self.setToolTip(tooltip)
@@ -274,11 +274,10 @@ class MetricCard(_launcher.QFrame):
         label.setObjectName("MetricTitle")
         label.setToolTip(tooltip)
         layout = _launcher.QVBoxLayout(self)
-        layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(5)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(0)
         layout.addWidget(label)
         layout.addWidget(self.value)
-        layout.addStretch(1)
 
     def set_value(self, value: str) -> None:
         text = str(value)
@@ -326,18 +325,19 @@ class ServiceCard(_launcher.QFrame):
         self.initial_llm_remote_url = llm_remote_url
         self.llm_mode = self.initial_llm_mode
         self.setObjectName("ServiceCard")
-        self.setMinimumHeight(210 if key == "llm" else 190)
         self.setSizePolicy(_launcher.QSizePolicy.Policy.Expanding, _launcher.QSizePolicy.Policy.Fixed)
 
         layout = _launcher.QVBoxLayout(self)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
 
         header = _launcher.QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         title_label = _launcher.QLabel(title)
         title_label.setObjectName("CardTitle")
         header.addWidget(title_label)
+        self.badge = _launcher.StatusBadge()
+        header.addWidget(self.badge)
         header.addStretch(1)
         self.mode_selector: ModeSelector | None = None
         if key == "llm":
@@ -347,8 +347,6 @@ class ServiceCard(_launcher.QFrame):
             header.addWidget(self.mode_selector)
         layout.addLayout(header)
 
-        self.badge = _launcher.StatusBadge()
-        layout.addWidget(self.badge)
         self.detail = _launcher.QLabel("Waiting for status")
         self.detail.setObjectName("Muted")
         layout.addWidget(self.detail)
@@ -360,12 +358,11 @@ class ServiceCard(_launcher.QFrame):
         if key == "llm":
             layout.addWidget(self.build_llm_config())
 
-        layout.addStretch(1)
         self.action_row = _launcher.QFrame()
         self.action_row.setObjectName("ActionRow")
         action_layout = _launcher.QHBoxLayout(self.action_row)
         action_layout.setContentsMargins(0, 0, 0, 0)
-        action_layout.setSpacing(8)
+        action_layout.setSpacing(4)
         self.start_button = self.make_button("Start")
         self.stop_button = self.make_button("Stop")
         self.restart_button = self.make_button("Restart", "DangerButton")
@@ -384,7 +381,7 @@ class ServiceCard(_launcher.QFrame):
     def make_button(self, text: str, object_name: str = "GhostButton") -> _launcher.QPushButton:
         button = _launcher.QPushButton(text)
         button.setObjectName(object_name)
-        button.setFixedHeight(34)
+        button.setFixedHeight(26)
         button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
         button.setSizePolicy(_launcher.QSizePolicy.Policy.Expanding, _launcher.QSizePolicy.Policy.Fixed)
         return button
@@ -404,7 +401,7 @@ class ServiceCard(_launcher.QFrame):
         port_label.setObjectName("FieldLabel")
         self.port_input = _launcher.QLineEdit(str(self.initial_llm_port))
         self.port_input.setObjectName("LlmInput")
-        self.port_input.setFixedHeight(32)
+        self.port_input.setFixedHeight(26)
         self.port_input.textChanged.connect(self.emit_llm_config)
         local_layout.addWidget(port_label)
         local_layout.addWidget(self.port_input)
@@ -419,7 +416,7 @@ class ServiceCard(_launcher.QFrame):
         self.remote_input = _launcher.QLineEdit(self.initial_llm_remote_url)
         self.remote_input.setObjectName("LlmInput")
         self.remote_input.setPlaceholderText("http://192.168.1.100:11434")
-        self.remote_input.setFixedHeight(32)
+        self.remote_input.setFixedHeight(26)
         self.remote_input.textChanged.connect(self.emit_llm_config)
         remote_layout.addWidget(url_label)
         remote_layout.addWidget(self.remote_input)
@@ -458,7 +455,7 @@ class ServiceCard(_launcher.QFrame):
         if hasattr(self, "action_row"):
             self.action_row.setVisible(not remote)
             self.check_button.setVisible(remote)
-        self.setMinimumHeight(430 if paid else 210)
+        self.adjustSize()
 
     def emit_llm_config(self) -> None:
         if not self.port_input or not self.remote_input:
@@ -625,10 +622,11 @@ class LinkButton(_launcher.QFrame):
         self.setObjectName("LinkCard")
         self.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
         layout = _launcher.QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(3)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(0)
         tag_label = _launcher.QLabel(tag)
         tag_label.setObjectName("LinkTag")
+        tag_label.setStyleSheet("font-size: 9px;")
         layout.addWidget(tag_label)
         title = _launcher.QLabel(label)
         title.setObjectName("LinkTitle")
@@ -655,7 +653,8 @@ class MainWindow(_launcher.QMainWindow):
         self._allow_exit = False
         self._last_statuses: dict[str, _launcher.ServiceStatus] = {}
         self.setWindowTitle("BlackHoleMemory Control Deck")
-        self.setMinimumSize(1120, 720)
+        self.setMinimumSize(800, 480)
+        self.resize(900, 560)
         self.setWindowIcon(_launcher.make_bhm_icon())
 
         self.stack = _launcher.QStackedWidget()

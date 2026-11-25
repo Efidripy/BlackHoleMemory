@@ -61,18 +61,18 @@ class DashboardScreen(_launcher.QWidget):
     def build_ui(self) -> None:
         self.setObjectName("DashboardScreen")
         shell = _launcher.QHBoxLayout(self)
-        shell.setContentsMargins(18, 18, 18, 18)
-        shell.setSpacing(16)
+        shell.setContentsMargins(8, 8, 8, 8)
+        shell.setSpacing(8)
         shell.addWidget(self.build_sidebar())
 
         main = _launcher.QFrame()
         main.setObjectName("MainPanel")
         layout = _launcher.QVBoxLayout(main)
-        layout.setContentsMargins(22, 20, 22, 18)
-        layout.setSpacing(16)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(8)
         layout.addLayout(self.build_header())
         body = _launcher.QHBoxLayout()
-        body.setSpacing(16)
+        body.setSpacing(8)
         body.addWidget(self.build_service_column())
         metrics = self.build_metrics_grid()
         metrics.setAlignment(_launcher.Qt.AlignmentFlag.AlignTop)
@@ -87,14 +87,14 @@ class DashboardScreen(_launcher.QWidget):
     def build_sidebar(self) -> _launcher.QFrame:
         sidebar = _launcher.QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(266)
+        sidebar.setFixedWidth(176)
         layout = _launcher.QVBoxLayout(sidebar)
-        layout.setContentsMargins(18, 18, 18, 18)
-        layout.setSpacing(12)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(5)
         brand = _launcher.QHBoxLayout()
         icon = _launcher.QLabel()
-        icon.setFixedSize(40, 40)
-        icon.setPixmap(_launcher.make_bhm_icon(COLOR_CYAN, 64).pixmap(40, 40))
+        icon.setFixedSize(28, 28)
+        icon.setPixmap(_launcher.make_bhm_icon(COLOR_CYAN, 64).pixmap(28, 28))
         text = _launcher.QVBoxLayout()
         text.setSpacing(2)
         name = _launcher.QLabel("BLACKHOLEMEMORY")
@@ -529,8 +529,8 @@ class DashboardScreen(_launcher.QWidget):
         for text, callback, style in buttons:
             button = _launcher.QPushButton(text)
             button.setObjectName(style)
-            button.setFixedHeight(32)
-            button.setMinimumWidth(76 if text != "Restart All" else 96)
+            button.setFixedHeight(26)
+            button.setMinimumWidth(60 if text != "Restart All" else 76)
             button.setCursor(_launcher.Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(callback)
             header.addWidget(button)
@@ -541,8 +541,8 @@ class DashboardScreen(_launcher.QWidget):
 
         column = _launcher.QFrame()
         grid = _launcher.QVBoxLayout(column)
-        grid.setContentsMargins(0, 0, 6, 0)
-        grid.setSpacing(14)
+        grid.setContentsMargins(0, 0, 4, 0)
+        grid.setSpacing(6)
         services = [("qdrant", "Qdrant"), ("api", "BHM API"), ("llm", "LLM"), ("sidecar", "Projection Sidecar")]
         for key, title in services:
             card = _launcher.ServiceCard(
@@ -562,13 +562,13 @@ class DashboardScreen(_launcher.QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(_launcher.QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(_launcher.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFixedWidth(370)
+        scroll.setFixedWidth(260)
         scroll.setWidget(column)
         return scroll
 
     def build_metrics_grid(self) -> _launcher.QGridLayout:
         grid = _launcher.QGridLayout()
-        grid.setSpacing(14)
+        grid.setSpacing(6)
         metrics = [
             ("memory_count", "Memory Crystals", COLOR_PINK, "Durable BHM records, including archived history."),
             ("link_count", "Knowledge Links", COLOR_CYAN, "Current navigable knowledge-graph topology. Structural project links and visible persisted relations only; links to excluded trace records are not counted."),

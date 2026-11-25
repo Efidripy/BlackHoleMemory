@@ -58,14 +58,14 @@ class PaidPanel(_launcher.QFrame):
         super().__init__()
         layout = _launcher.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(4)
+        layout.setSpacing(2)
 
         def field(label: str, value: str = "", hide: bool = False) -> _launcher.QLineEdit:
             caption = _launcher.QLabel(label)
             caption.setObjectName("FieldLabel")
             edit = _launcher.QLineEdit(value)
             edit.setObjectName("LlmInput")
-            edit.setFixedHeight(30)
+            edit.setFixedHeight(26)
             if hide:
                 edit.setEchoMode(_launcher.QLineEdit.EchoMode.Password)
             layout.addWidget(caption)
@@ -82,9 +82,9 @@ class PaidPanel(_launcher.QFrame):
 
         self.test_button = _launcher.QPushButton("Test paid model")
         self.test_button.setObjectName("GhostButton")
-        self.test_button.setFixedHeight(30)
+        self.test_button.setFixedHeight(26)
         self.test_button.clicked.connect(self.run_test)
-        self.result = _launcher.QLabel("Notes are filtered of passwords, keys and personal data before they are sent. Embeddings stay on the local server.")
+        self.result = _launcher.QLabel("Secrets and personal data are filtered before sending.")
         self.result.setObjectName("Muted")
         self.result.setWordWrap(True)
         layout.addWidget(self.test_button)
