@@ -2,9 +2,6 @@
   "llm": {
     "mode": "local",
     "port": 13666,
-    "remote_url": "",
-    "tier": "local",
-    "paid_base_url": "http://127.0.0.1:8317/v1",
-    "paid_model": "gpt-6-luna"
+    "remote_url": ""
   }
 }
